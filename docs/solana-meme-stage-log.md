@@ -117,3 +117,22 @@ The worker remains standalone and is not wired into the production runtime
 because no independently reviewed Jupiter quote adapter or dedicated public
 taker address is configured. It never modifies the risk report's missing
 executable_sellability claim. Synthetic tests do not certify real sellability.
+
+
+## Jupiter Swap API V2 quote-only adapter and opt-in runtime — 2026-11-09
+
+Official Jupiter documentation confirms that /swap/v2/order returns quote data
+without a taker and no transaction. Keyless access is supported at 0.5 RPS.
+Added a provider adapter that:
+- requests exact-in candidate-token to wrapped-SOL quotes without a taker;
+- validates mint direction, exact raw input amount, route plan, output,
+  minimum output, request provenance and price-impact fields;
+- converts V2 priceImpact percentage points into basis points;
+- enforces a 2.1-second minimum request interval and a 5-second local evidence TTL;
+- never reads or processes transaction bytes and never calls /execute.
+
+The provider is wired behind SOLANA_SELLABILITY_ENABLED=false by default. Enabling
+it requires existing GoPlus and Solana RPC evidence so the worker can use
+finalized supply. JUPITER_API_KEY is optional; keyless prototype access requires
+no new secret. The worker remains read-only and does not clear the
+executable_sellability claim.
