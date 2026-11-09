@@ -157,7 +157,8 @@ class PaperBroker:
 
     def open_position_from_consensus(
         self, decision_id, token, mark_price, amount_usd, reason, *,
-        consensus_status="CONSENSUS_APPROVED", created_at_ms,
+        consensus_status="CONSENSUS_APPROVED", paper_review_eligible=None,
+        execution_authorized=None, created_at_ms,
         fee_bps=100, slippage_bps=50, processed_at_ms=None,
         expected_market_snapshot_id=None, expected_risk_evidence_hash=None,
     ):
@@ -169,6 +170,10 @@ class PaperBroker:
             raise ValueError("token is required")
         if consensus_status != "CONSENSUS_APPROVED":
             raise ValueError("only CONSENSUS_APPROVED decisions may open paper positions")
+        if paper_review_eligible is not True:
+            raise ValueError("paper_review_eligible must be explicitly true")
+        if execution_authorized is not False:
+            raise ValueError("execution_authorized must remain false")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("reason is required")
         if isinstance(created_at_ms, bool) or not isinstance(created_at_ms, int) or created_at_ms <= 0:
