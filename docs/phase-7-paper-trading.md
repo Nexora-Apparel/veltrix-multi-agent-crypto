@@ -32,6 +32,7 @@ override a newer abstention, rejection, or changed market snapshot.
 - Default starting virtual balance: USD 500.
 - Default maximum position notional: USD 50.
 - Default maximum concurrent positions: 10.
+- Default maximum portfolio exposure: 50% of starting virtual balance.
 - Default entry/exit fee assumption: 100 basis points per side.
 - Default entry/exit slippage assumption: 50 basis points per side.
 - Default initial stop-loss: 6%.
@@ -77,6 +78,7 @@ cleanly.
 | `VELTRIX_PAPER_DECISION_BATCH_SIZE` | 25 | Maximum latest-per-mint decisions per cycle; 1–250 |
 | `VELTRIX_PAPER_FEE_BPS` | 100 | Simulated fee on each side |
 | `VELTRIX_PAPER_SLIPPAGE_BPS` | 50 | Simulated slippage on each side |
+| `VELTRIX_PAPER_MAX_PORTFOLIO_EXPOSURE_PCT` | 0.5 | Maximum open cost basis as a fraction of starting balance |
 | `VELTRIX_PAPER_MAX_DECISION_AGE_MS` | 120000 | Maximum approval age |
 | `VELTRIX_PAPER_MAX_MARKET_AGE_MS` | 120000 | Maximum market-snapshot age |
 | `VELTRIX_PAPER_MAX_RISK_AGE_MS` | 300000 | Maximum security-evidence age |
