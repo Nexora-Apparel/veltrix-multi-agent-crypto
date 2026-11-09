@@ -565,7 +565,8 @@ class EvmRpcLaunchIndexer:
             except (KeyError, TypeError, ValueError, IndexError):
                 rejected.append("malformed ERC-20 Transfer log")
                 continue
-            if buyer.lower() == ZERO_ADDRESS or sender.lower() == ZERO_ADDRESS:
+            if (buyer.lower() == ZERO_ADDRESS or sender.lower() == ZERO_ADDRESS
+                    or sender.lower() == buyer.lower()):
                 continue
             block = self._block(block_number)
             observed_ms = int(block["timestamp"], 16) * 1000
@@ -632,7 +633,8 @@ class EvmRpcLaunchIndexer:
             native_value = int(tx.get("value", "0x0"), 16)
         except (TypeError, ValueError):
             native_value = 0
-        if native_value > 0:
+        tx_to = str(tx.get("to") or "").lower()
+        if native_value > 0 and tx_to and tx_to != ZERO_ADDRESS and tx_to != buyer:
             return True
         logs = receipt.get("logs")
         if not isinstance(logs, list):
@@ -645,10 +647,11 @@ class EvmRpcLaunchIndexer:
                 if len(topics) < 3 or topics[0].lower() != TRANSFER_TOPIC:
                     continue
                 sender = "0x" + topics[1][-40:]
+                recipient = "0x" + topics[2][-40:]
                 raw_amount = int(log.get("data", "0x0"), 16)
             except (TypeError, ValueError, IndexError):
                 continue
-            if sender.lower() == buyer and raw_amount > 0:
+            if sender.lower() == buyer and recipient.lower() != buyer and raw_amount > 0:
                 return True
         return False
 
