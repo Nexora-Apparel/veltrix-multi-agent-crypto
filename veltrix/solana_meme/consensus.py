@@ -434,7 +434,7 @@ class ConsensusEngine:
         elif support_count >= 2:
             status = "CONSENSUS_APPROVED"
             reasons = (
-                "At least two independent analysis agents support the candidate",
+                "At least two specialist analysis agents support the candidate",
                 "Security evidence gate passed; this is not a trade authorization",
             )
         else:
