@@ -20,10 +20,12 @@ from .risk_store import SolanaRiskEvidenceStore
 from .risk_worker import SolanaRiskEvidenceWorker
 from .developer_store import DeveloperConcentrationStore
 from .developer_worker import SolanaDeveloperEvidenceWorker
+from .bundle_store import LaunchBundleEvidenceStore
 from ..config import settings as load_settings
 from ..providers.factory import (
     build_solana_risk_evidence_collector,
     build_solana_developer_evidence_worker,
+    build_solana_launch_bundle_worker,
 )
 
 
@@ -61,8 +63,12 @@ def run_service(
     developer_worker = build_solana_developer_evidence_worker(
         configured, launches, developer_store,
     )
+    bundle_store = LaunchBundleEvidenceStore(database)
+    bundle_worker = build_solana_launch_bundle_worker(
+        configured, launches, bundle_store,
+    )
     pipeline = SolanaMemePipeline(
-        enrichment, refresh, risk_worker, developer_worker,
+        enrichment, refresh, risk_worker, developer_worker, bundle_worker,
     )
 
     stop_event = threading.Event()
@@ -79,6 +85,8 @@ def run_service(
         print("Risk evidence collection is disabled: configure existing GOPLUS_ACCESS_TOKEN and SOLANA_RPC_URL.")
     if developer_worker is None:
         print("Developer ancestry collection is disabled until signed-root endpoint/key and all three provider trust lists are configured.")
+    if bundle_worker is None:
+        print("Launch-bundle analysis is disabled until Helius/Solana RPC and launch, bundle, and funding provider trust lists are configured.")
     try:
         while not stop_event.is_set():
             if deadline is not None and time.monotonic() >= deadline:
@@ -101,6 +109,10 @@ def run_service(
                     + (
                         f", developer reports stored={result.developer.stored}, incomplete={result.developer.incomplete}, failures={result.developer.failed}"
                         if result.developer is not None else ", developer ancestry disabled"
+                    )
+                    + (
+                        f", bundle reports stored={result.bundle.stored}, complete={result.bundle.complete}, incomplete={result.bundle.incomplete}, failures={result.bundle.failed}"
+                        if result.bundle is not None else ", bundle analysis disabled"
                     )
                 )
             except Exception as exc:
