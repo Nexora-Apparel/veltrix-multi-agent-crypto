@@ -489,7 +489,9 @@ class EvmV2LiquiditySnapshotReader:
         return positions
 
     def _read_locker_positions(self, locker, pools, block_hex, final_block):
-        self._code(self.locker_rpc, locker.address, block_hex, locker.expected_code_hash)
+        observed_locker_hash = self._code(
+            self.locker_rpc, locker.address, block_hex, locker.expected_code_hash
+        )
         factory_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("uniswapFactory()").hex(), block_hex
         )
@@ -513,7 +515,7 @@ class EvmV2LiquiditySnapshotReader:
             chain=self.chain, provider=self.locker_rpc.provider_id,
             address=locker.address, abi_profile=locker.abi_profile,
             expected_code_hash=locker.expected_code_hash,
-            observed_code_hash=locker.expected_code_hash,
+            observed_code_hash=observed_locker_hash,
             source_ref="https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
             independence_group=self.locker_group,
             chain_id=self.CHAIN_IDS[self.chain],
