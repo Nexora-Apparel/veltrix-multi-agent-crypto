@@ -13,7 +13,7 @@ from .intelligence import TokenSafetyObservation
 from .base import ProviderError
 
 
-GOPLUS_CHAIN_IDS = {"bsc": "56", "solana": "solana"}
+GOPLUS_CHAIN_IDS = {"base": "8453", "bsc": "56", "solana": "solana"}
 
 
 class GoPlusTokenSafetyProvider:
