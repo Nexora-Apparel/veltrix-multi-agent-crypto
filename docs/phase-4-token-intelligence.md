@@ -40,6 +40,12 @@ The selected pool is the single eligible pool with the highest reported USD
 liquidity. Liquidity and volume are not summed across pools, because fragmented
 or correlated pools must not be mistaken for one executable market.
 
+The provider records whether the requested mint is the pair's base or quote
+token. For quote-side observations, USD price is derived from the base token's
+USD price divided by `priceNative`. Base-token FDV, market cap and price-change
+fields are not copied onto a quote token. Volume and transaction counts remain
+pair-level observations and must not be represented as token-specific flow.
+
 ## Data quality and limitations
 
 - Only exact Solana chain and mint matches are eligible.
