@@ -73,7 +73,13 @@ class DeveloperEvidenceOrchestrator:
             )
             if not isinstance(root_attestation, DeveloperRootAttestation):
                 raise ValueError("typed independently attested developer roots are required")
-            if root_attestation.chain != chain or root_attestation.token_address != token_address:
+            root_chain = str(root_attestation.chain).lower()
+            token_matches = (
+                root_attestation.token_address.lower() == token_address.lower()
+                if chain in {"base", "bsc"}
+                else root_attestation.token_address == token_address
+            )
+            if root_chain != chain or not token_matches:
                 raise ValueError("developer-root attestation chain or token mismatch")
             if root_attestation.provider not in self.trusted_roots:
                 raise ValueError("developer-root attestation provider is not trusted")
@@ -81,6 +87,7 @@ class DeveloperEvidenceOrchestrator:
                 raise ValueError("developer-root attestation is incomplete")
             if (not root_attestation.evidence_id or not root_attestation.source_ref
                     or not isinstance(root_attestation.observed_at_ms, int)
+                    or isinstance(root_attestation.observed_at_ms, bool)
                     or root_attestation.observed_at_ms > now_ms):
                 raise ValueError("developer-root attestation provenance or timestamp is invalid")
             report = self.analyzer.analyze(
