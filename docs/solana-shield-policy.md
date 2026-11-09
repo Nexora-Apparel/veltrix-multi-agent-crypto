@@ -24,9 +24,15 @@ agent.
 - A complete holder inventory whose balances reconcile exactly to total supply.
 - Fresh evidence and a fresh, positively verified composite safety certificate.
 - At least two distinct BUY agents, all targeting the same mint.
+- A fresh sell-side route quote for the exact intended raw-token exit size.
 - Position count below 10 and paper notional in (0, $50].
 
 There is no confidence-score averaging, fallback prior, or agent override.
+
+The `executable_sellability` item is an execution-only unknown, not a token-risk
+claim. It remains unresolved even when a paper route is observed. The route state
+must remain `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN`; it does not satisfy the live
+gate. Every other unknown mandatory token-risk claim remains a paper-entry veto.
 
 ## Execution boundary
 
