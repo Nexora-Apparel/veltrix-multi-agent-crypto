@@ -7,10 +7,15 @@ on:
         description: "JSON array with the four verified candidate deployment records"
         required: true
         type: string
-      log_chunk_span:
-        description: "eth_getLogs chunk size (1-10000); start at 10000"
+      solidrpc_log_chunk_span:
+        description: "SolidRPC filtered eth_getLogs chunk size (1-30000)"
         required: true
-        default: "10000"
+        default: "30000"
+        type: string
+      publicnode_log_chunk_span:
+        description: "PublicNode filtered eth_getLogs chunk size (1-50000)"
+        required: true
+        default: "50000"
         type: string
 
 permissions:
@@ -25,10 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      BASE_LIQUIDITY_POOL_RPC_URL: \${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
-      SOLIDRPC_BASE_ARCHIVE_RPC_URL: \${{ secrets.SOLIDRPC_BASE_ARCHIVE_RPC_URL }}
-      BASE_V2_CANDIDATE_MANIFEST: \${{ inputs.candidate_manifest }}
-      BASE_V2_HISTORY_LOG_CHUNK_SPAN: \${{ inputs.log_chunk_span }}
+      BASE_LIQUIDITY_POOL_RPC_URL: ${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
+      SOLIDRPC_BASE_ARCHIVE_RPC_URL: ${{ secrets.SOLIDRPC_BASE_ARCHIVE_RPC_URL }}
+      BASE_V2_CANDIDATE_MANIFEST: ${{ inputs.candidate_manifest }}
+      BASE_V2_SOLIDRPC_LOG_CHUNK_SPAN: ${{ inputs.solidrpc_log_chunk_span }}
+      BASE_V2_PUBLICNODE_LOG_CHUNK_SPAN: ${{ inputs.publicnode_log_chunk_span }}
+      BASE_PUBLIC_LOGS_RPC_URL: https://base-rpc.publicnode.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,9 +56,12 @@ jobs:
           fi
           python - <<'PY'
           import os
-          span = int(os.environ["BASE_V2_HISTORY_LOG_CHUNK_SPAN"])
-          if not 1 <= span <= 10000:
-              raise SystemExit("log_chunk_span must be between 1 and 10000")
+          solid = int(os.environ["BASE_V2_SOLIDRPC_LOG_CHUNK_SPAN"])
+          public = int(os.environ["BASE_V2_PUBLICNODE_LOG_CHUNK_SPAN"])
+          if not 1 <= solid <= 30000:
+              raise SystemExit("SolidRPC log chunk span must be 1-30000")
+          if not 1 <= public <= 50000:
+              raise SystemExit("PublicNode log chunk span must be 1-50000")
           PY
       - name: Run history and inventory unit tests
         run: pytest -q tests/test_base_v2_history_inventory.py
