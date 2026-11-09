@@ -79,6 +79,9 @@ class CrossChainIntelligenceCoordinator:
         rejected = []
         failures = []
         for provider in self.providers:
+            supported_chains = getattr(provider, "supported_chains", None)
+            if supported_chains is not None and normalized_chain not in supported_chains:
+                continue
             provider_id = getattr(provider, "provider_id", None)
             if not isinstance(provider_id, str) or provider_id not in self.adapters.trusted_wallet_providers:
                 rejected.append("whale: provider identity is not trusted")
