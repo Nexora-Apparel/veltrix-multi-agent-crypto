@@ -58,3 +58,34 @@ def test_monitor_does_not_emit_volume_signal_without_history(tmp_path):
     monitor = MarketMonitor({"base": ["token-address"]}, str(tmp_path / "empty.db"), FakeProvider())
     monitor.poll_once()
     assert monitor.signal_contexts == []
+
+
+def test_monitor_collects_verified_wallet_clusters_without_opening_positions(tmp_path):
+    import time
+    from veltrix.providers.coordinator import CrossChainIntelligenceCoordinator
+    from veltrix.providers.intelligence import SmartWalletObservation, VerifiedIntelligenceAdapters
+
+    class WalletProvider:
+        provider_id = "alchemy"
+        supported_chains = frozenset({"base", "bsc"})
+        def fetch_wallet_observations(self, chain, token_addresses, since_ms):
+            now = int(time.time() * 1000)
+            return tuple(SmartWalletObservation(
+                provider="alchemy", chain=chain, token_address="token-address",
+                wallet_address=wallet, side="BUY", notional_usd=25,
+                transaction_id=tx, observed_at_ms=now,
+            ) for wallet, tx in [("0xwallet-a", "tx-a"), ("0xwallet-b", "tx-b")])
+
+    adapters = VerifiedIntelligenceAdapters(trusted_wallet_providers=["alchemy"])
+    coordinator = CrossChainIntelligenceCoordinator(
+        [WalletProvider()], adapters, trusted_wallets=["0xwallet-a", "0xwallet-b"]
+    )
+    monitor = MarketMonitor(
+        {"base": ["token-address"]}, str(tmp_path / "wallet-monitor.db"),
+        FakeProvider(), broker=None, wallet_intelligence=coordinator,
+    )
+    monitor.poll_once()
+    result = monitor.last_wallet_intelligence["base"]
+    assert len(result.batch.accepted) == 2
+    assert len(result.clusters) == 1
+    assert monitor.ledger.snapshot()["open_positions"] == []
