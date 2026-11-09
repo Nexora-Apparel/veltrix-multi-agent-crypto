@@ -146,7 +146,7 @@ def test_normalized_logs_sorts_and_normalizes_log_fields():
     assert rows[0]["data"] == "0x1234"
 
 
-def test_normalized_logs_reports_partial_backward_scan_coverage():
+def test_normalized_logs_scans_entire_requested_interval_in_chunks():
     factory = "0x0000000000000000000000000000000000000001"
     event = {
         "blockHash": "0xAA", "blockNumber": "0x1a",
@@ -158,16 +158,22 @@ def test_normalized_logs_reports_partial_backward_scan_coverage():
             "address": factory, "fromBlock": "0x15",
             "toBlock": "0x1e", "topics": [PAIR_CREATED_TOPIC],
         }], sort_keys=True)): [event],
+        ("eth_getLogs", json.dumps([{
+            "address": factory, "fromBlock": "0xb",
+            "toBlock": "0x14", "topics": [PAIR_CREATED_TOPIC],
+        }], sort_keys=True)): [],
     })
     coverage = {}
     rows = normalized_logs(
-        rpc, factory, 11, 30, stop_after=1, coverage=coverage
+        rpc, factory, 11, 30, coverage=coverage
     )
     assert len(rows) == 1
     assert coverage == {
-        "queried_from_block": 21,
+        "queried_from_block": 11,
         "queried_to_block": 30,
+        "queried_block_count": 20,
     }
+    assert len(rpc.calls) == 2
 
 
 def test_normalized_logs_rejects_malformed_rows():
@@ -206,7 +212,7 @@ def test_normalized_logs_chunks_ranges_to_ten_blocks_and_stops_at_target():
             "toBlock": "0x14", "topics": [PAIR_CREATED_TOPIC],
         }], sort_keys=True)): [second_log],
     })
-    rows = normalized_logs(rpc, factory, 11, 30, stop_after=2)
+    rows = normalized_logs(rpc, factory, 11, 30)
     assert len(rows) == 2
     assert [call[1][0]["fromBlock"] for call in rpc.calls] == ["0x15", "0xb"]
     assert all(
