@@ -74,7 +74,7 @@ def run_service(
     )
     sellability_store = SolanaSellabilityEvidenceStore(database)
     sellability_worker = build_solana_sellability_worker(
-        configured, launches, risk_store, sellability_store,
+        configured, launches, risk_store, sellability_store, market_store=markets,
     )
     sell_simulation_store = SolanaSellSimulationStore(database)
     simulation_preflight_store = SolanaSimulationPreflightStore(database)
