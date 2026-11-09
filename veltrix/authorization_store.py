@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import math
 import sqlite3
 import time
 
@@ -34,8 +35,8 @@ class SQLiteAuthorizationConsumer:
             self.timeout_seconds, (int, float)
         ):
             raise ValueError("timeout_seconds must be a positive number")
-        if self.timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be a positive number")
+        if not math.isfinite(float(self.timeout_seconds)) or self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be a finite positive number")
 
     def _connect(self) -> sqlite3.Connection:
         path = Path(self.database_path)
@@ -45,18 +46,23 @@ class SQLiteAuthorizationConsumer:
             timeout=float(self.timeout_seconds),
             isolation_level=None,
         )
-        connection.execute("PRAGMA busy_timeout = 5000")
-        connection.execute("PRAGMA synchronous = FULL")
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS consumed_authorizations (
-                authorization_id TEXT PRIMARY KEY,
-                expires_at INTEGER NOT NULL,
-                consumed_at INTEGER NOT NULL
+        try:
+            busy_timeout_ms = max(1, int(float(self.timeout_seconds) * 1000))
+            connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+            connection.execute("PRAGMA synchronous = FULL")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS consumed_authorizations (
+                    authorization_id TEXT PRIMARY KEY,
+                    expires_at INTEGER NOT NULL,
+                    consumed_at INTEGER NOT NULL
+                )
+                """
             )
-            """
-        )
-        return connection
+            return connection
+        except Exception:
+            connection.close()
+            raise
 
     def consume(self, authorization_id: str, expires_at: int) -> bool:
         """Atomically persist an authorization ID; return false on replay."""
