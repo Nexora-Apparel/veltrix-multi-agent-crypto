@@ -161,3 +161,12 @@ executable_sellability claim.
 - Added worker persistence/retry tests, factory opt-in tests, pipeline ordering/database isolation tests, and signer/signature validation tests.
 - GitHub Actions run [42681836081](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42681836081) passed on code commit `d13194db9f683e17c0eee5a2eaed93c7622ade42`: 424 passed, 5 skipped. The runtime remains disabled unless the operator explicitly configures a dedicated test wallet and exact token amounts.
 - No signer, sendTransaction, Jupiter /execute, paper-entry approval or production-main change.
+
+
+## 2026-11-09 — Conservative sell-simulation failure diagnostics
+
+- Added a deterministic diagnostic classifier for successful simulations, RPC/blockhash context failures, test-wallet balance/fee issues, missing token-account setup, transfer-restriction signals, unclassified program errors and unknown failures.
+- Transfer-hook/non-transferable matches are only review signals. Missing accounts and insufficient funds are explicitly classified as wallet/setup issues.
+- Every diagnostic has `honeypot_verdict=false`; the classifier cannot certify token safety or sellability.
+- Added tests for all primary diagnostic categories and exported the diagnostic API.
+- Prior code commit `d13194db9f683e17c0eee5a2eaed93c7622ade42` passed CI with 424 passed, 5 skipped. The new diagnostics are awaiting CI on the latest head.
