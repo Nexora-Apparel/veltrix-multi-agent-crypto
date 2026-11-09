@@ -109,3 +109,21 @@ def test_invalid_amount_is_rejected():
         open_positions=0, amount=float("nan"), now_ms=10_000,
     )
     assert result.decision == "BLOCK"
+
+def test_liquidity_lock_must_be_positively_verified():
+    for value in (False, None):
+        result = SolanaShieldPolicy().evaluate(
+            MINT, replace(evidence(), liquidity_locked=value), safety(), signals(),
+            open_positions=0, amount=10, now_ms=10_000,
+        )
+        assert result.decision == "BLOCK"
+
+
+def test_missing_evidence_provenance_vetoes_even_complete_claims():
+    incomplete = replace(evidence(), holder_evidence_id="")
+    result = SolanaShieldPolicy().evaluate(
+        MINT, incomplete, safety(), signals(),
+        open_positions=0, amount=10, now_ms=10_000,
+    )
+    assert result.decision == "BLOCK"
+    assert "risk evidence provenance is incomplete" in result.reasons
