@@ -332,7 +332,7 @@ def build_solana_launch_bundle_worker(settings, launch_store, evidence_store, *,
     )
 
 
-def build_solana_sellability_worker(settings, launch_store, risk_store, evidence_store, *, session=None):
+def build_solana_sellability_worker(settings, launch_store, risk_store, evidence_store, *, market_store=None, session=None):
     """Build optional Jupiter quote-only sellability evidence collection.
 
     Uses Swap API V2 /order without a taker. Keyless access is supported at
@@ -355,12 +355,14 @@ def build_solana_sellability_worker(settings, launch_store, risk_store, evidence
     )
     evaluator = SolanaSellabilityEvaluator(
         provider, max_age_ms=15_000,
-        min_supply_fraction=0.005, max_supply_fraction=0.05,
+        min_supply_fraction=0.000001, max_supply_fraction=0.05,
         max_price_impact_bps=300.0,
     )
     return SolanaSellabilityWorker(
         launch_store, risk_store, evaluator, evidence_store,
         refresh_interval_ms=30_000, quote_supply_fraction=0.01,
+        market_store=market_store,
+        paper_notional_usd=50.0 if market_store is not None else None,
     )
 
 
