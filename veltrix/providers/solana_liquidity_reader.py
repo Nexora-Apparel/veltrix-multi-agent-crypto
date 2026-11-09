@@ -29,6 +29,7 @@ TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 BPF_UPGRADEABLE_LOADER = "BPFLoaderUpgradeab1e11111111111111111111111"
 RAYDIUM_V4_STATE_SIZE = 752
 RAYDIUM_CPMM_STATE_SIZE = 637
+RAYDIUM_CPMM_POOL_DISCRIMINATOR = hashlib.sha256(b"account:PoolState").digest()[:8]
 UNCX_TOKEN_LOCK_SIZE = 146
 TOKEN_LOCK_DISCRIMINATOR = hashlib.sha256(b"account:TokenLock").digest()[:8]
 TOKEN_LOCK_LP_MINT_OFFSET = 41
@@ -286,8 +287,9 @@ class SolanaRaydiumV4CpmmSnapshotReader:
                 if account.get("owner") != RAYDIUM_CPMM_PROGRAM:
                     raise ProviderError("Raydium CPMM pool account owner mismatch")
                 data = _decode_account_data(account, "Raydium CPMM pool")
-                if len(data) != RAYDIUM_CPMM_STATE_SIZE:
-                    raise ProviderError("Raydium CPMM PoolState has an unexpected size")
+                if (len(data) != RAYDIUM_CPMM_STATE_SIZE
+                        or data[:8] != RAYDIUM_CPMM_POOL_DISCRIMINATOR):
+                    raise ProviderError("Raydium CPMM PoolState discriminator or size mismatch")
                 lp_mint = str(Pubkey.from_bytes(data[136:168]))
                 token0 = str(Pubkey.from_bytes(data[168:200]))
                 token1 = str(Pubkey.from_bytes(data[200:232]))
