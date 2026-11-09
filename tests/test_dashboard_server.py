@@ -1,0 +1,131 @@
+import json
+import sqlite3
+import threading
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+import pytest
+
+from veltrix.ledger import PaperBroker
+from veltrix.dashboard_server import DashboardRepository, build_server
+from veltrix.solana_meme.consensus_store import ConsensusStore
+from veltrix.solana_meme.market_store import MarketSnapshotStore
+from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
+
+
+def make_database(tmp_path):
+    path = tmp_path / "dashboard-server.sqlite3"
+    PaperBroker(str(path), starting_balance=500)
+    MarketSnapshotStore(path)
+    ConsensusStore(path)
+    SolanaRiskEvidenceStore(path)
+    return path
+
+
+def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
+    database = make_database(tmp_path)
+    token = "v" * 40
+    server = build_server(
+        database_path=database,
+        host="127.0.0.1",
+        port=0,
+        api_token=token,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with pytest.raises(HTTPError) as denied:
+            urlopen(base + "/api/overview")
+        assert denied.value.code == 401
+
+        request = Request(
+            base + "/api/health",
+            headers={"Authorization": "Bearer " + token},
+        )
+        health = json.loads(urlopen(request).read())
+        assert health["database"] == "connected"
+        assert health["database_read_only"] is True
+        assert health["live_execution"] is False
+
+        request = Request(
+            base + "/api/overview",
+            headers={"Authorization": "Bearer " + token},
+        )
+        overview = json.loads(urlopen(request).read())
+        assert overview["read_only"] is True
+        assert overview["live_execution"] is False
+
+        request = Request(
+            base + "/",
+            headers={"Authorization": "Bearer " + token},
+        )
+        page = urlopen(request).read().decode("utf-8")
+        assert "VELTRIX" in page
+        assert "SIMULATION ONLY" in page
+
+        request = Request(
+            base + "/assets/dashboard.js",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert urlopen(request).status == 200
+
+        write = Request(
+            base + "/api/overview",
+            data=b"{}",
+            method="POST",
+            headers={"Authorization": "Bearer " + token},
+        )
+        with pytest.raises(HTTPError) as rejected:
+            urlopen(write)
+        assert rejected.value.code == 405
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+
+def test_dashboard_repository_opens_database_read_only(tmp_path):
+    database = make_database(tmp_path)
+    repository = DashboardRepository(database)
+
+    with repository._connect() as connection:
+        with pytest.raises(sqlite3.OperationalError):
+            connection.execute("CREATE TABLE must_not_exist(id INTEGER)")
+
+
+def test_dashboard_remote_binding_requires_at_least_32_token_characters(tmp_path):
+    database = make_database(tmp_path)
+    with pytest.raises(ValueError, match="at least 32 characters"):
+        build_server(
+            database_path=database,
+            host="0.0.0.0",
+            port=0,
+            api_token="short",
+        )
+    with pytest.raises(ValueError, match="at least 32 characters"):
+        build_server(
+            database_path=database,
+            host="0.0.0.0",
+            port=0,
+            api_token="",
+        )
+
+    server = build_server(
+        database_path=database,
+        host="0.0.0.0",
+        port=0,
+        api_token="x" * 32,
+    )
+    server.server_close()
+
+
+def test_dashboard_api_token_environment_variable_is_used(tmp_path, monkeypatch):
+    database = make_database(tmp_path)
+    monkeypatch.setenv("VELTRIX_DASHBOARD_API_TOKEN", "e" * 32)
+    server = build_server(
+        database_path=database,
+        host="0.0.0.0",
+        port=0,
+    )
+    server.server_close()
