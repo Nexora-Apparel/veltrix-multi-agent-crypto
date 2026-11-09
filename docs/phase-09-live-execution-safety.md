@@ -153,8 +153,11 @@ Contract-only interface added in `veltrix/signer_boundary.py`, with tests in
   hash and message digest. Its contract explicitly forbids broadcasting.
 - No concrete signer, key loading, key storage, signing algorithm, wallet
   provider, transaction submission, or broadcast implementation is included.
-- Tests validate immutability and malformed envelope rejection without invoking
-  a signer or contacting a network.
+- `validate_signed_response` rejects any response whose intent, signer public key,
+  chain, network, policy hash, or exact-message digest differs from the approved
+  request. Regression tests cover each binding mismatch and wrong envelope types.
+- Tests validate immutability, malformed envelopes, and response binding without
+  invoking a signer or contacting a network.
 
 This is an interface milestone only. It does not establish signer isolation,
 transaction validity, cryptographic correctness, or production readiness.
