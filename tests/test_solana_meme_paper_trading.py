@@ -131,7 +131,7 @@ def build_pipeline(tmp_path, *, approved=True, broker_balance=500):
         )
     consensus.record(decision)
     broker = PaperBroker(
-        str(tmp_path / "paper.sqlite3"),
+        str(tmp_path / "shared.sqlite3"),
         starting_balance=broker_balance,
         max_positions=10,
         max_position_usd=50,
