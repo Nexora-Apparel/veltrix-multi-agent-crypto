@@ -80,6 +80,7 @@ ownership or developer control. It is not certified safety evidence. Incomplete
 scan pagination, missing buyer funding, stale supply, or invalid transaction
 provenance withholds the bundle percentage. This adapter covers Pump.fun only.
 
-The first CI attempt exposed a missing provider ID in the new test fixture;
-the fixture was corrected. The latest run must be checked against the newest
-branch head before this stage is marked CI-verified.
+The first CI attempts exposed missing provider IDs in test fixtures; both
+fixtures were corrected. Latest full CI passed at commit
+`5b3125924fe5c504afe5aeb0e78fa03fef2d897b`: **395 passed, 5 skipped**.
+Provider-backed production validation has not been performed.
