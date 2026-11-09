@@ -185,6 +185,16 @@ class SolanaPaperDecisionRunner:
             bundle = self.bundle_store.latest(mint)
             route = self.sellability_store.latest(mint)
             safety = self.safety_store.latest(mint)
+            context = None
+            context_error = None
+            if self.agent_context_provider is not None and market and risk and developer and bundle:
+                try:
+                    context = self.agent_context_provider(mint, {
+                        "market": market, "risk": risk, "developer": developer,
+                        "bundle": bundle,
+                    })
+                except Exception as exc:
+                    context_error = f"{type(exc).__name__}: {str(exc)[:200]}"
             evidence_ids = {
                 "candidate_first_seen_at_ms": candidate.get("first_seen_at_ms"),
                 "market_id": market.get("id") if market else None,
@@ -193,6 +203,8 @@ class SolanaPaperDecisionRunner:
                 "bundle_id": bundle.get("evidence_id") if bundle else None,
                 "sellability_id": route.get("evidence_id") if route else None,
                 "safety_id": safety.get("evidence_id") if safety else None,
+                "agent_context_id": context.evidence_id if isinstance(context, SolanaAgentContext) else None,
+                "agent_context_error": context_error,
             }
             key = self._claim(mint, evidence_ids, now)
             if key is None:
@@ -280,11 +292,9 @@ class SolanaPaperDecisionRunner:
 
                 if self.agent_context_provider is None:
                     reasons.append("independent agent-context provider is not configured")
+                elif context_error is not None:
+                    reasons.append(f"agent-context provider failed: {context_error}")
                 elif market and risk_report and developer and bundle:
-                    context = self.agent_context_provider(mint, {
-                        "market": market, "risk": risk, "developer": developer,
-                        "bundle": bundle,
-                    })
                     if not isinstance(context, SolanaAgentContext):
                         reasons.append("agent context is missing or untyped")
                     else:
