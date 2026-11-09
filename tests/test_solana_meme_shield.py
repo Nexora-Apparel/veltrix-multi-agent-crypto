@@ -64,13 +64,14 @@ def evaluate(**kwargs):
         mint=MINT, evidence=evidence(), safety=safety(), signals=signals(),
         open_positions=0, amount=10, now_ms=10_000,
         sellability=route(), sell_amount_raw=10_000_000,
+        token_price_usd=1.0,
     )
     defaults.update(kwargs)
     return SolanaShieldPolicy().evaluate(**defaults)
 
 
 def test_two_agent_consensus_can_approve_paper_only():
-    result = evaluate(amount=50)
+    result = evaluate(amount=10)
     assert result.decision == "APPROVE_PAPER_ENTRY"
     assert result.approved_for_paper is True
     assert result.approving_agents == ("scout", "whale")
@@ -199,3 +200,9 @@ def test_invalid_evaluation_timestamp_and_supply_are_rejected():
     assert evaluate(now_ms="invalid").decision == "BLOCK"
     invalid_supply = replace(evidence(), total_supply_raw=True, observed_holder_balance_raw=True)
     assert evaluate(evidence=invalid_supply).decision == "BLOCK"
+
+
+def test_sell_quote_amount_must_match_position_notional_and_token_price():
+    result = evaluate(token_price_usd=2.0)
+    assert result.decision == "BLOCK"
+    assert "sell-route amount does not match the configured paper position notional" in result.reasons
