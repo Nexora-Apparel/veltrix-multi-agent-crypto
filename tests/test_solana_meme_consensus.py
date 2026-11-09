@@ -237,3 +237,47 @@ def test_risk_evidence_from_store_payload_preserves_flags_and_claims():
 def test_consensus_engine_rejects_invalid_configuration(kwargs):
     with pytest.raises(ValueError):
         ConsensusEngine(**kwargs)
+
+def test_market_quality_flags_block_consensus_approval():
+    decision = full_engine().evaluate(
+        market(quality_flags=("market_cap_missing",)),
+        risk(),
+        history=history(),
+        wallet_events=wallet_events(),
+        now_ms=NOW,
+    )
+    assert decision.status == "WATCH"
+    assert decision.paper_review_eligible is False
+    assert decision.execution_authorized is False
+
+
+def test_risk_state_must_be_review_ready_even_when_claim_list_is_empty():
+    decision = full_engine().evaluate(
+        market(),
+        risk(risk_state="REQUIRES_MORE_EVIDENCE"),
+        history=history(),
+        wallet_events=wallet_events(),
+        now_ms=NOW,
+    )
+    assert decision.status == "WATCH"
+    assert next(vote for vote in decision.votes if vote.agent == "shield").stance == "ABSTAIN"
+
+
+def test_consensus_rejects_non_solana_market_evidence():
+    with pytest.raises(ValueError, match="canonical Solana"):
+        full_engine().evaluate(
+            market(chain="base"), risk(), history=history(), now_ms=NOW
+        )
+
+
+def test_risk_payload_rejects_unknown_state():
+    payload = {
+        "mint": MINT,
+        "observed_at_ms": NOW,
+        "risk_state": "SAFE",
+        "missing_claims": [],
+        "errors": [],
+        "risk_flags": [],
+    }
+    with pytest.raises(ValueError):
+        RiskEvidence.from_store_payload(payload)
