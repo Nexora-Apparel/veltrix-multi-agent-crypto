@@ -120,6 +120,30 @@ def test_normalized_logs_sorts_and_normalizes_log_fields():
     assert rows[0]["data"] == "0x1234"
 
 
+def test_normalized_logs_reports_partial_backward_scan_coverage():
+    factory = "0x0000000000000000000000000000000000000001"
+    event = {
+        "blockHash": "0xAA", "blockNumber": "0x1a",
+        "transactionHash": "0xBB", "logIndex": "0x0",
+        "topics": [PAIR_CREATED_TOPIC], "data": "0x",
+    }
+    rpc = FakeRpc({
+        ("eth_getLogs", json.dumps([{
+            "address": factory, "fromBlock": "0x15",
+            "toBlock": "0x1e", "topics": [PAIR_CREATED_TOPIC],
+        }], sort_keys=True)): [event],
+    })
+    coverage = {}
+    rows = normalized_logs(
+        rpc, factory, 11, 30, stop_after=1, coverage=coverage
+    )
+    assert len(rows) == 1
+    assert coverage == {
+        "queried_from_block": 21,
+        "queried_to_block": 30,
+    }
+
+
 def test_normalized_logs_rejects_malformed_rows():
     rpc = FakeRpc({
         ("eth_getLogs", json.dumps([{
