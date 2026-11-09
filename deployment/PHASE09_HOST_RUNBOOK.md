@@ -12,6 +12,29 @@ intended VELTRIX host, has a current recoverable database backup, and has an
 approved provider-egress policy. Never paste secrets, private keys, seed
 phrases, dashboard tokens, or raw environment files into a chat or issue.
 
+## 0. Read-only host preflight
+
+Before provisioning users, changing permissions, installing units, or starting
+services, run the compatibility inventory from the checked-out release:
+
+```sh
+bash deployment/phase09_host_preflight.sh
+```
+
+The script reports the Linux/systemd environment, expected application,
+virtual-environment and database paths, service account/group presence, and
+Python availability. It does not read environment-file contents or mutate
+the host. A non-Linux host or missing systemd is a hard stop. Missing paths,
+users or groups are expected on a fresh host but must be reconciled before
+continuing. This preflight is not an isolation proof and does not replace the
+root-only verifier in step 6.
+
+For non-default installation paths, set `VELTRIX_APP_DIR`,
+`VELTRIX_VENV_DIR`, and `VELTRIX_DB_PATH` for the preflight. The deployed
+systemd templates and verifier must be reviewed and adjusted through a
+separately tested deployment change before using non-default paths; do not
+assume these variables reconfigure the services.
+
 ## Preconditions
 
 - Linux host using systemd, with root/sudo access.
