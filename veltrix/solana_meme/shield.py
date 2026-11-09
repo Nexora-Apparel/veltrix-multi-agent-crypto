@@ -12,6 +12,7 @@ from typing import Iterable
 from ..safety import SafetyReport
 from .candidates import canonical_mint
 from .risk_evidence import SolanaRiskEvidenceReport
+from .sellability import SolanaSellabilityEvidence
 from ..providers.solana_mint import TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID
 
 
@@ -66,6 +67,8 @@ class SolanaShieldPolicy:
         open_positions: int,
         amount: float,
         now_ms: int,
+        sellability: SolanaSellabilityEvidence | None = None,
+        sell_amount_raw: int | None = None,
     ) -> ShieldDecision:
         canonical = canonical_mint(mint)
         reasons: list[str] = []
@@ -101,8 +104,12 @@ class SolanaShieldPolicy:
                 reasons.append("liquidity lock is not positively verified")
             if evidence.errors:
                 reasons.append("risk evidence contains provider or validation errors")
-            if evidence.missing_claims:
-                reasons.append("mandatory risk claims remain unknown")
+            paper_risk_unknowns = tuple(
+                claim for claim in evidence.missing_claims
+                if claim != "executable_sellability"
+            )
+            if paper_risk_unknowns:
+                reasons.append("mandatory token-risk claims remain unknown")
             if (isinstance(evidence.observed_at_ms, bool)
                     or not isinstance(evidence.observed_at_ms, int)):
                 reasons.append("risk evidence report timestamp is invalid")
@@ -148,6 +155,48 @@ class SolanaShieldPolicy:
                 age = evaluation_time - safety.observed_at_ms
                 if age < 0 or age > self.max_evidence_age_ms:
                     reasons.append("composite safety certificate is stale or future-dated")
+
+        # A paper entry requires a fresh sell route for the exact intended exit amount.
+        # This is route evidence only; it never proves a transaction can execute.
+        if not isinstance(sellability, SolanaSellabilityEvidence):
+            reasons.append("typed sell-route evidence is required for paper entry")
+        else:
+            if sellability.mint != canonical:
+                reasons.append("sell-route evidence mint mismatch")
+            if sellability.state != "ROUTE_OBSERVED_NOT_EXECUTION_PROVEN":
+                reasons.append("fresh sell-side route was not observed")
+            if sellability.execution_proven is not False:
+                reasons.append("sell-route evidence must not claim execution proof")
+            if (isinstance(sellability.observed_at_ms, bool)
+                    or not isinstance(sellability.observed_at_ms, int)):
+                reasons.append("sell-route evidence timestamp is invalid")
+            else:
+                age = evaluation_time - sellability.observed_at_ms
+                if age < 0 or age > self.max_evidence_age_ms:
+                    reasons.append("sell-route evidence is stale or future-dated")
+            if (not isinstance(sellability.provider, str) or not sellability.provider.strip()
+                    or not isinstance(sellability.evidence_id, str) or not sellability.evidence_id.strip()):
+                reasons.append("sell-route evidence provenance is incomplete")
+            if (isinstance(sellability.quote_expires_at_ms, bool)
+                    or not isinstance(sellability.quote_expires_at_ms, int)
+                    or sellability.quote_expires_at_ms <= evaluation_time):
+                reasons.append("sell-route quote is expired or has invalid expiry")
+            if (isinstance(sell_amount_raw, bool)
+                    or not isinstance(sell_amount_raw, int)
+                    or sell_amount_raw <= 0
+                    or sellability.input_amount_raw != sell_amount_raw):
+                reasons.append("sell-route quote does not match intended paper exit size")
+            if (isinstance(sellability.quoted_output_raw, bool)
+                    or not isinstance(sellability.quoted_output_raw, int)
+                    or sellability.quoted_output_raw <= 0
+                    or isinstance(sellability.minimum_output_raw, bool)
+                    or not isinstance(sellability.minimum_output_raw, int)
+                    or sellability.minimum_output_raw <= 0):
+                reasons.append("sell-route quote output is invalid")
+            if (isinstance(sellability.route_plan_count, bool)
+                    or not isinstance(sellability.route_plan_count, int)
+                    or sellability.route_plan_count <= 0):
+                reasons.append("sell-route quote contains no valid route plan")
 
         if isinstance(open_positions, bool) or not isinstance(open_positions, int) or open_positions < 0:
             reasons.append("open position count is invalid")
