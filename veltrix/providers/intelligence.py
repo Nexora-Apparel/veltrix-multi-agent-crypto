@@ -190,7 +190,17 @@ class VerifiedIntelligenceAdapters:
                 continue
             # Namespace transaction IDs by chain, wallet and token. This prevents
             # false collisions across chains and preserves distinct token legs.
-            tx_key = (chain, item.wallet_address.lower(), item.transaction_id, item.token_address.lower())
+            if chain in {"base", "bsc"}:
+                tx_key = (
+                    chain, item.wallet_address.lower(),
+                    item.transaction_id.lower(), item.token_address.lower(),
+                )
+            else:
+                # Solana public keys and signatures are base58 and case-sensitive.
+                tx_key = (
+                    chain, item.wallet_address, item.transaction_id,
+                    item.token_address,
+                )
             if tx_key in seen_transactions:
                 rejected.append(f"{prefix}: duplicate transaction")
                 continue
