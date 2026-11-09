@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import time
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable
 
@@ -67,13 +68,19 @@ class PaperTradingWorker:
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         paths = {
-            consensus_store.database_path,
-            market_store.database_path,
-            risk_store.database_path,
-            broker.db_path,
+            str(Path(path).expanduser().resolve())
+            for path in (
+                consensus_store.database_path,
+                market_store.database_path,
+                risk_store.database_path,
+                broker.db_path,
+            )
         }
         if len(paths) != 1 or broker.db_path == ":memory:":
-            raise ValueError("paper broker and Phase 04–06 stores must share one persistent SQLite database")
+            raise ValueError(
+                "paper broker and Phase 04–06 stores must share one persistent SQLite database: "
+                + ", ".join(sorted(paths))
+            )
         self.consensus_store = consensus_store
         self.market_store = market_store
         self.risk_store = risk_store
