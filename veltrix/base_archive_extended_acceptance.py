@@ -44,12 +44,11 @@ def block_by_number(rpc, number):
 
 
 def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_block_span=10, coverage=None):
-    """Fetch historical logs in provider-compatible chunks.
+    """Fetch every block in the requested historical interval in bounded chunks.
 
-    Alchemy Free permits at most a 10-block eth_getLogs range. Scan backward
-    and stop once the known allPairsLength delta is reached: because each
-    PairCreated event increments that counter exactly once, this proves the
-    complete event set for the interval without making unnecessary requests.
+    Alchemy Free permits at most a 10-block eth_getLogs range. Never stop after
+    finding the expected event count: the entire requested block interval must
+    be queried so event coverage is independently demonstrated.
     """
     if from_block > to_block:
         raise PreflightError(f"{rpc.label}: invalid historical log range")
@@ -57,12 +56,9 @@ def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_blo
         raise PreflightError(f"{rpc.label}: eth_getLogs chunk size must be 1-10 blocks")
 
     normalized = []
-    chunk_to = to_block
-    while chunk_to >= from_block:
-        chunk_from = max(from_block, chunk_to - max_block_span + 1)
-        if coverage is not None:
-            coverage["queried_from_block"] = chunk_from
-            coverage["queried_to_block"] = to_block
+    chunk_from = from_block
+    while chunk_from <= to_block:
+        chunk_to = min(to_block, chunk_from + max_block_span - 1)
         rows = rpc.call("eth_getLogs", [{
             "address": factory,
             "fromBlock": hex(chunk_from),
@@ -77,17 +73,23 @@ def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_blo
             topics = row.get("topics", [])
             if not isinstance(topics, list) or not topics or str(topics[0]).lower() != PAIR_CREATED_TOPIC:
                 raise PreflightError(f"{rpc.label}: eth_getLogs returned a non-PairCreated event")
-            normalized.append({
+            log = {
                 "blockHash": str(row.get("blockHash", "")).lower(),
                 "blockNumber": quantity(row.get("blockNumber"), f"{rpc.label} log block number"),
                 "transactionHash": str(row.get("transactionHash", "")).lower(),
                 "logIndex": quantity(row.get("logIndex"), f"{rpc.label} log index"),
                 "topics": [str(x).lower() for x in topics],
                 "data": str(row.get("data", "")).lower(),
-            })
-        if stop_after is not None and len(normalized) >= stop_after:
-            break
-        chunk_to = chunk_from - 1
+            }
+            if log["blockNumber"] < chunk_from or log["blockNumber"] > chunk_to:
+                raise PreflightError(f"{rpc.label}: eth_getLogs returned a log outside its chunk")
+            normalized.append(log)
+        chunk_from = chunk_to + 1
+
+    if coverage is not None:
+        coverage["queried_from_block"] = from_block
+        coverage["queried_to_block"] = to_block
+        coverage["queried_block_count"] = to_block - from_block + 1
 
     return sorted(normalized, key=lambda x: (x["transactionHash"], x["logIndex"]))
 
@@ -189,8 +191,7 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors, final
         )
     log_coverage = {}
     logs = normalized_logs(
-        rpc, factory, log_from + 1, log_to,
-        stop_after=expected_delta, coverage=log_coverage,
+        rpc, factory, log_from + 1, log_to, coverage=log_coverage,
     )
     if len(logs) != expected_delta:
         raise PreflightError(
@@ -219,17 +220,17 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors, final
             "retrieved_log_count": len(logs),
             "queried_from_block": log_coverage["queried_from_block"],
             "queried_to_block": log_coverage["queried_to_block"],
-            "queried_block_count": (
-                log_to - log_coverage["queried_from_block"] + 1
-            ),
-            "scan_direction": "backward",
+            "queried_block_count": log_coverage["queried_block_count"],
+            "scan_direction": "forward",
             "block_coverage_complete": (
                 log_coverage["queried_from_block"] == log_from + 1
+                and log_coverage["queried_to_block"] == log_to
+                and log_coverage["queried_block_count"] == log_to - log_from
             ),
-            # Backward-compatible alias: this means literal block coverage,
-            # not event-set completeness.
             "coverage_complete": (
                 log_coverage["queried_from_block"] == log_from + 1
+                and log_coverage["queried_to_block"] == log_to
+                and log_coverage["queried_block_count"] == log_to - log_from
             ),
             "event_set_complete": True,
             "completeness_basis": (
@@ -321,8 +322,8 @@ def main():
         "comparison": (
             "provider finalized heads recorded independently; both providers "
             "match the common finalized checkpoint and historical block, code, "
-            "call, plus non-empty PairCreated logs with contiguous factory pair "
-            "indices reconciled to the full-interval allPairsLength delta"
+            "call, plus every block in the PairCreated interval queried in "
+            "bounded chunks; event indices reconcile to the allPairsLength delta"
         ),
     }
     with open("base-archive-extended-acceptance.json", "w", encoding="utf-8") as handle:
@@ -338,7 +339,7 @@ def main():
         "historical_anchor_count": len(anchors),
         "historical_checks": [
             "eth_getBlockByNumber", "eth_getCode", "eth_call",
-            "eth_getLogs (non-empty historical range; count reconciled to allPairsLength delta)"
+            "eth_getLogs (entire historical interval queried in bounded chunks; count reconciled to allPairsLength delta)"
         ],
         "report_file": "base-archive-extended-acceptance.json",
     }, indent=2))
