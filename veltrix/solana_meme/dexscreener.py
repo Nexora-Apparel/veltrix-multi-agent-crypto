@@ -6,6 +6,7 @@ of organic demand, token safety, liquidity quality, or a trade recommendation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import time
 from typing import Any, Callable
 
@@ -44,6 +45,7 @@ class DexScreenerDiscovery:
         if (
             isinstance(timeout_seconds, bool)
             or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
             or timeout_seconds <= 0
         ):
             raise ValueError("timeout_seconds must be positive")
