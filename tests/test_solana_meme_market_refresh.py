@@ -126,7 +126,7 @@ def test_refresh_worker_rejects_split_database_and_invalid_limits(tmp_path):
         MarketRefreshWorker(launches, SolanaMarketData(), market)
         assert False, "expected split database to be rejected"
     except ValueError as exc:
-        assert "same persistent" in str(exc)
+        assert "share one persistent" in str(exc)
 
     launches, _, _, worker = setup(tmp_path)
     for invalid in (0, -1, 501, True):
