@@ -27,7 +27,7 @@ class FakeQuoteProvider:
         assert input_amount_raw == 10_000_000
         if self.error:
             raise self.error
-        return self.quote
+        return replace(self.quote, input_amount_raw=input_amount_raw)
 
 
 def evaluator(provider=None, **kwargs):
