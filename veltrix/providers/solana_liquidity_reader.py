@@ -91,6 +91,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
     def __init__(
         self, pool_rpc_url, locker_rpc_url, *,
         expected_uncx_executable_hash=None,
+        expected_raydium_executable_hash=None,
         pool_independence_group="solana-raydium-indexer",
         locker_independence_group="solana-uncx-locker-rpc",
         session=None, max_pools=20_000, max_locks_per_pool=20_000,
@@ -105,6 +106,11 @@ class SolanaRaydiumV4UncxSnapshotReader:
         self.expected_hash = expected_uncx_executable_hash or candidate["published_executable_sha256"]
         if self.expected_hash != candidate["published_executable_sha256"]:
             raise ValueError("UNCX executable hash does not match the published candidate")
+        if (not isinstance(expected_raydium_executable_hash, str)
+                or len(expected_raydium_executable_hash) != 64
+                or any(ch not in "0123456789abcdef" for ch in expected_raydium_executable_hash)):
+            raise ValueError("a pinned Raydium AMM V4 executable SHA-256 hash is required")
+        self.expected_raydium_hash = expected_raydium_executable_hash
         self.pool_rpc = _SolanaRpc(
             pool_rpc_url, provider_id="solana-raydium-pool-rpc", session=session
         )
@@ -148,33 +154,44 @@ class SolanaRaydiumV4UncxSnapshotReader:
             raise ProviderError("independent Solana RPCs disagree on finalized account state")
         return locker_value
 
-    def _verify_uncx_program(self, slot):
-        program_account = self._get_account_crosschecked(UNCX_PROGRAM, slot)
-        if program_account.get("executable") is not True or program_account.get("owner") != BPF_UPGRADEABLE_LOADER:
-            raise ProviderError("UNCX program is not an upgradeable-loader executable")
-        program_data = _decode_account_data(program_account, "UNCX program")
+    def _verify_program_executable(self, program_id, expected_hash, slot, label):
+        program_account = self._get_account_crosschecked(program_id, slot)
+        if (program_account.get("executable") is not True
+                or program_account.get("owner") != BPF_UPGRADEABLE_LOADER):
+            raise ProviderError(f"{label} program is not an upgradeable-loader executable")
+        program_data = _decode_account_data(program_account, f"{label} program")
         if len(program_data) != 36 or struct.unpack_from("<I", program_data, 0)[0] != 2:
-            raise ProviderError("UNCX program account has an unexpected loader state")
+            raise ProviderError(f"{label} program account has an unexpected loader state")
         programdata_address = str(Pubkey.from_bytes(program_data[4:36]))
         programdata = self._get_account_crosschecked(programdata_address, slot)
         if programdata.get("owner") != BPF_UPGRADEABLE_LOADER:
-            raise ProviderError("UNCX ProgramData account owner is invalid")
-        data = _decode_account_data(programdata, "UNCX ProgramData")
+            raise ProviderError(f"{label} ProgramData account owner is invalid")
+        data = _decode_account_data(programdata, f"{label} ProgramData")
         if len(data) < 13 or struct.unpack_from("<I", data, 0)[0] != 3:
-            raise ProviderError("UNCX ProgramData account layout is invalid")
+            raise ProviderError(f"{label} ProgramData account layout is invalid")
         authority_option = data[12]
         if authority_option == 1:
             if len(data) < 45:
-                raise ProviderError("UNCX ProgramData authority field is truncated")
+                raise ProviderError(f"{label} ProgramData authority field is truncated")
             executable = data[45:]
         elif authority_option == 0:
             executable = data[13:]
         else:
-            raise ProviderError("UNCX ProgramData authority option is invalid")
+            raise ProviderError(f"{label} ProgramData authority option is invalid")
         observed = hashlib.sha256(executable).hexdigest()
-        if observed != self.expected_hash:
-            raise ProviderError("deployed UNCX executable hash does not match verified source")
+        if observed != expected_hash:
+            raise ProviderError(f"deployed {label} executable hash does not match pinned source")
         return observed
+
+    def _verify_uncx_program(self, slot):
+        return self._verify_program_executable(
+            UNCX_PROGRAM, self.expected_hash, slot, "UNCX locker"
+        )
+
+    def _verify_raydium_program(self, slot):
+        return self._verify_program_executable(
+            RAYDIUM_AMM_V4_PROGRAM, self.expected_raydium_hash, slot, "Raydium AMM V4"
+        )
 
     def _scan_raydium_pools(self, rpc, token_mint, slot):
         mint_key = str(Pubkey.from_string(token_mint))
@@ -269,8 +286,9 @@ class SolanaRaydiumV4UncxSnapshotReader:
         values = response.get("value")
         if not isinstance(values, list) or len(values) >= self.max_locks_per_pool:
             raise ProviderError("UNCX lock enumeration is malformed or at its result cap")
-        return tuple(self._decode_token_lock(row.get("pubkey"), row.get("account") or {})
-                     for row in values)
+        records = tuple(self._decode_token_lock(row.get("pubkey"), row.get("account") or {})
+                         for row in values)
+        return tuple(sorted(records, key=lambda record: record["address"]))
 
     def _read_lock_records(self, lp_mint, slot):
         pool_records = self._scan_lock_records(self.pool_rpc, lp_mint, slot)
@@ -317,6 +335,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
             raise ProviderError("Solana locker RPC is behind the pool RPC finalized slot")
 
         executable_hash = self._verify_uncx_program(slot)
+        self._verify_raydium_program(slot)
         discovered = self._discover_raydium_pools(token_key, slot)
         if not discovered:
             raise ProviderError("no Raydium AMM V4 pools were discovered for the token")
