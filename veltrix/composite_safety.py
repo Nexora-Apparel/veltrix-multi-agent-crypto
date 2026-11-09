@@ -5,6 +5,7 @@ from typing import Iterable
 
 from .safety import SafetyEvidence, SafetyReport
 from .launch_bundles import LaunchBundleReport
+from .providers.capabilities import capability_can_certify
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class CompositeTokenSafetyValidator:
         trusted_bundle_providers: Iterable[str] = (),
         trusted_funding_providers: Iterable[str] = (),
         max_age_ms: int = 300_000,
+        capability_certifier=None,
     ):
         self.trusted_liquidity = frozenset(trusted_liquidity_providers)
         self.trusted_developer = frozenset(trusted_developer_providers)
@@ -38,6 +40,9 @@ class CompositeTokenSafetyValidator:
         if max_age_ms <= 0:
             raise ValueError("max_age_ms must be positive")
         self.max_age_ms = max_age_ms
+        # Production defaults to the audited capability catalogue. Tests may
+        # inject a certifier, but settings/allowlists never promote capability.
+        self.capability_certifier = capability_certifier or capability_can_certify
 
     @staticmethod
     def _same_token(chain: str, left: str, right: str) -> bool:
@@ -77,6 +82,8 @@ class CompositeTokenSafetyValidator:
             expected_claim = "liquidity_lock" if label == "liquidity" else "developer_holdings"
             if evidence.claim != expected_claim:
                 reasons.append(f"{label}: unsupported or mismatched evidence claim")
+            if not self.capability_certifier(evidence.provider, chain_key, expected_claim):
+                reasons.append(f"{label}: provider capability is not certified for this chain and claim")
             if not isinstance(evidence.chain, str) or evidence.chain.lower() != chain_key:
                 reasons.append(f"{label}: evidence chain is missing or mismatched")
             if evidence.coverage_complete is not True:
