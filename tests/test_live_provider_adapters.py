@@ -59,3 +59,18 @@ def test_goplus_provider_cannot_pass_sniper_without_dev_and_bundle_evidence():
     assert report.checks == ("liquidity_locked",)
     assert "developer holdings are missing or not below 5%" in report.reasons
     assert "bundled supply is missing or non-zero" in report.reasons
+
+
+def test_creator_concentration_is_preserved_but_does_not_satisfy_dev_gate():
+    token = "0xabc"
+    response = {"code": 1, "result": {token: {
+        "lp_holder_count": "1", "lp_holders": [{"is_locked": 1}],
+        "creator_percent": "0.02",
+    }}}
+    provider = GoPlusTokenSafetyProvider(
+        session=HttpSession(response), clock_ms=lambda: 1_000_000
+    )
+    adapters = VerifiedIntelligenceAdapters(trusted_safety_providers=["goplus"])
+    report = adapters.collect_safety_observation(provider, "bsc", token, 1_000_100)
+    assert not report.passed
+    assert "developer holdings are missing or not below 5%" in report.reasons
