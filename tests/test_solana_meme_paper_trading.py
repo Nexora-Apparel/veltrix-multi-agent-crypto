@@ -214,6 +214,7 @@ def test_exit_pipeline_applies_simulated_fee_and_slippage(tmp_path):
     assert worker.run_once().opened_positions == 1
 
     markets.record(market_snapshot(NOW + 1, price=0.00201))
+    worker.clock_ms = lambda: NOW + 1
     result = worker.run_once()
 
     assert result.exit_fills == 1
