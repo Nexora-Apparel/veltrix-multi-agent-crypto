@@ -6,6 +6,7 @@ of organic demand, token safety, liquidity quality, or a trade recommendation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any, Callable
 
 import requests
@@ -49,8 +50,7 @@ class DexScreenerDiscovery:
         self.session = session or requests.Session()
         self.timeout_seconds = float(timeout_seconds)
         self.base_url = (base_url or self.base_url).rstrip("/")
-        self.clock_ms = clock_ms or __import__("time").time_ns
-        self._clock_ms = clock_ms or (lambda: __import__("time").time_ns() // 1_000_000)
+        self.clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
 
     @staticmethod
     def _entries(payload: Any) -> list[dict[str, Any]]:
@@ -78,7 +78,7 @@ class DexScreenerDiscovery:
                 candidate = normalize_candidate(
                     item,
                     source=source,
-                    observed_at_ms=self._clock_ms(),
+                    observed_at_ms=self.clock_ms(),
                 )
             except ValueError:
                 continue
