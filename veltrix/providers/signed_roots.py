@@ -7,6 +7,7 @@ the configured provider issued the claim; it does not independently prove
 that a root is a human developer unless the provider's methodology does so.
 """
 import base64
+import hashlib
 import json
 import time
 from urllib.parse import urlparse
@@ -17,6 +18,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from ..developer_evidence import DeveloperRootAttestation
 from .base import ProviderError
+
+
+def _root_key(chain, address):
+    return address.lower() if chain in {"base", "bsc"} else address
 
 
 class SignedDeveloperRootProvider:
@@ -31,6 +36,7 @@ class SignedDeveloperRootProvider:
         try:
             raw_key = base64.b64decode(public_key_b64, validate=True)
             self.public_key = Ed25519PublicKey.from_public_bytes(raw_key)
+        self.signing_key_fingerprint = hashlib.sha256(raw_key).hexdigest()
         except (ValueError, TypeError) as exc:
             raise ValueError("Developer-root Ed25519 public key must be base64-encoded 32 bytes") from exc
         self.endpoint = endpoint
@@ -111,10 +117,12 @@ class SignedDeveloperRootProvider:
             raise ProviderError("Signed developer-root coverage is not complete")
         if (not isinstance(roots, list) or not roots or len(roots) > self.max_roots
                 or any(not self._valid_root(chain, root) for root in roots)
-                or len(set(roots)) != len(roots)):
+                or len({_root_key(chain, root) for root in roots}) != len(roots)):
             raise ProviderError("Signed developer-root address inventory is invalid")
         return DeveloperRootAttestation(
             chain=chain, token_address=token, provider=provider,
             evidence_id=evidence_id, observed_at_ms=observed,
             roots=tuple(roots), coverage_complete=True, source_ref=source_ref,
+            signature_verified=True,
+            signing_key_fingerprint=self.signing_key_fingerprint,
         )
