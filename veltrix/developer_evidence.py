@@ -35,6 +35,7 @@ class DeveloperEvidenceOrchestrator:
 
     def __init__(self, *, holder_providers, funding_providers, analyzer,
                  intelligence_adapters, trusted_root_providers=(),
+                 trusted_holder_providers=(), trusted_funding_providers=(),
                  certified_provider_id=None, independence_group=None,
                  audit_sink=None):
         self.holder_providers = dict(holder_providers)
@@ -42,6 +43,8 @@ class DeveloperEvidenceOrchestrator:
         self.analyzer = analyzer or DeveloperConcentrationAnalyzer()
         self.adapters = intelligence_adapters
         self.trusted_roots = frozenset(trusted_root_providers)
+        self.trusted_holders = frozenset(trusted_holder_providers)
+        self.trusted_funding = frozenset(trusted_funding_providers)
         self.certified_provider_id = certified_provider_id
         self.independence_group = independence_group
         self.audit_sink = audit_sink
@@ -68,9 +71,13 @@ class DeveloperEvidenceOrchestrator:
             if holder_provider is None or funding_provider is None:
                 raise ValueError("independent holder and funding providers are required")
             holder = holder_provider.fetch_snapshot(token_address)
+            if holder.provider not in self.trusted_holders:
+                raise ValueError("holder inventory provider is not trusted")
             funding = funding_provider.fetch_snapshot(
                 token_address, [row.wallet_address for row in holder.holders]
             )
+            if funding.provider not in self.trusted_funding:
+                raise ValueError("developer funding graph provider is not trusted")
             if not isinstance(root_attestation, DeveloperRootAttestation):
                 raise ValueError("typed independently attested developer roots are required")
             root_chain = str(root_attestation.chain).lower()
