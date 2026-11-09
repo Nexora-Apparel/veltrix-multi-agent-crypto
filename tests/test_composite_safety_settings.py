@@ -54,8 +54,9 @@ def test_from_settings_installs_composite_safety_validator():
     report = adapters.validate_composite_safety(
         "MintABC", "solana", make_bundle(now), now
     )
-    assert report.passed
-    assert report.composite_verified
+    assert not report.passed
+    assert not report.composite_verified
+    assert "liquidity: provider capability is not certified for this chain and claim" in report.reasons
 
 
 def test_from_settings_does_not_promote_generic_provider_allowlists():
