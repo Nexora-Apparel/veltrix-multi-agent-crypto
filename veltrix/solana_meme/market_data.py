@@ -119,6 +119,8 @@ class SolanaMarketSnapshot:
                 isinstance(value, bool) or not isinstance(value, int) or value < 0
             ):
                 raise ValueError(f"{field} must be a non-negative integer or None")
+        if self.pool_token_side not in (None, "base", "quote"):
+            raise ValueError("pool_token_side must be base, quote or None")
         if not isinstance(self.quality_flags, tuple) or any(
             not isinstance(flag, str) or not flag for flag in self.quality_flags
         ):
