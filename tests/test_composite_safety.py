@@ -17,6 +17,10 @@ def evidence(provider, **overrides):
         claim=None, chain="solana", coverage_complete=True,
         source_ref=f"https://evidence.invalid/{provider}", method="complete_onchain_index",
         independence_group=provider,
+        liquidity_inventory_complete=True,
+        liquidity_pool_count=1,
+        liquidity_locked_pool_count=1,
+        liquidity_locked_lp_pct=100.0,
     )
     values.update(overrides)
     if values.get("claim") is None:
