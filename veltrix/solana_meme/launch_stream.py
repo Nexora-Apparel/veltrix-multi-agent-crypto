@@ -190,6 +190,32 @@ class LaunchStore:
                 ),
             )
 
+    def record_source_healthy(
+        self,
+        source: str,
+        *,
+        occurred_at_ms: int | None = None,
+    ) -> None:
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("source identity is required")
+        timestamp = self._timestamp(occurred_at_ms, fallback_now=True)
+        clean_source = source.strip()
+        with self._connect() as db:
+            db.execute(
+                "UPDATE launch_feed_outages SET ended_at_ms = ? "
+                "WHERE source = ? AND ended_at_ms IS NULL",
+                (timestamp, clean_source),
+            )
+            db.execute(
+                "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) "
+                "VALUES (?, ?, ?)",
+                (
+                    "feed_source_healthy",
+                    timestamp,
+                    json.dumps({"source": clean_source}),
+                ),
+            )
+
     def list_candidates(self, *, limit: int = 100) -> list[dict[str, Any]]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
