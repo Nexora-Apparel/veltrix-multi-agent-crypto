@@ -129,5 +129,5 @@ class CompositeTokenSafetyValidator:
         return SafetyReport(
             token_address, passed, tuple(checks), tuple(reasons),
             min(timestamps) if timestamps else now_ms,
-            creator_hold_pct=creator,
+            creator_hold_pct=creator, composite_verified=passed,
         )
