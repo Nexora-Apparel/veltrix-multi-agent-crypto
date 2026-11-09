@@ -75,7 +75,7 @@ def test_solana_holder_adapter_rejects_at_safety_cap():
     def handler(body):
         if body["method"] == "getProgramAccounts":
             return {"result": {"context": {"slot": 500}, "value": [
-                {"pubkey": "a", "account": {"data": {"parsed": {"info": {
+                {"pubkey": "account-" + body["params"][0], "account": {"data": {"parsed": {"info": {
                     "mint": "Mint111", "owner": "owner", "tokenAmount": {"amount": "1"}
                 }}}}}
             ]}}
