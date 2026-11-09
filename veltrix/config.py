@@ -48,6 +48,8 @@ class Settings:
     solana_liquidity_pool_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_POOL_RPC_URL", "")
     solana_liquidity_locker_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_LOCKER_RPC_URL", "")
     solana_raydium_amm_v4_executable_hash: str = os.getenv("SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH", "")
+    solana_raydium_cpmm_executable_hash: str = os.getenv("SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH", "")
+    solana_liquidity_registry_complete: bool = os.getenv("SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE", "false").lower() == "true"
     base_liquidity_pool_rpc_url: str = os.getenv("BASE_LIQUIDITY_POOL_RPC_URL", "")
     base_liquidity_locker_rpc_url: str = os.getenv("BASE_LIQUIDITY_LOCKER_RPC_URL", "")
     bsc_liquidity_pool_rpc_url: str = os.getenv("BSC_LIQUIDITY_POOL_RPC_URL", "")
