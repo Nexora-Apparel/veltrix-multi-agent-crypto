@@ -4,6 +4,7 @@ from veltrix.agents import Signal
 from veltrix.safety import SafetyReport
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
 from veltrix.solana_meme.shield import SolanaShieldPolicy
+from veltrix.solana_meme.sellability import SolanaSellabilityEvidence
 from veltrix.providers.solana_mint import TOKEN_PROGRAM_ID
 
 MINT = "So11111111111111111111111111111111111111112"
@@ -33,6 +34,19 @@ def safety():
     )
 
 
+def route(**changes):
+    values = dict(
+        mint=MINT, observed_at_ms=10_000, provider="jupiter-v2",
+        evidence_id="route:abc", input_amount_raw=10_000_000,
+        input_supply_fraction=0.01, quoted_output_raw=50_000_000,
+        minimum_output_raw=49_000_000, route_plan_count=2,
+        price_impact_bps=75.0, quote_expires_at_ms=20_000,
+        state="ROUTE_OBSERVED_NOT_EXECUTION_PROVEN", errors=(), execution_proven=False,
+    )
+    values.update(changes)
+    return SolanaSellabilityEvidence(**values)
+
+
 def signals():
     return [
         Signal("scout", MINT, "BUY", "momentum"),
@@ -43,7 +57,7 @@ def signals():
 def test_two_agent_consensus_can_only_approve_paper_entry():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=50, now_ms=10_000,
+        open_positions=0, amount=50, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "APPROVE_PAPER_ENTRY"
     assert result.approved_for_paper is True
@@ -91,7 +105,7 @@ def test_position_limits_and_stale_evidence_veto():
     assert oversized.decision == "BLOCK"
     stale = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=10, now_ms=400_001,
+        open_positions=0, amount=10, now_ms=400_001, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert stale.decision == "BLOCK"
 
@@ -136,7 +150,7 @@ def test_invalid_evaluation_timestamp_and_boolean_supply_are_rejected():
     policy = SolanaShieldPolicy()
     invalid_time = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=10, now_ms="not-a-timestamp",
+        open_positions=0, amount=10, now_ms="not-a-timestamp", sellability=route(), sell_amount_raw=10_000_000,
     )
     assert invalid_time.decision == "BLOCK"
     boolean_supply = replace(
@@ -176,3 +190,41 @@ def test_token_2022_extension_presence_requires_separate_policy_review():
     )
     assert result.decision == "BLOCK"
     assert "Token-2022 extensions require separate policy certification" in result.reasons
+
+
+def test_route_observation_is_required_but_never_marks_execution_proven():
+    blocked = SolanaShieldPolicy().evaluate(
+        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+    )
+    assert blocked.decision == "BLOCK"
+    assert "typed sell-route evidence is required for paper entry" in blocked.reasons
+    approved = SolanaShieldPolicy().evaluate(
+        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        sellability=route(), sell_amount_raw=10_000_000,
+    )
+    assert approved.decision == "APPROVE_PAPER_ENTRY"
+    assert route().state == "ROUTE_OBSERVED_NOT_EXECUTION_PROVEN"
+    assert route().execution_proven is False
+
+
+def test_route_quote_must_match_exit_size_and_unknown_token_risk_still_vetoes():
+    mismatch = SolanaShieldPolicy().evaluate(
+        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        sellability=route(input_amount_raw=9_000_000), sell_amount_raw=10_000_000,
+    )
+    assert mismatch.decision == "BLOCK"
+    assert "sell-route quote does not match intended paper exit size" in mismatch.reasons
+    unknown = replace(evidence(), missing_claims=("bundled_supply",))
+    blocked = SolanaShieldPolicy().evaluate(
+        MINT, unknown, safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        sellability=route(), sell_amount_raw=10_000_000,
+    )
+    assert blocked.decision == "BLOCK"
+    assert "mandatory token-risk claims remain unknown" in blocked.reasons
+    live_unknown = replace(evidence(), missing_claims=("executable_sellability",))
+    paper = SolanaShieldPolicy().evaluate(
+        MINT, live_unknown, safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        sellability=route(), sell_amount_raw=10_000_000,
+    )
+    assert paper.decision == "APPROVE_PAPER_ENTRY"
+    assert live_unknown.missing_claims == ("executable_sellability",)
