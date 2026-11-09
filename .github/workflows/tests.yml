@@ -1,7 +1,7 @@
 name: Python CI
 on:
   push:
-    branches: [main, "work/**"]
+    branches: [main, "work/**", "solana-meme-first"]
   pull_request:
   workflow_dispatch:
 permissions:
