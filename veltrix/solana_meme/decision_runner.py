@@ -370,6 +370,74 @@ class SolanaPaperDecisionRunner:
             already_processed=already_processed, failed=failed,
         )
 
+    def reconcile_stale_claims(self, *, max_claim_age_ms: int = 300_000) -> dict:
+        """Resolve crashed CLAIMED cycles without automatically replaying them.
+
+        A matching broker position opened after the claim is recorded as
+        reconciled. Otherwise the cycle is marked indeterminate and remains
+        non-replayable; an operator must inspect the broker ledger before any
+        new evidence cycle is allowed to open a position.
+        """
+        if (isinstance(max_claim_age_ms, bool) or not isinstance(max_claim_age_ms, int)
+                or max_claim_age_ms < 1):
+            raise ValueError("max_claim_age_ms must be a positive integer")
+        now = self.clock_ms()
+        if isinstance(now, bool) or not isinstance(now, int) or now < 0:
+            raise ValueError("clock must return a non-negative integer timestamp")
+        cutoff = now - max_claim_age_ms
+        with self._connect() as db:
+            rows = db.execute("""
+                SELECT decision_key, mint, created_at_ms
+                FROM solana_paper_decision_audits
+                WHERE state='CLAIMED' AND updated_at_ms <= ?
+                ORDER BY created_at_ms ASC, id ASC
+            """, (cutoff,)).fetchall()
+
+        open_positions = {
+            item["token"]: item for item in self.broker.snapshot()["open_positions"]
+        }
+        reconciled = indeterminate = 0
+        for row in rows:
+            position = open_positions.get(row["mint"])
+            opened_at = position.get("opened_at") if position else None
+            opened_after_claim = (
+                isinstance(opened_at, (int, float))
+                and not isinstance(opened_at, bool)
+                and opened_at * 1000 >= row["created_at_ms"]
+            )
+            if opened_after_claim:
+                state = "PAPER_ENTRY_OPENED_RECONCILED"
+                reasons = ["matching broker position opened after the decision claim; verify trade and evidence audit"]
+                result = {
+                    "decision": "BUY_RECONCILED",
+                    "position": position,
+                    "automatic_replay": False,
+                }
+                reconciled += 1
+            else:
+                state = "INDETERMINATE_NO_REPLAY"
+                reasons = [
+                    "no matching position opened after the claim was found",
+                    "automatic replay is prohibited; reconcile broker ledger and audit manually",
+                ]
+                result = {"decision": "HOLD", "automatic_replay": False}
+                indeterminate += 1
+            with self._connect() as db:
+                db.execute("""
+                    UPDATE solana_paper_decision_audits
+                    SET state=?, reasons_json=?, result_json=?, updated_at_ms=?
+                    WHERE decision_key=? AND state='CLAIMED'
+                """, (
+                    state, json.dumps(reasons, sort_keys=True),
+                    json.dumps(result, sort_keys=True, default=str),
+                    now, row["decision_key"],
+                ))
+        return {
+            "examined": len(rows),
+            "reconciled_open_positions": reconciled,
+            "indeterminate_no_replay": indeterminate,
+        }
+
     def audit_history(self, mint: str, *, limit: int = 100) -> list[dict]:
         canonical = canonical_mint(mint)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10_000:
