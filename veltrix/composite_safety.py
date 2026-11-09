@@ -108,6 +108,25 @@ class CompositeTokenSafetyValidator:
                     reasons.append("liquidity lock is not positively verified")
                 else:
                     checks.append("liquidity_locked")
+                if evidence.liquidity_inventory_complete is not True:
+                    reasons.append("liquidity: complete all-pool inventory is not verified")
+                pool_count = evidence.liquidity_pool_count
+                locked_pool_count = evidence.liquidity_locked_pool_count
+                if (not isinstance(pool_count, int) or isinstance(pool_count, bool)
+                        or pool_count < 1):
+                    reasons.append("liquidity: discovered pool count is missing or invalid")
+                if (not isinstance(locked_pool_count, int) or isinstance(locked_pool_count, bool)
+                        or not isinstance(pool_count, int) or isinstance(pool_count, bool)
+                        or locked_pool_count != pool_count):
+                    reasons.append("liquidity: not every discovered pool has active locked LP")
+                try:
+                    locked_pct = float(evidence.liquidity_locked_lp_pct)
+                    if isinstance(evidence.liquidity_locked_lp_pct, bool):
+                        locked_pct = float("nan")
+                except (TypeError, ValueError):
+                    locked_pct = float("nan")
+                if not math.isfinite(locked_pct) or locked_pct < 99.99:
+                    reasons.append("liquidity: active locked LP is below 99.99% in at least one pool")
             else:
                 try:
                     dev_pct = float(evidence.dev_hold_pct)
