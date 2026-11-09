@@ -151,6 +151,15 @@ class SolanaPaperDecisionRunner:
         values["reasons"] = tuple(values.get("reasons") or ())
         return SafetyReport(**values)
 
+    def _has_unresolved_claim(self, mint: str) -> bool:
+        with self._connect() as db:
+            row = db.execute("""
+                SELECT 1 FROM solana_paper_decision_audits
+                WHERE mint=? AND state IN ('CLAIMED', 'INDETERMINATE_NO_REPLAY')
+                LIMIT 1
+            """, (mint,)).fetchone()
+        return row is not None
+
     def _claim(self, mint: str, evidence: dict, now_ms: int) -> str | None:
         encoded = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         key = hashlib.sha256(f"{mint}|{encoded}".encode("utf-8")).hexdigest()
@@ -180,10 +189,14 @@ class SolanaPaperDecisionRunner:
         if isinstance(now, bool) or not isinstance(now, int) or now < 0:
             raise ValueError("clock must return a non-negative integer timestamp")
 
+        self.reconcile_stale_claims()
         considered = approved = blocked = already_processed = failed = 0
         for candidate in self.launch_store.list_candidates(limit=limit):
             considered += 1
             mint = canonical_mint(candidate["mint"])
+            if self._has_unresolved_claim(mint):
+                blocked += 1
+                continue
             market = self.market_store.latest(mint)
             risk = self.risk_store.latest(mint)
             developer = self.developer_store.latest(mint)
@@ -439,6 +452,37 @@ class SolanaPaperDecisionRunner:
             "reconciled_open_positions": reconciled,
             "indeterminate_no_replay": indeterminate,
         }
+
+    def acknowledge_indeterminate_claim(self, decision_key: str, *, operator_note: str) -> bool:
+        """Release a mint after an operator has reconciled an indeterminate claim."""
+        if not isinstance(decision_key, str) or len(decision_key) != 64:
+            raise ValueError("decision_key must be a SHA-256 hex digest")
+        if any(char not in "0123456789abcdef" for char in decision_key):
+            raise ValueError("decision_key must be a lowercase SHA-256 hex digest")
+        if not isinstance(operator_note, str) or not operator_note.strip() or len(operator_note) > 500:
+            raise ValueError("a non-empty operator reconciliation note of at most 500 characters is required")
+        now = self.clock_ms()
+        with self._connect() as db:
+            row = db.execute("""
+                SELECT reasons_json FROM solana_paper_decision_audits
+                WHERE decision_key=? AND state='INDETERMINATE_NO_REPLAY'
+            """, (decision_key,)).fetchone()
+            if row is None:
+                return False
+            reasons = json.loads(row["reasons_json"])
+            reasons.append("operator reconciliation: " + operator_note.strip())
+            cursor = db.execute("""
+                UPDATE solana_paper_decision_audits
+                SET state='MANUALLY_RECONCILED_ACKNOWLEDGED',
+                    reasons_json=?, result_json=?, updated_at_ms=?
+                WHERE decision_key=? AND state='INDETERMINATE_NO_REPLAY'
+            """, (
+                json.dumps(reasons, sort_keys=True),
+                json.dumps({"decision": "HOLD", "automatic_replay": False,
+                            "operator_note": operator_note.strip()}, sort_keys=True),
+                now, decision_key,
+            ))
+            return cursor.rowcount == 1
 
     def audit_history(self, mint: str, *, limit: int = 100) -> list[dict]:
         canonical = canonical_mint(mint)
