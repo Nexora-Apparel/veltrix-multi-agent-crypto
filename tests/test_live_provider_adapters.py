@@ -73,4 +73,5 @@ def test_creator_concentration_is_preserved_but_does_not_satisfy_dev_gate():
     adapters = VerifiedIntelligenceAdapters(trusted_safety_providers=["goplus"])
     report = adapters.collect_safety_observation(provider, "bsc", token, 1_000_100)
     assert not report.passed
+    assert report.creator_hold_pct == 2.0
     assert "developer holdings are missing or not below 5%" in report.reasons
