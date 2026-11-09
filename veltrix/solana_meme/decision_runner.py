@@ -15,7 +15,6 @@ import sqlite3
 import time
 from typing import Callable
 
-from ..core import Core
 from ..safety import SafetyReport
 from .candidates import canonical_mint
 from .risk_evidence import SolanaRiskEvidenceReport
@@ -56,7 +55,7 @@ class SolanaPaperDecisionRunner:
         sellability_store,
         safety_store,
         broker,
-        core: Core,
+        core,
         agent_context_provider: Callable[[str, dict], SolanaAgentContext] | None = None,
         max_market_age_ms: int = 120_000,
         max_evidence_age_ms: int = 300_000,
@@ -72,8 +71,8 @@ class SolanaPaperDecisionRunner:
         paths.add(getattr(broker, "db_path", None))
         if len(paths) != 1 or None in paths or ":memory:" in paths:
             raise ValueError("all evidence stores and the durable paper broker must share one file database")
-        if not isinstance(core, Core) or core.broker is not broker:
-            raise ValueError("Core must use the supplied durable paper broker")
+        if not callable(getattr(core, "evaluate", None)) or getattr(core, "broker", None) is not broker:
+            raise ValueError("Core must expose evaluate() and use the supplied durable paper broker")
         for value, label in (
             (max_market_age_ms, "max_market_age_ms"),
             (max_evidence_age_ms, "max_evidence_age_ms"),
