@@ -19,6 +19,7 @@ from .developer_worker import DeveloperEvidenceBatchResult, SolanaDeveloperEvide
 from .bundle_store import LaunchBundleEvidenceStore
 from .bundle_worker import LaunchBundleBatchResult, SolanaLaunchBundleWorker
 from .shield import ShieldDecision, SolanaShieldPolicy
+from .paper_sizing import SolanaPaperExitSize, calculate_paper_exit_size
 from .sellability import (SolanaSellQuoteObservation, SellQuoteProvider, SolanaSellabilityEvidence, SolanaSellabilityEvaluator)
 from .sellability_store import SolanaSellabilityEvidenceStore
 from .sellability_worker import SellabilityBatchResult, SolanaSellabilityWorker
@@ -42,6 +43,7 @@ __all__ = [
     "DeveloperConcentrationStore", "DeveloperEvidenceBatchResult", "SolanaDeveloperEvidenceWorker",
     "LaunchBundleEvidenceStore", "LaunchBundleBatchResult", "SolanaLaunchBundleWorker",
     "ShieldDecision", "SolanaShieldPolicy",
+    "SolanaPaperExitSize", "calculate_paper_exit_size",
     "SolanaSellQuoteObservation", "SellQuoteProvider", "SolanaSellabilityEvidence", "SolanaSellabilityEvaluator",
     "SolanaSellabilityEvidenceStore", "SellabilityBatchResult", "SolanaSellabilityWorker",
     "SolanaSellSimulationStore", "SellSimulationBatchResult", "SolanaSellSimulationWorker",
