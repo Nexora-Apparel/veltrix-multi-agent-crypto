@@ -188,3 +188,88 @@ def test_discovered_launch_origin_requires_explicit_provider_trust(tmp_path):
     result = monitor.last_launch_results[("base", "discovered-token")]
     assert result["status"] == "blocked"
     assert "untrusted" in result["reason"]
+
+
+def test_monitor_submits_only_verified_all_pool_liquidity_evidence(tmp_path):
+    from types import SimpleNamespace
+    from veltrix.liquidity_evidence import (
+        LiquidityInventoryBatch, LockerDeployment, LockerPositionSnapshot,
+        PoolLiquiditySnapshot,
+    )
+
+    now = int(time.time() * 1000)
+    token = "discovered-token"
+    locker = "0xc4E637D37113192F4F1F060DaEbD7758De7F4131"
+    pool = "0x2222222222222222222222222222222222222222"
+    lp = "0x3333333333333333333333333333333333333333"
+    digest = "a" * 64
+    deployment = LockerDeployment(
+        chain="base", provider="locker-registry", address=locker,
+        abi_profile="uncx-v2.1-locks-nonce", expected_code_hash=digest,
+        observed_code_hash=digest, source_ref="https://registry.example/locker",
+        independence_group="locker-operator", chain_id=8453,
+    )
+    batch = LiquidityInventoryBatch(
+        chain="base", token_address=token, provider="pool-indexer",
+        independence_group="independent-indexer", observed_at_ms=now - 100,
+        finalized_ref="block:100", pool_set_id="all-token-pools-v1",
+        inventory_complete=True,
+        pools=(PoolLiquiditySnapshot(
+            chain="base", token_address=token, pool_address=pool,
+            lp_token_address=lp, total_lp_supply=100,
+            observed_at_ms=now - 100, finalized_ref="block:100",
+            inventory_provider="pool-indexer", inventory_complete=True,
+            pool_set_id="all-token-pools-v1", locker_custody_amount=100,
+        ),),
+        positions=(LockerPositionSnapshot(
+            chain="base", pool_address=pool, lp_token_address=lp,
+            locker_address=locker, position_id="lock-100", amount=100,
+            unlock_at_ms=now + 86_400_000, observed_at_ms=now - 100,
+            owner="0x5555555555555555555555555555555555555555",
+            evidence_ref="tx:lock-100",
+        ),),
+        deployments=(deployment,),
+    )
+
+    class LiquidityProvider:
+        def fetch_inventory(self, token_address):
+            assert token_address == token
+            return batch
+
+    class OriginResolver:
+        provider_id = "base-rpc-launch-origin"
+        def resolve(self, address, window):
+            return SimpleNamespace(
+                complete=True, chain="base", launch_at_ms=now - 120_000,
+                launch_block=100, window_end_block=120,
+                provider=self.provider_id, evidence_id="origin",
+            )
+
+    class LaunchService:
+        launch_window_ms = 120_000
+        def __init__(self):
+            self.call = None
+        def evaluate(self, **kwargs):
+            self.call = kwargs
+            return (
+                SimpleNamespace(coverage_complete=False, bundled_supply_pct=None),
+                SimpleNamespace(passed=False, composite_verified=False,
+                                reasons=("developer evidence missing",)),
+            )
+
+    service = LaunchService()
+    monitor = MarketMonitor(
+        {}, str(tmp_path / "liquidity-runtime.db"), FakeProvider(), FakeDiscovery(),
+        True, ("base",), 5, launch_intelligence=service,
+        launch_origin_resolvers={"base": OriginResolver()},
+        trusted_launch_origin_providers=["base-rpc-launch-origin"],
+        liquidity_evidence_providers={"base": LiquidityProvider()},
+    )
+    monitor.poll_once()
+    evidence = service.call["liquidity_evidence"]
+    assert evidence is not None
+    assert evidence.claim == "liquidity_lock"
+    assert evidence.liquidity_inventory_complete is True
+    assert evidence.liquidity_locked_lp_pct == 100.0
+    assert evidence.independence_group == "independent-indexer"
+    assert monitor.last_liquidity_results[("base", token)]["status"] == "verified"
