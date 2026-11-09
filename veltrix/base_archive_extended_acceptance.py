@@ -43,11 +43,11 @@ def block_by_number(rpc, number):
     return block["hash"].lower()
 
 
-def normalized_logs(rpc, factory, number):
+def normalized_logs(rpc, factory, from_block, to_block):
     rows = rpc.call("eth_getLogs", [{
         "address": factory,
-        "fromBlock": hex(number),
-        "toBlock": hex(number),
+        "fromBlock": hex(from_block),
+        "toBlock": hex(to_block),
         "topics": [PAIR_CREATED_TOPIC],
     }])
     if not isinstance(rows, list):
@@ -103,7 +103,6 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
                 ]),
                 f"{rpc.label} allPairsLength at {number}",
             )
-        logs = normalized_logs(rpc, factory, number)
         results[str(number)] = {
             "block_hash": block_hash,
             "runtime_code_bytes": len(code_bytes),
@@ -112,11 +111,40 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
             "pair_created_logs": logs,
         }
 
+    # Query a range known to contain PairCreated events: the final two
+    # historical anchors show allPairsLength increasing. This tests actual
+    # historical log retrieval rather than only empty single-block queries.
+    log_from, log_to = anchors[-2], anchors[-1]
+    logs = normalized_logs(rpc, factory, log_from + 1, log_to)
+    expected_delta = (
+        results[str(log_to)]["all_pairs_length"]
+        - results[str(log_from)]["all_pairs_length"]
+    )
+    if expected_delta <= 0:
+        raise PreflightError(
+            f"{rpc.label}: selected historical log range has no pair-count increase"
+        )
+    if len(logs) != expected_delta:
+        raise PreflightError(
+            f"{rpc.label}: PairCreated log count {len(logs)} does not match "
+            f"allPairsLength delta {expected_delta} in blocks {log_from + 1}-{log_to}"
+        )
+    for log in logs:
+        if log["blockNumber"] < log_from + 1 or log["blockNumber"] > log_to:
+            raise PreflightError(f"{rpc.label}: PairCreated log outside requested range")
+
     return {
         "provider": rpc.label,
         "chain_id": chain_id,
         "finalized": finalized,
         "anchors": results,
+        "pair_created_log_range": {
+            "from_block": log_from + 1,
+            "to_block": log_to,
+            "expected_pair_count_delta": expected_delta,
+            "retrieved_log_count": len(logs),
+            "logs": logs,
+        },
         "checks": {
             "chain_id": "passed",
             "creation_receipt": "passed",
@@ -167,12 +195,15 @@ def main():
         a, b = first["anchors"][key], second["anchors"][key]
         for field in (
             "block_hash", "runtime_code_bytes", "runtime_code_keccak256",
-            "all_pairs_length", "pair_created_logs",
+            "all_pairs_length",
         ):
             if a[field] != b[field]:
                 raise PreflightError(
                     f"providers disagree at block {number} for {field}"
                 )
+
+    if first["pair_created_log_range"] != second["pair_created_log_range"]:
+        raise PreflightError("providers disagree on historical PairCreated log range")
 
     result = {
         "status": "passed",
@@ -193,7 +224,8 @@ def main():
         "finalized_block": first_finalized,
         "historical_anchor_count": len(anchors),
         "historical_checks": [
-            "eth_getBlockByNumber", "eth_getCode", "eth_call", "eth_getLogs"
+            "eth_getBlockByNumber", "eth_getCode", "eth_call",
+            "eth_getLogs (non-empty historical range; count reconciled to allPairsLength delta)"
         ],
         "report_file": "base-archive-extended-acceptance.json",
     }, indent=2))
