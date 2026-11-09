@@ -1,4 +1,6 @@
-from types import SimpleNamespace\n\nimport pytest
+from types import SimpleNamespace
+
+import pytest
 
 from veltrix.providers.alchemy import AlchemyWalletProvider
 from veltrix.providers.factory import build_wallet_providers
