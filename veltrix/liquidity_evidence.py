@@ -409,8 +409,7 @@ class LiquidityEvidenceAnalyzer:
         return LiquidityEvidenceReport(
             chain, token_address, passed, len(batch.pools), len(pools),
             active_locked_pool_count, total_supply, total_active_locked, locked_pct,
-            earliest_unlock, _id_for(batch),
-            batch.provider + "+" + ",".join(sorted({d.provider for d in deployment_map.values()})),
+            earliest_unlock, _id_for(batch), batch.provider,
             "+".join(sorted({d.independence_group for d in deployment_map.values()})),
             batch.observed_at_ms, batch.finalized_ref, tuple(dict.fromkeys(reasons)),
         )
