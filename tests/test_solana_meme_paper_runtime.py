@@ -82,3 +82,26 @@ def test_paper_runtime_rejects_non_numeric_environment_settings(tmp_path, monkey
     monkeypatch.setenv("VELTRIX_PAPER_FEE_BPS", "not-a-number")
     with pytest.raises(ValueError, match="VELTRIX_PAPER_FEE_BPS"):
         build_runtime(database_path=tmp_path / "bad-fee.sqlite3")
+
+def test_paper_runtime_survives_one_failed_cycle_and_stops_cleanly(caplog):
+    class FailingOnceWorker:
+        def __init__(self):
+            self.calls = 0
+
+        def run_once(self, *, limit):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary sqlite lock")
+            raise AssertionError("stop event should end the loop after the first failure")
+
+    class StopAfterWait:
+        def is_set(self):
+            return False
+
+        def wait(self, seconds):
+            assert seconds == 5
+            return True
+
+    runtime = PaperTradingRuntime(FailingOnceWorker(), poll_interval_seconds=5)
+    runtime.run(StopAfterWait())
+    assert "paper cycle failed safely" in caplog.text
