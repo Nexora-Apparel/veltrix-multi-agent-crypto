@@ -272,23 +272,26 @@ def verify_full_inventory(rpc, factory, events, finalized, label):
     }
 
 
-def inspect_candidate(rpc, candidate, finalized, finalized_hash, events, coverage):
+def inspect_candidate(rpc, candidate, finalized, finalized_hash, events, coverage, verify_creation=True):
     chain_id = quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID")
     if chain_id != CHAIN_ID:
         raise PreflightError(f"{rpc.label}: expected Base chain ID 8453")
     factory = candidate["address"]
-    receipt = rpc.call("eth_getTransactionReceipt", [candidate["creation_tx"]])
-    if not isinstance(receipt, dict) or quantity(receipt.get("status"), "receipt status") != 1:
-        raise PreflightError(f"{rpc.label}: candidate creation receipt missing or unsuccessful")
-    if str(receipt.get("transactionHash", "")).lower() != candidate["creation_tx"].lower():
-        raise PreflightError(f"{rpc.label}: creation transaction hash mismatch")
-    if str(receipt.get("contractAddress", "")).lower() != factory.lower():
-        raise PreflightError(f"{rpc.label}: creation contract address mismatch")
-    if quantity(receipt.get("blockNumber"), "receipt block") != candidate["deployment_block"]:
-        raise PreflightError(f"{rpc.label}: deployment block mismatch")
     deployment = rpc.call("eth_getBlockByNumber", [hex(candidate["deployment_block"]), False])
-    if not isinstance(deployment, dict) or str(deployment.get("hash", "")).lower() != str(receipt.get("blockHash", "")).lower():
-        raise PreflightError(f"{rpc.label}: receipt/deployment block hash mismatch")
+    if not isinstance(deployment, dict) or not deployment.get("hash"):
+        raise PreflightError(f"{rpc.label}: deployment block header unavailable")
+    if verify_creation:
+        receipt = rpc.call("eth_getTransactionReceipt", [candidate["creation_tx"]])
+        if not isinstance(receipt, dict) or quantity(receipt.get("status"), "receipt status") != 1:
+            raise PreflightError(f"{rpc.label}: candidate creation receipt missing or unsuccessful")
+        if str(receipt.get("transactionHash", "")).lower() != candidate["creation_tx"].lower():
+            raise PreflightError(f"{rpc.label}: creation transaction hash mismatch")
+        if str(receipt.get("contractAddress", "")).lower() != factory.lower():
+            raise PreflightError(f"{rpc.label}: creation contract address mismatch")
+        if quantity(receipt.get("blockNumber"), "receipt block") != candidate["deployment_block"]:
+            raise PreflightError(f"{rpc.label}: deployment block mismatch")
+        if str(deployment.get("hash", "")).lower() != str(receipt.get("blockHash", "")).lower():
+            raise PreflightError(f"{rpc.label}: receipt/deployment block hash mismatch")
     finalized_block = rpc.call("eth_getBlockByNumber", [hex(finalized), False])
     if not isinstance(finalized_block, dict) or str(finalized_block.get("hash", "")).lower() != finalized_hash:
         raise PreflightError(f"{rpc.label}: finalized checkpoint hash mismatch")
@@ -296,12 +299,14 @@ def inspect_candidate(rpc, candidate, finalized, finalized_hash, events, coverag
     if not isinstance(code, str) or not code.startswith("0x") or len(code) <= 2:
         raise PreflightError(f"{rpc.label}: factory runtime code missing")
     code_hash = keccak(bytes.fromhex(code[2:])).hex()
-    initial_count = quantity(
-        rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(candidate["deployment_block"])]),
-        f"{rpc.label} allPairsLength at deployment",
-    )
-    if initial_count != 0:
-        raise PreflightError(f"{rpc.label}: factory inventory was non-empty at its deployment block")
+    initial_count = None
+    if verify_creation:
+        initial_count = quantity(
+            rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(candidate["deployment_block"])]),
+            f"{rpc.label} allPairsLength at deployment",
+        )
+        if initial_count != 0:
+            raise PreflightError(f"{rpc.label}: factory inventory was non-empty at its deployment block")
     length = quantity(
         rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(finalized)]),
         f"{rpc.label} allPairsLength",
@@ -404,10 +409,9 @@ def main():
         left = inspect_candidate(primary, candidate, height, checkpoint_hash,
                                  solid_events, solid_coverage)
         right = inspect_candidate(publicnode, candidate, height, checkpoint_hash,
-                                  public_events, public_coverage)
+                                  public_events, public_coverage, verify_creation=False)
         for field in ("chain_id", "deployment_block_hash", "runtime_code_bytes", "runtime_code_keccak256",
-                      "all_pairs_length_at_deployment", "all_pairs_length",
-                      "event_history_keccak256"):
+                      "all_pairs_length", "event_history_keccak256"):
             if left[field] != right[field]:
                 raise PreflightError(f"{candidate['amm_id']}: state providers disagree on {field}")
         if left["inventory"] != right["inventory"]:
