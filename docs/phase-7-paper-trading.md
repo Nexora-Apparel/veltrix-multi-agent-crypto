@@ -76,6 +76,7 @@ SIGTERM. The runtime logs each cycle and stops cleanly.
 
 | Variable | Default | Purpose |
 |---|---:|---|
+| `PAPER_TRADING_ENABLED` | false | Explicit opt-in required to start the worker |
 | `VELTRIX_PAPER_POLL_SECONDS` | 15 | Worker polling interval; 5–3600 seconds |
 | `VELTRIX_PAPER_DECISION_BATCH_SIZE` | 25 | Maximum latest-per-mint decisions per cycle; 1–250 |
 | `VELTRIX_PAPER_FEE_BPS` | 100 | Simulated fee on each side |
