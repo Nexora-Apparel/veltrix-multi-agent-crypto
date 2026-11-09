@@ -367,7 +367,20 @@ class HeliusLaunchIndexer:
             rejected.append("malformed Helius transaction record")
             return
         summary = tx.get("summary") or {}
-        if not isinstance(summary, dict) or str(summary.get("type", "")).lower() != "swap":
+        if not isinstance(summary, dict) or not isinstance(summary.get("type"), str):
+            rejected.append("Helius launch transaction type is unclassified")
+            return
+        tx_type = summary["type"].upper()
+        known_non_buy = {
+            "TRANSFER", "TOKEN_MINT", "BURN", "NFT_SALE", "STAKE",
+            "UNSTAKE", "VOTE", "CREATE_ACCOUNT", "CLOSE_ACCOUNT",
+            "ADD_LIQUIDITY", "REMOVE_LIQUIDITY", "LIQUIDITY_ADD",
+            "LIQUIDITY_REMOVE",
+        }
+        if tx_type in known_non_buy:
+            return
+        if tx_type != "SWAP":
+            rejected.append(f"Helius launch transaction type is unsupported: {tx_type}")
             return
         signature = tx.get("signature")
         timestamp = tx.get("blockTime", tx.get("timestamp"))
@@ -382,11 +395,19 @@ class HeliusLaunchIndexer:
         if not isinstance(transfers, list):
             rejected.append("Helius swap omitted token transfer details")
             return
-        for transfer in transfers:
-            if not isinstance(transfer, dict) or transfer.get("mint") != token:
-                continue
+        target_transfers = [
+            transfer for transfer in transfers
+            if isinstance(transfer, dict) and transfer.get("mint") == token
+        ]
+        if not target_transfers:
+            rejected.append("Helius swap did not include a decoded target-mint transfer")
+            return
+        for transfer in target_transfers:
             wallet = transfer.get("toUserAccount")
             if not isinstance(wallet, str) or not wallet or wallet == transfer.get("fromUserAccount"):
+                if isinstance(transfer.get("fromUserAccount"), str):
+                    continue  # Outbound target-mint leg: a sell, not a launch buy.
+                rejected.append("Helius target-mint swap leg has no identifiable buyer")
                 continue
             try:
                 amount = float(transfer.get("tokenAmount"))
