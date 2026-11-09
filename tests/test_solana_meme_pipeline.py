@@ -218,6 +218,7 @@ class FakeSellSimulationResult:
     succeeded: int = 1
     simulation_failed: int = 0
     provider_failed: int = 0
+    preflight_blocked: int = 0
     deferred: int = 1
 
 
