@@ -196,6 +196,9 @@ class SolanaShieldPolicy:
             if (isinstance(sell_amount_raw, bool)
                     or not isinstance(sell_amount_raw, int)
                     or sell_amount_raw <= 0
+                    or isinstance(sellability.input_amount_raw, bool)
+                    or not isinstance(sellability.input_amount_raw, int)
+                    or sellability.input_amount_raw <= 0
                     or sellability.input_amount_raw != sell_amount_raw):
                 reasons.append("sell-route quote does not match intended paper exit size")
             if (isinstance(sellability.quoted_output_raw, bool)
