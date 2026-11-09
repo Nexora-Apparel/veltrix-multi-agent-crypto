@@ -196,8 +196,10 @@ class SolanaPaperDecisionRunner:
                 try:
                     context = self.agent_context_provider(mint, {
                         "market": market, "risk": risk, "developer": developer,
-                        "bundle": bundle,
+                        "bundle": bundle, "evaluation_now_ms": now,
                     })
+                    # Re-evaluate freshness after bounded agent-context collection.
+                    now = self.clock_ms()
                 except Exception as exc:
                     context_error = f"{type(exc).__name__}: {str(exc)[:200]}"
             evidence_ids = {
