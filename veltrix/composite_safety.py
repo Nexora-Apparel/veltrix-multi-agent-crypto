@@ -110,13 +110,15 @@ class CompositeTokenSafetyValidator:
                 reasons.append("launch bundle chain mismatch")
             if not isinstance(report.provider, str) or report.provider not in self.trusted_bundle:
                 reasons.append("launch bundle provider is not trusted")
-            if (not isinstance(report.launch_at_ms, int) or isinstance(report.launch_at_ms, bool)
-                    or not isinstance(report.window_end_ms, int) or isinstance(report.window_end_ms, bool)
-                    or report.launch_at_ms > report.window_end_ms):
+            valid_window = (
+                isinstance(report.launch_at_ms, int) and not isinstance(report.launch_at_ms, bool)
+                and isinstance(report.window_end_ms, int) and not isinstance(report.window_end_ms, bool)
+                and report.launch_at_ms <= report.window_end_ms
+            )
+            if not valid_window:
                 reasons.append("launch bundle time range is invalid")
-            else:
-                if report.window_end_ms > now_ms:
-                    reasons.append("launch bundle evidence window is in the future")
+            elif report.window_end_ms > now_ms:
+                reasons.append("launch bundle evidence window is in the future")
             if report.coverage_complete is not True or report.rejected:
                 reasons.append("launch bundle coverage or evidence validation is incomplete")
             if not isinstance(report.evidence_id, str) or not report.evidence_id.strip():
@@ -126,7 +128,8 @@ class CompositeTokenSafetyValidator:
                     or report.observed_at_ms > now_ms
                     or now_ms - report.observed_at_ms > self.max_age_ms):
                 reasons.append("launch bundle report provenance is stale or invalid")
-            if (not isinstance(report.scanned_through_ms, int)
+            if (not valid_window or not isinstance(report.scanned_through_ms, int)
+                    or isinstance(report.scanned_through_ms, bool)
                     or report.scanned_through_ms < report.window_end_ms):
                 reasons.append("launch indexer did not prove coverage through window end")
             if report.supply_source != report.provider or not report.supply_block_ref:
@@ -136,14 +139,25 @@ class CompositeTokenSafetyValidator:
                     or report.supply_observed_at_ms > now_ms
                     or now_ms - report.supply_observed_at_ms > self.max_age_ms):
                 reasons.append("launch-time supply evidence is stale or invalid")
-            if report.accepted_transactions > 0 and (
-                not report.funder_providers or any(
-                    provider not in self.trusted_funding for provider in report.funder_providers
+            accepted_count = report.accepted_transactions
+            if (not isinstance(accepted_count, int) or isinstance(accepted_count, bool)
+                    or accepted_count < 0):
+                reasons.append("launch transaction count is invalid")
+                accepted_count = 0
+            funder_providers = report.funder_providers
+            if not isinstance(funder_providers, (tuple, list)) or any(
+                not isinstance(provider, str) or not provider for provider in funder_providers
+            ):
+                reasons.append("funding provider provenance is malformed")
+                funder_providers = ()
+            if accepted_count > 0 and (
+                not funder_providers or any(
+                    provider not in self.trusted_funding for provider in funder_providers
                 )
             ):
                 reasons.append("shared-funder evidence provider is missing or untrusted")
-            if report.accepted_transactions > 0 and (
-                set(report.funder_providers) & (set(provider_ids) | {report.provider})
+            if accepted_count > 0 and (
+                set(funder_providers) & (set(provider_ids) | {report.provider})
             ):
                 reasons.append("funding trace provider must be independent from other safety claims")
             try:
