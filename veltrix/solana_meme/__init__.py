@@ -4,6 +4,7 @@ from .candidates import (
     CandidateRejected, SolanaCandidate, canonical_mint,
     deduplicate_candidates, normalize_candidate,
 )
+from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .launch_stream import LaunchStore, LaunchStreamManager
 from .market_data import MarketDataUnavailable, SolanaMarketData, SolanaMarketSnapshot
 from .market_store import MarketSnapshotStore
@@ -16,4 +17,5 @@ __all__ = [
     "LaunchStore", "LaunchStreamManager",
     "MarketDataUnavailable", "SolanaMarketData", "SolanaMarketSnapshot",
     "MarketSnapshotStore",
+    "CandidateEnrichmentWorker", "EnrichmentBatchResult",
 ]
