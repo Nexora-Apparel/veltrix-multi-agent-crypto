@@ -17,7 +17,7 @@ def evidence():
         goplus_observed_at_ms=10_000, liquidity_locked=True,
         holder_provider="rpc", holder_evidence_id="holders:1",
         holder_block_ref="finalized:1", holder_count=2,
-        total_supply_raw=100, observed_holder_balance_raw=100,
+        total_supply_raw=1_000_000_000, observed_holder_balance_raw=1_000_000_000,
         holder_coverage_complete=True, top_holder_pct=60.0,
         top5_holder_pct=100.0, top10_holder_pct=100.0,
         missing_claims=(), errors=(),
