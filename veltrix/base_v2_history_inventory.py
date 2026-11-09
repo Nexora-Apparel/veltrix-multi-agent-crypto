@@ -235,25 +235,40 @@ def verify_full_inventory(rpc, factory, events, finalized, label):
             ("eth_call", [{"to": factory, "data": selector("allPairs(uint256)") + word_uint(index)}, hex(finalized)]),
             ("eth_call", [{"to": event["pair"], "data": selector("token0()")}, hex(finalized)]),
             ("eth_call", [{"to": event["pair"], "data": selector("token1()")}, hex(finalized)]),
+            ("eth_call", [{"to": event["pair"], "data": selector("factory()")}, hex(finalized)]),
+            ("eth_call", [{
+                "to": factory,
+                "data": selector("getPair(address,address)")
+                        + word_address(event["token0"])
+                        + word_address(event["token1"]),
+            }, hex(finalized)]),
         ])
         descriptors.append(event)
     values = batch_rpc(rpc, requests, label)
     inventory_rows = []
     for i, event in enumerate(descriptors):
-        base = i * 3
+        base = i * 5
         pair_at_index = decode_address_word(values[base], f"{label} allPairs({i})")
         token0 = decode_address_word(values[base + 1], f"{label} pair token0")
         token1 = decode_address_word(values[base + 2], f"{label} pair token1")
+        pair_factory = decode_address_word(values[base + 3], f"{label} pair factory")
+        mapped_pair = decode_address_word(values[base + 4], f"{label} getPair({i})")
         expected = event["pair"].lower()
         if pair_at_index.lower() != expected:
             raise PreflightError(f"{label}: allPairs({i}) does not match PairCreated event")
         if token0.lower() != event["token0"].lower() or token1.lower() != event["token1"].lower():
             raise PreflightError(f"{label}: pair token0/token1 disagree with PairCreated event at index {i}")
+        if pair_factory.lower() != factory.lower():
+            raise PreflightError(f"{label}: pair factory() does not point to the candidate factory at index {i}")
+        if mapped_pair.lower() != expected:
+            raise PreflightError(f"{label}: factory getPair(token0, token1) does not match PairCreated event at index {i}")
         inventory_rows.append({
             "index": i,
             "pair": expected,
             "token0": token0.lower(),
             "token1": token1.lower(),
+            "pair_factory": pair_factory.lower(),
+            "get_pair": mapped_pair.lower(),
         })
         if (i + 1) % 1000 == 0:
             print(
@@ -267,7 +282,7 @@ def verify_full_inventory(rpc, factory, events, finalized, label):
         "inventory_keccak256": keccak(encoded).hex(),
         "all_pairs_index_coverage": len(inventory_rows) == len(events),
         "relationship_checks_per_pair": [
-            "allPairs(index)", "token0()", "token1()"
+            "allPairs(index)", "token0()", "token1()", "factory()", "getPair(token0, token1)"
         ],
     }
 
