@@ -129,6 +129,27 @@ class PaperBroker:
                 db.execute("UPDATE position_state SET hit_2x=1 WHERE token=?", (token,))
         return actions
 
+    def recent_market_observations(self, token, limit=20):
+        """Return prior persisted market observations, newest first."""
+        if not token or limit < 1:
+            return []
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM events WHERE event='MARKET_OBSERVATION' ORDER BY id DESC LIMIT ?",
+                (int(limit) * 20,)
+            ).fetchall()
+        observations = []
+        for row in rows:
+            try:
+                item = json.loads(row["payload"])
+            except (TypeError, ValueError):
+                continue
+            if item.get("token") == token:
+                observations.append(item)
+                if len(observations) >= limit:
+                    break
+        return observations
+
     def record_agent_decision(self, token, decision, signals, reason):
         payload = {"token": token, "decision": decision, "signals": signals, "reason": reason}
         with self._connect() as db:
