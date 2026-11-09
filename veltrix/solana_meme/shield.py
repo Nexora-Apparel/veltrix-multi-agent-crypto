@@ -31,9 +31,9 @@ class ShieldDecision:
 class SolanaShieldPolicy:
     """Require complete evidence, composite safety, agent consensus and limits.
 
-    The policy deliberately emits only BLOCK or HOLD until every mandatory
-    claim has an independently collected value and a composite certificate.
-    Even an approval is strictly for the paper broker.
+    Any unknown mandatory claim, missing provenance, or non-positive liquidity
+    verification vetoes entry. Even a positive decision is strictly for the
+    paper broker and never authorizes live execution.
     """
 
     def __init__(
@@ -69,20 +69,50 @@ class SolanaShieldPolicy:
         canonical = canonical_mint(mint)
         reasons: list[str] = []
 
+        if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms < 0:
+            reasons.append("evaluation timestamp is invalid")
+
         if not isinstance(evidence, SolanaRiskEvidenceReport):
             reasons.append("typed Solana risk evidence report is required")
         elif evidence.mint != canonical:
             reasons.append("risk evidence mint mismatch")
         else:
+            provenance = (
+                evidence.goplus_provider,
+                evidence.goplus_evidence_id,
+                evidence.holder_provider,
+                evidence.holder_evidence_id,
+                evidence.holder_block_ref,
+            )
+            if any(not isinstance(value, str) or not value.strip() for value in provenance):
+                reasons.append("risk evidence provenance is incomplete")
+            if (isinstance(evidence.goplus_observed_at_ms, bool)
+                    or not isinstance(evidence.goplus_observed_at_ms, int)):
+                reasons.append("GoPlus evidence timestamp is invalid")
+            elif (now_ms - evidence.goplus_observed_at_ms < 0
+                    or now_ms - evidence.goplus_observed_at_ms > self.max_evidence_age_ms):
+                reasons.append("GoPlus evidence is stale or future-dated")
+            if evidence.liquidity_locked is False:
+                reasons.append("liquidity lock explicitly failed")
+            elif evidence.liquidity_locked is not True:
+                reasons.append("liquidity lock is not positively verified")
             if evidence.errors:
                 reasons.append("risk evidence contains provider or validation errors")
             if evidence.missing_claims:
                 reasons.append("mandatory risk claims remain unknown")
-            age = now_ms - evidence.observed_at_ms
-            if age < 0 or age > self.max_evidence_age_ms:
-                reasons.append("risk evidence report is stale or future-dated")
+            if (isinstance(evidence.observed_at_ms, bool)
+                    or not isinstance(evidence.observed_at_ms, int)):
+                reasons.append("risk evidence report timestamp is invalid")
+            else:
+                age = now_ms - evidence.observed_at_ms
+                if age < 0 or age > self.max_evidence_age_ms:
+                    reasons.append("risk evidence report is stale or future-dated")
             if not evidence.holder_coverage_complete:
                 reasons.append("complete reconciled holder inventory is required")
+            if (not isinstance(evidence.total_supply_raw, int)
+                    or evidence.total_supply_raw <= 0
+                    or evidence.observed_holder_balance_raw != evidence.total_supply_raw):
+                reasons.append("holder balances do not reconcile exactly to supply")
 
         if not isinstance(safety, SafetyReport):
             reasons.append("typed composite safety report is required")
@@ -91,9 +121,13 @@ class SolanaShieldPolicy:
                 reasons.append("composite safety report mint mismatch")
             if safety.passed is not True or safety.composite_verified is not True:
                 reasons.append("composite safety certificate is not positively verified")
-            age = now_ms - safety.observed_at_ms
-            if age < 0 or age > self.max_evidence_age_ms:
-                reasons.append("composite safety certificate is stale or future-dated")
+            if (isinstance(safety.observed_at_ms, bool)
+                    or not isinstance(safety.observed_at_ms, int)):
+                reasons.append("composite safety timestamp is invalid")
+            else:
+                age = now_ms - safety.observed_at_ms
+                if age < 0 or age > self.max_evidence_age_ms:
+                    reasons.append("composite safety certificate is stale or future-dated")
 
         if isinstance(open_positions, bool) or not isinstance(open_positions, int) or open_positions < 0:
             reasons.append("open position count is invalid")
@@ -144,5 +178,5 @@ class SolanaShieldPolicy:
             reasons=unique_reasons,
             approving_agents=tuple(sorted(buy_agents)) if not unique_reasons else (),
             amount=float(amount) if valid_amount else 0.0,
-            observed_at_ms=now_ms,
+            observed_at_ms=now_ms if isinstance(now_ms, int) and not isinstance(now_ms, bool) else 0,
         )
