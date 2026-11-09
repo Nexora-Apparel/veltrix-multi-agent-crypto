@@ -4,7 +4,7 @@ Run with:
     python -m veltrix.solana_meme.worker
 
 Configuration:
-    VELTRIX_SOLANA_DISCOVERY_DB=data/solana_discovery.sqlite3
+    VELTRIX_SOLANA_DISCOVERY_DB defaults to DB_PATH, then data/solana_discovery.sqlite3
     VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS=30
     VELTRIX_PUMPPORTAL_WS_ENDPOINT=wss://pumpportal.fun/api/data
 """
@@ -35,7 +35,7 @@ def build_engine(
     """Construct the production discovery runtime without opening network sockets."""
     db_path = database_path or os.getenv(
         "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
+        os.getenv("DB_PATH", "data/solana_discovery.sqlite3"),
     )
     raw_interval = (
         poll_interval_seconds
