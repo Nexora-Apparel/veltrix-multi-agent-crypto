@@ -21,7 +21,8 @@ def passing_report():
         ),
     )
     return CompositeTokenSafetyValidator(
-        ["lock"], ["dev"], ["bundle"], max_age_ms=10_000
+        ["lock"], ["dev"], ["bundle"], max_age_ms=10_000,
+        capability_certifier=lambda provider, chain, claim: True,
     ).validate("x", bundle, now, chain="solana")
 
 def test_sniper_fails_closed_when_report_missing():
