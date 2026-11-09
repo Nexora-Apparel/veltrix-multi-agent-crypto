@@ -3,10 +3,11 @@ from .discovery import DexScreenerDiscovery
 from .ledger import PaperBroker
 from .providers.dexscreener import DexScreenerProvider
 from .signal_intelligence import SignalContextBuilder
+from .liquidity_evidence import LiquidityEvidenceAnalyzer
 import time
 
 class MarketMonitor:
-    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000, launch_intelligence=None, launch_origin_resolvers=None, trusted_launch_origin_providers=(), developer_evidence=None):
+    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000, launch_intelligence=None, launch_origin_resolvers=None, trusted_launch_origin_providers=(), developer_evidence=None, liquidity_evidence_providers=None, liquidity_evidence_analyzer=None):
         self.watchlist = watchlist
         self.provider = provider or DexScreenerProvider()
         self.discovery = discovery or DexScreenerDiscovery()
@@ -25,6 +26,9 @@ class MarketMonitor:
         self.last_launch_results = {}
         self.developer_evidence = developer_evidence
         self.last_developer_results = {}
+        self.liquidity_evidence_providers = liquidity_evidence_providers or {}
+        self.liquidity_evidence_analyzer = liquidity_evidence_analyzer or LiquidityEvidenceAnalyzer()
+        self.last_liquidity_results = {}
         self._launch_checked = set()
         self._launch_retry_after = {}
 
@@ -65,12 +69,45 @@ class MarketMonitor:
                 if origin.launch_block is None:
                     raise ValueError("Solana launch slot is missing")
                 kwargs = {"launch_slot": origin.launch_block}
+            now_ms = int(time.time() * 1000)
+            liquidity_evidence = None
+            liquidity_provider = self.liquidity_evidence_providers.get(candidate.chain)
+            if liquidity_provider is None:
+                self.last_liquidity_results[key] = {
+                    "status": "blocked", "reason": "chain-specific complete LP inventory reader is not configured"
+                }
+            else:
+                try:
+                    liquidity_batch = liquidity_provider.fetch_inventory(candidate.token_address)
+                    liquidity_report = self.liquidity_evidence_analyzer.evaluate(
+                        liquidity_batch, chain=candidate.chain,
+                        token_address=candidate.token_address, now_ms=now_ms,
+                    )
+                    self.last_liquidity_results[key] = {
+                        "status": "verified" if liquidity_report.passed else "blocked",
+                        "pool_count": liquidity_report.pool_count,
+                        "verified_pool_count": liquidity_report.verified_pool_count,
+                        "active_locked_pool_count": liquidity_report.active_locked_pool_count,
+                        "active_locked_pct": liquidity_report.active_locked_pct,
+                        "earliest_unlock_at_ms": liquidity_report.earliest_unlock_at_ms,
+                        "evidence_id": liquidity_report.evidence_id,
+                        "reasons": liquidity_report.reasons,
+                    }
+                    if liquidity_report.passed:
+                        liquidity_evidence = liquidity_report.to_safety_evidence(
+                            independence_group=liquidity_batch.independence_group
+                        )
+                except Exception as exc:
+                    self.last_liquidity_results[key] = {
+                        "status": "blocked",
+                        "reason": f"{type(exc).__name__}: chain liquidity evidence request failed",
+                    }
             report, safety = self.launch_intelligence.evaluate(
                 chain=candidate.chain,
                 token_address=candidate.token_address,
                 launch_at_ms=origin.launch_at_ms,
-                now_ms=int(time.time() * 1000),
-                liquidity_evidence=None,
+                now_ms=now_ms,
+                liquidity_evidence=liquidity_evidence,
                 developer_evidence=None,
                 indexer_kwargs=kwargs,
             )
@@ -78,6 +115,8 @@ class MarketMonitor:
                 "status": "certified" if safety.passed and safety.composite_verified else "blocked",
                 "origin_provider": origin.provider,
                 "origin_evidence_id": origin.evidence_id,
+                "liquidity_evidence_id": getattr(liquidity_evidence, "evidence_id", None),
+                "liquidity_status": self.last_liquidity_results[key]["status"],
                 "bundle_coverage_complete": report.coverage_complete,
                 "bundled_supply_pct": report.bundled_supply_pct,
                 "safety_reasons": safety.reasons,
@@ -87,9 +126,9 @@ class MarketMonitor:
                     chain=candidate.chain,
                     token_address=candidate.token_address,
                     root_attestation=None,
-                    liquidity_evidence=None,
+                    liquidity_evidence=liquidity_evidence,
                     launch_bundle=report,
-                    now_ms=int(time.time() * 1000),
+                    now_ms=now_ms,
                 )
                 self.last_developer_results[key] = {
                     "status": "analyzed" if developer_result.report.coverage_complete else "blocked",
