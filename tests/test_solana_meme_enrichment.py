@@ -73,7 +73,7 @@ def test_worker_batches_discovered_mints_and_persists_market_snapshots(tmp_path)
     assert (result.discovered, result.processed, result.enriched, result.failed) == (2, 2, 2, 0)
     assert snapshots.count() == 2
     assert worker.status()["completed"] == 2
-    assert provider.calls == [("solana", [MINT_A, MINT_B])]
+    assert provider.calls == [("solana", sorted([MINT_A, MINT_B]))]
 
 
 def test_completed_candidate_is_not_reprocessed(tmp_path):
