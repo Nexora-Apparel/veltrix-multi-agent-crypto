@@ -144,8 +144,7 @@ class LaunchIntelligenceService:
         )
         return LaunchGateResult(report, safety)
 
-    @staticmethod
-    def _coverage_is_complete(snapshot, provider_id, chain, token_address, now_ms):
+    def _coverage_is_complete(self, snapshot, provider_id, chain, token_address, now_ms):
         if not isinstance(snapshot, LaunchIndexSnapshot):
             return False
         coverage = snapshot.coverage
@@ -162,10 +161,7 @@ class LaunchIntelligenceService:
             and coverage.token_address == token_address
             and coverage.evidence_id
             and coverage.requested_start_ms == snapshot.launch_at_ms
-            and coverage.requested_end_ms == snapshot.launch_at_ms + (
-                coverage.requested_end_ms - coverage.requested_start_ms
-            )
-            and coverage.requested_end_ms >= coverage.requested_start_ms
+            and coverage.requested_end_ms == snapshot.launch_at_ms + self.launch_window_ms
             and coverage.indexed_through_ms >= coverage.requested_end_ms
             and coverage.pages_expected >= 1
             and coverage.pages_completed == coverage.pages_expected
