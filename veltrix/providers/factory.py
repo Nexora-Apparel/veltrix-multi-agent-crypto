@@ -148,10 +148,10 @@ def build_liquidity_snapshot_providers(settings, *, session=None):
             rows = json.loads(raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{label} must be valid JSON") from exc
-        if not isinstance(rows, list) or not rows:
-            raise ValueError(f"{label} must be a non-empty JSON array")
+        if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) for row in rows):
+            raise ValueError(f"{label} must be a non-empty array of JSON objects")
         try:
-            return tuple(model(**row) for row in rows if isinstance(row, dict))
+            return tuple(model(**row) for row in rows)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{label} contains an invalid entry") from exc
 
