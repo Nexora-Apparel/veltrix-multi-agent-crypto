@@ -50,7 +50,9 @@ class ExecutionPolicy:
     policy_version: int = 1
 
     def __post_init__(self) -> None:
-        if not self.chain or self.chain.strip() != self.chain:
+        if not isinstance(self.mode, ExecutionMode):
+            raise PolicyError("mode must be an ExecutionMode")
+        if not isinstance(self.chain, str) or not self.chain or self.chain.strip() != self.chain:
             raise PolicyError("chain must be a non-empty canonical identifier")
         for name in (
             "max_trade_base_units",
@@ -59,36 +61,46 @@ class ExecutionPolicy:
             "max_daily_loss_base_units",
             "max_slippage_bps",
             "max_priority_fee_base_units",
+            "max_market_data_age_ms",
+            "policy_version",
         ):
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise PolicyError(f"{name} must be a non-negative integer")
-        if self.max_market_data_age_ms <= 0:
-            raise PolicyError("max_market_data_age_ms must be positive")
-        if not 0 <= self.max_slippage_bps <= 10_000:
+            minimum = 1 if name in {"max_market_data_age_ms", "policy_version"} else 0
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise PolicyError(f"{name} must be an integer >= {minimum}")
+        if self.max_slippage_bps > 10_000:
             raise PolicyError("max_slippage_bps must be between 0 and 10000")
-        if self.policy_version < 1:
-            raise PolicyError("policy_version must be positive")
+        if not isinstance(self.allowed_program_ids, tuple):
+            raise PolicyError("allowed_program_ids must be an immutable tuple")
+        if any(
+            not isinstance(item, str) or not item or item.strip() != item
+            for item in self.allowed_program_ids
+        ):
+            raise PolicyError("program IDs must be non-empty canonical strings")
         if len(set(self.allowed_program_ids)) != len(self.allowed_program_ids):
             raise PolicyError("allowed_program_ids must not contain duplicates")
-        if any(not item or item.strip() != item for item in self.allowed_program_ids):
-            raise PolicyError("program IDs must be non-empty canonical strings")
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str]) -> "ExecutionPolicy":
         """Build the only currently supported runtime policy: PAPER.
 
         LIVE_TRADING=true is explicitly rejected for backwards compatibility.
-        Unknown truthy values are rejected rather than interpreted as false.
+        Unknown values are rejected rather than interpreted as false.
         """
-        raw = env.get("LIVE_TRADING", "false").strip().lower()
+        raw_flag = env.get("LIVE_TRADING", "false")
+        if not isinstance(raw_flag, str):
+            raise PolicyError("LIVE_TRADING must be a string")
+        raw = raw_flag.strip().lower()
         if raw not in {"false", "0", "no", "off", ""}:
             if raw in {"true", "1", "yes", "on"}:
                 raise PolicyError("live execution is disabled in this release")
             raise PolicyError("LIVE_TRADING must be an explicit false value")
+        chain = env.get("EXECUTION_CHAIN", "solana-mainnet")
+        if not isinstance(chain, str):
+            raise PolicyError("EXECUTION_CHAIN must be a string")
         return cls(
             mode=ExecutionMode.PAPER,
-            chain=env.get("EXECUTION_CHAIN", "solana-mainnet"),
+            chain=chain,
             max_market_data_age_ms=_strict_int(
                 env.get("EXECUTION_MAX_MARKET_DATA_AGE_MS", "5000"),
                 "EXECUTION_MAX_MARKET_DATA_AGE_MS",
@@ -118,6 +130,8 @@ class ExecutionPolicy:
 
 
 def _strict_int(raw: str, name: str, *, minimum: int = 0) -> int:
+    if isinstance(raw, bool):
+        raise PolicyError(f"{name} must be an integer")
     try:
         value = int(raw, 10)
     except (TypeError, ValueError) as exc:
@@ -166,6 +180,17 @@ class OperatorAuthorization:
         }
         return json.dumps(values, sort_keys=True, separators=(",", ":")).encode()
 
+    @staticmethod
+    def _validate_signing_key(signing_key: bytes) -> None:
+        if not isinstance(signing_key, bytes) or len(signing_key) < 32:
+            raise AuthorizationError("authorization signing key must be at least 32 bytes")
+
+    @staticmethod
+    def _validate_clock(value: int, name: str) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise AuthorizationError(f"{name} must be a non-negative integer timestamp")
+        return value
+
     @classmethod
     def issue(
         cls,
@@ -177,15 +202,21 @@ class OperatorAuthorization:
         ttl_seconds: int = 60,
         now: int | None = None,
     ) -> "OperatorAuthorization":
-        if not isinstance(signing_key, bytes) or len(signing_key) < 32:
-            raise AuthorizationError("authorization signing key must be at least 32 bytes")
-        if policy.mode is not ExecutionMode.LIVE:
+        cls._validate_signing_key(signing_key)
+        if not isinstance(policy, ExecutionPolicy) or policy.mode is not ExecutionMode.LIVE:
             raise AuthorizationError("operator authorization is only meaningful for a live policy")
-        if not wallet_public_key or not intent_id:
-            raise AuthorizationError("wallet public key and intent ID are required")
-        if isinstance(ttl_seconds, bool) or not 1 <= ttl_seconds <= 300:
-            raise AuthorizationError("authorization TTL must be between 1 and 300 seconds")
-        issued = int(time.time()) if now is None else int(now)
+        if (
+            not isinstance(wallet_public_key, str)
+            or not wallet_public_key
+            or wallet_public_key.strip() != wallet_public_key
+            or not isinstance(intent_id, str)
+            or not intent_id
+            or intent_id.strip() != intent_id
+        ):
+            raise AuthorizationError("wallet public key and intent ID must be canonical strings")
+        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 1 <= ttl_seconds <= 300:
+            raise AuthorizationError("authorization TTL must be an integer between 1 and 300 seconds")
+        issued = cls._validate_clock(int(time.time()) if now is None else now, "issued_at")
         expires = issued + ttl_seconds
         auth_id = secrets.token_hex(16)
         payload = cls._payload(
@@ -193,8 +224,10 @@ class OperatorAuthorization:
             intent_id, issued, expires,
         )
         signature = hmac.new(signing_key, payload, hashlib.sha256).hexdigest()
-        return cls(auth_id, wallet_public_key, policy.chain, policy.policy_hash,
-                   intent_id, issued, expires, signature)
+        return cls(
+            auth_id, wallet_public_key, policy.chain, policy.policy_hash,
+            intent_id, issued, expires, signature,
+        )
 
     def verify_and_consume(
         self,
@@ -206,13 +239,28 @@ class OperatorAuthorization:
         consumer: AuthorizationConsumer,
         now: int | None = None,
     ) -> None:
-        current = int(time.time()) if now is None else int(now)
-        if policy.mode is not ExecutionMode.LIVE:
+        self._validate_signing_key(signing_key)
+        if not isinstance(policy, ExecutionPolicy) or policy.mode is not ExecutionMode.LIVE:
             raise AuthorizationError("policy is not live")
-        if current < self.issued_at or current >= self.expires_at:
+        if not isinstance(consumer, AuthorizationConsumer):
+            raise AuthorizationError("an atomic authorization consumer is required")
+        current = self._validate_clock(int(time.time()) if now is None else now, "current time")
+        issued = self._validate_clock(self.issued_at, "issued_at")
+        expires = self._validate_clock(self.expires_at, "expires_at")
+        if expires <= issued or expires - issued > 300:
+            raise AuthorizationError("authorization lifetime is invalid")
+        if current < issued or current >= expires:
             raise AuthorizationError("authorization is not currently valid")
-        if self.expires_at - self.issued_at > 300:
-            raise AuthorizationError("authorization lifetime exceeds maximum")
+        if (
+            not isinstance(self.authorization_id, str)
+            or not self.authorization_id
+            or not isinstance(self.signature, str)
+            or not isinstance(self.policy_hash, str)
+            or not isinstance(self.chain, str)
+            or not isinstance(self.wallet_public_key, str)
+            or not isinstance(self.intent_id, str)
+        ):
+            raise AuthorizationError("authorization fields are malformed")
         if (
             self.wallet_public_key != wallet_public_key
             or self.chain != policy.chain
@@ -222,10 +270,14 @@ class OperatorAuthorization:
             raise AuthorizationError("authorization scope does not match request")
         payload = self._payload(
             self.authorization_id, self.wallet_public_key, self.chain,
-            self.policy_hash, self.intent_id, self.issued_at, self.expires_at,
+            self.policy_hash, self.intent_id, issued, expires,
         )
         expected = hmac.new(signing_key, payload, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, self.signature):
             raise AuthorizationError("authorization signature is invalid")
-        if not consumer.consume(self.authorization_id, self.expires_at):
+        try:
+            consumed = consumer.consume(self.authorization_id, expires)
+        except Exception as exc:
+            raise AuthorizationError("authorization could not be consumed atomically") from exc
+        if not consumed:
             raise AuthorizationError("authorization has already been consumed")
