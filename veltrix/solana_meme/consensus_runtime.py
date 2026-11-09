@@ -130,21 +130,25 @@ def build_runtime(
     if wallet_event_provider is None and wallet_event_batch_provider is None:
         api_key = os.getenv("HELIUS_API_KEY", "")
         if api_key and wallets and "helius" in provider_ids:
-            try:
-                max_wallet_age = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
-                max_tracked_wallets = int(os.getenv("VELTRIX_HELIUS_WALLET_SCAN_LIMIT", "10"))
-                wallet_event_batch_provider = HeliusWalletEventBatchProvider(
-                    api_key=api_key,
-                    trusted_wallets=wallets,
-                    trusted_provider_ids=provider_ids,
-                    market_store=market_store,
-                    clock_ms=worker_clock_ms,
-                    max_wallet_age_ms=max_wallet_age,
-                    max_tracked_wallets=max_tracked_wallets,
-                )
-                LOGGER.info("Helius wallet evidence feed enabled for %s explicitly allowlisted wallets", len(wallets))
-            except (TypeError, ValueError) as exc:
-                LOGGER.warning("Helius wallet evidence feed disabled by invalid configuration: %s", exc)
+            max_wallet_age = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
+            max_tracked_wallets = int(os.getenv("VELTRIX_HELIUS_WALLET_SCAN_LIMIT", "10"))
+            if not 2 <= max_tracked_wallets <= 25:
+                raise ValueError("VELTRIX_HELIUS_WALLET_SCAN_LIMIT must be between 2 and 25")
+            if len(wallets) > max_tracked_wallets:
+                raise ValueError("trusted Solana wallet allowlist exceeds the configured Helius scan limit")
+            if max_wallet_age < 1:
+                raise ValueError("WALLET_EVIDENCE_MAX_AGE_MS must be positive")
+            wallet_event_batch_provider = HeliusWalletEventBatchProvider(
+                api_key=api_key,
+                trusted_wallets=wallets,
+                trusted_provider_ids=provider_ids,
+                market_store=market_store,
+                clock_ms=worker_clock_ms,
+                max_wallet_age_ms=max_wallet_age,
+                max_tracked_wallets=max_tracked_wallets,
+            )
+            wallet_event_provider = wallet_event_batch_provider
+            LOGGER.info("Helius wallet evidence feed enabled for %s explicitly allowlisted wallets", len(wallets))
         else:
             LOGGER.info(
                 "Helius wallet evidence feed disabled; requires HELIUS_API_KEY, "
