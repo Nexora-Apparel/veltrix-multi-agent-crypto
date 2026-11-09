@@ -3,7 +3,7 @@ import time
 from .config import settings
 from .ledger import PaperBroker
 from .monitor import MarketMonitor
-from .providers.factory import build_intelligence_coordinator, build_developer_evidence_orchestrator
+from .providers.factory import (build_intelligence_coordinator, build_developer_evidence_orchestrator, build_liquidity_snapshot_providers)
 from .providers.intelligence import VerifiedIntelligenceAdapters
 from .providers.launch import build_launch_intelligence_service
 from .launch_origin import build_launch_origin_resolvers
@@ -23,6 +23,7 @@ def main():
     launch_service = None
     origin_resolvers = {}
     developer_evidence = None
+    liquidity_evidence_providers = {}
     if cfg.launch_intelligence_enabled:
         adapters = VerifiedIntelligenceAdapters.from_settings(cfg)
         launch_service = build_launch_intelligence_service(cfg, adapters)
@@ -30,6 +31,10 @@ def main():
         developer_evidence = build_developer_evidence_orchestrator(
             cfg, adapters, audit_sink=broker,
         )
+        try:
+            liquidity_evidence_providers = build_liquidity_snapshot_providers(cfg)
+        except (ValueError, TypeError) as exc:
+            print(f"Liquidity reader configuration blocked safely: {type(exc).__name__}")
     monitor = MarketMonitor(watchlist, cfg.db_path, discovery_enabled=cfg.discovery_enabled,
         allowed_chains=cfg.discovery_chains, max_discovered_per_chain=cfg.max_discovered_per_chain,
         broker=broker, wallet_intelligence=wallet_intelligence,
@@ -37,7 +42,8 @@ def main():
         launch_intelligence=launch_service,
         launch_origin_resolvers=origin_resolvers,
         trusted_launch_origin_providers=cfg.trusted_launch_origin_providers,
-        developer_evidence=developer_evidence)
+        developer_evidence=developer_evidence,
+        liquidity_evidence_providers=liquidity_evidence_providers)
     readiness = build_provider_readiness(cfg)
     print(f"Provider readiness: {len(readiness.blocked_claims)}/{len(readiness.claims)} chain/claim checks blocked; fully ready: {readiness.fully_ready}")
     for item in readiness.blocked_claims:
@@ -47,7 +53,7 @@ def main():
     print(f"Profile discovery enabled: {cfg.discovery_enabled}; chains: {','.join(cfg.discovery_chains)}")
     print("Discovery candidates are untrusted leads only. No paper or live orders are generated.")
     print(f"Wallet intelligence connectors configured: {len(intelligence.providers)}; trusted: {len(cfg.trusted_wallet_providers)}")
-    print(f"Launch intelligence enabled: {cfg.launch_intelligence_enabled}; indexers: {len(getattr(launch_service, 'indexers', {}))}; origin resolvers: {len(origin_resolvers)}")
+    print(f"Launch intelligence enabled: {cfg.launch_intelligence_enabled}; indexers: {len(getattr(launch_service, 'indexers', {}))}; origin resolvers: {len(origin_resolvers)}; liquidity readers: {len(liquidity_evidence_providers)}")
     if cfg.launch_intelligence_enabled:
         print("Launch candidates are submitted to bundle and developer-evidence analysis. Missing signed roots, liquidity evidence or certified claim providers fail closed; no paper entries are opened.")
     deadline = time.monotonic() + args.hours * 3600
@@ -61,6 +67,11 @@ def main():
                 wallet_failures = sum(len(batch.provider_failures) for batch in wallet_batches)
                 launch_checked = len(monitor.last_launch_results)
                 developer_checked = len(monitor.last_developer_results)
+                liquidity_checked = len(monitor.last_liquidity_results)
+                liquidity_verified = sum(
+                    1 for item in monitor.last_liquidity_results.values()
+                    if item.get("status") == "verified"
+                )
                 developer_analyzed = sum(
                     1 for item in monitor.last_developer_results.values()
                     if item.get("status") == "analyzed"
@@ -75,6 +86,8 @@ def main():
                     f"multi-wallet clusters: {wallet_clusters}; "
                     f"provider failures: {wallet_failures}; "
                     f"launch candidates checked: {launch_checked}; "
+                    f"liquidity inventory checks: {liquidity_checked}; "
+                    f"verified liquidity snapshots: {liquidity_verified}; "
                     f"developer evidence checks: {developer_checked}; "
                     f"complete developer analyses: {developer_analyzed}; "
                     f"composite safety passes: {launch_certified}"
