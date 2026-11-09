@@ -403,3 +403,58 @@ def test_worker_blocks_entry_that_would_exceed_portfolio_exposure_policy(tmp_pat
     assert result.blocked_entries == 1
     assert broker.snapshot()["open_positions"] == []
     assert "exposure cap" in broker.paper_decisions(limit=1)[0]["reason"]
+
+def test_broker_atomically_rechecks_latest_market_snapshot(tmp_path):
+    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    market = markets.latest(MINT)
+    result = broker.open_position_from_consensus(
+        decision.decision_id, MINT, market["price_usd"], 25, "approved",
+        created_at_ms=decision.created_at_ms,
+        paper_review_eligible=True, execution_authorized=False,
+        expected_market_snapshot_id=market["id"] + 1,
+        expected_risk_evidence_hash=decision.risk_evidence_hash,
+        processed_at_ms=NOW,
+    )
+    assert result["status"] == "BLOCKED"
+    assert "market snapshot changed" in result["reason"]
+    assert broker.snapshot()["open_positions"] == []
+
+
+def test_broker_atomically_rechecks_latest_risk_evidence_hash(tmp_path):
+    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    market = markets.latest(MINT)
+    result = broker.open_position_from_consensus(
+        decision.decision_id, MINT, market["price_usd"], 25, "approved",
+        created_at_ms=decision.created_at_ms,
+        paper_review_eligible=True, execution_authorized=False,
+        expected_market_snapshot_id=market["id"],
+        expected_risk_evidence_hash="f" * 64,
+        processed_at_ms=NOW,
+    )
+    assert result["status"] == "BLOCKED"
+    assert "security evidence changed" in result["reason"]
+    assert broker.snapshot()["open_positions"] == []
+
+
+def test_broker_atomically_rechecks_latest_consensus_decision(tmp_path):
+    markets, _, consensus, broker, _, decision = build_pipeline(tmp_path)
+    market = markets.latest(MINT)
+    newer = replace(
+        decision,
+        decision_id="e" * 64,
+        created_at_ms=NOW + 1,
+        status="ABSTAIN",
+        paper_review_eligible=False,
+    )
+    assert consensus.record(newer)
+    result = broker.open_position_from_consensus(
+        decision.decision_id, MINT, market["price_usd"], 25, "approved",
+        created_at_ms=decision.created_at_ms,
+        paper_review_eligible=True, execution_authorized=False,
+        expected_market_snapshot_id=market["id"],
+        expected_risk_evidence_hash=decision.risk_evidence_hash,
+        processed_at_ms=NOW + 1,
+    )
+    assert result["status"] == "BLOCKED"
+    assert "newer consensus decision superseded" in result["reason"]
+    assert broker.snapshot()["open_positions"] == []
