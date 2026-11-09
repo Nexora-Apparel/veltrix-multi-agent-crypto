@@ -86,7 +86,7 @@ def build_runtime(
 ) -> TokenIntelligenceRuntime:
     db_path = database_path or os.getenv(
         "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
+        os.getenv("DB_PATH", "data/solana_discovery.sqlite3"),
     )
     if refresh_interval_ms is not None and (
         isinstance(refresh_interval_ms, bool) or not isinstance(refresh_interval_ms, int)
