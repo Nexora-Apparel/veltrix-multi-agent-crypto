@@ -100,9 +100,40 @@ def main():
                 or quantity(receipt.get("blockNumber"), "receipt block") != args.deployment_block):
             raise ProbeError(f"{rpc.label}: creation receipt does not match factory/deployment block")
 
-        finalized = rpc.call("eth_getBlockByNumber", ["finalized", False])
-        if not isinstance(finalized, dict) or not finalized.get("hash"):
-            raise ProbeError(f"{rpc.label}: finalized block unavailable")
+        # Probe all confirmation tags independently. Keep "finalized" as the
+        # acceptance requirement; "latest"/"safe" are diagnostics, not fallbacks.
+        tag_results = {}
+        finalized = None
+        for tag in ("latest", "safe", "finalized"):
+            try:
+                block = rpc.call("eth_getBlockByNumber", [tag, False])
+                if not isinstance(block, dict) or not block.get("hash"):
+                    raise ProbeError(f"{rpc.label}: {tag} returned no block/hash")
+                tag_results[tag] = {
+                    "status": "ok",
+                    "number": quantity(block.get("number"), f"{rpc.label} {tag} block number"),
+                    "hash": block["hash"],
+                }
+                if tag == "finalized":
+                    finalized = block
+            except ProbeError as exc:
+                tag_results[tag] = {"status": "error", "error": str(exc)}
+        if finalized is None:
+            diagnostic = {
+                "status": "blocked",
+                "provider": rpc.label,
+                "chain_id": CHAIN_ID,
+                "block_tag_checks": tag_results,
+                "note": "latest/safe success cannot substitute for finalized verification",
+            }
+            with open(args.output, "w", encoding="utf-8") as handle:
+                json.dump({"status": "blocked", "diagnostics": [diagnostic]}, handle, indent=2)
+                handle.write("\\n")
+            compact = "; ".join(
+                f"{tag}={item['status']}" + (f" ({item['error']})" if item['status'] == "error" else "")
+                for tag, item in tag_results.items()
+            )
+            raise ProbeError(f"{rpc.label}: finalized block unavailable; tag diagnostics: {compact}")
         final_number = quantity(finalized.get("number"), "finalized block number")
         if final_number < args.deployment_block:
             raise ProbeError(f"{rpc.label}: finalized head precedes factory deployment")
@@ -122,6 +153,7 @@ def main():
         reports.append({
             "provider": rpc.label,
             "chain_id": CHAIN_ID,
+            "block_tag_checks": tag_results,
             "creation_tx": args.creation_tx,
             "deployment_block": args.deployment_block,
             "finalized_block": final_number,
