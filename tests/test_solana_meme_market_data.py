@@ -55,7 +55,7 @@ def test_ignores_other_chains_tokens_and_stale_observations():
         event(pair="stale", observed=1),
     ])
     with pytest.raises(MarketDataUnavailable, match="no fresh usable"):
-        SolanaMarketData(provider).fetch(MINT, now_ms=10_000)
+        SolanaMarketData(provider).fetch(MINT, now_ms=200_000)
 
 
 def test_marks_low_liquidity_and_missing_pair_age_without_claiming_safety():
