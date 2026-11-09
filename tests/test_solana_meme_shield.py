@@ -57,6 +57,8 @@ def signals():
 
 
 def evaluate(**kwargs):
+    if "route" in kwargs:
+        kwargs["sellability"] = kwargs.pop("route")
     defaults = dict(
         mint=MINT, evidence=evidence(), safety=safety(), signals=signals(),
         open_positions=0, amount=10, now_ms=10_000,
