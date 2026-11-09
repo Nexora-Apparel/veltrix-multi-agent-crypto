@@ -393,3 +393,11 @@ def test_authorization_verification_uses_durable_store_for_replay_protection(tmp
             consumer=SQLiteAuthorizationConsumer(database),
             now=10_002,
         )
+
+
+@pytest.mark.parametrize("timeout", [True, 0, -1, float("nan"), float("inf")])
+def test_sqlite_authorization_store_rejects_invalid_timeouts(tmp_path, timeout):
+    from veltrix.authorization_store import SQLiteAuthorizationConsumer
+
+    with pytest.raises(ValueError):
+        SQLiteAuthorizationConsumer(tmp_path / "timeout.sqlite3", timeout_seconds=timeout)
