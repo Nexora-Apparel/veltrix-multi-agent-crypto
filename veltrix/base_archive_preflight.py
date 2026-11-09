@@ -61,7 +61,7 @@ class Rpc:
             payload_body["id"] = self.request_id
             request = urllib.request.Request(
                 self.url, data=json.dumps(payload_body).encode(),
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VELTRIX-Base-Archive-Acceptance/1.0 (+https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto)"},
                 method="POST",
             )
             self._last_request_at = time.monotonic()
