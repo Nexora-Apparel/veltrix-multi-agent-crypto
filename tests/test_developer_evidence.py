@@ -100,3 +100,37 @@ def test_untrusted_root_provider_is_rejected_and_audited(tmp_path):
     assert result.report.coverage_complete is False
     assert any("collection rejected" in x for x in result.report.reasons)
     assert result.safety_report.passed is False
+
+
+class RootProvider:
+    def __init__(self):
+        self.calls = []
+    def fetch_attestation(self, chain, token):
+        self.calls.append((chain, token))
+        return DeveloperRootAttestation(
+            chain, token, "signed-root-registry", "signed-proof",
+            NOW - 100, ("0xdev",), True, "https://roots.example/proof",
+        )
+
+
+def test_orchestrator_fetches_signed_root_attestation_when_not_supplied(tmp_path):
+    broker = PaperBroker(str(tmp_path / "signed-roots.db"))
+    roots = RootProvider()
+    service = DeveloperEvidenceOrchestrator(
+        holder_providers={"base": HolderProvider()},
+        funding_providers={"base": FundingProvider()},
+        analyzer=None,
+        intelligence_adapters=Adapter(),
+        trusted_root_providers=("signed-root-registry",),
+        trusted_holder_providers=("holder-index",),
+        trusted_funding_providers=("funding-index",),
+        root_attestation_provider=roots,
+        audit_sink=broker,
+    )
+    result = service.evaluate(
+        chain="base", token_address="0xtoken", root_attestation=None,
+        liquidity_evidence=None, launch_bundle=None, now_ms=NOW,
+    )
+    assert roots.calls == [("base", "0xtoken")]
+    assert result.report.coverage_complete
+    assert result.report.root_provider == "signed-root-registry"
