@@ -46,8 +46,10 @@ class RotatingProvider:
 
 
 def seed_snapshot(store):
+    provider = RotatingProvider()
+    provider.observed = 9_000
     store.record(SolanaMarketData(
-        RotatingProvider(), clock_ms=lambda: 9_000
+        provider, clock_ms=lambda: 9_000
     ).fetch(MINT, now_ms=9_000))
 
 
