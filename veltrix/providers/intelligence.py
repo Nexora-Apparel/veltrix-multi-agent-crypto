@@ -37,6 +37,12 @@ class TokenSafetyObservation:
     dev_hold_pct: float | None
     bundled_supply_pct: float | None
     creator_hold_pct: float | None = None
+    claim: str | None = None
+    chain: str | None = None
+    coverage_complete: bool = False
+    source_ref: str | None = None
+    method: str | None = None
+    independence_group: str | None = None
 
 
 class SmartWalletProvider(Protocol):
@@ -155,6 +161,12 @@ class VerifiedIntelligenceAdapters:
                 dev_hold_pct=getattr(observation, "dev_hold_pct", None),
                 bundled_supply_pct=getattr(observation, "bundled_supply_pct", None),
                 creator_hold_pct=getattr(observation, "creator_hold_pct", None),
+                claim=getattr(observation, "claim", None),
+                chain=getattr(observation, "chain", None),
+                coverage_complete=getattr(observation, "coverage_complete", False),
+                source_ref=getattr(observation, "source_ref", None),
+                method=getattr(observation, "method", None),
+                independence_group=getattr(observation, "independence_group", None),
             )
         return self.validate_safety_observation(token_address, observation, now_ms)
 
@@ -257,6 +269,10 @@ class VerifiedIntelligenceAdapters:
             dev_hold_pct=observation.dev_hold_pct,
             bundled_supply_pct=observation.bundled_supply_pct,
             creator_hold_pct=observation.creator_hold_pct,
+            claim=observation.claim, chain=observation.chain,
+            coverage_complete=observation.coverage_complete,
+            source_ref=observation.source_ref, method=observation.method,
+            independence_group=observation.independence_group,
         )
         return self.safety_validator.validate(token_address, evidence, now_ms)
 
