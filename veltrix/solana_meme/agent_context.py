@@ -92,6 +92,8 @@ class SolanaAgentContextProvider:
         history = self.market_store.history(
             canonical, limit=self.volume_baseline_observations + 1
         )
+        if not history or history[0].get("id") != market.get("id"):
+            raise ValueError("market history head does not match the supplied snapshot")
         baseline_rows = history[1:self.volume_baseline_observations + 1]
         baseline = []
         if len(baseline_rows) == self.volume_baseline_observations:
