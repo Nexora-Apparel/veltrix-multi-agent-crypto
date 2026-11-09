@@ -70,6 +70,35 @@ class SignedTransactionEnvelope:
             raise SignerBoundaryError("signed_transaction must be non-empty immutable bytes")
 
 
+def validate_signed_response(
+    request: UnsignedTransactionEnvelope,
+    response: SignedTransactionEnvelope,
+) -> None:
+    """Reject a signer response not bound to the exact approved request.
+
+    This checks envelope binding only. It does not parse the chain transaction,
+    verify a cryptographic signature, or establish that the signer is isolated.
+    """
+    if not isinstance(request, UnsignedTransactionEnvelope):
+        raise SignerBoundaryError("request must be an UnsignedTransactionEnvelope")
+    if not isinstance(response, SignedTransactionEnvelope):
+        raise SignerBoundaryError("response must be a SignedTransactionEnvelope")
+
+    bound_fields = (
+        "intent_id",
+        "signer_public_key",
+        "chain",
+        "network",
+        "policy_hash",
+        "message_sha256",
+    )
+    for field_name in bound_fields:
+        if getattr(response, field_name) != getattr(request, field_name):
+            raise SignerBoundaryError(
+                f"signer response {field_name} does not match the approved request"
+            )
+
+
 @runtime_checkable
 class SignerBoundary(Protocol):
     """Narrow contract for a future signer running outside the trading process.
