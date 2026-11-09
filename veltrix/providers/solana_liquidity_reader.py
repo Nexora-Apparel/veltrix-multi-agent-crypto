@@ -153,9 +153,17 @@ class SolanaRaydiumV4UncxSnapshotReader:
         if programdata.get("owner") != BPF_UPGRADEABLE_LOADER:
             raise ProviderError("UNCX ProgramData account owner is invalid")
         data = _decode_account_data(programdata, "UNCX ProgramData")
-        if len(data) < 45 or struct.unpack_from("<I", data, 0)[0] != 3:
+        if len(data) < 13 or struct.unpack_from("<I", data, 0)[0] != 3:
             raise ProviderError("UNCX ProgramData account layout is invalid")
-        executable = data[45:]
+        authority_option = data[12]
+        if authority_option == 1:
+            if len(data) < 45:
+                raise ProviderError("UNCX ProgramData authority field is truncated")
+            executable = data[45:]
+        elif authority_option == 0:
+            executable = data[13:]
+        else:
+            raise ProviderError("UNCX ProgramData authority option is invalid")
         observed = hashlib.sha256(executable).hexdigest()
         if observed != self.expected_hash:
             raise ProviderError("deployed UNCX executable hash does not match verified source")
@@ -291,7 +299,10 @@ class SolanaRaydiumV4UncxSnapshotReader:
         discovered = self._discover_raydium_pools(token_key, slot)
         if not discovered:
             raise ProviderError("no Raydium AMM V4 pools were discovered for the token")
-        observed_ms = int(time.time() * 1000)
+        block_time = self.pool_rpc.call("getBlockTime", [slot])
+        if not isinstance(block_time, int) or block_time <= 0:
+            raise ProviderError("Solana finalized slot has no verified block time")
+        observed_ms = block_time * 1000
         finalized_ref = f"slot:{slot}"
 
         pools = []
