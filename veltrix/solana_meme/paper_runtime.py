@@ -111,7 +111,7 @@ def build_runtime(
         raise RuntimeError("Phase 07 refuses to start while LIVE_TRADING is enabled")
     db_path = database_path or os.getenv(
         "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
+        os.getenv("DB_PATH", "data/solana_discovery.sqlite3"),
     )
     balance = starting_balance if starting_balance is not None else _env_float("PAPER_BALANCE_USD", 500.0)
     positions = max_positions if max_positions is not None else _env_int("MAX_OPEN_POSITIONS", 10)
