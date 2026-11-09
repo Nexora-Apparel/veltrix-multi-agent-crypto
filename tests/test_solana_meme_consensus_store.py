@@ -6,15 +6,15 @@ from veltrix.solana_meme.consensus_store import ConsensusStore
 MINT = "So11111111111111111111111111111111111111112"
 
 
-def decision(now):
+def decision(now, mint=MINT):
     market = MarketEvidence(
-        mint=MINT, snapshot_id=1, pair_address="pool",
+        mint=mint, snapshot_id=1, pair_address="pool",
         price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
         price_change_m5_pct=0.1, retrieved_at_ms=now,
         pair_created_at_ms=now - 1000, pair_count=1, quality_flags=(),
     )
     risk = RiskEvidence(
-        mint=MINT, observed_at_ms=now,
+        mint=mint, observed_at_ms=now,
         risk_state="REQUIRES_MORE_EVIDENCE",
         missing_claims=("liquidity_lock_complete_inventory",),
         errors=(), risk_flags=(), evidence_hash=f"risk-{now}",
@@ -71,3 +71,17 @@ def test_consensus_store_refuses_execution_authorization_and_inconsistent_eligib
         store.record(replace(report, execution_authorized=True))
     with pytest.raises(ValueError, match="eligibility"):
         store.record(replace(report, paper_review_eligible=True))
+
+def test_consensus_store_latest_all_returns_one_newest_decision_per_mint(tmp_path):
+    store = ConsensusStore(tmp_path / "latest-all.sqlite3")
+    mint_b = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    store.record(decision(1000))
+    store.record(decision(2000, mint_b))
+    store.record(decision(3000))
+    latest = store.latest_all()
+    assert [(row["mint"], row["created_at_ms"]) for row in latest] == [
+        (MINT, 3000),
+        (mint_b, 2000),
+    ]
+    with pytest.raises(ValueError):
+        store.latest_all(limit=0)
