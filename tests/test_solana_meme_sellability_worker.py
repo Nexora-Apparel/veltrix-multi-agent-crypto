@@ -161,3 +161,31 @@ def test_worker_quotes_exact_configured_paper_notional_using_market_price(tmp_pa
     report = store.latest(MINT)["report"]
     assert report["input_amount_raw"] == 50_000_000
     assert report["input_supply_fraction"] == 0.05
+
+
+def test_exact_size_worker_rejects_stale_market_price(tmp_path):
+    path = tmp_path / "stale-market.sqlite3"
+    launches = LaunchStore(path)
+    risks = SolanaRiskEvidenceStore(path)
+    markets = MarketSnapshotStore(path)
+    store = SolanaSellabilityEvidenceStore(path)
+    launches.record_candidate(normalize_candidate(
+        {"chain": "solana", "mint": MINT},
+        source="pumpportal-new-token", observed_at_ms=90_000,
+    ))
+    risks.record(risk_report())
+    markets.record(SolanaMarketSnapshot(
+        mint=MINT, selected_pair_address="pair-1", symbol="USDC",
+        price_usd=1.0, selected_pool_liquidity_usd=100_000,
+        selected_pool_volume_h1_usd=20_000, price_change_m5_pct=1.0,
+        pair_count=1, retrieved_at_ms=1_000, provider_observed_at_ms=1_000,
+        pair_created_at_ms=900, quality_flags=(),
+    ))
+    evaluator = SolanaSellabilityEvaluator(FakeQuoteProvider(), clock_ms=lambda: 105_000)
+    worker = SolanaSellabilityWorker(
+        launches, risks, evaluator, store, market_store=markets,
+        paper_notional_usd=50, clock_ms=lambda: 105_000,
+    )
+    result = worker.run_once()
+    assert result.failed == 1
+    assert store.count(MINT) == 0
