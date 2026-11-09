@@ -311,7 +311,29 @@ class EvmV2LiquiditySnapshotReader:
             raise ProviderError("discovered pair does not contain requested token")
         return token0, token1
 
-    def _read_base_v21_positions(self, locker, pools, block_hex):
+    def _unlisted_lp_contains_target(self, lp_token, expected_factory, block_hex):
+        code = self.locker_rpc.call("eth_getCode", [lp_token, block_hex])
+        if not isinstance(code, str) or code == "0x":
+            raise ProviderError("locker history references an LP token without verifiable pair code")
+        token0_data = self._call(
+            self.locker_rpc, lp_token, "0x" + _selector("token0()").hex(), block_hex
+        )
+        token1_data = self._call(
+            self.locker_rpc, lp_token, "0x" + _selector("token1()").hex(), block_hex
+        )
+        token0 = _decode_address(bytes.fromhex(token0_data[2:]).rjust(32, b"\\x00"))
+        token1 = _decode_address(bytes.fromhex(token1_data[2:]).rjust(32, b"\\x00"))
+        if self._token.lower() not in {token0.lower(), token1.lower()}:
+            return False
+        factory_data = self._call(
+            self.locker_rpc, lp_token, "0x" + _selector("factory()").hex(), block_hex
+        )
+        pair_factory = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\\x00"))
+        if pair_factory.lower() != expected_factory.lower():
+            raise ProviderError("locker history contains a target-token LP from an unsupported factory")
+        raise ProviderError("locker history references a target-token pool missing from factory inventory")
+
+    def _read_base_v21_positions(self, locker, pools, block_hex, expected_factory):
         nonce_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("NONCE()").hex(), block_hex
         )
@@ -329,9 +351,13 @@ class EvmV2LiquiditySnapshotReader:
             if record["lock_id"] != lock_id:
                 raise ProviderError("Base LOCKS index does not match stored lock ID")
             lp = record["lp_token"]
-            if lp.lower() not in pool_keys or record["amount"] == 0:
+            if lp.lower() not in pool_keys:
+                self._unlisted_lp_contains_target(lp, expected_factory, block_hex)
                 continue
-            if record["unlock_date"] <= 0 or record["owner"] == ZERO:
+            if record["amount"] == 0:
+                continue
+            if (record["lock_date"] <= 0 or record["unlock_date"] <= 0
+                    or record["owner"] == ZERO or record["amount"] > record["initial_amount"]):
                 raise ProviderError("Base active lock has invalid owner or unlock time")
             positions.append(LockerPositionSnapshot(
                 chain="base", pool_address=lp, lp_token_address=lp,
@@ -343,7 +369,7 @@ class EvmV2LiquiditySnapshotReader:
             ))
         return positions
 
-    def _read_bsc_v1_positions(self, locker, pools, block_hex, final_block):
+    def _read_bsc_v1_positions(self, locker, pools, block_hex, final_block, expected_factory):
         """Enumerate legacy BSC locks by per-LP index and cross-check event history."""
         deposits_by_lp = {}
         event_count = 0
@@ -386,6 +412,11 @@ class EvmV2LiquiditySnapshotReader:
                         amount = _decode_uint(raw[32:64])
                         if amount <= 0:
                             raise ProviderError("BSC onWithdraw event has invalid amount")
+
+        pool_keys = {pair.lower() for pair, *_ in pools}
+        for lp in deposits_by_lp:
+            if lp not in pool_keys:
+                self._unlisted_lp_contains_target("0x" + lp[2:], expected_factory, block_hex)
 
         positions = []
         for pair, *_ in pools:
@@ -446,10 +477,12 @@ class EvmV2LiquiditySnapshotReader:
             raise ProviderError("locker constructor factory is not in the certified AMM registry")
 
         if self.chain == "base":
-            positions = self._read_base_v21_positions(locker, pools, block_hex)
+            positions = self._read_base_v21_positions(
+                locker, pools, block_hex, matching_factory.address
+            )
         else:
             positions = self._read_bsc_v1_positions(
-                locker, pools, block_hex, final_block
+                locker, pools, block_hex, final_block, matching_factory.address
             )
         deployment = LockerDeployment(
             chain=self.chain, provider=self.locker_rpc.provider_id,
@@ -471,6 +504,9 @@ class EvmV2LiquiditySnapshotReader:
         final_pool = self._block(self.pool_rpc, "finalized")
         block_number = _hex_int(final_pool.get("number"), "finalized block number")
         block_hex = hex(block_number)
+        locker_finalized_head = self._block(self.locker_rpc, "finalized")
+        if _hex_int(locker_finalized_head.get("number"), "locker finalized block") < block_number:
+            raise ProviderError("locker RPC finalized head is behind the pool RPC")
         final_locker = self._block(self.locker_rpc, block_hex)
         if final_locker.get("hash", "").lower() != final_pool["hash"].lower():
             raise ProviderError("independent RPC endpoints disagree on finalized block hash")
