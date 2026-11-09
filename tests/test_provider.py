@@ -164,3 +164,12 @@ def test_market_event_freshness_rejects_future_and_invalid_timestamps():
     assert event.is_fresh(1000)
     assert not event.is_fresh(999)
     assert not event.is_fresh(True)
+
+def test_skips_pair_with_non_integer_creation_timestamp():
+    mint = "So11111111111111111111111111111111111111112"
+    invalid = pair(pairCreatedAt=1.5)
+    valid = pair(pairAddress="valid-pool")
+    events = DexScreenerProvider(session=Session([[invalid, valid]])).fetch_token_pairs(
+        "solana", [mint]
+    )
+    assert [event.pair_address for event in events] == ["valid-pool"]
