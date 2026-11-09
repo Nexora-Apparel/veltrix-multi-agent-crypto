@@ -39,7 +39,7 @@ class MarketEvidence:
     def from_store_row(cls, row: Mapping[str, object]) -> "MarketEvidence":
         mint = canonical_mint(row.get("mint"))
         numeric = {}
-        for key in ("price_usd", "selected_pool_liquidity_usd", "volume_h1_usd"):
+        for key in ("price_usd", "liquidity_usd", "volume_h1_usd"):
             value = row.get(key)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
                 raise ValueError(f"market snapshot {key} is invalid")
@@ -65,10 +65,14 @@ class MarketEvidence:
             isinstance(pair_created, bool) or not isinstance(pair_created, int) or pair_created <= 0
         ):
             raise ValueError("market snapshot pair creation timestamp is invalid")
-        try:
-            quality_flags = json.loads(row.get("quality_flags") or "[]")
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise ValueError("market snapshot quality flags are malformed") from exc
+        raw_quality_flags = row.get("quality_flags", row.get("quality_flags_json", "[]"))
+        if isinstance(raw_quality_flags, str):
+            try:
+                quality_flags = json.loads(raw_quality_flags or "[]")
+            except json.JSONDecodeError as exc:
+                raise ValueError("market snapshot quality flags are malformed") from exc
+        else:
+            quality_flags = raw_quality_flags
         if not isinstance(quality_flags, list) or any(not isinstance(item, str) for item in quality_flags):
             raise ValueError("market snapshot quality flags are malformed")
         pair = row.get("pair_address")
@@ -79,7 +83,7 @@ class MarketEvidence:
             snapshot_id=snapshot_id,
             pair_address=pair,
             price_usd=numeric["price_usd"],
-            liquidity_usd=numeric["selected_pool_liquidity_usd"],
+            liquidity_usd=numeric["liquidity_usd"],
             volume_h1_usd=numeric["volume_h1_usd"],
             price_change_m5_pct=float(change) if change is not None else None,
             retrieved_at_ms=retrieved,
