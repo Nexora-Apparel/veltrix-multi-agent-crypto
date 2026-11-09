@@ -164,6 +164,14 @@ class SolanaPaperDecisionRunner:
         encoded = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         key = hashlib.sha256(f"{mint}|{encoded}".encode("utf-8")).hexdigest()
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            unresolved = db.execute("""
+                SELECT 1 FROM solana_paper_decision_audits
+                WHERE mint=? AND state IN ('CLAIMED', 'INDETERMINATE_NO_REPLAY')
+                LIMIT 1
+            """, (mint,)).fetchone()
+            if unresolved is not None:
+                return None
             cursor = db.execute("""
                 INSERT OR IGNORE INTO solana_paper_decision_audits
                     (decision_key, mint, state, evidence_json, created_at_ms, updated_at_ms)
