@@ -103,7 +103,11 @@ def test_stale_provider_evidence_is_not_used():
         observed_at_ms=1, liquidity_locked=True,
         dev_hold_pct=None, bundled_supply_pct=None,
     )
-    report = collector(goplus=FakeGoPlus(old)).collect(MINT)
+    collector_with_short_window = SolanaRiskEvidenceCollector(
+        FakeGoPlus(old), FakeHolders(holders()),
+        max_age_ms=5_000, clock_ms=lambda: 10_000,
+    )
+    report = collector_with_short_window.collect(MINT)
     assert report.liquidity_locked is None
     assert any("stale or future-dated" in item for item in report.errors)
 
