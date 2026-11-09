@@ -29,6 +29,7 @@ class Settings:
     trusted_safety_providers: tuple[str, ...] = _provider_names("TRUSTED_SAFETY_PROVIDERS")
     wallet_evidence_max_age_ms: int = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
     safety_evidence_max_age_ms: int = int(os.getenv("SAFETY_EVIDENCE_MAX_AGE_MS", "300000"))
+    goplus_access_token: str = os.getenv("GOPLUS_ACCESS_TOKEN", "")
     solana_tokens: tuple[str, ...] = _addresses("WATCHLIST_SOLANA")
     base_tokens: tuple[str, ...] = _addresses("WATCHLIST_BASE")
     bsc_tokens: tuple[str, ...] = _addresses("WATCHLIST_BSC")
