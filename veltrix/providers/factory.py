@@ -20,3 +20,18 @@ def build_wallet_providers(settings, market_provider=None):
     if settings.alchemy_api_key and settings.tracked_evm_wallets:
         providers.append(AlchemyWalletProvider.from_settings(settings))
     return tuple(providers)
+
+
+def build_intelligence_coordinator(settings, providers=None):
+    """Build the cross-provider coordinator without changing trust settings."""
+    from .coordinator import CrossChainIntelligenceCoordinator
+    from .intelligence import VerifiedIntelligenceAdapters
+
+    connectors = tuple(providers) if providers is not None else build_wallet_providers(settings)
+    trusted_wallets = tuple(settings.tracked_smart_wallets) + tuple(
+        address.lower() for address in settings.tracked_evm_wallets
+    )
+    adapters = VerifiedIntelligenceAdapters.from_settings(settings)
+    return CrossChainIntelligenceCoordinator(
+        connectors, adapters, trusted_wallets=trusted_wallets,
+    )
