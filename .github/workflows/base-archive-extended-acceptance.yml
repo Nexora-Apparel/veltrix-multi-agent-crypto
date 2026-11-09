@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "eth-hash[pycryptodome]>=0.7,<1"
+          pip install "eth-hash[pycryptodome]>=0.7,<1" "pytest>=8,<9"
       - name: Validate independent HTTPS endpoints
         shell: bash
         run: |
@@ -31,6 +31,8 @@ jobs:
             echo "::error::Primary and candidate RPC endpoints must be independent."
             exit 1
           fi
+      - name: Run extended acceptance unit tests
+        run: pytest -q tests/test_base_archive_extended_acceptance.py
       - name: Run extended finalized-state historical checks
         run: python -m veltrix.base_archive_extended_acceptance
       - uses: actions/upload-artifact@v4
