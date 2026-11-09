@@ -1,6 +1,10 @@
 from veltrix.agents import Signal
 from veltrix.core import Core
 from veltrix.ledger import PaperBroker
+from veltrix.safety import SafetyReport
+from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
+
+MINT = "So11111111111111111111111111111111111111112"
 
 class FixedAgent:
     def __init__(self, name, side="BUY", token_override=None):
@@ -8,6 +12,27 @@ class FixedAgent:
     def evaluate(self, token):
         address = self.token_override or token["address"]
         return Signal(self.name, address, self.side, "test signal")
+
+def complete_solana_evidence():
+    now = int(__import__("time").time() * 1000)
+    return SolanaRiskEvidenceReport(
+        mint=MINT, observed_at_ms=now,
+        goplus_provider="goplus", goplus_evidence_id="gp:1",
+        goplus_observed_at_ms=now, liquidity_locked=True,
+        holder_provider="solana-rpc-holder-inventory",
+        holder_evidence_id="holders:1", holder_block_ref="finalized-slot:1",
+        holder_count=2, total_supply_raw=100,
+        observed_holder_balance_raw=100, holder_coverage_complete=True,
+        top_holder_pct=60.0, top5_holder_pct=100.0, top10_holder_pct=100.0,
+        missing_claims=(), errors=(),
+    )
+
+def complete_solana_safety():
+    now = int(__import__("time").time() * 1000)
+    return SafetyReport(
+        token_address=MINT, passed=True, checks=("composite",), reasons=(),
+        observed_at_ms=now, composite_verified=True,
+    )
 
 def test_core_opens_only_after_two_agent_same_token_consensus(tmp_path):
     broker=PaperBroker(str(tmp_path/"core.db"),500,10,50)
@@ -48,8 +73,32 @@ def test_core_rejects_invalid_amount_without_crashing(tmp_path):
     assert core.evaluate({"address": "mint", "price": 1}, amount_usd="not-a-number") is None
     assert broker.snapshot()["open_positions"] == []
 
-
 def test_core_does_not_count_duplicate_agent_identity_as_consensus(tmp_path):
     broker = PaperBroker(str(tmp_path / "duplicate-agent.db"), 500, 10, 50)
     core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("scout")])
     assert core.evaluate({"address": "mint", "price": 1}) is None
+
+def test_core_blocks_solana_entry_without_typed_risk_evidence(tmp_path):
+    broker = PaperBroker(str(tmp_path / "solana-no-evidence.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
+    token = {"address": MINT, "chain": "solana", "price": 1.0}
+    assert core.evaluate(token) is None
+    assert broker.snapshot()["open_positions"] == []
+
+def test_core_routes_solana_entries_through_claim_aware_paper_shield(tmp_path):
+    broker = PaperBroker(str(tmp_path / "solana-shield.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
+    token = {
+        "address": MINT, "chain": "solana", "price": 1.0,
+        "risk_evidence_report": complete_solana_evidence(),
+        "safety_report": complete_solana_safety(),
+    }
+    result = core.evaluate(token)
+    assert result is not None
+    assert result["side"] == "BUY"
+    assert len(broker.snapshot()["open_positions"]) == 1
+
+def test_core_rejects_non_finite_price(tmp_path):
+    broker = PaperBroker(str(tmp_path / "nan-price.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
+    assert core.evaluate({"address": "mint", "price": float("nan")}) is None
