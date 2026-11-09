@@ -172,6 +172,8 @@ def test_stream_manager_records_outage_and_uses_bounded_backoff(tmp_path):
         {"initial_backoff_seconds": 0, "max_backoff_seconds": 1},
         {"initial_backoff_seconds": 2, "max_backoff_seconds": 1},
         {"initial_backoff_seconds": True, "max_backoff_seconds": 2},
+        {"initial_backoff_seconds": float("inf"), "max_backoff_seconds": float("inf")},
+        {"initial_backoff_seconds": 1, "max_backoff_seconds": float("nan")},
     ],
 )
 def test_stream_manager_rejects_invalid_backoff(tmp_path, kwargs):
