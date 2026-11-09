@@ -29,6 +29,7 @@ class Session:
 
 
 class Origin:
+    provider_id = "helius-launch-origin"
     def resolve(self, mint, window, *, now_ms):
         return LaunchOrigin(
             "solana", mint, NOW - window, 100, None, NOW,
