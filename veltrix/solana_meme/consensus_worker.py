@@ -230,7 +230,7 @@ class ConsensusWorker:
                     market,
                     risk,
                     history=prior_history,
-                    wallet_events=(wallet_events_by_mint[mint] if mint in wallet_events_by_mint else self._wallet_events(mint)),
+                    wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
                     now_ms=self.clock_ms(),
                 )
                 if self.consensus_store.record(decision):
