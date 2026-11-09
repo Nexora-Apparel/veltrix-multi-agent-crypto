@@ -119,6 +119,60 @@ def build_runtime(
     market_store = MarketSnapshotStore(db_path)
     risk_store = SolanaRiskEvidenceStore(db_path)
     consensus_store = ConsensusStore(db_path)
+    if wallet_event_provider is None:
+        api_key = os.getenv("HELIUS_API_KEY", "").strip()
+        trusted_provider_ids = {
+            item.strip().lower()
+            for item in os.getenv("TRUSTED_WALLET_PROVIDERS", "").split(",")
+            if item.strip()
+        }
+        if api_key and wallets and "helius" in trusted_provider_ids:
+            from ..providers.helius import HeliusWalletProvider
+            from ..providers.intelligence import VerifiedIntelligenceAdapters
+            from .helius_wallets import HeliusConsensusWalletEventSource
+
+            try:
+                max_wallets = int(os.getenv("VELTRIX_HELIUS_WALLET_SCAN_LIMIT", "10"))
+                max_wallet_age_ms = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
+            except ValueError as exc:
+                raise ValueError("Helius wallet scan settings must be integers") from exc
+            if not 2 <= max_wallets <= 25:
+                raise ValueError("VELTRIX_HELIUS_WALLET_SCAN_LIMIT must be between 2 and 25")
+            if len(wallets) > max_wallets:
+                raise ValueError(
+                    "trusted Solana wallet allowlist exceeds the configured Helius scan limit"
+                )
+            if max_wallet_age_ms < 1:
+                raise ValueError("WALLET_EVIDENCE_MAX_AGE_MS must be positive")
+            helius = HeliusWalletProvider(
+                api_key=api_key,
+                tracked_wallets=wallets,
+                price_usd_resolver=lambda _mint: 0.0,
+                timeout=10.0,
+                limit=100,
+                max_pages=2,
+            )
+            adapters = VerifiedIntelligenceAdapters(
+                trusted_wallet_providers=("helius",),
+                max_wallet_age_ms=max_wallet_age_ms,
+            )
+            wallet_event_provider = HeliusConsensusWalletEventSource(
+                helius,
+                adapters,
+                market_store,
+                clock_ms=worker_clock_ms or (lambda: int(time.time() * 1000)),
+                max_age_ms=max_wallet_age_ms,
+            )
+            LOGGER.info(
+                "Helius wallet intelligence enabled for %s explicitly trusted wallets",
+                len(wallets),
+            )
+        else:
+            LOGGER.info(
+                "Whale agent will abstain: Helius key, trusted provider identity, "
+                "and operator wallet allowlist are all required"
+            )
+
     worker = ConsensusWorker(
         launch_store,
         market_store,
