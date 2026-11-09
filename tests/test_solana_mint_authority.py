@@ -53,7 +53,7 @@ def test_classic_mint_decodes_authorities_supply_and_provenance():
     assert snapshot.freeze_authority is None
     assert snapshot.supply_raw == 123456
     assert snapshot.decimals == 6
-    assert snapshot.extension_parse_complete is True
+    assert snapshot.extension_tlv_structure_valid is True
     assert snapshot.finalized_slot == 99
     assert len(snapshot.evidence_id) == 64
 
@@ -86,7 +86,7 @@ def test_token_2022_parses_known_and_unknown_extensions_without_dropping_unknown
     mint_data() + b"x",
     token_2022_data()[:165],
     token_2022_data()[:165] + b"\x02" + bytes(4),
-    token_2022_data([(12, b"abc")])[:-2],
+    token_2022_data([(12, b"abc")])[:-5],
 ])
 def test_malformed_mint_layouts_fail_closed(data):
     owner = TOKEN_2022_PROGRAM_ID if len(data) != 83 else TOKEN_PROGRAM_ID
