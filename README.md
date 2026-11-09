@@ -3,10 +3,11 @@
 Paper-only research and monitoring system for Solana, Base and BSC. It has no wallet signing, private-key loading, swaps or live order execution. `LIVE_TRADING=true` is rejected.
 
 ## Current components
-- Scout / Whale / Sniper: initial signal logic; whale-flow and verified launch-safety feeds are not yet connected.
+- Scout / Whale / Sniper: initial signal logic. Sniper now requires a typed, passing SafetyReport from the independent validator; raw booleans in market payloads are rejected. Whale-flow and verified launch-safety feeds are not yet connected.
 - Shield: enforces at least two distinct BUY agents, a maximum $50 position and a maximum of 10 open positions.
 - Exit: initial 2x / 3x / stop decision rules; stateful partial-fill orchestration remains to be completed.
 - DexScreener adapter: read-only token-pair snapshots for Solana, Base and BSC.
+- TokenSafetyValidator: fail-closed evidence contract requiring a trusted provider, matching token address, fresh evidence, confirmed liquidity lock, developer holdings below 5%, and zero bundled supply. No provider is trusted by default.
 - SQLite paper ledger: persists market observations, paper fills, positions and realized PnL.
 - GitHub Actions: Python 3.11 compile and pytest checks.
 
@@ -26,7 +27,7 @@ Start a 24-hour read-only monitoring session:
 python -m veltrix.main --hours 24
 ```
 
-Market observations are saved to the SQLite database at `DB_PATH`. No positions are opened automatically: independent smart-wallet activity, robust token safety verification, dynamic discovery, stateful exit execution and end-to-end paper-session reporting must pass acceptance tests first.
+Market observations are saved to the SQLite database at `DB_PATH`. No positions are opened automatically: independent smart-wallet activity, an actual trusted token-safety provider, dynamic discovery, stateful exit execution and end-to-end paper-session reporting must pass acceptance tests first.
 
 ## Risk and data limitations
 DexScreener pair snapshots do not prove liquidity is locked, developer holdings are below 5%, or bundled supply is zero. Missing safety fields must fail closed. The current implementation is not a financial recommendation and must not be used for live execution.
