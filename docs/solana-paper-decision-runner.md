@@ -54,7 +54,7 @@ silently retrying an uncertain broker outcome.
 ## Current activation blockers
 
 The runner is implemented and unit-tested but is **not wired into the live
-read-only runtime**. It has no default safety or agent-context provider.
+read-only runtime**. It has no default safety provider and no runtime-configured agent-context provider.
 
 - `SolanaSafetyReportStore` only persists typed reports; it does not create
   certificates. The current capability catalogue marks GoPlus Solana
@@ -62,15 +62,19 @@ read-only runtime**. It has no default safety or agent-context provider.
   evidence partial. No production Solana composite-safety report can currently
   pass the default capability validator.
 - Added SolanaMarketAgentContextProvider, which derives a Scout volume-spike
-  flag from at least five prior observations of the same selected pool and
-  attaches a content-addressed evidence ID. It never invents smart-wallet BUYs;
-  the Whale agent remains inactive unless a separate wallet-evidence source is
-  supplied. The market-context provider still requires explicit allowlisting
-  and has not been wired into runtime settings.
+  flag from five prior observations of the same selected pool, with baseline
+  freshness and pool-continuity checks.
+- Added SolanaAgentContextProvider, which composes that market context with the
+  existing Helius wallet-flow coordinator. It includes wallet identities only
+  after configured wallet and provider allowlists accept them.
+- The factory uses market-only context by default and adds Helius only when
+  credentials, at least two tracked wallets and the Helius trust entry exist.
+  The runner still requires its explicit context-provider allowlist, and the
+  runtime does not yet instantiate or configure the runner.
 
-These are evidence-provider gaps, not reasons to weaken Shield. Runtime
-activation is withheld until both provider paths are independently verified
-and their acceptance tests pass.
+The remaining blocker is the production composite-safety evidence path, plus
+runtime configuration of the selected agent-context provider. These are not
+reasons to weaken Shield; runtime activation remains withheld.
 
 ## Safety boundary
 
