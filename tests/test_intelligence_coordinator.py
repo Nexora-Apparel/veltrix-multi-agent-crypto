@@ -117,3 +117,22 @@ def test_solana_base58_case_is_preserved_but_evm_hashes_are_case_normalized():
     evm = adapters.adapt_wallet_observations(evm_rows, 1_000_000)
     assert len(evm.accepted) == 1
     assert len(evm.rejected) == 1
+
+
+def test_solana_mint_case_and_chain_are_checked_when_building_agent_context():
+    adapters = VerifiedIntelligenceAdapters(trusted_wallet_providers=["helius"])
+    rows = (
+        observation("helius", "solana", "wallet-A", "sig-a", "MintA"),
+        observation("helius", "solana", "wallet-B", "sig-b", "MintA"),
+    )
+    coordinator = CrossChainIntelligenceCoordinator(
+        [Provider("helius", rows)], adapters,
+        trusted_wallets=["wallet-A", "wallet-B"],
+    )
+    result = coordinator.collect("solana", ["MintA"], 900_000, 1_000_000)
+    assert result.agent_context("MintA")["whale_cluster_count"] == 1
+    assert result.agent_context("minta")["whale_cluster_count"] == 0
+    wrong_chain = coordinator.enrich_token(
+        {"address": "MintA", "chain": "base"}, result
+    )
+    assert wrong_chain["smart_wallet_buys"] == []
