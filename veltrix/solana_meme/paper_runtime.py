@@ -55,17 +55,22 @@ class PaperTradingRuntime:
 
     def run(self, stop_event: threading.Event) -> None:
         while not stop_event.is_set():
-            result = self.run_once().paper
-            LOGGER.info(
-                "paper cycle scanned=%s opened=%s skipped=%s blocked=%s duplicates=%s exits=%s errors=%s",
-                result.scanned_decisions,
-                result.opened_positions,
-                result.skipped_decisions,
-                result.blocked_entries,
-                result.duplicate_decisions,
-                result.exit_fills,
-                result.errors,
-            )
+            try:
+                result = self.run_once().paper
+                LOGGER.info(
+                    "paper cycle scanned=%s opened=%s skipped=%s blocked=%s duplicates=%s exits=%s errors=%s",
+                    result.scanned_decisions,
+                    result.opened_positions,
+                    result.skipped_decisions,
+                    result.blocked_entries,
+                    result.duplicate_decisions,
+                    result.exit_fills,
+                    result.errors,
+                )
+            except Exception:
+                # A transient database/runtime error must not silently kill the
+                # supervisor. The next bounded cycle retries from persisted state.
+                LOGGER.exception("paper cycle failed safely; no live execution path exists")
             if stop_event.wait(self.poll_interval_seconds):
                 break
 
