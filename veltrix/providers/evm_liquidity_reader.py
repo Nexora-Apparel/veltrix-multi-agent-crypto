@@ -282,7 +282,7 @@ class EvmV2LiquiditySnapshotReader:
             "0x" + _selector("allPairsLength()").hex(), hex(final_block),
         )
         all_pairs_length = _decode_uint(
-            bytes.fromhex(length_data[2:]).rjust(32, b"\\x00")
+            bytes.fromhex(length_data[2:]).rjust(32, b"\x00")
         )
         event_lengths.sort()
         if (count != all_pairs_length
@@ -315,7 +315,7 @@ class EvmV2LiquiditySnapshotReader:
         nonce_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("NONCE()").hex(), block_hex
         )
-        nonce = _decode_uint(bytes.fromhex(nonce_data[2:]).rjust(32, b"\\x00"))
+        nonce = _decode_uint(bytes.fromhex(nonce_data[2:]).rjust(32, b"\x00"))
         if nonce >= self.max_locks:
             raise ProviderError("Base locker nonce exceeds configured exhaustive scan limit")
         positions = []
@@ -394,7 +394,7 @@ class EvmV2LiquiditySnapshotReader:
                 _call_data("getNumLocksForToken(address)", _address_word(pair)),
                 block_hex,
             )
-            lock_count = _decode_uint(bytes.fromhex(count_data[2:]).rjust(32, b"\\x00"))
+            lock_count = _decode_uint(bytes.fromhex(count_data[2:]).rjust(32, b"\x00"))
             if lock_count >= self.max_locks:
                 raise ProviderError("BSC per-LP lock index exceeds configured exhaustive scan limit")
             if deposits_by_lp.get(pair.lower(), 0) != lock_count:
@@ -437,7 +437,7 @@ class EvmV2LiquiditySnapshotReader:
         factory_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("uniswapFactory()").hex(), block_hex
         )
-        factory_address = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\\x00"))
+        factory_address = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\x00"))
         matching_factory = next(
             (f for f in self.factories if f.address.lower() == factory_address.lower()
              and f.amm_id == locker.amm_id), None
