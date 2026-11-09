@@ -180,4 +180,4 @@ executable_sellability claim.
 - Added runtime reporting, factory integration and tests for multiple token accounts, insufficient balance, missing accounts, ownership mismatch and worker gating.
 - Native SOL balance is recorded but not assigned an arbitrary universal threshold; route fee/rent requirements vary.
 - Simulation remains opt-in and requires a dedicated funded test wallet; no seed phrase or signing key is accepted.
-- CI pending for the latest preflight integration.
+- GitHub Actions run [42682361273](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42682361273) passed on code commit `cdf88c95e07aa45f4a73cb97eea77e5ed81e7496`: 437 passed, 5 skipped.
