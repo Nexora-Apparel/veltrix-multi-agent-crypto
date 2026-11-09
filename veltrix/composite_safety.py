@@ -5,7 +5,7 @@ from typing import Iterable
 
 from .safety import SafetyEvidence, SafetyReport
 from .launch_bundles import LaunchBundleReport
-from .providers.capabilities import capability_can_certify
+from .provider_capabilities import capability_can_certify
 
 
 @dataclass(frozen=True)
