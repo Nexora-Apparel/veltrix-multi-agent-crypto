@@ -225,6 +225,11 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
             "block_coverage_complete": (
                 log_coverage["queried_from_block"] == log_from + 1
             ),
+            # Backward-compatible alias: this means literal block coverage,
+            # not event-set completeness.
+            "coverage_complete": (
+                log_coverage["queried_from_block"] == log_from + 1
+            ),
             "event_set_complete": True,
             "completeness_basis": (
                 "retrieved PairCreated event indices form the exact contiguous "
@@ -295,6 +300,7 @@ def main():
         raise PreflightError("providers disagree on historical PairCreated log range")
 
     result = {
+        "report_schema_version": 2,
         "status": "passed",
         "purpose": "extended read-only archive qualification; not automatic certification",
         "factory": factory,
@@ -310,7 +316,8 @@ def main():
         "comparison": (
             "provider finalized heads recorded independently; both providers "
             "match the common finalized checkpoint and historical block, code, "
-            "call, plus non-empty PairCreated logs reconciled to pair-count delta"
+            "call, plus non-empty PairCreated logs with contiguous factory pair "
+            "indices reconciled to the full-interval allPairsLength delta"
         ),
     }
     with open("base-archive-extended-acceptance.json", "w", encoding="utf-8") as handle:
