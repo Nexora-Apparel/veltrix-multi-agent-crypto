@@ -100,7 +100,7 @@ def test_normalized_logs_chunks_ranges_to_ten_blocks_and_stops_at_target():
         "topics": [PAIR_CREATED_TOPIC], "data": "0x",
     }
     second_log = {
-        "blockHash": "0xCC", "blockNumber": "0x19",
+        "blockHash": "0xCC", "blockNumber": "0x14",
         "transactionHash": "0xDD", "logIndex": "0x0",
         "topics": [PAIR_CREATED_TOPIC], "data": "0x",
     }
