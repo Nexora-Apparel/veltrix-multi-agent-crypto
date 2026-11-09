@@ -74,6 +74,19 @@ class CompositeTokenSafetyValidator:
                 reasons.append(f"{label}: provider is not trusted")
             if not isinstance(evidence.evidence_id, str) or not evidence.evidence_id.strip():
                 reasons.append(f"{label}: evidence identifier is missing")
+            expected_claim = "liquidity_lock" if label == "liquidity" else "developer_holdings"
+            if evidence.claim != expected_claim:
+                reasons.append(f"{label}: unsupported or mismatched evidence claim")
+            if not isinstance(evidence.chain, str) or evidence.chain.lower() != chain_key:
+                reasons.append(f"{label}: evidence chain is missing or mismatched")
+            if evidence.coverage_complete is not True:
+                reasons.append(f"{label}: evidence coverage is not certified complete")
+            if not isinstance(evidence.source_ref, str) or not evidence.source_ref.strip():
+                reasons.append(f"{label}: independently auditable source reference is missing")
+            if not isinstance(evidence.method, str) or not evidence.method.strip():
+                reasons.append(f"{label}: evidence method is not declared")
+            if not isinstance(evidence.independence_group, str) or not evidence.independence_group.strip():
+                reasons.append(f"{label}: provider independence group is missing")
             if (not isinstance(evidence.observed_at_ms, int)
                     or isinstance(evidence.observed_at_ms, bool)):
                 reasons.append(f"{label}: evidence timestamp is invalid")
@@ -184,6 +197,13 @@ class CompositeTokenSafetyValidator:
         # Require three distinct provider identities for the three independent claims.
         if len(provider_ids) != 2 or len(set(provider_ids)) != 2:
             reasons.append("liquidity and developer claims must use distinct providers")
+        groups = [
+            item.independence_group for item in (bundle.liquidity, bundle.developer_holdings)
+            if isinstance(item, SafetyEvidence) and isinstance(item.independence_group, str)
+            and item.independence_group.strip()
+        ]
+        if len(groups) != 2 or len(set(groups)) != 2:
+            reasons.append("liquidity and developer evidence must have independent provider ownership")
         if isinstance(report, LaunchBundleReport) and report.provider in provider_ids:
             reasons.append("launch bundle claim must use a provider distinct from other safety claims")
 
