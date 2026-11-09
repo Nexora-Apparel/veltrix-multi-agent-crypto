@@ -4,6 +4,7 @@ from .dexscreener import DexScreenerProvider
 from .alchemy import AlchemyWalletProvider
 from .helius import HeliusWalletProvider
 from .alchemy_funding import AlchemyBaseFundingGraphProvider
+from .signed_roots import SignedDeveloperRootProvider
 from .helius_funding import HeliusSolanaFundingGraphProvider
 from .holder_inventory import SolanaHolderInventoryProvider, EvmHolderInventoryProvider
 from .factory import build_wallet_providers, build_intelligence_coordinator, build_holder_inventory_providers, build_funding_graph_providers, build_developer_evidence_orchestrator
@@ -18,7 +19,7 @@ from .launch import (
 __all__ = [
     "MarketEvent", "ProviderError", "DexScreenerProvider",
     "AlchemyWalletProvider", "HeliusWalletProvider", "SolanaHolderInventoryProvider",
-    "EvmHolderInventoryProvider", "AlchemyBaseFundingGraphProvider", "HeliusSolanaFundingGraphProvider",
+    "EvmHolderInventoryProvider", "AlchemyBaseFundingGraphProvider", "HeliusSolanaFundingGraphProvider", "SignedDeveloperRootProvider",
     "build_funding_graph_providers", "build_holder_inventory_providers", "build_wallet_providers", "build_developer_evidence_orchestrator",
     "build_intelligence_coordinator", "CrossChainIntelligenceCoordinator",
     "CrossChainIntelligenceResult", "FundingTrace", "LaunchIndexBatch",
