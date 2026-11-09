@@ -106,6 +106,8 @@ def build_developer_evidence_orchestrator(settings, intelligence_adapters, *,
             max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000)
         ), intelligence_adapters=intelligence_adapters,
         trusted_root_providers=getattr(settings, "trusted_developer_root_providers", ()),
+        trusted_holder_providers=getattr(settings, "trusted_holder_inventory_providers", ()),
+        trusted_funding_providers=getattr(settings, "trusted_developer_funding_providers", ()),
         # No production capability is currently certified for this composite graph.
         certified_provider_id=None, audit_sink=audit_sink,
     )
