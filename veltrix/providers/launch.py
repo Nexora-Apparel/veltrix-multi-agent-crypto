@@ -17,6 +17,7 @@ from ..launch_bundles import LaunchBundleAnalyzer, LaunchBuyEvidence, LaunchBund
 from ..composite_safety import SafetyEvidenceBundle
 from ..safety import SafetyEvidence, SafetyReport
 from .base import ProviderError
+from .helius_data import unwrap_parsed_transaction, token_transfer_amount
 
 
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -125,8 +126,10 @@ class HeliusNativeFundingResolver:
             through = (scan.get("scannedThrough") or {}).get("blockTime")
             if isinstance(through, (int, float)):
                 scanned_through = max(scanned_through, int(through * 1000))
-            for tx in payload["data"]:
-                if not isinstance(tx, dict):
+            for raw_tx in payload["data"]:
+                tx = unwrap_parsed_transaction(raw_tx)
+                if tx is None:
+                    reached_end = False
                     continue
                 ts = tx.get("blockTime", tx.get("timestamp"))
                 if not isinstance(ts, (int, float)):
@@ -321,9 +324,10 @@ class HeliusHistoricalSupplyResolver:
             through = (scan.get("scannedThrough") or {}).get("blockTime")
             if isinstance(through, (int, float)) and not isinstance(through, bool):
                 scanned_through = max(scanned_through, int(through))
-            for tx in payload["data"]:
-                if not isinstance(tx, dict):
-                    rejected.append("malformed transaction in historical supply scan")
+            for raw_tx in payload["data"]:
+                tx = unwrap_parsed_transaction(raw_tx)
+                if tx is None:
+                    rejected.append("Helius parser status failed in historical supply scan")
                     continue
                 slot = tx.get("slot")
                 if not isinstance(slot, int) or isinstance(slot, bool):
@@ -352,12 +356,16 @@ class HeliusHistoricalSupplyResolver:
                     continue
                 for transfer in matching:
                     raw = transfer.get("rawTokenAmount")
-                    if not isinstance(raw, dict):
+                    amount_decimals = transfer.get("decimals")
+                    if isinstance(raw, dict):
+                        amount_decimals = raw.get("decimals", amount_decimals)
+                        raw = raw.get("tokenAmount")
+                    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
                         rejected.append("mint/burn transfer omitted raw integer amount")
                         continue
                     try:
-                        amount = int(raw["tokenAmount"])
-                        amount_decimals = int(raw["decimals"])
+                        amount = int(raw)
+                        amount_decimals = int(amount_decimals)
                     except (KeyError, TypeError, ValueError):
                         rejected.append("mint/burn transfer raw amount is malformed")
                         continue
@@ -525,8 +533,9 @@ class HeliusLaunchIndexer:
         )
 
     def _extract_swap(self, tx, token, launch_ms, end_ms, output, rejected):
-        if not isinstance(tx, dict):
-            rejected.append("malformed Helius transaction record")
+        tx = unwrap_parsed_transaction(tx)
+        if tx is None:
+            rejected.append("Helius parser status failed or transaction envelope malformed")
             return
         summary = tx.get("summary") or {}
         if not isinstance(summary, dict) or not isinstance(summary.get("type"), str):
@@ -572,7 +581,7 @@ class HeliusLaunchIndexer:
                 rejected.append("Helius target-mint swap leg has no identifiable buyer")
                 continue
             try:
-                amount = float(transfer.get("tokenAmount"))
+                amount = token_transfer_amount(transfer)
             except (TypeError, ValueError):
                 rejected.append("Helius launch swap has invalid token amount")
                 continue
