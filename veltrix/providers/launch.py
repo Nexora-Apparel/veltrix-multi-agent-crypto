@@ -557,9 +557,17 @@ class HeliusLaunchIndexer:
             rejected.append("Helius swap direction is not parsed")
             return
         swap_kind = str(parsed_data.get("kind", "")).lower()
-        if swap_kind == "sell":
+        output_mint = parsed_data.get("output_mint")
+        input_mint = parsed_data.get("input_mint")
+        if swap_kind == "sell" or input_mint == token:
             return
-        if swap_kind != "buy" or parsed_data.get("output_mint") != token:
+        explicit_buy = (
+            output_mint == token
+            and (swap_kind == "buy" or (
+                not swap_kind and isinstance(input_mint, str) and input_mint != token
+            ))
+        )
+        if not explicit_buy:
             rejected.append("Helius swap is not an explicit buy of the target mint")
             return
         signature = tx.get("signature")
