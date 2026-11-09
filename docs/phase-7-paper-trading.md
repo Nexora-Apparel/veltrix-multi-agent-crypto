@@ -60,9 +60,10 @@ paper-ledger path to preserve the current account and history. Do not use
 ## Run
 
 Start the existing Phase 03 discovery, Phase 04 market refresh and Phase 05
-risk-evidence workers separately. Then start the paper worker:
+risk-evidence workers separately. Then explicitly enable and start the paper worker:
 
 ```bash
+export PAPER_TRADING_ENABLED=true
 python -m veltrix.solana_meme.paper_runtime
 ```
 
