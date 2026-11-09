@@ -6,6 +6,7 @@ from veltrix.base_v2_history_inventory import (
     decode_pair_created,
     normalize_event_logs,
     validate_event_sequence,
+    scan_event_history,
     word_address,
     word_uint,
 )
@@ -89,3 +90,35 @@ def test_validate_event_sequence_rejects_duplicate_pair_addresses():
     ]
     with pytest.raises(PreflightError, match="duplicate pair address"):
         validate_event_sequence(events, 2, "test")
+
+
+class _FakeLogRpc:
+    label = "fake"
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, method, params):
+        self.calls.append((method, params))
+        return []
+
+
+def test_scan_event_history_covers_every_block_in_bounded_chunks():
+    rpc = _FakeLogRpc()
+    events, coverage = scan_event_history(
+        rpc, "0x" + "aa" * 20, 100, 125, "test", chunk_span=10
+    )
+    assert events == []
+    assert coverage == {
+        "from_block": 100,
+        "to_block": 125,
+        "queried_block_count": 26,
+        "chunk_span": 10,
+        "chunk_count": 3,
+        "event_count": 0,
+        "block_coverage_complete": True,
+    }
+    assert [
+        (int(params[0]["fromBlock"], 16), int(params[0]["toBlock"], 16))
+        for _, params in rpc.calls
+    ] == [(100, 109), (110, 119), (120, 125)]
