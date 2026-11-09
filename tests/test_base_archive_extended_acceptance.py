@@ -50,6 +50,7 @@ def test_block_by_tag_normalizes_number_and_hash():
 def test_normalized_logs_sorts_and_normalizes_log_fields():
     second = {
         "blockHash": "0xBEEF",
+        "blockNumber": "0x10",
         "transactionHash": "0xBBBB",
         "logIndex": "0x2",
         "topics": [PAIR_CREATED_TOPIC.upper()],
@@ -57,6 +58,7 @@ def test_normalized_logs_sorts_and_normalizes_log_fields():
     }
     first = {
         "blockHash": "0xCAFE",
+        "blockNumber": "0x10",
         "transactionHash": "0xAAAA",
         "logIndex": "0x1",
         "topics": [PAIR_CREATED_TOPIC],
@@ -70,7 +72,7 @@ def test_normalized_logs_sorts_and_normalizes_log_fields():
             "topics": [PAIR_CREATED_TOPIC],
         }], sort_keys=True)): [second, first]
     })
-    rows = normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16)
+    rows = normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16, 16)
     assert [row["transactionHash"] for row in rows] == ["0xaaaa", "0xbbbb"]
     assert rows[0]["topics"] == [PAIR_CREATED_TOPIC]
     assert rows[0]["data"] == "0x1234"
@@ -86,4 +88,4 @@ def test_normalized_logs_rejects_malformed_rows():
         }], sort_keys=True)): ["not-an-object"]
     })
     with pytest.raises(Exception, match="malformed log row"):
-        normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16)
+        normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16, 16)
