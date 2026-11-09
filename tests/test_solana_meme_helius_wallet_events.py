@@ -1,7 +1,11 @@
 import pytest
 
+from veltrix.providers.base import ProviderError
 from veltrix.providers.intelligence import SmartWalletObservation
-from veltrix.solana_meme.helius_wallet_events import HeliusWalletEventBatchProvider
+from veltrix.solana_meme.helius_wallet_events import (
+    HeliusWalletEventBatchProvider,
+    StoredMarketSpotPriceResolver,
+)
 
 MINT_A = "So11111111111111111111111111111111111111112"
 MINT_B = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -95,3 +99,34 @@ def test_helius_wallet_provider_rejects_allowlist_over_scan_limit():
     fake = FakeHelius((WALLET_A, WALLET_B), ())
     with pytest.raises(ValueError, match="exceeds the configured Helius scan limit"):
         build_provider(fake, max_tracked_wallets=1)
+
+def test_stored_market_price_resolver_rejects_stale_and_invalid_prices():
+    class Store:
+        def __init__(self, row):
+            self.row = row
+
+        def latest(self, mint):
+            return self.row
+
+    fresh = StoredMarketSpotPriceResolver(
+        Store({"retrieved_at_ms": 9_950, "price_usd": 0.25}),
+        clock_ms=lambda: 10_000,
+        max_age_ms=100,
+    )
+    assert fresh(MINT_A) == 0.25
+
+    stale = StoredMarketSpotPriceResolver(
+        Store({"retrieved_at_ms": 8_000, "price_usd": 0.25}),
+        clock_ms=lambda: 10_000,
+        max_age_ms=100,
+    )
+    with pytest.raises(ProviderError, match="stale"):
+        stale(MINT_A)
+
+    invalid = StoredMarketSpotPriceResolver(
+        Store({"retrieved_at_ms": 9_950, "price_usd": float("nan")}),
+        clock_ms=lambda: 10_000,
+        max_age_ms=100,
+    )
+    with pytest.raises(ProviderError, match="invalid"):
+        invalid(MINT_A)
