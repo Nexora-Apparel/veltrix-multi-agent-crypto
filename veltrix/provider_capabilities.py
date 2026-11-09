@@ -40,6 +40,13 @@ CAPABILITIES = (
         "No documented Solana liquidity-lock coverage in this connector.",
         "https://docs.gopluslabs.io/reference/supported-locker",
     ),
+    ProviderCapability(
+        "solana-raydium-v4-cpmm-finalized-pool-inventory", "solana",
+        "liquidity_lock", "partial",
+        "Read-only finalized Raydium AMM V4 and CPMM pool inventory with UNCX locker verification for the published AMM V4 profile.",
+        "The official UNCX registry lists separate smart-locker, CP-Swap, CLMM, Meteora DLMM and PumpSwap programs, but their executable hashes and account layouts are not pinned in this adapter; the full active-AMM registry is not certified complete.",
+        "https://docs.uncx.network/guides/for-developers/liquidity-lockers/solana-lockers/contracts/",
+    ),
     *(
         ProviderCapability(
             "insightx-clusters", chain, "developer_holdings", "partial",
