@@ -103,3 +103,61 @@ def test_wallet_adapter_does_not_crash_on_malformed_provider_fields():
     ], 1_000_000)
     assert batch.accepted == ()
     assert len(batch.rejected) == 2
+
+
+class WalletFeed:
+    provider_id = "wallet-indexer"
+    def __init__(self, observations):
+        self.observations = observations
+    def fetch_wallet_observations(self, chain, token_addresses, since_ms):
+        return self.observations
+
+
+class SafetyFeed:
+    provider_id = "audit-feed"
+    def __init__(self, observation):
+        self.observation = observation
+    def fetch_safety_observation(self, chain, token_address):
+        return self.observation
+
+
+def test_provider_contract_collects_only_matching_wallet_identity():
+    adapter = VerifiedIntelligenceAdapters(["wallet-indexer"])
+    feed = WalletFeed([
+        wallet(provider="wallet-indexer", tx="trusted"),
+        wallet(provider="spoofed-provider", tx="spoofed"),
+    ])
+    batch = adapter.collect_wallet_observations(
+        feed, "solana", ["mint"], 999_000, 1_000_100
+    )
+    assert len(batch.accepted) == 1
+    assert any("provider identity mismatch" in reason for reason in batch.rejected)
+
+
+def test_provider_contract_fails_closed_on_untrusted_or_failed_wallet_feed():
+    adapter = VerifiedIntelligenceAdapters(["wallet-indexer"])
+    class UntrustedFeed(WalletFeed):
+        provider_id = "unknown"
+    assert adapter.collect_wallet_observations(
+        UntrustedFeed([]), "solana", ["mint"], 0, 1_000_000
+    ).accepted == ()
+
+    class BrokenFeed:
+        provider_id = "wallet-indexer"
+        def fetch_wallet_observations(self, chain, token_addresses, since_ms):
+            raise RuntimeError("upstream unavailable")
+    batch = adapter.collect_wallet_observations(
+        BrokenFeed(), "solana", ["mint"], 0, 1_000_000
+    )
+    assert batch.accepted == ()
+    assert "whale: trusted provider request failed" in batch.rejected
+
+
+def test_provider_contract_fails_closed_on_safety_identity_mismatch():
+    adapter = VerifiedIntelligenceAdapters(trusted_safety_providers=["audit-feed"])
+    report = adapter.collect_safety_observation(
+        SafetyFeed(safety(provider="different-feed")),
+        "solana", "mint", 1_000_100
+    )
+    assert not report.passed
+    assert "evidence provider is not trusted" in report.reasons
