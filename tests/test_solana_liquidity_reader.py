@@ -129,7 +129,7 @@ def test_cpmm_pool_state_is_discovered_by_token_mint_and_lp_offsets():
     instance = reader()
     target = str(LP_MINT)
     quote = str(OWNER)
-    lp_mint = str(Pubkey.from_string("So11111111111111111111111111111111111111113"))
+    lp_mint = str(Pubkey.from_bytes(bytes([7]) * 32))
     pool_address = str(Pubkey.from_string("Vote111111111111111111111111111111111111111"))
     data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
     data[136:168] = bytes(Pubkey.from_string(lp_mint))
@@ -166,6 +166,16 @@ def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
     instance = reader()
     target = str(LP_MINT)
 
+    data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
+    data[136:168] = bytes(Pubkey.from_bytes(bytes([7]) * 32))
+    data[168:200] = bytes(LP_MINT)
+    data[200:232] = bytes(OWNER)
+    encoded = base64.b64encode(bytes(data)).decode()
+    valid_row = {
+        "pubkey": str(Pubkey.from_bytes(bytes([8]) * 32)),
+        "account": {"owner": RAYDIUM_CPMM_PROGRAM, "data": [encoded, "base64"]},
+    }
+
     class Rpc:
         def __init__(self, values):
             self.values = values
@@ -173,7 +183,7 @@ def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
             return {"context": {"slot": 900}, "value": self.values}
 
     instance.pool_rpc = Rpc([])
-    instance.locker_rpc = Rpc([{"pubkey": "missing", "account": {}}])
+    instance.locker_rpc = Rpc([valid_row])
     with pytest.raises(Exception, match="independent Solana RPCs disagree"):
         instance._discover_cpmm_pools(target, 900)
 
