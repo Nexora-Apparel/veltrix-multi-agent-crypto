@@ -137,6 +137,9 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
     from .evm_liquidity_reader import (
         EvmFactorySpec, EvmLockerSpec, EvmV2LiquiditySnapshotReader,
     )
+    from ..base_factory_registry import (
+        BASE_V2_FACTORY_CANDIDATES, BASE_V2_FACTORY_REGISTRY_COMPLETE,
+    )
     from .solana_liquidity_reader import SolanaRaydiumV4CpmmSnapshotReader
 
     allowed = {"base", "bsc", "solana"}
@@ -171,6 +174,23 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
         factories = parse_registry(
             factories_raw, EvmFactorySpec, f"{chain.upper()}_LIQUIDITY_AMM_FACTORIES_JSON"
         )
+        if chain == "base":
+            # Always inject the source-pinned candidate and reject attempts to
+            # override its identity. This does not certify registry completeness.
+            pinned = {item.amm_id: item.as_reader_spec()
+                      for item in BASE_V2_FACTORY_CANDIDATES}
+            configured = {item.amm_id: item for item in factories}
+            for amm_id, spec in pinned.items():
+                supplied = configured.get(amm_id)
+                if supplied is not None and (
+                    supplied.address.lower() != spec.address.lower()
+                    or supplied.deployment_block != spec.deployment_block
+                    or supplied.expected_code_hash.lower() != spec.expected_code_hash.lower()
+                ):
+                    raise ValueError("configured Base factory conflicts with pinned registry identity")
+                configured[amm_id] = spec
+            factories = tuple(configured.values())
+            complete = bool(complete) and BASE_V2_FACTORY_REGISTRY_COMPLETE
         lockers = parse_registry(
             lockers_raw, EvmLockerSpec, f"{chain.upper()}_UNCX_LOCKERS_JSON"
         )
