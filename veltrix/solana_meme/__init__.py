@@ -16,6 +16,7 @@ from .risk_store import SolanaRiskEvidenceStore
 from .safety_store import SolanaSafetyReportStore
 from .agent_context import SolanaAgentContextProvider
 from .decision_runner import SolanaAgentContext, PaperDecisionBatchResult, SolanaPaperDecisionRunner
+from .market_agent_context import SolanaMarketAgentContextProvider
 from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
 from .developer_store import DeveloperConcentrationStore
 from .developer_worker import DeveloperEvidenceBatchResult, SolanaDeveloperEvidenceWorker
