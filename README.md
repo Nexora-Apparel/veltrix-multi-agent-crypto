@@ -36,7 +36,7 @@ Start a 24-hour read-only monitoring session:
 python -m veltrix.main --hours 24
 ```
 
-Market observations are saved to the SQLite database at `DB_PATH`. No positions are opened automatically: the CLI is still observation-only. The new wallet connectors are library-level adapters and are not yet wired into a complete live signal-to-paper-entry pipeline. An actual trusted token-safety provider, comprehensive launch/pool discovery and end-to-end paper-session acceptance must pass before paper entries are enabled.
+Market observations are saved to the SQLite database at `DB_PATH`. No positions are opened automatically: the CLI is still observation-only. The new wallet connectors are library-level adapters and are not yet wired into a complete live signal-to-paper-entry pipeline. The launch-intelligence service currently defines and validates the normalized indexing contract; production Solana/Base/BSC launch indexers, source-level coverage proofs, and real total-supply/launch-time resolution are still required before the service can certify actual tokens. An actual trusted token-safety provider, comprehensive launch/pool discovery and end-to-end paper-session acceptance must pass before paper entries are enabled.
 
 ## Risk and data limitations
 DexScreener pair snapshots do not prove liquidity is locked, developer holdings are below 5%, or bundled supply is zero. Missing safety fields must fail closed. The current implementation is not a financial recommendation and must not be used for live execution.
