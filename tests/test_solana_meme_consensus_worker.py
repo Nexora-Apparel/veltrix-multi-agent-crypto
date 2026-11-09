@@ -1,4 +1,5 @@
 from veltrix.providers.base import MarketEvent
+from veltrix.whales import WalletBuyEvent
 from veltrix.solana_meme.candidates import normalize_candidate
 from veltrix.solana_meme.consensus import ConsensusEngine
 from veltrix.solana_meme.consensus_store import ConsensusStore
@@ -10,6 +11,8 @@ from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 
 MINT = "So11111111111111111111111111111111111111112"
+WALLET_A = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+WALLET_B = "Vote111111111111111111111111111111111111111"
 
 
 class Clock:
@@ -159,3 +162,29 @@ def test_consensus_worker_rejects_invalid_limit(tmp_path):
             assert False, "expected invalid limit to be rejected"
         except ValueError:
             pass
+
+def test_consensus_worker_fetches_wallet_events_once_for_entire_batch(tmp_path):
+    _, _, _, store, worker, clock = setup_worker(tmp_path)
+    worker.engine = ConsensusEngine(trusted_wallets=(WALLET_A, WALLET_B))
+    calls = []
+
+    def batch_provider(mints, now_ms):
+        calls.append((tuple(mints), now_ms))
+        return (
+            WalletBuyEvent("solana", MINT, WALLET_A, now_ms - 100, 150, "helius"),
+            WalletBuyEvent("solana", MINT, WALLET_B, now_ms - 50, 175, "helius"),
+        )
+
+    def should_not_run_per_mint(_mint):
+        raise AssertionError("batch wallet provider must not be called again per mint")
+
+    worker.wallet_event_batch_provider = batch_provider
+    worker.wallet_event_provider = should_not_run_per_mint
+
+    result = worker.run_once()
+
+    assert result.recorded == 1
+    assert calls == [((MINT,), clock.value)]
+    decision = store.latest(MINT)
+    whale_vote = next(vote for vote in decision["votes"] if vote["agent"] == "whale")
+    assert whale_vote["stance"] == "SUPPORT"
