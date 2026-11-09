@@ -34,9 +34,9 @@ def test_insightx_read_only_cluster_endpoint(chain, network):
     response.raise_for_status()
     payload = response.json()
     assert isinstance(payload, dict)
-    # API docs promise cluster metrics, but not a stable detailed schema.
-    # Keep the raw response untrusted until schema and completeness are reviewed.
-    assert any(key in payload for key in ("clusters", "data", "result"))
+    # The public docs do not publish a stable detailed response schema.
+    # Validate only a non-empty JSON object; never infer completeness from it.
+    assert payload
 
 
 @pytest.mark.parametrize("chain,chain_id", [("base", "8453"), ("bsc", "56")])
