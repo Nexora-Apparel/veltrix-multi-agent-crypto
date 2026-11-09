@@ -97,3 +97,23 @@ def test_coordinator_provider_failure_isolated_and_token_context_is_safe():
     assert original == {"address": "mint", "symbol": "TEST"}
     assert len(enriched["smart_wallet_buys"]) == 2
     assert enriched["whale_cluster_count"] == 1
+
+
+def test_solana_base58_case_is_preserved_but_evm_hashes_are_case_normalized():
+    adapters = VerifiedIntelligenceAdapters(
+        trusted_wallet_providers=["helius", "alchemy"]
+    )
+    solana_rows = (
+        observation("helius", "solana", "WalletA", "SignatureA", "MintA"),
+        observation("helius", "solana", "walleta", "signaturea", "minta"),
+    )
+    solana = adapters.adapt_wallet_observations(solana_rows, 1_000_000)
+    assert len(solana.accepted) == 2
+
+    evm_rows = (
+        observation("alchemy", "base", "0xAbCd", "0xABCDEF", "0xToken"),
+        observation("alchemy", "base", "0xabcd", "0xabcdef", "0xtoken"),
+    )
+    evm = adapters.adapt_wallet_observations(evm_rows, 1_000_000)
+    assert len(evm.accepted) == 1
+    assert len(evm.rejected) == 1
