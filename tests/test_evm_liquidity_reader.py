@@ -196,6 +196,9 @@ def test_factory_scan_includes_unlocked_second_pool_in_inventory():
             if method == "eth_getLogs" and params[0]["address"].lower() == FACTORY.lower():
                 return Response([pair_created_log(PAIR), pair_created_log(second)]
                                 if params[0]["fromBlock"] == "0x1" else [])
+            if (method == "eth_call" and params[0]["to"].lower() == FACTORY.lower()
+                    and params[0]["data"][:10] == "0x" + keccak(b"allPairsLength()")[:4].hex()):
+                return Response("0x" + word(2))
             if method == "eth_call" and params[0]["to"].lower() == second.lower():
                 selector = params[0]["data"][:10]
                 if selector == "0x" + keccak(b"allPairsLength()")[:4].hex():
