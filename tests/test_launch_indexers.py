@@ -100,7 +100,7 @@ class EvmRpcSession:
         if method == "eth_call":
             if params[0]["data"] == "0x18160ddd":
                 return Response({"result": hex(1_000_000_000)})
-            return Response({"result": hex(6)})
+            return Response({"result": hex(8)})
         if method == "eth_getLogs":
             return Response({"result": [{
                 "transactionHash": "0xswap", "blockNumber": hex(101),
