@@ -13,6 +13,7 @@ from ..safety import SafetyReport
 from .candidates import canonical_mint
 from .risk_evidence import SolanaRiskEvidenceReport
 from .sellability import SolanaSellabilityEvidence
+from .paper_sizing import calculate_paper_exit_size
 from ..providers.solana_mint import TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID
 
 
@@ -69,6 +70,7 @@ class SolanaShieldPolicy:
         now_ms: int,
         sellability: SolanaSellabilityEvidence | None = None,
         sell_amount_raw: int | None = None,
+        token_price_usd: float | None = None,
     ) -> ShieldDecision:
         canonical = canonical_mint(mint)
         reasons: list[str] = []
@@ -214,6 +216,22 @@ class SolanaShieldPolicy:
                     or not isinstance(sellability.route_plan_count, int)
                     or sellability.route_plan_count <= 0):
                 reasons.append("sell-route quote contains no valid route plan")
+            if (isinstance(sell_amount_raw, int) and not isinstance(sell_amount_raw, bool)
+                    and sell_amount_raw > 0 and isinstance(evidence, SolanaRiskEvidenceReport)
+                    and evidence.mint_supply_reconciled is True):
+                try:
+                    expected_size = calculate_paper_exit_size(
+                        canonical,
+                        notional_usd=amount,
+                        token_price_usd=token_price_usd,
+                        decimals=evidence.mint_decimals,
+                        total_supply_raw=evidence.mint_supply_raw,
+                    )
+                except (TypeError, ValueError):
+                    reasons.append("paper exit size cannot be calculated from position notional and finalized mint metadata")
+                else:
+                    if expected_size.input_amount_raw != sell_amount_raw:
+                        reasons.append("sell-route amount does not match the configured paper position notional")
             impact = sellability.price_impact_bps
             if (isinstance(impact, bool) or not isinstance(impact, (int, float))
                     or not math.isfinite(impact) or impact < 0 or impact > 300):
