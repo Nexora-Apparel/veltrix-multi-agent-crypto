@@ -136,3 +136,16 @@ it requires existing GoPlus and Solana RPC evidence so the worker can use
 finalized supply. JUPITER_API_KEY is optional; keyless prototype access requires
 no new secret. The worker remains read-only and does not clear the
 executable_sellability claim.
+
+
+## 2026-11-09 — Controlled sell-transaction simulation foundation
+
+- Added `JupiterSolanaSellSimulationProvider` in `veltrix/providers/solana_sell_simulation.py`.
+- The provider requests a Jupiter Swap API V2 unsigned order for a configured dedicated test-wallet public key, validates mint direction, amount, request ID, transaction encoding and returned taker identity, then calls Solana RPC `simulateTransaction`.
+- Simulation explicitly sets `sigVerify=false`, `replaceRecentBlockhash=true`, and `commitment=processed`.
+- The result records state, simulated slot, compute units, logs and error. It permanently records `signature_verification=false` and `transaction_submitted=false`.
+- Added mocked tests for successful simulation, simulation errors, invalid wallet/RPC configuration and invalid sell amount.
+- Added `docs/solana-sell-simulation.md` with operational and interpretation boundaries.
+- This provider is not enabled by default or connected to the runtime. It requires a dedicated test wallet holding the candidate token balance; no Phantom address or private key is used.
+- CI was triggered for the new commits; final status is pending verification.
+- No live signing, transaction submission, paper-entry approval or production-main change.
