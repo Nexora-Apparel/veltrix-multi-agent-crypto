@@ -48,8 +48,12 @@ class ConsensusStore:
     def record(self, decision: ConsensusDecision) -> bool:
         if not isinstance(decision, ConsensusDecision):
             raise TypeError("decision must be a ConsensusDecision")
+        if decision.status not in {"REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"}:
+            raise ValueError("unsupported consensus disposition")
         if decision.execution_authorized is not False:
             raise ValueError("Phase 06 consensus decisions cannot authorize execution")
+        if decision.paper_review_eligible is not (decision.status == "CONSENSUS_APPROVED"):
+            raise ValueError("paper-review eligibility must match the consensus disposition")
         payload = json.dumps(asdict(decision), sort_keys=True, separators=(",", ":"))
         with self._connect() as db:
             cursor = db.execute(
