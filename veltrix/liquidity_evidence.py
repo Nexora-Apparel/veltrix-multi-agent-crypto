@@ -67,6 +67,7 @@ class LockerDeployment:
     independence_group: str
     chain_id: int | None = None
     program_executable_hash: str | None = None
+    custody_authority: str | None = None
 
 
 @dataclass(frozen=True)
@@ -250,8 +251,9 @@ class LiquidityEvidenceAnalyzer:
             if chain == "solana" and (
                 not HEX_HASH.fullmatch(deployment.program_executable_hash or "")
                 or deployment.program_executable_hash != deployment.expected_code_hash
+                or not _valid_address("solana", deployment.custody_authority or "")
             ):
-                reasons.append("Solana locker executable hash is not pinned or mismatched")
+                reasons.append("Solana locker executable hash or custody authority is not pinned")
                 continue
             deployment_map[deployment.address.lower() if chain in {"base", "bsc"} else deployment.address] = deployment
 
@@ -311,6 +313,8 @@ class LiquidityEvidenceAnalyzer:
                     reasons.append("Solana lock account owner does not match verified locker program")
                 if not position.custody_account or not position.custody_authority:
                     reasons.append("Solana locker token-account custody or authority is missing")
+                if deployment is not None and position.custody_authority != deployment.custody_authority:
+                    reasons.append("Solana LP custody authority does not match the pinned locker authority")
                 if not _same_address("solana", position.custody_token_mint or "", position.lp_token_address):
                     reasons.append("Solana locker custody token mint does not match LP mint")
                 if position.custody_account_owner not in {
