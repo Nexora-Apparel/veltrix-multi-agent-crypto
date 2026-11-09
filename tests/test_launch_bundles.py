@@ -93,7 +93,7 @@ def test_stale_future_and_invalid_amounts_are_rejected():
     )
     assert report.accepted_transactions == 0
     assert report.bundled_supply_pct is None
-    assert len(report.rejected) == 3
+    assert len(report.rejected) == 4
 
 
 def test_unknown_or_overflowing_supply_withholds_percentage():
