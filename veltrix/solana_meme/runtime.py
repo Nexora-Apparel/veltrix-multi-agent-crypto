@@ -22,12 +22,14 @@ from .developer_store import DeveloperConcentrationStore
 from .developer_worker import SolanaDeveloperEvidenceWorker
 from .bundle_store import LaunchBundleEvidenceStore
 from .sellability_store import SolanaSellabilityEvidenceStore
+from .sell_simulation_store import SolanaSellSimulationStore
 from ..config import settings as load_settings
 from ..providers.factory import (
     build_solana_risk_evidence_collector,
     build_solana_developer_evidence_worker,
     build_solana_launch_bundle_worker,
     build_solana_sellability_worker,
+    build_solana_sell_simulation_worker,
 )
 
 
@@ -73,9 +75,14 @@ def run_service(
     sellability_worker = build_solana_sellability_worker(
         configured, launches, risk_store, sellability_store,
     )
+    sell_simulation_store = SolanaSellSimulationStore(database)
+    sell_simulation_worker = build_solana_sell_simulation_worker(
+        configured, database, sell_simulation_store,
+    )
     pipeline = SolanaMemePipeline(
         enrichment, refresh, risk_worker, developer_worker, bundle_worker,
         sellability_worker=sellability_worker,
+        sell_simulation_worker=sell_simulation_worker,
     )
 
     stop_event = threading.Event()
@@ -96,6 +103,8 @@ def run_service(
         print("Launch-bundle analysis is disabled until Helius/Solana RPC and launch, bundle, and funding provider trust lists are configured.")
     if sellability_worker is None:
         print("Sell-route evidence is disabled: set SOLANA_SELLABILITY_ENABLED=true and configure GoPlus plus Solana RPC evidence. Jupiter keyless quotes require no new secret.")
+    if sell_simulation_worker is None:
+        print("Unsigned sell simulation is disabled: it requires explicit test-wallet public key and mint/raw-amount cases; no private key is accepted.")
     try:
         while not stop_event.is_set():
             if deadline is not None and time.monotonic() >= deadline:
@@ -127,6 +136,10 @@ def run_service(
                         f", sell routes observed={result.sellability.route_observed}, no routes={result.sellability.no_route}, unverified={result.sellability.unverified}, failures={result.sellability.failed}"
                         if result.sellability is not None else ", sell-route evidence disabled"
                     )
+                    + (
+                        f", sell simulations succeeded={result.sell_simulation.succeeded}, simulation failures={result.sell_simulation.simulation_failed}, provider failures={result.sell_simulation.provider_failed}"
+                        if result.sell_simulation is not None else ", sell simulation disabled"
+                    )
                 )
             except Exception as exc:
                 launches.record_event(
@@ -151,6 +164,7 @@ def run_service(
             f"risk reports stored={risk_store.count() if risk_store is not None else 0}, "
             f"developer reports stored={developer_store.count()}, "
             f"bundle reports stored={bundle_store.count()}, "
+            f"sell simulations stored={sell_simulation_store.count()}, "
             f"active feed outages={launches.active_outage_count()}"
         )
 
