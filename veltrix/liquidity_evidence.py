@@ -240,6 +240,8 @@ class LiquidityEvidenceAnalyzer:
             if not HEX_HASH.fullmatch(deployment.expected_code_hash or ""):
                 reasons.append("locker deployment runtime hash is not independently pinned")
                 continue
+            if not deployment.provider or deployment.provider == batch.provider:
+                reasons.append("locker deployment identity must be independently sourced from pool inventory")
             if not deployment.source_ref or not deployment.independence_group:
                 reasons.append("locker deployment provenance or ownership is missing")
                 continue
@@ -297,6 +299,8 @@ class LiquidityEvidenceAnalyzer:
             if not isinstance(position, LockerPositionSnapshot):
                 reasons.append("malformed locker position")
                 continue
+            if position.chain != chain:
+                reasons.append("locker position chain mismatch")
             pool_key = position.pool_address.lower() if chain in {"base", "bsc"} else position.pool_address
             pool = pools.get(pool_key)
             if pool is None:
