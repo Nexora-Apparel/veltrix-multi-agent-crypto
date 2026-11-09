@@ -80,7 +80,7 @@ Configuration:
   (default 60000).
 - `VELTRIX_CONSENSUS_BATCH_SIZE`: candidates per cycle (default 10, maximum 25).
 - `VELTRIX_TRUSTED_SOLANA_WALLETS`: comma-separated, operator-approved wallet
-  public keys. Empty by default.
+  public keys. Empty by default. `TRACKED_SMART_WALLETS` is accepted as a fallback.
 
 No wallet allowlist or wallet-buy feed is fabricated. Without both, Whale
 abstains.
@@ -92,11 +92,12 @@ Events provider to the Whale agent. Required settings are:
 - `VELTRIX_TRUSTED_SOLANA_WALLETS`: comma-separated operator-approved wallet
   public keys.
 - `VELTRIX_HELIUS_WALLET_SCAN_LIMIT`: maximum allowlisted wallets scanned per
-  consensus batch (default 10, permitted 1–25).
+  consensus batch (default 10, permitted 2–25).
 
 The runtime refuses to enable Helius if the provider identity is not trusted,
 the API key is missing, the wallet allowlist is empty, or the allowlist exceeds
-the configured scan bound. One bounded Helius request batch covers all claimed
+the configured scan bound. The scan bound is validated before runtime construction.
+One bounded Helius request batch covers all claimed
 candidate mints in a consensus cycle. Helius observations are normalized through
 the existing verified-intelligence adapter before reaching Whale. USD buy
 notional is estimated using a fresh persisted spot price, not historical
