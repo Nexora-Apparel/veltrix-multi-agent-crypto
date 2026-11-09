@@ -1,0 +1,148 @@
+"""Fail-closed paper-entry Shield for Solana meme candidates.
+
+This gate can approve paper entries only. It has no wallet, signer, RPC write,
+swap, or live-execution interface. Missing evidence is a veto, never a score.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+from typing import Iterable
+
+from ..safety import SafetyReport
+from .candidates import canonical_mint
+from .risk_evidence import SolanaRiskEvidenceReport
+
+
+@dataclass(frozen=True)
+class ShieldDecision:
+    mint: str
+    decision: str
+    reasons: tuple[str, ...]
+    approving_agents: tuple[str, ...]
+    amount: float
+    observed_at_ms: int
+
+    @property
+    def approved_for_paper(self) -> bool:
+        return self.decision == "APPROVE_PAPER_ENTRY"
+
+
+class SolanaShieldPolicy:
+    """Require complete evidence, composite safety, agent consensus and limits.
+
+    The policy deliberately emits only BLOCK or HOLD until every mandatory
+    claim has an independently collected value and a composite certificate.
+    Even an approval is strictly for the paper broker.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_evidence_age_ms: int = 300_000,
+        max_positions: int = 10,
+        max_position_amount: float = 50.0,
+        min_distinct_buy_agents: int = 2,
+    ) -> None:
+        if max_evidence_age_ms <= 0 or max_positions < 1:
+            raise ValueError("invalid evidence age or position limit")
+        if not math.isfinite(max_position_amount) or max_position_amount <= 0:
+            raise ValueError("max_position_amount must be positive and finite")
+        if min_distinct_buy_agents < 2:
+            raise ValueError("at least two independent BUY agents are required")
+        self.max_evidence_age_ms = max_evidence_age_ms
+        self.max_positions = max_positions
+        self.max_position_amount = max_position_amount
+        self.min_distinct_buy_agents = min_distinct_buy_agents
+
+    def evaluate(
+        self,
+        mint: str,
+        evidence: SolanaRiskEvidenceReport,
+        safety: SafetyReport | None,
+        signals: Iterable[object],
+        *,
+        open_positions: int,
+        amount: float,
+        now_ms: int,
+    ) -> ShieldDecision:
+        canonical = canonical_mint(mint)
+        reasons: list[str] = []
+
+        if not isinstance(evidence, SolanaRiskEvidenceReport):
+            reasons.append("typed Solana risk evidence report is required")
+        elif evidence.mint != canonical:
+            reasons.append("risk evidence mint mismatch")
+        else:
+            if evidence.errors:
+                reasons.append("risk evidence contains provider or validation errors")
+            if evidence.missing_claims:
+                reasons.append("mandatory risk claims remain unknown")
+            age = now_ms - evidence.observed_at_ms
+            if age < 0 or age > self.max_evidence_age_ms:
+                reasons.append("risk evidence report is stale or future-dated")
+            if not evidence.holder_coverage_complete:
+                reasons.append("complete reconciled holder inventory is required")
+
+        if not isinstance(safety, SafetyReport):
+            reasons.append("typed composite safety report is required")
+        else:
+            if safety.token_address != canonical:
+                reasons.append("composite safety report mint mismatch")
+            if safety.passed is not True or safety.composite_verified is not True:
+                reasons.append("composite safety certificate is not positively verified")
+            age = now_ms - safety.observed_at_ms
+            if age < 0 or age > self.max_evidence_age_ms:
+                reasons.append("composite safety certificate is stale or future-dated")
+
+        if isinstance(open_positions, bool) or not isinstance(open_positions, int) or open_positions < 0:
+            reasons.append("open position count is invalid")
+        elif open_positions >= self.max_positions:
+            reasons.append("maximum concurrent paper positions reached")
+
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount):
+            reasons.append("paper position amount is invalid")
+        elif amount <= 0 or amount > self.max_position_amount:
+            reasons.append("paper position amount is outside configured limits")
+
+        try:
+            candidates = tuple(signals)
+        except TypeError:
+            candidates = ()
+            reasons.append("agent signals are malformed")
+
+        buy_agents: set[str] = set()
+        buy_mints: set[str] = set()
+        for signal in candidates:
+            agent = getattr(signal, "agent", None)
+            side = getattr(signal, "side", None)
+            token = getattr(signal, "token", None)
+            if side != "BUY":
+                continue
+            if not isinstance(agent, str) or not agent.strip():
+                reasons.append("BUY signal has no valid agent identity")
+                continue
+            try:
+                signal_mint = canonical_mint(token)
+            except (TypeError, ValueError):
+                reasons.append("BUY signal contains an invalid Solana mint")
+                continue
+            buy_agents.add(agent.strip().lower())
+            buy_mints.add(signal_mint)
+
+        if len(buy_agents) < self.min_distinct_buy_agents:
+            reasons.append("insufficient distinct BUY-agent consensus")
+        if buy_mints != {canonical}:
+            reasons.append("BUY signals do not unanimously target this mint")
+
+        unique_reasons = tuple(dict.fromkeys(reasons))
+        decision = "BLOCK" if unique_reasons else "APPROVE_PAPER_ENTRY"
+        valid_amount = isinstance(amount, (int, float)) and not isinstance(amount, bool) and math.isfinite(amount)
+        return ShieldDecision(
+            mint=canonical,
+            decision=decision,
+            reasons=unique_reasons,
+            approving_agents=tuple(sorted(buy_agents)) if not unique_reasons else (),
+            amount=float(amount) if valid_amount else 0.0,
+            observed_at_ms=now_ms,
+        )
