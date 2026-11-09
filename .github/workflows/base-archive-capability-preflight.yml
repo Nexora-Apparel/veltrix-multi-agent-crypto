@@ -1,0 +1,41 @@
+name: Base archive capability preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_LIQUIDITY_POOL_RPC_URL: ${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
+      SOLIDRPC_BASE_ARCHIVE_RPC_URL: ${{ secrets.SOLIDRPC_BASE_ARCHIVE_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "eth-hash[pycryptodome]>=0.7,<1"
+      - name: Validate provider secrets
+        shell: bash
+        run: |
+          test -n "$BASE_LIQUIDITY_POOL_RPC_URL"
+          test -n "$SOLIDRPC_BASE_ARCHIVE_RPC_URL"
+          if [[ "$BASE_LIQUIDITY_POOL_RPC_URL" == "$SOLIDRPC_BASE_ARCHIVE_RPC_URL" ]]; then
+            echo "::error::Primary and candidate RPC endpoints must be independent."
+            exit 1
+          fi
+      - name: Test historical Base archive reads
+        run: python -m veltrix.base_archive_preflight
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: base-archive-preflight
+          path: base-archive-preflight.json
+          if-no-files-found: warn
