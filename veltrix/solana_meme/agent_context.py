@@ -99,8 +99,12 @@ class SolanaAgentContextProvider:
         if len(baseline_rows) == self.volume_baseline_observations:
             for row in baseline_rows:
                 volume = row.get("volume_h1_usd")
+                baseline_time = row.get("retrieved_at_ms")
                 if (isinstance(volume, bool) or not isinstance(volume, (int, float))
-                        or not math.isfinite(volume) or volume <= 0):
+                        or not math.isfinite(volume) or volume <= 0
+                        or isinstance(baseline_time, bool) or not isinstance(baseline_time, int)
+                        or baseline_time >= observed
+                        or not 0 <= evaluation_now - baseline_time <= 900_000):
                     baseline = []
                     break
                 baseline.append(float(volume))
