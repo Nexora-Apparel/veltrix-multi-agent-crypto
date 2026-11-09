@@ -27,9 +27,10 @@ class PaperTradingPolicy:
     max_decision_age_ms: int = 120_000
     max_market_age_ms: int = 120_000
     max_risk_age_ms: int = 300_000
+    max_portfolio_exposure_pct: float = 0.5
 
     def __post_init__(self) -> None:
-        for name in ("position_usd", "fee_bps", "slippage_bps"):
+        for name in ("position_usd", "fee_bps", "slippage_bps", "max_portfolio_exposure_pct"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
                 raise ValueError(f"{name} must be finite")
@@ -37,6 +38,8 @@ class PaperTradingPolicy:
             raise ValueError("position_usd must be positive")
         if not 0 <= self.fee_bps <= 2_000 or not 0 <= self.slippage_bps <= 2_000:
             raise ValueError("fee_bps and slippage_bps must be between 0 and 2000")
+        if not 0 < self.max_portfolio_exposure_pct <= 1:
+            raise ValueError("max_portfolio_exposure_pct must be greater than 0 and at most 1")
         for name in ("max_decision_age_ms", "max_market_age_ms", "max_risk_age_ms"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -343,6 +346,7 @@ class PaperTradingWorker:
                 processed_at_ms=now,
                 expected_market_snapshot_id=market["id"],
                 expected_risk_evidence_hash=decision["risk_evidence_hash"],
+                max_portfolio_exposure_pct=self.policy.max_portfolio_exposure_pct,
             )
             if result["status"] == "OPENED":
                 opened += 1
