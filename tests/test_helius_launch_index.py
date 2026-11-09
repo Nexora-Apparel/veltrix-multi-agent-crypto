@@ -38,6 +38,7 @@ class Origin:
 
 
 class MintProvider:
+    provider_id = "solana-finalized-mint-account"
     def fetch_snapshot(self, mint):
         return SolanaMintAuthoritySnapshot(
             mint, "solana-finalized-mint-account", "mint-proof", NOW - 10,
