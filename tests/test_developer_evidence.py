@@ -58,6 +58,7 @@ def test_orchestrator_analyzes_and_persists_rejected_evidence(tmp_path):
     roots = DeveloperRootAttestation(
         "base", "0xtoken", "independent-roots", "root-proof-1",
         NOW - 100, ("0xdev",), True, "attestation://root-proof-1",
+        signature_verified=True, signing_key_fingerprint="a" * 64,
     )
     result = service.evaluate(
         chain="base", token_address="0xtoken", root_attestation=roots,
@@ -92,6 +93,7 @@ def test_untrusted_root_provider_is_rejected_and_audited(tmp_path):
     roots = DeveloperRootAttestation(
         "base", "0xtoken", "untrusted", "proof", NOW - 10,
         ("0xdev",), True, "attestation://proof",
+        signature_verified=True, signing_key_fingerprint="a" * 64,
     )
     result = service.evaluate(
         chain="base", token_address="0xtoken", root_attestation=roots,
@@ -110,6 +112,7 @@ class RootProvider:
         return DeveloperRootAttestation(
             chain, token, "signed-root-registry", "signed-proof",
             NOW - 100, ("0xdev",), True, "https://roots.example/proof",
+            signature_verified=True, signing_key_fingerprint="a" * 64,
         )
 
 
