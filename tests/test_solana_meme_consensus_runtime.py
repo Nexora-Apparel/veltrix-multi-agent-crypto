@@ -66,13 +66,13 @@ def test_consensus_runtime_wires_helius_only_with_explicit_trust_and_wallet_allo
         trusted_wallets=(WALLET_A, "Vote111111111111111111111111111111111111111"),
     )
 
-    source = runtime.worker.wallet_event_provider
+    source = runtime.worker.wallet_event_batch_provider
     assert source is not None
     assert source.provider.provider_id == "helius"
     assert source.provider.tracked_wallets == (
         WALLET_A, "Vote111111111111111111111111111111111111111"
     )
-    assert source.max_age_ms == 180_000
+    assert source.max_wallet_age_ms == 180_000
 
 
 def test_consensus_runtime_does_not_enable_helius_without_provider_trust(
@@ -84,7 +84,7 @@ def test_consensus_runtime_does_not_enable_helius_without_provider_trust(
         database_path=tmp_path / "untrusted-helius.sqlite3",
         trusted_wallets=(WALLET_A,),
     )
-    assert runtime.worker.wallet_event_provider is None
+    assert runtime.worker.wallet_event_batch_provider is None
 
 
 def test_consensus_runtime_rejects_allowlist_above_helius_scan_limit(
