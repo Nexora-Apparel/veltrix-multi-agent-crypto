@@ -430,23 +430,14 @@ def build_server(
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=os.getenv("VELTRIX_LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    """Backward-compatible entrypoint; delegate to the canonical dashboard."""
+    LOGGER.warning(
+        "veltrix.solana_meme.dashboard is a compatibility entrypoint; "
+        "use python -m veltrix.dashboard_server"
     )
-    host = os.getenv("VELTRIX_DASHBOARD_HOST", "127.0.0.1")
-    try:
-        port = int(os.getenv("VELTRIX_DASHBOARD_PORT", "8765"))
-    except ValueError as exc:
-        raise ValueError("VELTRIX_DASHBOARD_PORT must be an integer") from exc
-    server = build_server(host=host, port=port)
-    LOGGER.info("read-only paper analytics dashboard listening at http://%s:%s", host, server.server_address[1])
-    try:
-        server.serve_forever(poll_interval=0.5)
-    except KeyboardInterrupt:
-        LOGGER.info("dashboard shutdown requested")
-    finally:
-        server.server_close()
+    from ..dashboard_server import main as canonical_main
+
+    canonical_main()
 
 
 if __name__ == "__main__":
