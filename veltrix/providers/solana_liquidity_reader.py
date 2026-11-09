@@ -292,6 +292,8 @@ class SolanaRaydiumV4CpmmSnapshotReader:
                     raise ProviderError("Raydium CPMM PoolState discriminator or size mismatch")
                 vault0 = str(Pubkey.from_bytes(data[72:104]))
                 vault1 = str(Pubkey.from_bytes(data[104:136]))
+                token0_program = str(Pubkey.from_bytes(data[232:264]))
+                token1_program = str(Pubkey.from_bytes(data[264:296]))
                 lp_mint = str(Pubkey.from_bytes(data[136:168]))
                 token0_key = Pubkey.from_bytes(data[168:200])
                 token1_key = Pubkey.from_bytes(data[200:232])
@@ -323,6 +325,9 @@ class SolanaRaydiumV4CpmmSnapshotReader:
                 rows[address] = {
                     "amm_id": address, "lp_mint": lp_mint,
                     "base_mint": token0, "quote_mint": token1,
+                    "vault0": vault0, "vault1": vault1,
+                    "token0_program": token0_program,
+                    "token1_program": token1_program,
                     "pool_type": "raydium-cpmm",
                 }
         if len(rows) >= self.max_pools:
@@ -388,6 +393,35 @@ class SolanaRaydiumV4CpmmSnapshotReader:
         if pool_records != locker_records:
             raise ProviderError("independent Solana RPCs disagree on complete UNCX lock account inventory")
         return locker_records
+
+    def _verify_cpmm_pool_accounts(self, pool, slot):
+        authority, _ = Pubkey.find_program_address(
+            [b"vault_and_lp_mint_auth_seed"], self.cpmm_program
+        )
+        for mint, token_program, vault in (
+            (pool["base_mint"], pool["token0_program"], pool["vault0"]),
+            (pool["quote_mint"], pool["token1_program"], pool["vault1"]),
+        ):
+            if token_program not in {TOKEN_PROGRAM, TOKEN_2022_PROGRAM}:
+                raise ProviderError("Raydium CPMM token uses an unsupported token program")
+            mint_account = self._get_account_crosschecked(mint, slot)
+            if mint_account.get("owner") != token_program:
+                raise ProviderError("Raydium CPMM mint owner does not match PoolState token program")
+            mint_data = _decode_account_data(mint_account, "Raydium CPMM token mint")
+            if len(mint_data) < 82 or mint_data[45] != 1:
+                raise ProviderError("Raydium CPMM token mint layout or initialized flag is invalid")
+
+            vault_account = self._get_account_crosschecked(vault, slot)
+            if vault_account.get("owner") != token_program:
+                raise ProviderError("Raydium CPMM vault account owner does not match token program")
+            vault_data = _decode_account_data(vault_account, "Raydium CPMM token vault")
+            if len(vault_data) < 165:
+                raise ProviderError("Raydium CPMM vault token-account layout is truncated")
+            vault_mint = str(Pubkey.from_bytes(vault_data[0:32]))
+            vault_authority = str(Pubkey.from_bytes(vault_data[32:64]))
+            if (vault_mint != mint or vault_authority != str(authority)
+                    or vault_data[108] != 1):
+                raise ProviderError("Raydium CPMM vault mint, authority or state mismatch")
 
     def _read_lp_supply(self, lp_mint, slot):
         value = self._get_account_crosschecked(lp_mint, slot)
@@ -465,6 +499,7 @@ class SolanaRaydiumV4CpmmSnapshotReader:
                 raise ProviderError("Raydium LP mint supply is zero or unavailable")
 
             if pool["pool_type"] == "raydium-cpmm":
+                self._verify_cpmm_pool_accounts(pool, slot)
                 # No independently verified UNCX CPMM locker implementation is
                 # available. Keep every CPMM pool in the inventory with zero
                 # verified custody so it blocks the all-pool safety claim.
