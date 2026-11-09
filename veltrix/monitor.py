@@ -37,6 +37,8 @@ class MarketMonitor:
             self.last_launch_results[key] = {
                 "status": "blocked", "reason": "launch-origin resolver is missing or untrusted"
             }
+            self.ledger.record_launch_intelligence(candidate.chain, candidate.token_address,
+                                                   self.last_launch_results[key])
             self._launch_checked.add(key)
             return
         try:
@@ -74,6 +76,8 @@ class MarketMonitor:
             self.last_launch_results[key] = {
                 "status": "blocked", "reason": f"{type(exc).__name__}: {exc}"
             }
+        self.ledger.record_launch_intelligence(candidate.chain, candidate.token_address,
+                                               self.last_launch_results[key])
         self._launch_checked.add(key)
 
     def poll_once(self):
