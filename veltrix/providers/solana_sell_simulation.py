@@ -103,7 +103,6 @@ class JupiterSolanaSellSimulationProvider:
             "outputMint": WRAPPED_SOL_MINT,
             "amount": str(input_amount_raw),
             "taker": self.taker,
-            "swapMode": "ExactIn",
         }
         self._throttle_order()
         try:
