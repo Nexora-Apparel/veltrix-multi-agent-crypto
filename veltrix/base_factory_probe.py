@@ -47,8 +47,37 @@ class Rpc:
             response.raise_for_status()
             payload = response.json()
         except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else "unknown"
-            raise ProbeError(f"{self.label}: {method} HTTP {status}") from exc
+            response = exc.response
+            status = response.status_code if response is not None else "unknown"
+            # Emit actionable HTTP diagnostics without exposing the RPC URL,
+            # authorization headers, cookies, or endpoint credentials.
+            detail = {
+                "provider": self.label,
+                "method": method,
+                "params": params,
+                "http_status": status,
+            }
+            if response is not None:
+                body = (response.text or "").strip()
+                if body:
+                    import re
+                    body = re.sub(r"https?://[^\\s\\\"'<>]+", "[REDACTED_URL]", body)
+                    body = re.sub(
+                        r"(?i)(token|api[_-]?key|authorization|password|secret)(\\s*[=:]\\s*)[^,\\s\\\"']+",
+                        r"\\1\\2[REDACTED]",
+                        body,
+                    )
+                    detail["response_body"] = body[:600]
+                safe_headers = ("content-type", "server", "x-request-id", "x-correlation-id", "cf-ray")
+                detail["response_headers"] = {
+                    key: response.headers[key]
+                    for key in safe_headers
+                    if key in response.headers
+                }
+            print("BASE_RPC_HTTP_DIAGNOSTIC: " + json.dumps(detail, sort_keys=True), file=sys.stderr)
+            raise ProbeError(
+                f"{self.label}: {method} params={json.dumps(params)} HTTP {status}"
+            ) from exc
         except requests.Timeout as exc:
             raise ProbeError(f"{self.label}: {method} timed out after 25 seconds") from exc
         except requests.ConnectionError as exc:
@@ -96,6 +125,10 @@ def main():
     for rpc in (pool, locker):
         if quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID") != CHAIN_ID:
             raise ProbeError(f"{rpc.label}: endpoint is not Base Mainnet")
+        # Capture a simple head-read capability before receipt/tag checks. If
+        # this passes but a later block lookup is denied, the failure is
+        # method/parameter-specific rather than total endpoint inaccessibility.
+        rpc.call("eth_blockNumber", [])
         receipt = rpc.call("eth_getTransactionReceipt", [args.creation_tx])
         if not isinstance(receipt, dict) or receipt.get("status") != "0x1":
             raise ProbeError(f"{rpc.label}: factory creation transaction is not successful")
