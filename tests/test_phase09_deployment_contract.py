@@ -70,5 +70,9 @@ def test_host_verification_script_checks_actual_systemd_mount_namespace():
     assert "ReadOnlyPaths" in script
     assert "ReadWritePaths" in script
     assert "test ! -w" in script
+    assert "systemctl is-active" in script
+    assert "effective UID mismatch" in script
+    assert "supplementary group boundaries" in script
+    assert "observer belongs to a paper/dashboard data or secret group" in script
     assert "veltrix-wallet-observer" in script
     assert "MANUAL REQUIRED" in script
