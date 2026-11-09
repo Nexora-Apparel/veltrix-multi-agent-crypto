@@ -707,8 +707,13 @@ class LaunchIntelligenceService:
                 "evidence_id": _evidence_id(
                     batch.provider, chain, token_address, batch.launch_at_ms,
                     batch.window_end_ms, batch.scanned_through_ms,
-                    tuple(x.transaction_id for x in batch.observations),
-                    batch.supply_block_ref, batch.provenance,
+                    tuple((
+                        x.provider, x.transaction_id, x.wallet_address, x.funder_address,
+                        x.token_amount, x.observed_at_ms, x.funder_provider,
+                        x.funder_evidence_id,
+                    ) for x in batch.observations),
+                    batch.total_supply, batch.supply_source, batch.supply_block_ref,
+                    batch.rejected, batch.provenance,
                 ),
                 "observed_at_ms": now_ms,
                 "scanned_through_ms": batch.scanned_through_ms,
