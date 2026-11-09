@@ -21,30 +21,31 @@ class HeliusSolanaFundingGraphProvider:
     NATIVE_SOL_MINT = "So11111111111111111111111111111111111111111"
 
     def __init__(self, api_key, *, session=None, timeout=25.0, max_pages=100,
-                 max_wallets=2_000, page_size=100, clock_ms=None,
+                 max_wallets=2_000, page_size=100, max_total_pages=1_000, clock_ms=None,
                  base_url="https://mainnet.helius-rpc.com"):
         if not api_key:
             raise ValueError("Helius API key is required")
         if not 1 <= max_pages <= 10_000 or not 1 <= max_wallets <= 10_000:
             raise ValueError("Invalid Solana funding graph bounds")
-        if not 1 <= page_size <= 100:
-            raise ValueError("Helius Parsed Events Scan limit must be between 1 and 100")
+        if not 1 <= page_size <= 100 or max_total_pages < 1:
+            raise ValueError("Invalid Helius scan page or total-page bound")
         self.api_key = api_key
         self.session = session or requests.Session()
         self.timeout = timeout
         self.max_pages = max_pages
         self.max_wallets = max_wallets
         self.page_size = page_size
+        self.max_total_pages = max_total_pages
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self.endpoint = f"{base_url.rstrip('/')}/v1/parsed-events/scan"
 
-    def _history(self, wallet, end_ms):
+    def _history(self, wallet, end_ms, page_budget):
         cursor = None
         pages = 0
         inbound = []
         scanned_through = 0
         stopped_on = None
-        while pages < self.max_pages:
+        while pages < min(self.max_pages, page_budget):
             body = {
                 "address": wallet,
                 "match": {"mints": [{"mint": self.NATIVE_SOL_MINT}]},
@@ -125,7 +126,10 @@ class HeliusSolanaFundingGraphProvider:
             if len(queried) >= self.max_wallets:
                 raise ProviderError("Solana funding ancestry exceeded wallet cap")
             queried.add(wallet)
-            inbound, pages, _ = self._history(wallet, now)
+            remaining_pages = self.max_total_pages - total_pages
+            if remaining_pages <= 0:
+                raise ProviderError("Solana funding graph exceeded total scan-page budget")
+            inbound, pages, _ = self._history(wallet, now, remaining_pages)
             total_pages += pages
             if inbound:
                 observed, funder, signature = min(inbound, key=lambda row: (row[0], row[2]))
