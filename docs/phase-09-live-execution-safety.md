@@ -133,3 +133,8 @@ The unit templates are not installed on a production host. Host-level UID,
 filesystem, SQLite WAL/SHM, provider-egress and restart-isolation verification
 remains mandatory before Phase 09.2 can be marked complete. CI checks the
 presence of the deployment contract; it cannot attest to a real host.
+
+
+## Post-retarget validation rule
+
+A successful workflow run from before a pull request is retargeted does not count as validation against the new base. Require a fresh full CI run on the exact PR head after retargeting, and re-check merge-base and changed-file scope before considering integration. This repository-side CI gate does not replace the separate host-level process, database/WAL/SHM permission, and provider-egress verification described above.
