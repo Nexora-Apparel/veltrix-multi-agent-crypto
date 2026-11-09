@@ -130,11 +130,11 @@ def test_solana_readiness_exposes_missing_cpmm_locker_adapter():
                for item in row.blockers)
 
 
-def test_base_readiness_reports_conflicting_uncx_deployment_metadata():
+def test_base_readiness_reports_live_uncx_deployment_verification_requirement():
     report = build_provider_readiness(settings())
     row = next(row for row in report.claims
                if row.chain == "base" and row.claim == "liquidity_lock")
-    assert any("metadata conflicts with the official source repository" in item
+    assert any("live bytecode hash and constructor factory still require acceptance" in item
                for item in row.blockers)
 
 
