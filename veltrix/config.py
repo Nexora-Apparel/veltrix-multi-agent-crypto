@@ -60,6 +60,8 @@ def settings() -> Settings:
             or s.poll_seconds < 15 or s.max_discovered_per_chain < 1
             or s.wallet_evidence_max_age_ms <= 0 or s.safety_evidence_max_age_ms <= 0
             or s.launch_window_ms <= 0 or s.launch_index_max_pages < 1
-            or s.launch_block_chunk_size < 1 or s.funding_lookback_blocks < 1):
+            or s.launch_index_max_pages > 100
+            or s.launch_block_chunk_size < 1 or s.launch_block_chunk_size > 10_000
+            or s.funding_lookback_blocks < 1):
         raise ValueError("Invalid risk, discovery or polling configuration")
     return s
