@@ -14,6 +14,7 @@ from ..ledger import PaperBroker
 from .consensus import RiskEvidence
 from .consensus_store import ConsensusStore
 from .market_store import MarketSnapshotStore
+from .candidates import canonical_mint
 from .risk_store import SolanaRiskEvidenceStore
 
 
@@ -65,6 +66,14 @@ class PaperTradingWorker:
         policy: PaperTradingPolicy | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
+        paths = {
+            consensus_store.database_path,
+            market_store.database_path,
+            risk_store.database_path,
+            broker.db_path,
+        }
+        if len(paths) != 1 or broker.db_path == ":memory:":
+            raise ValueError("paper broker and Phase 04–06 stores must share one persistent SQLite database")
         self.consensus_store = consensus_store
         self.market_store = market_store
         self.risk_store = risk_store
@@ -112,6 +121,11 @@ class PaperTradingWorker:
             return None, "consensus decision ID is missing"
         if not isinstance(mint, str) or not mint.strip():
             return None, "consensus mint is missing"
+        try:
+            if canonical_mint(mint) != mint:
+                return None, "consensus mint is not canonical Solana base58"
+        except (TypeError, ValueError):
+            return None, "consensus mint is invalid"
         if not self._fresh(created, now_ms, self.policy.max_decision_age_ms):
             return None, "consensus decision is stale or future-dated"
         if decision.get("status") != "CONSENSUS_APPROVED":
@@ -190,12 +204,27 @@ class PaperTradingWorker:
             return None, "latest security evidence is malformed"
         if not self._fresh(risk.observed_at_ms, now_ms, self.policy.max_risk_age_ms):
             return None, "security evidence is stale or future-dated"
-        if risk.evidence_hash != decision.get("risk_evidence_hash"):
-            return None, "security evidence changed after consensus approval"
+        if risk.mint != mint or risk.evidence_hash != decision.get("risk_evidence_hash"):
+            return None, "security evidence changed or does not match the consensus mint"
+        if risk.risk_state != decision.get("risk_state"):
+            return None, "security evidence state differs from the consensus decision"
+        if list(risk.missing_claims) != decision.get("missing_claims"):
+            return None, "security missing-claim evidence differs from the consensus decision"
+        expected_flags = [
+            {
+                "code": flag.code,
+                "severity": flag.severity,
+                "description": flag.description,
+                "evidence_source": flag.evidence_source,
+            }
+            for flag in risk.risk_flags
+        ]
+        if expected_flags != decision.get("risk_flags"):
+            return None, "security risk flags differ from the consensus decision"
         if risk.missing_claims or risk.errors:
             return None, "latest security evidence has unresolved claims or provider errors"
-        if any(flag.severity in {"critical", "high", "medium"} for flag in risk.risk_flags):
-            return None, "latest security evidence contains a blocking risk flag"
+        if any(flag.severity not in {"low", "info"} for flag in risk.risk_flags):
+            return None, "latest security evidence contains a blocking or unreviewed risk flag"
         return market, None
 
     def _process_exits(self, now_ms: int) -> tuple[int, int]:
@@ -240,8 +269,9 @@ class PaperTradingWorker:
             raise ValueError("clock_ms must return a positive integer")
 
         exit_fills, errors = self._process_exits(now)
-        decisions = self.consensus_store.recent(limit=limit)
-        decisions.sort(key=lambda row: (row.get("created_at_ms", 0), row.get("decision_id", "")))
+        # Only the latest decision per mint is actionable. Older approvals must
+        # never be executed after a newer rejection or changed market snapshot.
+        decisions = self.consensus_store.latest_all(limit=limit)
         opened = skipped = blocked = duplicates = 0
 
         for decision in decisions:
