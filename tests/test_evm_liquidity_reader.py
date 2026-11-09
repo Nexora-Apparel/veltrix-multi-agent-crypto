@@ -63,10 +63,11 @@ class Response:
 
 
 class RpcSession:
-    def __init__(self, chain, *, block_hash=BLOCK_HASH, omit_bsc_event=False):
+    def __init__(self, chain, *, block_hash=BLOCK_HASH, omit_bsc_event=False, extra_bsc_relock=False):
         self.chain = chain
         self.block_hash = block_hash
         self.omit_bsc_event = omit_bsc_event
+        self.extra_bsc_relock = extra_bsc_relock
 
     def post(self, url, json, timeout):
         method, params = json["method"], json["params"]
@@ -85,7 +86,7 @@ class RpcSession:
                 return Response([pair_created_log()] if params[0]["fromBlock"] == "0x1" else [])
             if (address == LOCKER.lower() and params[0]["topics"][0] == BSC_DEPOSIT_TOPIC
                     and params[0]["fromBlock"] == "0x1"):
-                return Response([] if self.omit_bsc_event else [bsc_deposit_log()])
+                return Response([] if self.omit_bsc_event else [bsc_deposit_log()] + ([bsc_deposit_log()] if self.extra_bsc_relock else []))
             if address == LOCKER.lower() and params[0]["topics"][0] == BSC_WITHDRAW_TOPIC:
                 return Response([])
             return Response([])
@@ -161,7 +162,7 @@ def test_evm_reader_discovers_pool_and_reconciles_lock_at_one_finalized_block(ch
 
 
 def test_bsc_reader_requires_event_history_to_reconcile_every_nonce():
-    with pytest.raises(Exception, match="event count does not reconcile"):
+    with pytest.raises(Exception, match="history is incomplete"):
         reader("bsc", RpcSession("bsc", omit_bsc_event=True)).fetch_inventory(TOKEN)
 
 
@@ -246,3 +247,9 @@ def test_factory_log_history_must_match_all_pairs_length():
 
     with pytest.raises(Exception, match="does not reconcile to allPairsLength"):
         reader("base", MissingPairSession("base")).fetch_inventory(TOKEN)
+
+
+def test_bsc_reader_accepts_relock_history_without_overcounting_positions():
+    batch = reader("bsc", RpcSession("bsc", extra_bsc_relock=True)).fetch_inventory(TOKEN)
+    assert batch.inventory_complete
+    assert len(batch.positions) == 1
