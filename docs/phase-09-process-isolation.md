@@ -142,3 +142,13 @@ Phase 09.2 is not complete until the actual host-level checklist passes and
 review evidence is attached. The repository templates and CI tests establish
 intended controls only. If no production host exists yet, record deployment
 verification as pending and keep the entire system in PAPER mode.
+
+
+## Dashboard authentication hardening
+
+The dashboard requires a bearer token of at least 32 characters on every bind
+address, including loopback. Loopback binding is a network-exposure control, not
+an authentication substitute. Startup must fail closed when the token is absent,
+blank, or too short. The browser UI stores the operator-entered token only in
+session storage and sends it in the Authorization header; do not place token
+values in URLs, logs, screenshots, or repository files.
