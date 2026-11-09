@@ -1,4 +1,4 @@
-"""Append-only persistence for finalized Solana LP-lock evidence reports."""
+"""Append-only persistence for Solana liquidity reports and source inventories."""
 from __future__ import annotations
 
 import hashlib
@@ -7,10 +7,12 @@ import sqlite3
 from dataclasses import asdict
 from pathlib import Path
 
-from ..liquidity_evidence import LiquidityEvidenceReport
+from ..liquidity_evidence import LiquidityEvidenceReport, LiquidityInventoryBatch
 
 
 class SolanaLiquidityEvidenceStore:
+    """Persist analyzed reports alongside the exact pool/locker inventory."""
+
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = str(database_path)
         if self.database_path != ":memory:":
@@ -37,11 +39,26 @@ class SolanaLiquidityEvidenceStore:
         db.row_factory = sqlite3.Row
         return db
 
-    def record(self, report: LiquidityEvidenceReport) -> bool:
+    def record(
+        self,
+        report: LiquidityEvidenceReport,
+        batch: LiquidityInventoryBatch | None = None,
+    ) -> bool:
         if not isinstance(report, LiquidityEvidenceReport):
             raise TypeError("report must be a typed LiquidityEvidenceReport")
-        payload = json.dumps(asdict(report), sort_keys=True, separators=(",", ":"))
-        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        if batch is not None:
+            if not isinstance(batch, LiquidityInventoryBatch):
+                raise TypeError("batch must be a typed LiquidityInventoryBatch")
+            if report.token_address != batch.token_address or report.chain != batch.chain:
+                raise ValueError("liquidity report and source inventory identity mismatch")
+            if report.evidence_id == "":
+                raise ValueError("liquidity report evidence identifier is required")
+        payload = {
+            "report": asdict(report),
+            "inventory": asdict(batch) if batch is not None else None,
+        }
+        rendered = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
         evidence_id = f"solana-liquidity:{digest}"
         with self._connect() as db:
             cursor = db.execute("""
@@ -50,7 +67,7 @@ class SolanaLiquidityEvidenceStore:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 evidence_id, report.token_address, report.observed_at_ms,
-                int(report.passed), report.pool_count, payload,
+                int(report.passed is True), report.pool_count, rendered,
             ))
             return cursor.rowcount == 1
 
@@ -59,7 +76,10 @@ class SolanaLiquidityEvidenceStore:
         if row is None:
             return None
         item = dict(row)
-        item["report"] = json.loads(item.pop("payload_json"))
+        payload = json.loads(item.pop("payload_json"))
+        # Keep the original report lookup shape while exposing raw inventory.
+        item["report"] = payload.get("report", payload)
+        item["inventory"] = payload.get("inventory")
         return item
 
     def latest(self, mint: str):
