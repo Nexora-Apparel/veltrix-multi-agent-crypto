@@ -39,6 +39,7 @@ def test_fetches_latest_profiles_and_boosts_and_filters_to_solana():
         "/token-profiles/latest/v1": FakeResponse([
             {"chainId": "solana", "tokenAddress": MINT_A},
             {"chainId": "base", "tokenAddress": MINT_B},
+            {"chainId": "solana", "tokenAddress": MINT_B},
             {"chainId": "solana", "tokenAddress": "not-a-mint"},
             {"tokenAddress": MINT_C},
         ]),
