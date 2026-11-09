@@ -214,7 +214,7 @@ def test_normalized_logs_chunks_ranges_to_ten_blocks_and_stops_at_target():
     })
     rows = normalized_logs(rpc, factory, 11, 30)
     assert len(rows) == 2
-    assert [call[1][0]["fromBlock"] for call in rpc.calls] == ["0x15", "0xb"]
+    assert [call[1][0]["fromBlock"] for call in rpc.calls] == ["0xb", "0x15"]
     assert all(
         int(call[1][0]["toBlock"], 16) - int(call[1][0]["fromBlock"], 16) + 1 <= 10
         for call in rpc.calls
@@ -329,6 +329,7 @@ def test_inspect_provider_reuses_captured_finalized_observation(monkeypatch):
     def fake_logs(*_args, **kwargs):
         kwargs["coverage"].update({
             "queried_from_block": 11, "queried_to_block": 20,
+            "queried_block_count": 10,
         })
         return [{
             "blockNumber": 20, "transactionHash": "0x" + "22" * 32,
