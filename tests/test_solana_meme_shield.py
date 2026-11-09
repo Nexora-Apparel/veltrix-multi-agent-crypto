@@ -127,3 +127,19 @@ def test_missing_evidence_provenance_vetoes_even_complete_claims():
     )
     assert result.decision == "BLOCK"
     assert "risk evidence provenance is incomplete" in result.reasons
+
+def test_invalid_evaluation_timestamp_and_boolean_supply_are_rejected():
+    policy = SolanaShieldPolicy()
+    invalid_time = policy.evaluate(
+        MINT, evidence(), safety(), signals(),
+        open_positions=0, amount=10, now_ms="not-a-timestamp",
+    )
+    assert invalid_time.decision == "BLOCK"
+    boolean_supply = replace(
+        evidence(), total_supply_raw=True, observed_holder_balance_raw=True,
+    )
+    invalid_supply = policy.evaluate(
+        MINT, boolean_supply, safety(), signals(),
+        open_positions=0, amount=10, now_ms=10_000,
+    )
+    assert invalid_supply.decision == "BLOCK"
