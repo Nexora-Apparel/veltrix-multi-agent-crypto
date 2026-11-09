@@ -158,4 +158,4 @@ def test_unverified_root_object_cannot_enter_concentration_analysis(tmp_path):
         liquidity_evidence=None, launch_bundle=None, now_ms=NOW,
     )
     assert result.report.coverage_complete is False
-    assert any("verified Ed25519 signer provenance" in x for x in result.report.reasons)
+    assert any("evidence collection rejected" in x for x in result.report.reasons)
