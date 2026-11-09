@@ -172,6 +172,8 @@ class SolanaRiskEvidenceCollector:
             "mint_authority",
             "freeze_authority",
             "token_2022_extension_review",
+            "complete_holder_inventory",
+            "mint_holder_supply_reconciliation",
         })
 
         goplus_observation = None
@@ -190,7 +192,7 @@ class SolanaRiskEvidenceCollector:
                     raise ProviderError("GoPlus evidence is stale or future-dated")
                 if not isinstance(candidate.evidence_id, str) or not candidate.evidence_id.strip():
                     raise ProviderError("GoPlus evidence identifier is missing")
-                if candidate.liquidity_locked not in (True, False, None):
+                if candidate.liquidity_locked is not None and not isinstance(candidate.liquidity_locked, bool):
                     raise ProviderError("GoPlus liquidity status is malformed")
                 for field in ("dev_hold_pct", "bundled_supply_pct", "creator_hold_pct"):
                     if not self._valid_optional_pct(getattr(candidate, field)):
@@ -249,7 +251,6 @@ class SolanaRiskEvidenceCollector:
                 if not isinstance(candidate.coverage_complete, bool):
                     raise ProviderError("holder coverage declaration is malformed")
                 holder_snapshot = candidate
-                missing.discard("complete_holder_inventory")
             except Exception as exc:
                 errors.append(f"holders: {type(exc).__name__}: {str(exc)[:240]}")
                 missing.add("complete_holder_inventory")
@@ -363,9 +364,9 @@ class SolanaRiskEvidenceCollector:
                 top1 = balances[0] / denominator * 100.0 if balances else 0.0
                 top5 = sum(balances[:5]) / denominator * 100.0
                 top10 = sum(balances[:10]) / denominator * 100.0
-                missing.discard("reconciled_complete_holder_inventory")
+                missing.discard("complete_holder_inventory")
             else:
-                missing.add("reconciled_complete_holder_inventory")
+                missing.add("complete_holder_inventory")
 
         flags: dict[str, RiskFlag] = {}
 
