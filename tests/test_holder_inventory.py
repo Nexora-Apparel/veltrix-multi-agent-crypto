@@ -102,8 +102,8 @@ def test_evm_holder_adapter_reconstructs_and_reconciles_transfer_history():
             return {"result": {"number": "0xa"}}
         if method == "eth_getLogs":
             return {"result": [
-                {"topics": [TRANSFER_TOPIC, _topic(zero), _topic(alice)]},
-                {"topics": [TRANSFER_TOPIC, _topic(alice), _topic(bob)]},
+                {"address": token, "blockNumber": "0x2", "transactionHash": "0x" + "1" * 64, "logIndex": "0x0", "topics": [TRANSFER_TOPIC, _topic(zero), _topic(alice)]},
+                {"address": token, "blockNumber": "0x3", "transactionHash": "0x" + "2" * 64, "logIndex": "0x0", "topics": [TRANSFER_TOPIC, _topic(alice), _topic(bob)]},
             ]}
         if method == "eth_call":
             data = params[0]["data"]
@@ -164,8 +164,9 @@ def test_evm_holder_adapter_rejects_log_cap_and_non_finalized_rpc():
         if body["method"] == "eth_getLogs":
             topic = _topic(EVM_ZERO_ADDRESS)
             other = _topic("0x" + "b" * 40)
-            row = {"topics": [TRANSFER_TOPIC, topic, other]}
-            return {"result": [row, row]}
+            row = {"address": token, "blockNumber": "0x2", "transactionHash": "0x" + "1" * 64, "logIndex": "0x0", "topics": [TRANSFER_TOPIC, topic, other]}
+            duplicate = dict(row, transactionHash="0x" + "2" * 64)
+            return {"result": [row, duplicate]}
         raise AssertionError(body)
     provider = EvmHolderInventoryProvider(
         "base", "https://rpc.invalid", session=Session(handler_with_two_logs), max_logs=1
