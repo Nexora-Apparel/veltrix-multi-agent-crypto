@@ -80,6 +80,7 @@ def build_funding_graph_providers(settings, *, session=None):
             settings.helius_api_key, session=session,
             max_pages=getattr(settings, "funding_graph_max_pages", 100),
             max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
+            max_total_pages=getattr(settings, "funding_graph_max_total_pages", 1_000),
         )
     if getattr(settings, "alchemy_api_key", ""):
         providers["base"] = AlchemyBaseFundingGraphProvider(
