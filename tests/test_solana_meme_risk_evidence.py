@@ -266,3 +266,26 @@ def test_rejects_invalid_mint_before_provider_calls():
     providers = collector()
     with pytest.raises(ValueError):
         providers.collect("not-a-solana-mint")
+
+def test_goplus_percentages_are_retained_as_supplemental_flags_only():
+    observation = goplus_observation(
+        dev_hold_pct=55.0,
+        bundled_supply_pct=25.0,
+        creator_hold_pct=30.0,
+    )
+    report = SolanaRiskEvidenceCollector(
+        FakeGoPlus(observation),
+        FakeHolderProvider(holder_snapshot()),
+        mint_provider=FakeMintProvider(mint_snapshot()),
+        clock_ms=lambda: NOW,
+    ).collect(MINT)
+
+    assert report.goplus_dev_hold_pct == 55.0
+    assert report.goplus_bundled_supply_pct == 25.0
+    assert report.goplus_creator_hold_pct == 30.0
+    codes = {flag.code for flag in report.risk_flags}
+    assert "goplus_reports_high_dev_holdings" in codes
+    assert "goplus_reports_elevated_bundle_supply" in codes
+    assert "goplus_reports_elevated_creator_holdings" in codes
+    assert "bundled_supply" in report.missing_claims
+    assert "developer_wallet_linkage" in report.missing_claims
