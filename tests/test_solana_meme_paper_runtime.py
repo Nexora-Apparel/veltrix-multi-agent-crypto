@@ -159,3 +159,11 @@ def test_paper_runtime_refuses_live_trading_configuration(tmp_path, monkeypatch)
     monkeypatch.setenv("LIVE_TRADING", "true")
     with pytest.raises(RuntimeError, match="Phase 07 refuses to start"):
         build_runtime(database_path=tmp_path / "live-blocked.sqlite3")
+
+def test_paper_runtime_main_requires_explicit_enable_flag(monkeypatch, caplog):
+    monkeypatch.setenv("PAPER_TRADING_ENABLED", "false")
+    monkeypatch.setenv("LIVE_TRADING", "false")
+
+    main()
+
+    assert "paper runtime is disabled" in caplog.text
