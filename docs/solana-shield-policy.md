@@ -31,8 +31,10 @@ There is no confidence-score averaging, fallback prior, or agent override.
 
 The `executable_sellability` item is an execution-only unknown, not a token-risk
 claim. It remains unresolved even when a paper route is observed. The route state
-must remain `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN`; it does not satisfy the live
-gate. Every other unknown mandatory token-risk claim remains a paper-entry veto.
+must remain `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN`; Core preserves that state and
+the route evidence ID in the paper trade result and broker audit reason. It does
+not satisfy the live gate. Every other unknown mandatory token-risk claim
+remains a paper-entry veto.
 
 ## Execution boundary
 
