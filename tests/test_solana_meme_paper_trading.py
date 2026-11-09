@@ -239,8 +239,8 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
     broker = PaperBroker(str(tmp_path / "broker.sqlite3"), 100, 2, 50)
     opened = broker.open_position_from_consensus(
         "decision-1", MINT, 1.0, 25, "approved",
-        created_at_ms=NOW, fee_bps=100, slippage_bps=50,
-        processed_at_ms=NOW,
+        created_at_ms=NOW, paper_review_eligible=True, execution_authorized=False,
+        fee_bps=100, slippage_bps=50, processed_at_ms=NOW,
     )
     duplicate = broker.open_position_from_consensus(
         "decision-1", MINT, 1.0, 25, "approved",
@@ -351,3 +351,16 @@ def test_status_marks_open_positions_to_latest_fresh_market_price(tmp_path):
     assert position["mark_price"] == pytest.approx(0.0015)
     assert status["account"]["unrealized_pnl"] > 0
     assert status["account"]["equity"] > status["account"]["cash"]
+
+def test_paper_broker_rejects_missing_or_enabled_execution_authority(tmp_path):
+    broker = PaperBroker(str(tmp_path / "approval-boundary.sqlite3"), 100, 2, 50)
+    with pytest.raises(ValueError, match="paper_review_eligible"):
+        broker.open_position_from_consensus(
+            "a" * 64, MINT, 1.0, 25, "approved",
+            created_at_ms=NOW, execution_authorized=False,
+        )
+    with pytest.raises(ValueError, match="execution_authorized"):
+        broker.open_position_from_consensus(
+            "b" * 64, MINT, 1.0, 25, "approved",
+            created_at_ms=NOW, paper_review_eligible=True, execution_authorized=True,
+        )
