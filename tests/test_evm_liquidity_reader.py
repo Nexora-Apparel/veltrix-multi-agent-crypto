@@ -281,3 +281,56 @@ def test_bsc_event_history_rejects_duplicate_or_misattributed_logs(mutation, mes
 
     with pytest.raises(Exception, match=message):
         reader("bsc", BadEventSession("bsc")).fetch_inventory(TOKEN)
+
+
+
+def test_evm_reader_verifies_pinned_factory_creation_receipt():
+    tx_hash = "0x" + "cd" * 32
+    spec = EvmFactorySpec(
+        "uniswap-v2", FACTORY, 1, CODE_HASH, chain_id=8453,
+        creation_tx=tx_hash, source_ref="https://developers.uniswap.org/deployments",
+    )
+    instance = EvmV2LiquiditySnapshotReader(
+        "base", "https://pool-rpc.example", "https://locker-rpc.example",
+        (spec,),
+        (EvmLockerSpec("uniswap-v2", LOCKER, 1, CODE_HASH, "uncx-v2.1-locks-nonce"),),
+        registry_complete=True, session=RpcSession("base"),
+    )
+    instance.pool_rpc.call = lambda method, params: {
+        "transactionHash": tx_hash, "contractAddress": FACTORY,
+        "blockNumber": "0x1", "status": "0x1",
+    }
+    instance._verify_factory_creation(spec)
+
+
+def test_evm_reader_rejects_factory_creation_receipt_mismatch():
+    tx_hash = "0x" + "cd" * 32
+    spec = EvmFactorySpec(
+        "uniswap-v2", FACTORY, 1, CODE_HASH, chain_id=8453,
+        creation_tx=tx_hash,
+    )
+    instance = EvmV2LiquiditySnapshotReader(
+        "base", "https://pool-rpc.example", "https://locker-rpc.example",
+        (spec,),
+        (EvmLockerSpec("uniswap-v2", LOCKER, 1, CODE_HASH, "uncx-v2.1-locks-nonce"),),
+        registry_complete=True, session=RpcSession("base"),
+    )
+    instance.pool_rpc.call = lambda method, params: {
+        "transactionHash": tx_hash, "contractAddress": OTHER,
+        "blockNumber": "0x1", "status": "0x1",
+    }
+    with pytest.raises(Exception, match="creation receipt does not match"):
+        instance._verify_factory_creation(spec)
+
+
+def test_evm_reader_rejects_factory_metadata_for_wrong_chain():
+    spec = EvmFactorySpec(
+        "uniswap-v2", FACTORY, 1, CODE_HASH, chain_id=56,
+    )
+    with pytest.raises(ValueError, match="malformed EVM AMM factory"):
+        EvmV2LiquiditySnapshotReader(
+            "base", "https://pool-rpc.example", "https://locker-rpc.example",
+            (spec,),
+            (EvmLockerSpec("uniswap-v2", LOCKER, 1, CODE_HASH, "uncx-v2.1-locks-nonce"),),
+            registry_complete=True, session=RpcSession("base"),
+        )
