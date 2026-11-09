@@ -217,3 +217,8 @@ def test_factory_scan_includes_unlocked_second_pool_in_inventory():
     assert not report.passed
     assert report.pool_count == 2
     assert report.active_locked_pool_count == 1
+
+
+def test_bsc_legacy_event_topics_match_verified_contract_abi():
+    assert BSC_DEPOSIT_TOPIC == "0x830357565da6ecfc26d8d9f69df488ed6f70361af9a07e570544aeb5c5e765e5"
+    assert BSC_WITHDRAW_TOPIC == "0xccad973dcd043c7d680389db4378bd6b9775db7124092e9e0422c9e46d7985dc"
