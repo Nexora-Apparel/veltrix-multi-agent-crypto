@@ -274,3 +274,27 @@ def test_monitor_submits_only_verified_all_pool_liquidity_evidence(tmp_path):
     assert evidence.liquidity_locked_lp_pct == 100.0
     assert evidence.independence_group == "independent-indexer+locker-operator"
     assert monitor.last_liquidity_results[("base", token)]["status"] == "verified"
+
+def test_monitor_defers_solana_position_exits_to_phase7_worker_when_configured(tmp_path):
+    from veltrix.ledger import PaperBroker
+
+    db = str(tmp_path / "delegated-exits.db")
+    broker = PaperBroker(db, starting_balance=100, max_positions=5, max_position_usd=50)
+    broker.open_position("token-address", 1.0, 20, "existing paper position")
+
+    def unexpected_legacy_exit(*args, **kwargs):
+        raise AssertionError("legacy monitor must not manage Solana positions while Phase 7 is enabled")
+
+    broker.process_market_price = unexpected_legacy_exit
+    monitor = MarketMonitor(
+        {"solana": ["token-address"]},
+        db,
+        FakeProvider(),
+        broker=broker,
+        position_management_chains=("base", "bsc"),
+    )
+
+    events = monitor.poll_once()
+
+    assert len(events) == 1
+    assert broker.snapshot()["open_positions"][0]["token"] == "token-address"
