@@ -186,7 +186,7 @@ executable_sellability claim.
 ## 2026-11-09 — Shield paper-entry sell-route gate
 
 - Extended `SolanaShieldPolicy` to require a typed, fresh, provenance-backed sell-side route observation for the exact intended raw-token exit size.
-- Validates canonical mint, quote expiry, route plan, positive quote/minimum output, price impact (maximum 300 bps), supply fraction (0.5%–5%) and reconciliation of that fraction to the finalized raw token supply.
+- Validates canonical mint, quote expiry, route plan, positive quote/minimum output, price impact (maximum 300 bps), supply fraction (0.0001%–5%) and reconciliation of that fraction to the finalized raw token supply.
 - Keeps all unknown mandatory token-risk claims as vetoes. The `executable_sellability` item remains unresolved as a live-execution-only claim; a paper route does not clear it.
 - Added Core integration. Solana paper entries now fail closed when route evidence or the intended raw-token exit size is absent.
 - The paper trade result and broker audit reason preserve the exact state `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN` and the route evidence ID.
@@ -234,3 +234,16 @@ executable_sellability claim.
 - GitHub Actions run [42687193171](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687193171) passed on test commit `a28b00b071bdafbab824288693748eb8e9103d57`: 459 passed, 5 skipped.
 - **Not runtime-enabled:** the current Solana provider capability catalogue still has no certifying Solana liquidity-lock provider and no certifying developer-holdings provider. A production composite SafetyReport producer is therefore not available. There is also no production Solana agent-context provider with a verified source for momentum, volume-spike and independent smart-wallet BUY signals. The runner fails closed and is not connected to the runtime.
 - No live wallet, signer, Jupiter `/execute`, RPC write, or transaction submission capability was added.
+
+
+## 2026-11-09 — Solana paper decision runner implemented
+
+- Added `SolanaPaperDecisionRunner` to join persisted launch, market, risk, developer-ancestry, launch-bundle, sell-route and composite-safety evidence before invoking the existing paper-only Core.
+- Added `SolanaSafetyReportStore` to persist typed composite safety certificates. The store does not create certificates or promote partial evidence.
+- Added bounded candidate listing to `LaunchStore`.
+- Runner reconstructs typed risk, sell-route and safety reports; enforces market freshness (120 seconds), risk/developer/bundle/safety freshness (300 seconds), sell-route freshness (15 seconds), quote expiry, finalized supply/decimal reconciliation, complete developer and bundle evidence, zero known bundled supply, and no unknown mandatory risk claims.
+- Added an explicitly allowlisted, typed agent-context contract. It cannot replace market price or safety evidence. Core must still produce at least two distinct BUY agents for the same mint.
+- Added deterministic evidence-cycle claims and append-only decision audits. The claim is persisted before Core evaluation; a crash leaves a non-replayable claimed cycle for reconciliation rather than risking a duplicate paper entry.
+- Added tests for missing evidence, untrusted/missing agent context, complete typed evidence, two-agent consensus, paper broker cash/position handling and duplicate-cycle idempotency.
+- CI run [42687215593](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687215593) passed on code/test commit `f618e949893a7182d2e3eb0de7c28e2f167d7a87`: 459 passed, 5 skipped.
+- The runner is not wired into the read-only runtime and is not enabled. Production composite-safety and trusted agent-context providers are not yet available; the documentation records these blockers. No live signing or transaction submission was added.
