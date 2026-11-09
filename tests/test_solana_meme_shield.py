@@ -57,7 +57,7 @@ def signals():
 def test_two_agent_consensus_can_only_approve_paper_entry():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=50, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000, sellability=route(), sell_amount_raw=10_000_000,
+        open_positions=0, amount=50, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "APPROVE_PAPER_ENTRY"
     assert result.approved_for_paper is True
@@ -105,7 +105,7 @@ def test_position_limits_and_stale_evidence_veto():
     assert oversized.decision == "BLOCK"
     stale = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=10, now_ms=400_001, sellability=route(), sell_amount_raw=10_000_000, sellability=route(), sell_amount_raw=10_000_000,
+        open_positions=0, amount=10, now_ms=400_001, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert stale.decision == "BLOCK"
 
@@ -150,7 +150,7 @@ def test_invalid_evaluation_timestamp_and_boolean_supply_are_rejected():
     policy = SolanaShieldPolicy()
     invalid_time = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=10, now_ms="not-a-timestamp", sellability=route(), sell_amount_raw=10_000_000, sellability=route(), sell_amount_raw=10_000_000,
+        open_positions=0, amount=10, now_ms="not-a-timestamp", sellability=route(), sell_amount_raw=10_000_000,
     )
     assert invalid_time.decision == "BLOCK"
     boolean_supply = replace(
