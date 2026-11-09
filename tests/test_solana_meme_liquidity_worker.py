@@ -1,3 +1,5 @@
+import pytest
+
 from veltrix.liquidity_evidence import LiquidityInventoryBatch, LiquidityEvidenceAnalyzer
 from veltrix.solana_meme.candidates import normalize_candidate
 from veltrix.solana_meme.launch_stream import LaunchStore
