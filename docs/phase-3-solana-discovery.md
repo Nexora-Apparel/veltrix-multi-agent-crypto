@@ -12,7 +12,7 @@ consensus, paper trading, or transaction execution.
 
 - Endpoint: `wss://pumpportal.fun/api/data`
 - Subscription: `subscribeNewToken` only
-- No API key or paid trade-stream subscription is used by this adapter.
+- The adapter subscribes only to the free new-token feed and never subscribes to paid trade streams. If the provider requires a key for websocket access, supply the complete endpoint through `VELTRIX_PUMPPORTAL_WS_ENDPOINT`; keep credentials out of source control.
 - One websocket connection is supervised by `LaunchStreamManager`.
 - Malformed messages, non-create events, and invalid mint strings are discarded.
 
@@ -62,7 +62,9 @@ python -m veltrix.solana_meme.worker
 
 Configure the persistent database with `VELTRIX_SOLANA_DISCOVERY_DB` and the
 secondary poll interval with `VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS` (default
-30 seconds; accepted range 5–3600 seconds). `SIGINT` and `SIGTERM` trigger a
+30 seconds; accepted range 5–3600 seconds). Optionally set
+`VELTRIX_PUMPPORTAL_WS_ENDPOINT` to a provider-issued websocket URL if
+connection authentication is required. `SIGINT` and `SIGTERM` trigger a
 graceful stop.
 
 ## Safety boundary
