@@ -61,10 +61,10 @@ class Rpc:
                 body = (response.text or "").strip()
                 if body:
                     import re
-                    body = re.sub(r"https?://[^\\s\\\"'<>]+", "[REDACTED_URL]", body)
+                    body = re.sub(r"https?://[^\s\"'<>]+", "[REDACTED_URL]", body)
                     body = re.sub(
-                        r"(?i)(token|api[_-]?key|authorization|password|secret)(\\s*[=:]\\s*)[^,\\s\\\"']+",
-                        r"\\1\\2[REDACTED]",
+                        r"(?i)(token|api[_-]?key|authorization|password|secret)(\s*[=:]\s*)[^,\s\"']+",
+                        r"\1\2[REDACTED]",
                         body,
                     )
                     detail["response_body"] = body[:600]
