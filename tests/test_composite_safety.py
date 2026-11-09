@@ -26,6 +26,11 @@ def valid_bundle(**overrides):
         coverage_complete=True, bundled_supply_pct=0.0,
         shared_funder_clusters=0, participating_wallets=0,
         accepted_transactions=10, rejected=(), notes=(),
+        evidence_id="bundle-evidence", observed_at_ms=NOW - 100,
+        scanned_through_ms=NOW - 900, supply_source="bundle-indexer",
+        supply_block_ref="slot:123", supply_observed_at_ms=NOW - 100,
+        pages_scanned=2, funder_providers=("funder-indexer",),
+        provenance=("scan:complete",),
     )
     report_values.update(overrides)
     return SafetyEvidenceBundle(
@@ -40,6 +45,7 @@ def validator():
         trusted_liquidity_providers=["lock-a"],
         trusted_developer_providers=["dev-b"],
         trusted_bundle_providers=["bundle-indexer"],
+        trusted_funding_providers=["funder-indexer"],
         max_age_ms=300_000,
     )
 
