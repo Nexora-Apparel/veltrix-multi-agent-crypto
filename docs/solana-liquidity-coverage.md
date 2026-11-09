@@ -69,3 +69,28 @@ discovery metadata, not a safety approval.
 5. Only after a reproducible full-coverage acceptance suite, reassess the
    capability catalogue. Do not mark it complete based only on documentation
    or a configured boolean.
+
+
+## Runtime evidence retention
+
+The optional `SolanaLiquidityEvidenceWorker` runs from the read-only pipeline
+when both independent HTTPS RPC endpoints, pinned Raydium AMM V4 and CPMM
+executable hashes, and the explicitly configured reader scope are present.
+It discovers only market-enriched candidates and processes a bounded batch.
+
+For each successful provider response, the worker persists both:
+- The analyzer's pass/block report, including per-pool locked percentages and
+  exact reasons for rejection.
+- The complete typed source inventory: pool records, LP supplies, locker
+  positions, deployment identities, custody references and finalized block
+  references.
+
+The store is append-only and deduplicates identical report/inventory payloads.
+Provider failures are retried with bounded exponential backoff and do not
+create fabricated reports. An incomplete inventory can be stored as a blocked
+observation for diagnosis, but it cannot become a positive safety claim.
+
+Persisting raw inventory improves auditability; it does not expand the reader's
+supported AMM/locker coverage and does not change the partial capability status.
+The default composite validator continues to reject this provider as a
+certifying Solana liquidity source.
