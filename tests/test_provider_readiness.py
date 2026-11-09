@@ -136,3 +136,11 @@ def test_base_readiness_reports_conflicting_uncx_deployment_metadata():
                if row.chain == "base" and row.claim == "liquidity_lock")
     assert any("metadata conflicts with the official source repository" in item
                for item in row.blockers)
+
+
+def test_evm_liquidity_readiness_does_not_report_solana_program_blockers():
+    report = build_provider_readiness(settings())
+    rows = {row.chain: row for row in report.claims if row.claim == "liquidity_lock"}
+    for chain in ("base", "bsc"):
+        assert not any("Solana support is scoped" in item or "UNCX CPMM locker" in item
+                       for item in rows[chain].blockers)
