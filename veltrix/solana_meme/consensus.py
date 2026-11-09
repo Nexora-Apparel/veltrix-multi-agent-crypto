@@ -342,7 +342,8 @@ class ConsensusEngine:
                 if matching is not None
                 else "No qualifying cluster from explicitly allowlisted wallets"
             ),
-            tuple(f"wallet:{wallet}" for wallet in matching.wallet_addresses) if matching else (),
+            (tuple(f"wallet:{wallet}" for wallet in matching.wallet_addresses) +
+             (f"wallet_cluster:{matching.first_seen_ms}:{matching.last_seen_ms}:{matching.total_notional_usd:.8f}",)) if matching else (),
             now,
         )
 
@@ -444,10 +445,18 @@ class ConsensusEngine:
         decision_payload = {
             "mint": market.mint,
             "status": status,
-            "created_at_ms": now,
-            "votes": [vote.__dict__ for vote in votes],
+            "votes": [
+                {
+                    "agent": vote.agent,
+                    "stance": vote.stance,
+                    "reason": vote.reason,
+                    "evidence_refs": vote.evidence_refs,
+                }
+                for vote in votes
+            ],
             "market_snapshot_id": market.snapshot_id,
             "risk_evidence_hash": risk.evidence_hash,
+            "rule_version": "phase6-consensus-v1",
         }
         decision_id = hashlib.sha256(
             json.dumps(decision_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
