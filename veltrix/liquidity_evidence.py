@@ -57,6 +57,42 @@ SOLANA_UNCX_PROGRAM_CANDIDATES = {
         "lp_vault_seed": "uncx_lp_vault",
         "published_executable_sha256": "60838187b2c2b92fc6094bba1dcc2a9607ca40f7fb0fdb9e7011e08fa0c863e9",
         "source_ref": "https://github.com/uncx-network/raydium-amm-lp-locker",
+        "certification_status": "source-and-hash-published",
+    },
+    "raydium-amm-v4-smart-lockers": {
+        "program_id": "UNCX77nZrA3TdAxMEggqG18xxpgiNGT6iqyynPwpoxN",
+        "documented_lp_storage_account": "DAtFFs2mhQFvrgNLA29vEDeTLLN8vHknAaAhdLEc4SQH",
+        "published_executable_sha256": None,
+        "certification_status": "program-listed-hash-and-layout-unverified",
+        "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/solana-lockers/contracts/",
+    },
+    "raydium-cp-swap": {
+        "program_id": "UNCXdvMRxvz91g3HqFmpZ5NgmL77UH4QRM4NfeL4mQB",
+        "documented_lp_storage_account": "FEmGEWdxCBSJ1QFKeX5B6k7VTDPwNU3ZLdfgJkvGYrH5",
+        "published_executable_sha256": None,
+        "certification_status": "program-listed-hash-and-layout-unverified",
+        "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/solana-lockers/contracts/",
+    },
+    "raydium-clmm": {
+        "program_id": "UNCXrB8cZXnmtYM1aSo1Wx3pQaeSZYuF2jCTesXvECs",
+        "documented_lp_storage_account": "GAYWATob4bqCj3fhVm8ZxoMSqUW2fb6e6SBQ7kk5qyps",
+        "published_executable_sha256": None,
+        "certification_status": "program-listed-hash-and-layout-unverified",
+        "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/solana-lockers/contracts/",
+    },
+    "meteora-dlmm": {
+        "program_id": "uNCXmCod5WAkjfkNJPMZ9WRKDNiwQnM778RVbP17a6U",
+        "documented_lp_storage_account": "2xy5KJdU8oGX9vsxrk7xh9RDgn4FzmchFfKzydAL7iXk",
+        "published_executable_sha256": None,
+        "certification_status": "program-listed-hash-and-layout-unverified",
+        "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/solana-lockers/contracts/",
+    },
+    "pumpswap": {
+        "program_id": "unCXpWPXnYnP9i6E8JeVy7nkv4B9PW9uvudakMLLzdQ",
+        "documented_lp_storage_account": "8pnCFBg1WtCGgoPBMYSfq2b5zWuYetH1z1bYpLYUHjfk",
+        "published_executable_sha256": None,
+        "certification_status": "program-listed-hash-and-layout-unverified",
+        "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/solana-lockers/contracts/",
     },
 }
 
