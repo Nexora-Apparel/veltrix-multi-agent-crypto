@@ -137,7 +137,7 @@ def test_evm_indexer_uses_historical_supply_and_receipt_quote_leg():
     batch = indexer.index_launch(
         "0xToken", LAUNCH, END, launch_block=100, window_end_block=102,
     )
-    assert batch.total_supply == 10_000
+    assert batch.total_supply == 10.0
     assert batch.supply_block_ref == hex(100)
     assert batch.coverage_complete
     assert len(batch.observations) == 1
