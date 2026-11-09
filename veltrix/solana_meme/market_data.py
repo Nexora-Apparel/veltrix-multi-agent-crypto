@@ -208,7 +208,7 @@ class SolanaMarketData:
         *,
         retrieved_at_ms: int,
     ) -> SolanaMarketSnapshot:
-        eligible: list[MarketEvent] = []
+        eligible: list[tuple[MarketEvent, dict[str, object]]] = []
         for event in events:
             if not isinstance(event, MarketEvent):
                 continue
@@ -225,64 +225,84 @@ class SolanaMarketData:
             response_age = retrieved_at_ms - event.observed_at_ms
             if response_age < 0 or response_age > self.max_response_age_ms:
                 continue
+            if event.pair_created_at_ms is not None and (
+                isinstance(event.pair_created_at_ms, bool)
+                or not isinstance(event.pair_created_at_ms, int)
+                or event.pair_created_at_ms <= 0
+            ):
+                continue
             try:
-                price = self._nonnegative(event.price_usd, "price_usd")
-                liquidity = self._nonnegative(event.liquidity_usd, "liquidity_usd")
-                volume_h1 = self._nonnegative(event.volume_h1_usd, "volume_h1_usd")
-                self._signed(event.price_change_m5_pct, "price_change_m5_pct")
-                self._nonnegative(event.volume_m5_usd, "volume_m5_usd", optional=True)
-                self._nonnegative(event.volume_h24_usd, "volume_h24_usd", optional=True)
-                self._signed(event.price_change_h1_pct, "price_change_h1_pct", optional=True)
-                self._signed(event.price_change_h24_pct, "price_change_h24_pct", optional=True)
-                self._nonnegative(event.fdv_usd, "fdv_usd", optional=True)
-                self._nonnegative(event.market_cap_usd, "market_cap_usd", optional=True)
+                values: dict[str, object] = {
+                    "price": self._nonnegative(event.price_usd, "price_usd"),
+                    "liquidity": self._nonnegative(event.liquidity_usd, "liquidity_usd"),
+                    "volume_h1": self._nonnegative(event.volume_h1_usd, "volume_h1_usd"),
+                    "volume_m5": self._nonnegative(
+                        event.volume_m5_usd, "volume_m5_usd", optional=True
+                    ),
+                    "volume_h24": self._nonnegative(
+                        event.volume_h24_usd, "volume_h24_usd", optional=True
+                    ),
+                    "change_m5": self._signed(event.price_change_m5_pct, "price_change_m5_pct"),
+                    "change_h1": self._signed(
+                        event.price_change_h1_pct, "price_change_h1_pct", optional=True
+                    ),
+                    "change_h24": self._signed(
+                        event.price_change_h24_pct, "price_change_h24_pct", optional=True
+                    ),
+                    "fdv": self._nonnegative(event.fdv_usd, "fdv_usd", optional=True),
+                    "market_cap": self._nonnegative(
+                        event.market_cap_usd, "market_cap_usd", optional=True
+                    ),
+                }
                 for field in (
                     "txns_m5_buys", "txns_m5_sells",
                     "txns_h1_buys", "txns_h1_sells",
                     "txns_h24_buys", "txns_h24_sells",
                 ):
-                    self._count(getattr(event, field), field)
+                    values[field] = self._count(getattr(event, field), field)
             except MarketDataUnavailable:
                 continue
-            if price is None or liquidity is None or volume_h1 is None or price <= 0:
+            if values["price"] is None or values["liquidity"] is None or values["volume_h1"] is None:
                 continue
-            eligible.append(event)
+            if values["price"] <= 0:
+                continue
+            eligible.append((event, values))
 
         if not eligible:
             raise MarketDataUnavailable(f"no fresh usable Solana pair data for {mint}")
 
-        selected = max(
+        selected, values = max(
             eligible,
             key=lambda item: (
-                float(item.liquidity_usd),
-                float(item.volume_h1_usd),
-                item.pair_address,
+                float(item[1]["liquidity"]),
+                float(item[1]["volume_h1"]),
+                item[0].pair_address,
             ),
         )
         flags: list[str] = []
-        if selected.liquidity_usd < self.minimum_liquidity_usd:
+        if float(values["liquidity"]) < self.minimum_liquidity_usd:
             flags.append("below_configured_minimum_liquidity")
-        if selected.liquidity_usd == 0:
+        if float(values["liquidity"]) == 0:
             flags.append("zero_liquidity")
-        if selected.volume_h1_usd == 0:
+        if float(values["volume_h1"]) == 0:
             flags.append("zero_hourly_volume")
-        if selected.volume_m5_usd is None:
+        if values["volume_m5"] is None:
             flags.append("volume_m5_missing")
-        if selected.volume_h24_usd is None:
+        if values["volume_h24"] is None:
             flags.append("volume_h24_missing")
-        if selected.price_change_h1_pct is None:
+        if values["change_h1"] is None:
             flags.append("price_change_h1_missing")
-        if selected.price_change_h24_pct is None:
+        if values["change_h24"] is None:
             flags.append("price_change_h24_missing")
-        if selected.market_cap_usd is None:
+        if values["market_cap"] is None:
             flags.append("market_cap_missing")
-        if selected.fdv_usd is None:
+        if values["fdv"] is None:
             flags.append("fdv_missing")
         if selected.pair_created_at_ms is None:
             flags.append("pair_creation_time_missing")
         elif selected.pair_created_at_ms > retrieved_at_ms:
             flags.append("pair_creation_time_in_future")
-        if selected.txns_h1_buys is None or selected.txns_h1_sells is None:
+        if values["txns_h1_buys"] is None or values["txns_h1_sells"] is None:
             flags.append("hourly_transaction_counts_missing")
 
         return SolanaMarketSnapshot(
@@ -290,22 +310,22 @@ class SolanaMarketData:
             selected_pair_address=selected.pair_address,
             symbol=selected.symbol,
             name=selected.name,
-            price_usd=float(selected.price_usd),
-            selected_pool_liquidity_usd=float(selected.liquidity_usd),
-            selected_pool_volume_m5_usd=selected.volume_m5_usd,
-            selected_pool_volume_h1_usd=float(selected.volume_h1_usd),
-            selected_pool_volume_h24_usd=selected.volume_h24_usd,
-            price_change_m5_pct=float(selected.price_change_m5_pct),
-            price_change_h1_pct=selected.price_change_h1_pct,
-            price_change_h24_pct=selected.price_change_h24_pct,
-            txns_m5_buys=selected.txns_m5_buys,
-            txns_m5_sells=selected.txns_m5_sells,
-            txns_h1_buys=selected.txns_h1_buys,
-            txns_h1_sells=selected.txns_h1_sells,
-            txns_h24_buys=selected.txns_h24_buys,
-            txns_h24_sells=selected.txns_h24_sells,
-            fdv_usd=selected.fdv_usd,
-            market_cap_usd=selected.market_cap_usd,
+            price_usd=float(values["price"]),
+            selected_pool_liquidity_usd=float(values["liquidity"]),
+            selected_pool_volume_m5_usd=values["volume_m5"],
+            selected_pool_volume_h1_usd=float(values["volume_h1"]),
+            selected_pool_volume_h24_usd=values["volume_h24"],
+            price_change_m5_pct=float(values["change_m5"]),
+            price_change_h1_pct=values["change_h1"],
+            price_change_h24_pct=values["change_h24"],
+            txns_m5_buys=values["txns_m5_buys"],
+            txns_m5_sells=values["txns_m5_sells"],
+            txns_h1_buys=values["txns_h1_buys"],
+            txns_h1_sells=values["txns_h1_sells"],
+            txns_h24_buys=values["txns_h24_buys"],
+            txns_h24_sells=values["txns_h24_sells"],
+            fdv_usd=values["fdv"],
+            market_cap_usd=values["market_cap"],
             dex_id=selected.dex_id,
             quote_token_symbol=selected.quote_token_symbol,
             pair_count=len(eligible),
