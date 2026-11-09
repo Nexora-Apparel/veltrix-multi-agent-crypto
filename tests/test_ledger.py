@@ -71,5 +71,10 @@ def test_price_gap_to_3x_does_not_fabricate_2x_fill(tmp_path):
     result=broker.process_market_price("gap-token",30)
     assert len(result)==1 and result[0]["reason"]=="take_profit_3x"
     assert result[0]["quantity_sold"]==50/10/2
-    # A later 2x retest must not create a false, late 2x fill.
-    assert broker.process_market_price("gap-token",20)==[]
+    # A retrace to 2x is below the 6% trailing stop from the observed 3x peak.
+    # It must close the remainder as a trailing stop, not fabricate a late 2x fill.
+    retrace=broker.process_market_price("gap-token",20)
+    assert len(retrace)==1 and retrace[0]["reason"]=="trailing_stop"
+    with broker._connect() as db:
+        reasons=[row[0] for row in db.execute("SELECT reason FROM trades WHERE side='SELL'").fetchall()]
+    assert "take_profit_2x" not in reasons
