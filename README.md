@@ -43,3 +43,15 @@ Market observations are saved to the SQLite database at `DB_PATH`. No positions 
 
 ## Risk and data limitations
 DexScreener pair snapshots do not prove liquidity is locked, developer holdings are below 5%, or bundled supply is zero. Missing safety fields must fail closed. The current implementation is not a financial recommendation and must not be used for live execution.
+
+
+## Independent safety evidence certification
+
+- Claim-scoped evidence now carries an explicit claim label, chain, completeness assertion, auditable source reference, method and provider-ownership group. The composite gate rejects evidence when any of these are absent, mismatched or incomplete. Two different provider IDs are not enough if both resolve to the same ownership group.
+- Capability catalog (veltrix.providers.capabilities) separates useful signals from certifiable evidence. Current documented candidates remain non-certifying:
+  - GoPlus token-locker lookup is documented for Base and BSC, and supported locker integrations are listed, but the public API reference does not document a stable response schema or prove exhaustive all-pool LP-position coverage. It remains partial.
+  - GoPlus Solana token security is not a documented LP-lock inventory in this connector.
+  - InsightX cluster metrics cover Solana, Base and BSC and describe shared-funding / transaction-pattern relationships with live balances. Public docs do not establish exhaustive holder coverage, complete developer identity attribution, or a coverage watermark. It remains partial, not a developer-holdings certificate.
+- The GoPlus response's creator percentage and top-holder list remain context only. They cannot establish complete developer-linked wallet concentration.
+- Opt-in real-provider probes live in tests/test_live_provider_acceptance.py. They issue read-only GET requests to GoPlus and InsightX, validate endpoint reachability and basic response shape, and are skipped by default. They do not certify token safety. Configure VELTRIX_RUN_LIVE_PROVIDER_ACCEPTANCE=true, the provider credentials and chain-specific acceptance token addresses to run them. A successful probe is not equivalent to a production safety certification.
+- No live-provider probe was executed in this development run because production credentials and acceptance token addresses were not available. Mocked unit tests are not represented as real API acceptance.
