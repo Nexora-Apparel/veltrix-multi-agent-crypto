@@ -55,6 +55,10 @@ class MarketMonitor:
                     "launch_block": origin.launch_block,
                     "window_end_block": origin.window_end_block,
                 }
+            elif candidate.chain == "solana":
+                if origin.launch_block is None:
+                    raise ValueError("Solana launch slot is missing")
+                kwargs = {"launch_slot": origin.launch_block}
             report, safety = self.launch_intelligence.evaluate(
                 chain=candidate.chain,
                 token_address=candidate.token_address,
