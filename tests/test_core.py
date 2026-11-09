@@ -46,7 +46,7 @@ def complete_solana_sellability():
     now = int(__import__("time").time() * 1000)
     return SolanaSellabilityEvidence(
         mint=MINT, observed_at_ms=now, provider="jupiter-v2", evidence_id="route:core",
-        input_amount_raw=10_000_000, input_supply_fraction=0.01,
+        input_amount_raw=50_000_000, input_supply_fraction=0.05,
         quoted_output_raw=50_000_000, minimum_output_raw=49_000_000,
         route_plan_count=2, price_impact_bps=75.0,
         quote_expires_at_ms=now + 15_000,
@@ -112,7 +112,7 @@ def test_core_routes_solana_entries_through_claim_aware_paper_shield(tmp_path):
         "risk_evidence_report": complete_solana_evidence(),
         "safety_report": complete_solana_safety(),
         "sellability_evidence": complete_solana_sellability(),
-        "sell_amount_raw": 10_000_000,
+        "sell_amount_raw": 50_000_000,
     }
     result = core.evaluate(token)
     assert result is not None
