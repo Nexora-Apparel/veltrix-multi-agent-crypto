@@ -19,10 +19,11 @@ def evidence(provider, **overrides):
         independence_group=provider,
     )
     values.update(overrides)
-    if values.get("liquidity_locked") is True:
-        values["claim"] = "liquidity_lock"
-    elif values.get("dev_hold_pct") is not None:
-        values["claim"] = "developer_holdings"
+    if values.get("claim") is None:
+        if values.get("liquidity_locked") is True:
+            values["claim"] = "liquidity_lock"
+        elif values.get("dev_hold_pct") is not None:
+            values["claim"] = "developer_holdings"
     return SafetyEvidence(**values)
 
 
