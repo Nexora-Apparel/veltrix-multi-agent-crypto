@@ -70,22 +70,12 @@ class DeveloperEvidenceOrchestrator:
         chain = str(chain).lower()
         holder = funding = None
         try:
+            # Verify the independent root claim before spending any holder/funder
+            # RPC budget. Missing or invalid identity evidence blocks early.
             if root_attestation is None:
                 if self.root_attestation_provider is None:
                     raise ValueError("no signed developer-root attestation provider is configured")
                 root_attestation = self.root_attestation_provider.fetch_attestation(chain, token_address)
-            holder_provider = self.holder_providers.get(chain)
-            funding_provider = self.funding_providers.get(chain)
-            if holder_provider is None or funding_provider is None:
-                raise ValueError("independent holder and funding providers are required")
-            holder = holder_provider.fetch_snapshot(token_address)
-            if holder.provider not in self.trusted_holders:
-                raise ValueError("holder inventory provider is not trusted")
-            funding = funding_provider.fetch_snapshot(
-                token_address, [row.wallet_address for row in holder.holders]
-            )
-            if funding.provider not in self.trusted_funding:
-                raise ValueError("developer funding graph provider is not trusted")
             if not isinstance(root_attestation, DeveloperRootAttestation):
                 raise ValueError("typed independently attested developer roots are required")
             root_chain = str(root_attestation.chain).lower()
@@ -112,6 +102,21 @@ class DeveloperEvidenceOrchestrator:
                     or isinstance(root_attestation.observed_at_ms, bool)
                     or root_attestation.observed_at_ms > now_ms):
                 raise ValueError("developer-root attestation provenance or timestamp is invalid")
+            if now_ms - root_attestation.observed_at_ms > self.analyzer.max_age_ms:
+                raise ValueError("developer-root attestation is stale")
+
+            holder_provider = self.holder_providers.get(chain)
+            funding_provider = self.funding_providers.get(chain)
+            if holder_provider is None or funding_provider is None:
+                raise ValueError("independent holder and funding providers are required")
+            holder = holder_provider.fetch_snapshot(token_address)
+            if holder.provider not in self.trusted_holders:
+                raise ValueError("holder inventory provider is not trusted")
+            funding = funding_provider.fetch_snapshot(
+                token_address, [row.wallet_address for row in holder.holders]
+            )
+            if funding.provider not in self.trusted_funding:
+                raise ValueError("developer funding graph provider is not trusted")
             report = self.analyzer.analyze(
                 chain, token_address, holder, funding, root_attestation.roots,
                 root_provider=root_attestation.provider,
