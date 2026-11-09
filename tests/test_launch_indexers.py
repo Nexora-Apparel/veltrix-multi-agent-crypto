@@ -44,12 +44,16 @@ class FundingResolver:
 
 def test_helius_launch_scan_paginates_and_emits_provenance_backed_swap():
     tx = {
-        "signature": "sol-swap-1", "blockTime": LAUNCH // 1000 + 30,
-        "summary": {"type": "SWAP"},
-        "tokenTransfers": [{
-            "mint": "MintABC", "toUserAccount": "buyer-wallet",
-            "fromUserAccount": "pool-wallet", "tokenAmount": 12.5,
-        }],
+        "signature": "sol-swap-1", "parserStatus": "OK",
+        "parsed": {
+            "blockTime": LAUNCH // 1000 + 30,
+            "summary": {"type": "swap"},
+            "tokenTransfers": [{
+                "mint": "MintABC", "toUserAccount": "buyer-wallet",
+                "fromUserAccount": "pool-wallet",
+                "rawTokenAmount": 1_250_000, "decimals": 5,
+            }],
+        },
     }
     session = HeliusSession([
         {"data": [tx], "paginationToken": "next",
@@ -231,13 +235,15 @@ def test_helius_native_funding_resolver_traces_direct_inbound_sol():
     from veltrix.providers.launch import HeliusNativeFundingResolver
     session = HeliusSession([{
         "data": [{
-            "signature": "funding-signature",
-            "blockTime": (END - 5_000) // 1000,
-            "nativeTransfers": [{
-                "fromUserAccount": "fund-source",
-                "toUserAccount": "buyer-wallet",
-                "amount": 1_000_000_000,
-            }],
+            "signature": "funding-signature", "parserStatus": "OK",
+            "parsed": {
+                "blockTime": (END - 5_000) // 1000,
+                "nativeTransfers": [{
+                    "fromUserAccount": "fund-source",
+                    "toUserAccount": "buyer-wallet",
+                    "amount": 1_000_000_000,
+                }],
+            },
         }],
         "scan": {"stoppedOn": "windowEnd", "scannedThrough": {"blockTime": END // 1000}},
     }])
@@ -332,7 +338,7 @@ def test_helius_historical_supply_reverses_post_launch_mints_and_burns():
                 "tokenTransfers": [{
                     "mint": "MintABC", "fromUserAccount": None,
                     "toUserAccount": "wallet-a",
-                    "rawTokenAmount": {"tokenAmount": "50000", "decimals": 2},
+                    "rawTokenAmount": 50000, "decimals": 2,
                 }],
             },
             {
@@ -340,7 +346,7 @@ def test_helius_historical_supply_reverses_post_launch_mints_and_burns():
                 "tokenTransfers": [{
                     "mint": "MintABC", "fromUserAccount": "wallet-a",
                     "toUserAccount": None,
-                    "rawTokenAmount": {"tokenAmount": "10000", "decimals": 2},
+                    "rawTokenAmount": 10000, "decimals": 2,
                 }],
             },
         ],
