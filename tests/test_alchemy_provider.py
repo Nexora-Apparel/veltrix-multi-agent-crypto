@@ -47,8 +47,18 @@ def transfer(tx, sender, recipient, contract, value, asset, category="erc20"):
 def provider(session, **kwargs):
     return AlchemyWalletProvider(
         "secret", [WALLET], {"base": [USDC], "bsc": [USDC]},
-        session=session, clock_ms=lambda: 1_794_199_000_000, **kwargs,
+        session=session, clock_ms=lambda: int(__import__("datetime").datetime.fromisoformat(
+            "2026-11-09T05:10:00+00:00"
+        ).timestamp() * 1000), **kwargs,
     )
+
+
+SINCE = int(__import__("datetime").datetime.fromisoformat(
+    "2026-11-09T04:50:00+00:00"
+).timestamp() * 1000)
+NOW = int(__import__("datetime").datetime.fromisoformat(
+    "2026-11-09T05:10:00+00:00"
+).timestamp() * 1000)
 
 
 def test_alchemy_requires_inbound_token_and_outbound_allowlisted_stablecoin_same_tx():
@@ -60,7 +70,7 @@ def test_alchemy_requires_inbound_token_and_outbound_allowlisted_stablecoin_same
     ]
     session = Session([{"transfers": rows}])
     api = provider(session)
-    result = api.fetch_wallet_observations("base", [TOKEN], 1_794_198_000_000)
+    result = api.fetch_wallet_observations("base", [TOKEN], SINCE)
     assert len(result) == 1
     assert result[0].token_address == TOKEN
     assert result[0].notional_usd == 75
@@ -78,13 +88,13 @@ def test_alchemy_provider_is_allowlist_gated_by_shared_adapter():
     ]
     api = provider(Session([{"transfers": rows}]))
     denied = VerifiedIntelligenceAdapters().collect_wallet_observations(
-        api, "base", [TOKEN], 1_794_198_000_000, 1_794_199_000_000
+        api, "base", [TOKEN], SINCE, NOW
     )
     assert denied.accepted == ()
     allowed = VerifiedIntelligenceAdapters(
         trusted_wallet_providers=["alchemy"]
     ).collect_wallet_observations(
-        api, "base", [TOKEN], 1_794_198_000_000, 1_794_199_000_000
+        api, "base", [TOKEN], SINCE, NOW
     )
     assert len(allowed.accepted) == 1
 
@@ -94,9 +104,9 @@ def test_alchemy_rejects_wrong_network_and_partial_responses():
         "partialErrors": [{"network": "base-mainnet", "message": "indexing"}]
     }}]))
     with pytest.raises(ProviderError, match="partial"):
-        api.fetch_wallet_observations("base", [TOKEN], 1_794_198_000_000)
+        api.fetch_wallet_observations("base", [TOKEN], SINCE)
     with pytest.raises(ProviderError, match="Base and BSC"):
-        api.fetch_wallet_observations("solana", [TOKEN], 1_794_198_000_000)
+        api.fetch_wallet_observations("solana", [TOKEN], SINCE)
 
 
 def test_alchemy_paginates_and_never_treats_unapproved_quote_asset_as_buy():
@@ -108,7 +118,7 @@ def test_alchemy_paginates_and_never_treats_unapproved_quote_asset_as_buy():
         {"transfers": []},
     ])
     api = provider(session, max_pages=2)
-    assert api.fetch_wallet_observations("base", [TOKEN], 1_794_198_000_000) == ()
+    assert api.fetch_wallet_observations("base", [TOKEN], SINCE) == ()
     assert session.calls[1][1]["json"]["pageKey"] == "next"
 
 
