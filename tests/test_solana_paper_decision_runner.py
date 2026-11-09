@@ -57,7 +57,7 @@ def seed_complete_packet(path):
         holder_count=2, total_supply_raw=1_000_000_000,
         observed_holder_balance_raw=1_000_000_000, holder_coverage_complete=True,
         top_holder_pct=2.0, top5_holder_pct=5.0, top10_holder_pct=10.0,
-        missing_claims=(), errors=(), mint_evidence_id="mint:1",
+        missing_claims=("executable_sellability",), errors=(), mint_evidence_id="mint:1",
         mint_finalized_slot=1,
         token_program_id="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
         mint_authority=None, freeze_authority=None,
@@ -156,6 +156,7 @@ def test_runner_opens_only_with_complete_typed_evidence_and_two_agents(tmp_path)
     audit = runner.audit_history(MINT)[0]
     assert audit["state"] == "PAPER_ENTRY_OPENED"
     assert audit["result"]["sellability_state"] == "ROUTE_OBSERVED_NOT_EXECUTION_PROVEN"
+    assert risks.latest(MINT)["report"]["missing_claims"] == ["executable_sellability"]
 
 
 def test_runner_requires_explicit_agent_context_provider(tmp_path):
@@ -172,3 +173,20 @@ def test_runner_requires_explicit_agent_context_provider(tmp_path):
     assert result.blocked == 1
     assert broker.snapshot()["open_positions"] == []
     assert "independent agent-context provider is not configured" in runner.audit_history(MINT)[0]["reasons"]
+
+
+def test_untrusted_agent_context_provider_blocks_entry(tmp_path):
+    path = str(tmp_path / "untrusted-agent-context.sqlite3")
+    launches, markets, risks, developers, bundles, routes, safety = seed_complete_packet(path)
+    broker = PaperBroker(path, 500, 10, 50)
+    runner = SolanaPaperDecisionRunner(
+        launch_store=launches, market_store=markets, risk_store=risks,
+        developer_store=developers, bundle_store=bundles,
+        sellability_store=routes, safety_store=safety, broker=broker,
+        core=Core(broker), agent_context_provider=context_provider,
+        trusted_agent_context_providers=("another-provider",),
+    )
+    result = runner.run_once()
+    assert result.blocked == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "agent context provenance, mint, or provider trust is invalid" in runner.audit_history(MINT)[0]["reasons"]
