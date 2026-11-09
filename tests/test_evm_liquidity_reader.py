@@ -90,6 +90,8 @@ class RpcSession:
             call = params[0]
             data = call["data"]
             selector = data[:10]
+            if selector == "0x" + keccak(b"allPairsLength()")[:4].hex():
+                return Response("0x" + word(1))
             if selector == "0x" + keccak(b"token0()")[:4].hex():
                 return Response("0x" + address_topic(TOKEN)[2:])
             if selector == "0x" + keccak(b"token1()")[:4].hex():
@@ -196,6 +198,8 @@ def test_factory_scan_includes_unlocked_second_pool_in_inventory():
                                 if params[0]["fromBlock"] == "0x1" else [])
             if method == "eth_call" and params[0]["to"].lower() == second.lower():
                 selector = params[0]["data"][:10]
+                if selector == "0x" + keccak(b"allPairsLength()")[:4].hex():
+                    return Response("0x" + word(2))
                 if selector == "0x" + keccak(b"token0()")[:4].hex():
                     return Response("0x" + address_topic(TOKEN)[2:])
                 if selector == "0x" + keccak(b"token1()")[:4].hex():
@@ -222,3 +226,17 @@ def test_factory_scan_includes_unlocked_second_pool_in_inventory():
 def test_bsc_legacy_event_topics_match_verified_contract_abi():
     assert BSC_DEPOSIT_TOPIC == "0x830357565da6ecfc26d8d9f69df488ed6f70361af9a07e570544aeb5c5e765e5"
     assert BSC_WITHDRAW_TOPIC == "0xccad973dcd043c7d680389db4378bd6b9775db7124092e9e0422c9e46d7985dc"
+
+
+def test_factory_log_history_must_match_all_pairs_length():
+    class MissingPairSession(RpcSession):
+        def post(self, url, json, timeout):
+            method, params = json["method"], json["params"]
+            if method == "eth_getLogs" and params[0]["address"].lower() == FACTORY.lower():
+                return Response([])
+            if method == "eth_call" and params[0]["data"][:10] == "0x" + keccak(b"allPairsLength()")[:4].hex():
+                return Response("0x" + word(1))
+            return super().post(url, json, timeout)
+
+    with pytest.raises(Exception, match="does not reconcile to allPairsLength"):
+        reader("base", MissingPairSession("base")).fetch_inventory(TOKEN)
