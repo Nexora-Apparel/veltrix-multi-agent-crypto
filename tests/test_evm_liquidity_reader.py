@@ -30,12 +30,12 @@ def address_topic(address):
     return "0x" + address[2:].lower().rjust(64, "0")
 
 
-def pair_created_log():
+def pair_created_log(pair=PAIR):
     return {
         "address": FACTORY, "removed": False, "topics": [
             PAIR_CREATED_TOPIC, address_topic(TOKEN), address_topic(OTHER),
         ],
-        "data": "0x" + address_topic(PAIR)[2:] + word(1),
+        "data": "0x" + address_topic(pair)[2:] + word(1),
         "blockNumber": "0x64", "transactionHash": "0x" + "cd" * 32,
     }
 
@@ -153,8 +153,12 @@ def test_bsc_reader_requires_event_history_to_reconcile_every_nonce():
 def test_evm_reader_rejects_rpc_block_hash_disagreement():
     class SplitSession(RpcSession):
         def post(self, url, json, timeout):
-            if url.startswith("https://locker"):
+            if url.startswith("https://locker") and json["method"] == "eth_getBlockByNumber":
+                old = self.block_hash
                 self.block_hash = "0x" + "99" * 32
+                result = super().post(url, json, timeout)
+                self.block_hash = old
+                return result
             return super().post(url, json, timeout)
 
     with pytest.raises(Exception, match="disagree on finalized block hash"):
@@ -169,3 +173,36 @@ def test_evm_reader_requires_explicit_complete_factory_registry():
             (EvmLockerSpec("uni", LOCKER, 1, CODE_HASH, "uncx-v2.1-locks-nonce"),),
             registry_complete=False,
         )
+
+
+def test_factory_scan_includes_unlocked_second_pool_in_inventory():
+    second = "0x7777777777777777777777777777777777777777"
+
+    class TwoPoolSession(RpcSession):
+        def post(self, url, json, timeout):
+            method, params = json["method"], json["params"]
+            if method == "eth_getLogs" and params[0]["address"].lower() == FACTORY.lower():
+                return Response([pair_created_log(PAIR), pair_created_log(second)])
+            if method == "eth_call" and params[0]["to"].lower() == second.lower():
+                selector = params[0]["data"][:10]
+                if selector == "0x" + keccak(b"token0()")[:4].hex():
+                    return Response("0x" + address_topic(TOKEN)[2:])
+                if selector == "0x" + keccak(b"token1()")[:4].hex():
+                    return Response("0x" + address_topic(OTHER)[2:])
+                if selector == "0x" + keccak(b"factory()")[:4].hex():
+                    return Response("0x" + address_topic(FACTORY)[2:])
+                if selector == "0x" + keccak(b"totalSupply()")[:4].hex():
+                    return Response("0x" + word(100))
+                if selector == "0x" + keccak(b"balanceOf(address)")[:4].hex():
+                    return Response("0x" + word(0))
+            return super().post(url, json, timeout)
+
+    batch = reader("base", TwoPoolSession("base")).fetch_inventory(TOKEN)
+    assert {pool.pool_address for pool in batch.pools} == {PAIR, second}
+    assert batch.pools[1].locker_custody_amount == 0
+    report = LiquidityEvidenceAnalyzer().evaluate(
+        batch, chain="base", token_address=TOKEN, now_ms=BLOCK_TIME * 1000,
+    )
+    assert not report.passed
+    assert report.pool_count == 2
+    assert report.active_locked_pool_count == 1
