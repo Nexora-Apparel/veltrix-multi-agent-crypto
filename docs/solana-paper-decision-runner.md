@@ -43,9 +43,13 @@ provider metadata into a BUY signal.
 
 The deterministic claim is persisted before Core is invoked. If the process
 crashes after claiming a packet, that exact packet is not replayed
-automatically; it requires reconciliation. A new evidence packet has a new
-key and can be evaluated independently. This deliberately favours preventing
-duplicate entries over silently retrying an uncertain broker outcome.
+automatically. `reconcile_stale_claims()` inspects stale claims against the
+paper broker: a matching position opened after the claim is marked
+`PAPER_ENTRY_OPENED_RECONCILED`; otherwise it is marked
+`INDETERMINATE_NO_REPLAY` for manual reconciliation. Neither outcome triggers
+automatic re-entry. A new evidence packet has a new key and can be evaluated
+independently. This deliberately favours preventing duplicate entries over
+silently retrying an uncertain broker outcome.
 
 ## Current activation blockers
 
@@ -70,3 +74,11 @@ and their acceptance tests pass.
 The runner has no wallet, private key, signer, RPC-write, Jupiter `/execute`,
 or transaction-submission interface. A paper route quote is not a transfer
 test or proof of live sellability. No live trading is enabled.
+
+
+## Crash-recovery verification
+
+- Added stale-claim reconciliation against the durable PaperBroker ledger.
+- A stale claim with a matching newly opened position is annotated as reconciled.
+- A stale claim without a matching new position is marked indeterminate and remains non-replayable.
+- Both outcomes are audit-only; no automatic retry or second position is created.
