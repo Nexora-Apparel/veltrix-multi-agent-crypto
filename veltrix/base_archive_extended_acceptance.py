@@ -130,7 +130,7 @@ def common_finalized_checkpoint(primary, candidate, primary_head, candidate_head
     return {"number": number, "hash": primary_hash}
 
 
-def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
+def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors, finalized_head=None):
     chain_id = quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID")
     if chain_id != CHAIN_ID:
         raise PreflightError(f"{rpc.label}: expected Base chain ID 8453, received {chain_id}")
@@ -143,7 +143,8 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
     if quantity(receipt.get("blockNumber"), f"{rpc.label} receipt block") != deployment_block:
         raise PreflightError(f"{rpc.label}: factory deployment block mismatch")
 
-    finalized = block_by_tag(rpc, "finalized")
+    # Reuse the finalized observation captured by main(); do not reread a moving tag.
+    finalized = finalized_head or block_by_tag(rpc, "finalized")
     results = {}
     for number in anchors:
         block_hash = block_by_number(rpc, number)
@@ -281,8 +282,12 @@ def main():
     if anchors[-1] > finalized_number:
         raise PreflightError("computed historical anchor exceeds finalized head")
 
-    first = inspect_provider(primary, factory, creation_tx, deployment_block, anchors)
-    second = inspect_provider(candidate, factory, creation_tx, deployment_block, anchors)
+    first = inspect_provider(
+        primary, factory, creation_tx, deployment_block, anchors, first_finalized
+    )
+    second = inspect_provider(
+        candidate, factory, creation_tx, deployment_block, anchors, second_finalized
+    )
 
     for number in anchors:
         key = str(number)
