@@ -191,7 +191,7 @@ def test_market_evidence_from_store_row_validates_persisted_shape():
         "retrieved_at_ms": NOW,
         "pair_created_at_ms": NOW - 3_600_000,
         "pair_count": 1,
-        "quality_flags": "[]",
+        "quality_flags": [],
     }
     evidence = MarketEvidence.from_store_row(row)
     assert evidence.price_change_m5_pct is None
