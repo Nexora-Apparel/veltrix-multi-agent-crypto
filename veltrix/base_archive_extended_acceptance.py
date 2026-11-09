@@ -92,6 +92,31 @@ def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_blo
     return sorted(normalized, key=lambda x: (x["transactionHash"], x["logIndex"]))
 
 
+def pair_created_index(log, label="PairCreated"):
+    """Decode the uint256 pair index from Uniswap V2 PairCreated event data."""
+    data = log.get("data", "")
+    if not isinstance(data, str) or not data.startswith("0x"):
+        raise PreflightError(f"{label}: malformed PairCreated data")
+    try:
+        raw = bytes.fromhex(data[2:])
+    except ValueError as exc:
+        raise PreflightError(f"{label}: invalid PairCreated data") from exc
+    if len(raw) != 64:
+        raise PreflightError(f"{label}: expected 64 bytes of PairCreated data")
+    return int.from_bytes(raw[32:], "big")
+
+
+def validate_pair_created_sequence(logs, start_count, end_count, label):
+    """Require every factory pair index in the interval exactly once."""
+    expected = list(range(start_count + 1, end_count + 1))
+    actual = sorted(pair_created_index(log, label) for log in logs)
+    if actual != expected:
+        raise PreflightError(
+            f"{label}: PairCreated indices do not reconcile with allPairsLength "
+            f"delta; expected {expected[0]}-{expected[-1]}, received {actual}"
+        )
+
+
 def common_finalized_checkpoint(primary, candidate, primary_head, candidate_head):
     """Return the highest finalized checkpoint both providers can verify."""
     number = min(primary_head["number"], candidate_head["number"])
@@ -174,6 +199,12 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
     for log in logs:
         if log["blockNumber"] < log_from + 1 or log["blockNumber"] > log_to:
             raise PreflightError(f"{rpc.label}: PairCreated log outside requested range")
+    validate_pair_created_sequence(
+        logs,
+        results[str(log_from)]["all_pairs_length"],
+        results[str(log_to)]["all_pairs_length"],
+        rpc.label,
+    )
 
     return {
         "provider": rpc.label,
@@ -191,12 +222,14 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
                 log_to - log_coverage["queried_from_block"] + 1
             ),
             "scan_direction": "backward",
-            "coverage_complete": (
+            "block_coverage_complete": (
                 log_coverage["queried_from_block"] == log_from + 1
             ),
+            "event_set_complete": True,
             "completeness_basis": (
-                "retrieved PairCreated count equals the full-interval "
-                "allPairsLength delta; each PairCreated increments allPairsLength once"
+                "retrieved PairCreated event indices form the exact contiguous "
+                "sequence from starting allPairsLength + 1 through ending "
+                "allPairsLength; each factory pair creation emits one indexed event"
             ),
             "logs": logs,
         },
