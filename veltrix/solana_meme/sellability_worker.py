@@ -90,7 +90,7 @@ class SolanaSellabilityWorker:
     def _eligible_mints(self) -> list[str]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT mint FROM solana_launch_candidates ORDER BY discovered_at_ms, mint"
+                "SELECT mint FROM solana_launch_candidates ORDER BY first_seen_at_ms, mint"
             ).fetchall()
         eligible = []
         for row in rows:
