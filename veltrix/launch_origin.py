@@ -123,7 +123,7 @@ class SolanaLaunchOriginResolver:
         instructions = message.get("instructions", [])
         initialized = any(
             isinstance(instruction, dict)
-            and instruction.get("program") == "spl-token"
+            and instruction.get("program") in {"spl-token", "spl-token-2022"}
             and instruction.get("parsed", {}).get("type") in {"initializeMint", "initializeMint2"}
             and instruction.get("parsed", {}).get("info", {}).get("mint") == token_address
             for instruction in instructions
