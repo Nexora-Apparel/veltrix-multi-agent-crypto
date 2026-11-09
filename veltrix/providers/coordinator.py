@@ -97,6 +97,11 @@ class CrossChainIntelligenceCoordinator:
                         f"{provider_id}: provider identity mismatch on observation {index}"
                     )
                     continue
+                if not isinstance(observation.chain, str) or observation.chain.lower() != normalized_chain:
+                    rejected.append(
+                        f"{provider_id}: observation chain does not match requested chain"
+                    )
+                    continue
                 observations.append(observation)
 
         # One normalization pass means duplicate tx legs from different providers
