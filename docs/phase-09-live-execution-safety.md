@@ -149,7 +149,8 @@ Contract-only interface added in `veltrix/signer_boundary.py`, with tests in
 - The unsigned envelope binds an intent, chain, network, signer public key,
   exact serialized message digest, and policy hash.
 - The protocol accepts one exact unsigned envelope and returns an opaque signed
-  envelope. Its contract explicitly forbids broadcasting.
+  envelope carrying the same intent, signer identity, chain, network, policy
+  hash and message digest. Its contract explicitly forbids broadcasting.
 - No concrete signer, key loading, key storage, signing algorithm, wallet
   provider, transaction submission, or broadcast implementation is included.
 - Tests validate immutability and malformed envelope rejection without invoking
