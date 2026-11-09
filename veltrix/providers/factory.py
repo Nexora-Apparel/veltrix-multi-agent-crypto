@@ -62,3 +62,24 @@ def build_holder_inventory_providers(settings, *, session=None):
                 max_holders=getattr(settings, "holder_inventory_max_holders", 50_000),
             )
     return providers
+
+
+def build_funding_graph_providers(settings, *, session=None):
+    """Build only funding sources whose documented chain coverage is adequate.
+
+    Alchemy documents internal-transfer coverage on Base, but not BSC. The
+    factory intentionally leaves BSC and Solana unconfigured rather than
+    silently presenting partial histories as complete.
+    """
+    from .alchemy_funding import AlchemyBaseFundingGraphProvider
+
+    if not getattr(settings, "alchemy_api_key", ""):
+        return {}
+    return {
+        "base": AlchemyBaseFundingGraphProvider(
+            settings.alchemy_api_key,
+            session=session,
+            max_pages=getattr(settings, "funding_graph_max_pages", 100),
+            max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
+        )
+    }
