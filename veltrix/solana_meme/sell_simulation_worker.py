@@ -93,9 +93,9 @@ class SolanaSellSimulationWorker:
                 observation = self.provider.simulate_sell(mint, amount)
                 if observation.mint != mint or observation.taker != self.provider.taker:
                     raise ValueError("simulation provider returned mismatched mint or taker")
-                self.evidence_store.record(observation)
                 if observation.transaction_submitted or observation.signature_verification:
                     raise ValueError("provider violated unsigned simulation boundary")
+                self.evidence_store.record(observation)
                 if observation.state == "SIMULATION_SUCCEEDED":
                     succeeded += 1
                 else:
