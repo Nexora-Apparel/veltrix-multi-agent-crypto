@@ -2,7 +2,7 @@
 
 This is a qualification test, not automatic provider certification. It checks
 multiple historical states, finalized-tag consistency, contract calls, and
-factory event-log retrieval at exact block heights.
+factory event-log retrieval over a non-empty historical range.
 """
 import json
 import os
@@ -109,7 +109,6 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
             "runtime_code_bytes": len(code_bytes),
             "runtime_code_keccak256": keccak(code_bytes).hex() if code_bytes else None,
             "all_pairs_length": call_count,
-            "pair_created_logs": logs,
         }
 
     # Query a range known to contain PairCreated events: the final two
@@ -215,7 +214,7 @@ def main():
         "finalized_block": first_finalized,
         "historical_anchor_blocks": anchors,
         "providers": [first, second],
-        "comparison": "matching finalized head and all historical block, code, call, and log results",
+        "comparison": "matching finalized head and historical block, code, call, plus non-empty PairCreated log range reconciled to pair-count delta",
     }
     with open("base-archive-extended-acceptance.json", "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=2)
