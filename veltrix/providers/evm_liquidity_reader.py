@@ -158,8 +158,11 @@ class EvmV2LiquiditySnapshotReader:
     """
     CHAIN_IDS = {"base": 8453, "bsc": 56}
     ABI_PROFILES = {
-        "base": "uncx-v2.1-locks-nonce",
-        "bsc": "uncx-v1-token-lock-index-events",
+        "base": frozenset({
+            "uncx-v2.1-locks-nonce",
+            "uncx-v2.0-locks-nonce",
+        }),
+        "bsc": frozenset({"uncx-v1-token-lock-index-events"}),
     }
 
     def __init__(
@@ -206,7 +209,7 @@ class EvmV2LiquiditySnapshotReader:
                     or not ADDRESS.fullmatch(locker.address)
                     or not HASH.fullmatch(locker.expected_code_hash)
                     or locker.deployment_block < 0
-                    or locker.abi_profile != expected_profile):
+                    or locker.abi_profile not in expected_profile):
                 raise ValueError("unsupported or malformed chain-specific UNCX locker entry")
 
     def _chain_id(self, rpc):
