@@ -207,3 +207,23 @@ def test_default_gate_rejects_provider_without_audited_capability_even_if_truste
     assert not report.passed
     assert "liquidity: provider capability is not certified for this chain and claim" in report.reasons
     assert "developer holdings: provider capability is not certified for this chain and claim" in report.reasons
+
+
+def test_composite_rejects_liquidity_claim_without_complete_all_pool_metrics():
+    base = valid_bundle()
+    weak = SafetyEvidenceBundle(
+        liquidity=evidence(
+            "lock-a", liquidity_locked=True,
+            liquidity_inventory_complete=False,
+            liquidity_pool_count=2,
+            liquidity_locked_pool_count=1,
+            liquidity_locked_lp_pct=50.0,
+        ),
+        developer_holdings=base.developer_holdings,
+        launch_bundle=base.launch_bundle,
+    )
+    report = validator().validate(TOKEN, weak, NOW, chain="solana")
+    assert not report.passed
+    assert "liquidity: complete all-pool inventory is not verified" in report.reasons
+    assert "liquidity: not every discovered pool has active locked LP" in report.reasons
+    assert "liquidity: active locked LP is below 99.99% in at least one pool" in report.reasons
