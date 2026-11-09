@@ -77,6 +77,22 @@ def test_normalize_rejects_missing_or_invalid_source(source):
         )
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mint": "not-a-mint", "source": "feed", "discovered_at_ms": 100},
+        {"mint": MINT_A, "source": " ", "discovered_at_ms": 100},
+        {"mint": MINT_A, "source": "feed", "discovered_at_ms": True},
+        {"mint": MINT_A, "source": "feed", "discovered_at_ms": 0},
+        {"mint": MINT_A, "source": "feed", "discovered_at_ms": 100, "sources": ["feed"]},
+        {"mint": MINT_A, "source": "feed", "discovered_at_ms": 100, "sources": ("",)},
+    ],
+)
+def test_candidate_constructor_cannot_bypass_validation(kwargs):
+    with pytest.raises(CandidateRejected):
+        SolanaCandidate(**kwargs)
+
+
 def test_dedupe_merges_sources_and_keeps_latest_observation():
     first = normalize_candidate(
         {"chainId": "solana", "tokenAddress": MINT_A},
