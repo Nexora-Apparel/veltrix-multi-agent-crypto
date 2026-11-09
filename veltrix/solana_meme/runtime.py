@@ -119,6 +119,8 @@ def run_service(
         print("Sell-route evidence is disabled: set SOLANA_SELLABILITY_ENABLED=true and configure GoPlus plus Solana RPC evidence. Jupiter keyless quotes require no new secret.")
     if sell_simulation_worker is None:
         print("Unsigned sell simulation is disabled: it requires explicit test-wallet public key and mint/raw-amount cases; no private key is accepted.")
+    if liquidity_worker is None:
+        print("Solana LP-lock evidence is disabled: configure two independent HTTPS RPC endpoints, pinned Raydium executable hashes, and the explicit supported-AMM registry flag.")
     try:
         while not stop_event.is_set():
             if deadline is not None and time.monotonic() >= deadline:
@@ -154,6 +156,10 @@ def run_service(
                         f", sell simulations succeeded={result.sell_simulation.succeeded}, simulation failures={result.sell_simulation.simulation_failed}, preflight blocked={result.sell_simulation.preflight_blocked}, provider failures={result.sell_simulation.provider_failed}"
                         if result.sell_simulation is not None else ", sell simulation disabled"
                     )
+                    + (
+                        f", liquidity reports stored={result.liquidity.stored}, verified={result.liquidity.passed}, failures={result.liquidity.failed}"
+                        if result.liquidity is not None else ", liquidity inventory disabled"
+                    )
                 )
             except Exception as exc:
                 launches.record_event(
@@ -178,6 +184,7 @@ def run_service(
             f"risk reports stored={risk_store.count() if risk_store is not None else 0}, "
             f"developer reports stored={developer_store.count()}, "
             f"bundle reports stored={bundle_store.count()}, "
+            f"liquidity reports stored={liquidity_store.count()}, "
             f"sell simulations stored={sell_simulation_store.count()}, "
             f"simulation preflights stored={simulation_preflight_store.count()}, "
             f"active feed outages={launches.active_outage_count()}"
