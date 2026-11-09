@@ -268,6 +268,15 @@ class EvmV2LiquiditySnapshotReader:
                 if token0.lower() != self._token.lower() and token1.lower() != self._token.lower():
                     continue
                 found.append((pair, token0, token1, factory))
+        length_data = self._call(
+            self.pool_rpc, factory.address,
+            "0x" + _selector("allPairsLength()").hex(), hex(final_block),
+        )
+        all_pairs_length = _decode_uint(
+            bytes.fromhex(length_data[2:]).rjust(32, b"\\x00")
+        )
+        if count != all_pairs_length:
+            raise ProviderError("factory PairCreated history does not reconcile to allPairsLength")
         return found
 
     def _read_pair(self, pair, token0_event, token1_event, factory, block_hex):
