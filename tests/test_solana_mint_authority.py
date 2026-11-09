@@ -78,7 +78,7 @@ def test_token_2022_parses_known_and_unknown_extensions_without_dropping_unknown
         "permanent_delegate", "transfer_hook", "unknown_65000",
     )
     assert snapshot.unknown_extension_ids == (65000,)
-    assert snapshot.extension_parse_complete is False
+    assert snapshot.extension_tlv_structure_valid is False
 
 
 @pytest.mark.parametrize("data", [
