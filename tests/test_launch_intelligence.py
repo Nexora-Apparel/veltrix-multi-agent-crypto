@@ -53,6 +53,7 @@ def snapshot(*, pages_done=2, source_complete=True, observations=()):
         observations=tuple(observations),
         coverage=coverage,
         observed_at_ms=NOW,
+        supply_block_ref="slot:launch-123",
     )
 
 
@@ -73,13 +74,18 @@ def service(indexer):
         trusted_liquidity_providers=["locker"],
         trusted_developer_providers=["holder-indexer"],
         trusted_bundle_providers=["launch-indexer"],
+        trusted_funding_providers=["funder-indexer"],
         max_age_ms=300_000,
     )
     return LaunchIntelligenceService(
         provider=indexer,
-        analyzer=LaunchBundleAnalyzer(["launch-indexer"], launch_window_ms=WINDOW),
+        analyzer=LaunchBundleAnalyzer(
+            ["launch-indexer"], launch_window_ms=WINDOW,
+            trusted_funder_providers=["funder-indexer"],
+        ),
         composite_validator=validator,
         trusted_launch_providers=["launch-indexer"],
+        trusted_funding_providers=["funder-indexer"],
         launch_window_ms=WINDOW,
     )
 
@@ -118,9 +124,9 @@ def test_source_cannot_claim_complete_when_source_flag_is_false():
 def test_shared_funder_supply_is_counted_and_composite_gate_rejects_it():
     buys = (
         LaunchBuyEvidence("launch-indexer", CHAIN, TOKEN, "wallet-a", "funder",
-                          "sig-a", 1000, LAUNCH + 1),
+                          "sig-a", 1000, LAUNCH + 1, "funder-indexer", "fund-a"),
         LaunchBuyEvidence("launch-indexer", CHAIN, TOKEN, "wallet-b", "funder",
-                          "sig-b", 2000, LAUNCH + 2),
+                          "sig-b", 2000, LAUNCH + 2, "funder-indexer", "fund-b"),
     )
     result = evaluate(FakeLaunchIndexer(snapshot(observations=buys)))
     assert result.bundle_report.bundled_supply_pct == 0.3
