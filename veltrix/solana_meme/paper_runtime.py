@@ -113,6 +113,17 @@ def build_runtime(
         "VELTRIX_SOLANA_DISCOVERY_DB",
         os.getenv("DB_PATH", "data/solana_discovery.sqlite3"),
     )
+    if database_path is None:
+        discovery_setting = os.getenv("VELTRIX_SOLANA_DISCOVERY_DB", "").strip()
+        legacy_ledger_setting = os.getenv("DB_PATH", "").strip()
+        if discovery_setting and legacy_ledger_setting:
+            discovery_resolved = str(Path(discovery_setting).expanduser().resolve())
+            legacy_resolved = str(Path(legacy_ledger_setting).expanduser().resolve())
+            if discovery_resolved != legacy_resolved:
+                raise ValueError(
+                    "VELTRIX_SOLANA_DISCOVERY_DB and DB_PATH must reference the same "
+                    "SQLite file so Phase 07 reuses the existing paper ledger"
+                )
     balance = starting_balance if starting_balance is not None else _env_float("PAPER_BALANCE_USD", 500.0)
     positions = max_positions if max_positions is not None else _env_int("MAX_OPEN_POSITIONS", 10)
     position_usd = max_position_usd if max_position_usd is not None else _env_float("MAX_POSITION_USD", 50.0)
