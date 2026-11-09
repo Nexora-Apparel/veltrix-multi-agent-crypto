@@ -99,7 +99,10 @@ class PaperTradingWorker:
             and 0 <= now_ms - timestamp <= max_age_ms
         )
 
-    def _record_skip(self, decision: dict, now_ms: int, reason: str, *, blocked: bool = False) -> str:
+    def _record_skip(
+        self, decision: dict, now_ms: int, reason: str, *,
+        blocked: bool = False, not_eligible: bool = False,
+    ) -> str:
         decision_id = decision.get("decision_id")
         mint = decision.get("mint")
         created = decision.get("created_at_ms")
@@ -113,7 +116,7 @@ class PaperTradingWorker:
             decision_id,
             mint,
             str(decision.get("status") or "UNKNOWN"),
-            "BLOCKED" if blocked else "SKIPPED",
+            "BLOCKED" if blocked else ("NOT_ELIGIBLE" if not_eligible else "SKIPPED"),
             reason,
             created_at_ms=created,
             processed_at_ms=now_ms,
@@ -291,7 +294,10 @@ class PaperTradingWorker:
                 continue
             if decision.get("status") != "CONSENSUS_APPROVED":
                 outcome = self._record_skip(
-                    decision, now, f"consensus disposition: {decision.get('status') or 'UNKNOWN'}"
+                    decision,
+                    now,
+                    f"consensus disposition: {decision.get('status') or 'UNKNOWN'}",
+                    not_eligible=True,
                 )
                 if outcome == "DUPLICATE":
                     duplicates += 1
