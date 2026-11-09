@@ -57,6 +57,9 @@ def test_signed_envelope_is_opaque_immutable_output():
     result = SignedTransactionEnvelope(
         intent_id="intent-001",
         signer_public_key="PublicKeyExample",
+        chain="solana",
+        network="devnet",
+        policy_hash="a" * 64,
         message_sha256="b" * 64,
         signed_transaction=b"opaque-signed-transaction",
         transaction_signature="signature-reference",
@@ -71,6 +74,9 @@ def test_signed_envelope_is_opaque_immutable_output():
     [
         ("intent_id", ""),
         ("signer_public_key", ""),
+        ("chain", ""),
+        ("network", ""),
+        ("policy_hash", ""),
         ("transaction_signature", ""),
         ("message_sha256", "z" * 64),
         ("signed_transaction", b""),
@@ -81,6 +87,9 @@ def test_signed_envelope_rejects_malformed_fields(field, value):
     values = {
         "intent_id": "intent-001",
         "signer_public_key": "PublicKeyExample",
+        "chain": "solana",
+        "network": "devnet",
+        "policy_hash": "a" * 64,
         "message_sha256": "b" * 64,
         "signed_transaction": b"opaque-signed-transaction",
         "transaction_signature": "signature-reference",
