@@ -18,8 +18,13 @@ from .pipeline import SolanaMemePipeline
 from .pumpportal import PumpPortalDiscovery
 from .risk_store import SolanaRiskEvidenceStore
 from .risk_worker import SolanaRiskEvidenceWorker
+from .developer_store import DeveloperConcentrationStore
+from .developer_worker import SolanaDeveloperEvidenceWorker
 from ..config import settings as load_settings
-from ..providers.factory import build_solana_risk_evidence_collector
+from ..providers.factory import (
+    build_solana_risk_evidence_collector,
+    build_solana_developer_evidence_worker,
+)
 
 
 def run_service(
@@ -52,7 +57,13 @@ def run_service(
     if risk_collector is not None:
         risk_store = SolanaRiskEvidenceStore(database)
         risk_worker = SolanaRiskEvidenceWorker(launches, risk_collector, risk_store)
-    pipeline = SolanaMemePipeline(enrichment, refresh, risk_worker)
+    developer_store = DeveloperConcentrationStore(database)
+    developer_worker = build_solana_developer_evidence_worker(
+        configured, launches, developer_store,
+    )
+    pipeline = SolanaMemePipeline(
+        enrichment, refresh, risk_worker, developer_worker,
+    )
 
     stop_event = threading.Event()
     stream = LaunchStreamManager(PumpPortalDiscovery(), launches)
@@ -66,6 +77,8 @@ def run_service(
     print("No wallet, signer, paper broker, or live execution is connected.")
     if risk_worker is None:
         print("Risk evidence collection is disabled: configure existing GOPLUS_ACCESS_TOKEN and SOLANA_RPC_URL.")
+    if developer_worker is None:
+        print("Developer ancestry collection is disabled until signed-root endpoint/key and all three provider trust lists are configured.")
     try:
         while not stop_event.is_set():
             if deadline is not None and time.monotonic() >= deadline:
@@ -84,6 +97,10 @@ def run_service(
                     + (
                         f", risk reports stored={result.risk.stored}, risk failures={result.risk.failed}"
                         if result.risk is not None else ", risk collection disabled"
+                    )
+                    + (
+                        f", developer reports stored={result.developer.stored}, incomplete={result.developer.incomplete}, failures={result.developer.failed}"
+                        if result.developer is not None else ", developer ancestry disabled"
                     )
                 )
             except Exception as exc:
@@ -107,6 +124,7 @@ def run_service(
             f"launch candidates stored={launches.candidate_count()}, "
             f"market snapshots stored={markets.count()}, "
             f"risk reports stored={risk_store.count() if risk_store is not None else 0}, "
+            f"developer reports stored={developer_store.count()}, "
             f"active feed outages={launches.active_outage_count()}"
         )
 
