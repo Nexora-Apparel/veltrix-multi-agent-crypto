@@ -108,9 +108,15 @@ class DexScreenerProvider:
         return result
 
     @staticmethod
-    def _signed_number(value: Any, field: str, *, default: float = 0.0) -> float:
+    def _signed_number(
+        value: Any,
+        field: str,
+        *,
+        default: float = 0.0,
+        optional: bool = False,
+    ) -> float | None:
         if value is None:
-            return default
+            return None if optional else default
         if isinstance(value, bool):
             raise ProviderError(f"Invalid numeric field: {field}")
         try:
