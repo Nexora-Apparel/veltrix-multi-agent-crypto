@@ -13,7 +13,8 @@ from typing import Iterable, Mapping
 
 from ..agents import Scout
 from ..signal_intelligence import SignalContextBuilder
-from ..whales import WalletBuyEvent, WhaleFlowAggregator
+from ..whales import WalletBuyEvent
+from .solana_whales import SolanaWhaleFlowAggregator
 from .candidates import canonical_mint
 from .risk_evidence import RiskFlag
 
@@ -248,7 +249,7 @@ class ConsensusEngine:
             volume_multiple=float(volume_multiple),
             max_age_ms=max_market_age_ms,
         )
-        self.whale_aggregator = WhaleFlowAggregator(
+        self.whale_aggregator = SolanaWhaleFlowAggregator(
             trusted_wallets=trusted_wallets,
             window_ms=whale_window_ms,
             min_buy_usd=whale_min_buy_usd,
