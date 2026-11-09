@@ -40,6 +40,9 @@ class SolanaRiskEvidenceReport:
     goplus_evidence_id: str | None
     goplus_observed_at_ms: int | None
     liquidity_locked: bool | None
+    goplus_dev_hold_pct: float | None
+    goplus_bundled_supply_pct: float | None
+    goplus_creator_hold_pct: float | None
     holder_provider: str | None
     holder_evidence_id: str | None
     holder_block_ref: str | None
@@ -449,6 +452,27 @@ class SolanaRiskEvidenceCollector:
             )
 
         if goplus_observation is not None:
+            for field, medium_code, high_code, label in (
+                ("dev_hold_pct", "goplus_reports_elevated_dev_holdings",
+                 "goplus_reports_high_dev_holdings", "developer holdings"),
+                ("bundled_supply_pct", "goplus_reports_elevated_bundle_supply",
+                 "goplus_reports_high_bundle_supply", "bundled supply"),
+                ("creator_hold_pct", "goplus_reports_elevated_creator_holdings",
+                 "goplus_reports_high_creator_holdings", "creator holdings"),
+            ):
+                value = getattr(goplus_observation, field)
+                if value is not None and value >= 50:
+                    add_flag(
+                        high_code, "high",
+                        f"GoPlus reports {value:.2f}% {label}; this is supplemental provider data",
+                        "goplus",
+                    )
+                elif value is not None and value >= 20:
+                    add_flag(
+                        medium_code, "medium",
+                        f"GoPlus reports {value:.2f}% {label}; independent linkage is not established",
+                        "goplus",
+                    )
             if goplus_observation.liquidity_locked is False:
                 add_flag(
                     "goplus_reports_unlocked_liquidity", "medium",
@@ -471,6 +495,9 @@ class SolanaRiskEvidenceCollector:
             goplus_evidence_id=(goplus_observation.evidence_id if goplus_observation else None),
             goplus_observed_at_ms=(goplus_observation.observed_at_ms if goplus_observation else None),
             liquidity_locked=(goplus_observation.liquidity_locked if goplus_observation else None),
+            goplus_dev_hold_pct=(goplus_observation.dev_hold_pct if goplus_observation else None),
+            goplus_bundled_supply_pct=(goplus_observation.bundled_supply_pct if goplus_observation else None),
+            goplus_creator_hold_pct=(goplus_observation.creator_hold_pct if goplus_observation else None),
             holder_provider=holder_provider_id,
             holder_evidence_id=holder_evidence_id,
             holder_block_ref=holder_block_ref,
