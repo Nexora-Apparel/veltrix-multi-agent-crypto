@@ -67,3 +67,36 @@ def test_factory_stays_disabled_when_any_provider_trust_is_missing(tmp_path):
         assert build_solana_developer_evidence_worker(
             settings(**overrides), launches, store,
         ) is None
+
+
+def test_bundle_factory_requires_explicit_launch_bundle_and_funding_trust(tmp_path):
+    from veltrix.providers.factory import build_solana_launch_bundle_worker
+    from veltrix.providers.helius_launch_index import HeliusSolanaLaunchIndexProvider
+    from veltrix.solana_meme.bundle_store import LaunchBundleEvidenceStore
+    from veltrix.solana_meme.bundle_worker import SolanaLaunchBundleWorker
+
+    path = tmp_path / "bundle-factory.sqlite3"
+    launches = LaunchStore(path)
+    store = LaunchBundleEvidenceStore(path)
+    config = settings(
+        trusted_launch_origin_providers=("helius-launch-origin",),
+        trusted_bundle_providers=("helius-solana-launch-index",),
+        trusted_funding_providers=("helius-solana-funding-graph",),
+        launch_window_ms=120_000,
+        launch_index_max_pages=10,
+        funding_graph_max_wallets=20,
+        funding_graph_max_pages=2,
+        funding_graph_max_total_pages=40,
+    )
+    worker = build_solana_launch_bundle_worker(config, launches, store)
+    assert isinstance(worker, SolanaLaunchBundleWorker)
+    assert isinstance(worker.provider, HeliusSolanaLaunchIndexProvider)
+    assert worker.analyzer.trusted_providers == frozenset({"helius-solana-launch-index"})
+
+    assert build_solana_launch_bundle_worker(
+        settings(**{
+            "trusted_launch_origin_providers": ("helius-launch-origin",),
+            "trusted_bundle_providers": (),
+            "trusted_funding_providers": ("helius-solana-funding-graph",),
+        }), launches, store,
+    ) is None
