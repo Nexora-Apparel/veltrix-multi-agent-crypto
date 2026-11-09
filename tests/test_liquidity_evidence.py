@@ -222,3 +222,10 @@ def test_solana_unknown_program_and_wrong_account_owner_are_rejected():
     bad_batch = replace(batch, positions=(bad_position,))
     with pytest.raises(ValueError, match="not owned by the pinned program"):
         SolanaLiquidityLockerProvider(batch.deployments[0], Reader(bad_batch)).fetch_inventory(SOLANA_MINT)
+
+
+def test_base_uncx_v21_candidate_matches_current_official_deployment():
+    from veltrix.liquidity_evidence import EVM_LOCKER_CANDIDATES
+    assert EVM_LOCKER_CANDIDATES["base"]["uncx-univ2"]["address"] == (
+        "0xc4E637D37113192F4F1F060DaEbD7758De7F4131"
+    )
