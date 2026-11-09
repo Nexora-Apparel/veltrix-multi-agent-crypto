@@ -112,7 +112,7 @@ class EvmRpcSession:
                 "data": hex(25_000_000),
             }]})
         if method == "eth_getTransactionReceipt":
-            return Response({"result": {"logs": [{
+            return Response({"result": {"status": "0x1", "logs": [{
                 "address": "0xquote",
                 "topics": [
                     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
