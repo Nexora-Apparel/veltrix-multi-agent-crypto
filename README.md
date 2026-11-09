@@ -58,3 +58,11 @@ DexScreener pair snapshots do not prove liquidity is locked, developer holdings 
 
 
 - Developer concentration graph analyzer (`veltrix.developer_concentration`): consumes a complete holder-balance snapshot, a complete first-funder ancestry graph and independently attested deployer/creator roots. It reconciles all raw holder balances exactly to total supply, requires an explicit funding record for every holder and traversed intermediary, checks freshness and source identity, and only counts wallets whose ancestry actually reaches an attested developer root. Shared exchange/funder relationships alone do not count as developer linkage. It emits claim-scoped `SafetyEvidence` only when all coverage checks pass. This is an analysis contract, not a production holder/funding data connector; no current provider is capability-certified to supply the exhaustive inputs.
+
+
+## Native holder inventory adapters
+
+- `SolanaHolderInventoryProvider` enumerates finalized token accounts for both SPL Token and Token-2022 programs using mint filters, aggregates raw balances by owner, and requires holder-account and token-supply reads to report the same finalized context slot. The standard RPC method has no cursor pagination; hitting the configured response cap or receiving inconsistent context/supply fails closed.
+- `EvmHolderInventoryProvider` supports Base and BSC. It scans ERC-20 `Transfer` logs from the verified deployment block through the RPC's finalized block in bounded ranges, validates log contract/block/transaction provenance, queries every discovered holder's `balanceOf` at that exact block, and requires the balances to reconcile exactly to `totalSupply`. It rejects RPCs without a finalized block tag, malformed or duplicate logs, caps, and reconciliation gaps.
+- Factory: `build_holder_inventory_providers(settings)`; configuration: `SOLANA_RPC_URL`, `BASE_RPC_URL`, `BSC_RPC_URL`, `HOLDER_INVENTORY_MAX_ACCOUNTS`, `HOLDER_INVENTORY_MAX_LOGS`, `HOLDER_INVENTORY_MAX_HOLDERS`.
+- These adapters are read-only and currently **not capability-certified**. They do not establish developer identity or funding ancestry; they provide the exhaustive holder snapshot input for the separate developer graph analyzer. No live chain response was executed in CI.
