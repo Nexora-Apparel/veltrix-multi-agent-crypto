@@ -183,3 +183,127 @@ def test_paper_policy_cannot_issue_or_consume_live_authorization():
             intent_id="intent",
             now=5_000,
         )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mode": "live"},
+        {"max_market_data_age_ms": True},
+        {"max_market_data_age_ms": 1.5},
+        {"policy_version": True},
+        {"policy_version": 1.5},
+        {"allowed_program_ids": ["program"]},
+        {"allowed_program_ids": (None,)},
+        {"chain": 123},
+    ],
+)
+def test_policy_rejects_wrong_types(kwargs):
+    with pytest.raises(PolicyError):
+        ExecutionPolicy(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"LIVE_TRADING": True},
+        {"EXECUTION_CHAIN": 123},
+        {"EXECUTION_MAX_MARKET_DATA_AGE_MS": "1.5"},
+        {"EXECUTION_MAX_MARKET_DATA_AGE_MS": "0"},
+    ],
+)
+def test_environment_rejects_malformed_values(env):
+    with pytest.raises(PolicyError):
+        ExecutionPolicy.from_environment(env)
+
+
+@pytest.mark.parametrize("ttl", [True, 1.5, "30", 0, 301])
+def test_authorization_rejects_non_integer_or_out_of_range_ttl(ttl):
+    with pytest.raises(AuthorizationError):
+        OperatorAuthorization.issue(
+            signing_key=b"t" * 32,
+            wallet_public_key="wallet",
+            policy=live_policy(),
+            intent_id="intent",
+            ttl_seconds=ttl,
+            now=6_000,
+        )
+
+
+def test_verification_rejects_invalid_key_and_malformed_clock():
+    policy = live_policy()
+    auth = OperatorAuthorization.issue(
+        signing_key=b"v" * 32,
+        wallet_public_key="wallet",
+        policy=policy,
+        intent_id="intent",
+        now=7_000,
+    )
+    with pytest.raises(AuthorizationError, match="signing key"):
+        auth.verify_and_consume(
+            signing_key=b"short",
+            policy=policy,
+            wallet_public_key="wallet",
+            intent_id="intent",
+            consumer=MemoryConsumer(),
+            now=7_001,
+        )
+    with pytest.raises(AuthorizationError, match="timestamp"):
+        auth.verify_and_consume(
+            signing_key=b"v" * 32,
+            policy=policy,
+            wallet_public_key="wallet",
+            intent_id="intent",
+            consumer=MemoryConsumer(),
+            now=True,
+        )
+
+
+def test_tampered_expiry_is_rejected_before_consumption():
+    from dataclasses import replace
+
+    policy = live_policy()
+    key = b"z" * 32
+    auth = OperatorAuthorization.issue(
+        signing_key=key,
+        wallet_public_key="wallet",
+        policy=policy,
+        intent_id="intent",
+        now=8_000,
+    )
+    tampered = replace(auth, expires_at=auth.expires_at + 1)
+    consumer = MemoryConsumer()
+    with pytest.raises(AuthorizationError, match="signature"):
+        tampered.verify_and_consume(
+            signing_key=key,
+            policy=policy,
+            wallet_public_key="wallet",
+            intent_id="intent",
+            consumer=consumer,
+            now=8_001,
+        )
+    assert not consumer.used
+
+
+def test_consumer_failure_fails_closed():
+    class BrokenConsumer:
+        def consume(self, authorization_id, expires_at):
+            raise OSError("storage unavailable")
+
+    policy = live_policy()
+    auth = OperatorAuthorization.issue(
+        signing_key=b"b" * 32,
+        wallet_public_key="wallet",
+        policy=policy,
+        intent_id="intent",
+        now=9_000,
+    )
+    with pytest.raises(AuthorizationError, match="atomically"):
+        auth.verify_and_consume(
+            signing_key=b"b" * 32,
+            policy=policy,
+            wallet_public_key="wallet",
+            intent_id="intent",
+            consumer=BrokenConsumer(),
+            now=9_001,
+        )
