@@ -34,8 +34,7 @@
 
 ## CI
 
-CI for the initial Solana domain and the earlier Shield-policy tests passed. Later Core-to-Shield
-integration exposed a malformed-mint test path; the Core was hardened to reject malformed
-Solana candidates without crashing. The latest full workflow for the current branch head is
-still pending at the time of this update. Do not mark the branch fully validated until that
-workflow succeeds.
+CI for the Solana Shield hardening and scheduled market-refresh worker passed at commit
+8f3baa6b8fd74c50812554b178922471f874264b. The pipeline runtime/orchestration commits are newer
+and their full CI result must be checked separately. Do not mark the current branch fully
+validated until its latest workflow succeeds.
