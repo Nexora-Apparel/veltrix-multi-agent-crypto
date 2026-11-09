@@ -131,6 +131,10 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             liquidity_blockers.append(
                 f"{chain} locker runtime hash, factory event coverage, lock history and LP custody reconciliation must pass live acceptance"
             )
+        if chain == "base":
+            liquidity_blockers.append(
+                "Base UNCX V2.1 deployment metadata conflicts with the official source repository; direct deployment and factory confirmation is required"
+            )
         else:
             liquidity_blockers.append(
                 "Solana support is scoped to Raydium AMM V4 + CPMM; deployed program hashes, TokenLock PDAs and LP vault ownership must pass live acceptance"
