@@ -169,4 +169,4 @@ executable_sellability claim.
 - Transfer-hook/non-transferable matches are only review signals. Missing accounts and insufficient funds are explicitly classified as wallet/setup issues.
 - Every diagnostic has `honeypot_verdict=false`; the classifier cannot certify token safety or sellability.
 - Added tests for all primary diagnostic categories and exported the diagnostic API.
-- Prior code commit `d13194db9f683e17c0eee5a2eaed93c7622ade42` passed CI with 424 passed, 5 skipped. The new diagnostics are awaiting CI on the latest head.
+- GitHub Actions run [42682023137](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42682023137) passed on code commit `fa4cab28ea91e0eddc2c589cbbc37cde71b6d703`: 430 passed, 5 skipped.
