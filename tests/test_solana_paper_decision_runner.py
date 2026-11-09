@@ -236,3 +236,31 @@ def test_stale_claim_with_matching_new_broker_position_is_reconciled(tmp_path):
     audit = runner.audit_history(MINT)[0]
     assert audit["state"] == "PAPER_ENTRY_OPENED_RECONCILED"
     assert audit["result"]["automatic_replay"] is False
+
+
+def test_indeterminate_claim_blocks_new_cycles_until_operator_ack(tmp_path):
+    path = str(tmp_path / "indeterminate-block.sqlite3")
+    launches, markets, risks, developers, bundles, routes, safety = seed_complete_packet(path)
+    broker = PaperBroker(path, 500, 10, 50)
+    runner = SolanaPaperDecisionRunner(
+        launch_store=launches, market_store=markets, risk_store=risks,
+        developer_store=developers, bundle_store=bundles,
+        sellability_store=routes, safety_store=safety, broker=broker,
+        core=Core(broker), agent_context_provider=None,
+    )
+    old = int(time.time() * 1000) - 600_000
+    key = runner._claim(MINT, {"simulated_crash": True}, old)
+    assert key is not None
+    first = runner.run_once()
+    assert first.blocked == 1
+    assert len(runner.audit_history(MINT)) == 1
+    assert runner.audit_history(MINT)[0]["state"] == "INDETERMINATE_NO_REPLAY"
+    assert runner.acknowledge_indeterminate_claim(
+        key, operator_note="Reviewed broker trades and confirmed no entry occurred",
+    ) is True
+    second = runner.run_once()
+    assert second.blocked == 1
+    states = [item["state"] for item in runner.audit_history(MINT)]
+    assert "MANUALLY_RECONCILED_ACKNOWLEDGED" in states
+    assert "BLOCKED" in states
+    assert broker.snapshot()["open_positions"] == []
