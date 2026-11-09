@@ -64,7 +64,13 @@ jobs:
           fi
       - name: Execute Base finalized-state acceptance
         if: steps.config.outputs.ready == 'true'
-        run: python -m veltrix.liquidity_acceptance --chain base --token-address "$TARGET_TOKEN"
+        run: python -m veltrix.liquidity_acceptance --chain base --token-address "$TARGET_TOKEN" --output liquidity-acceptance-base.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liquidity-acceptance-base
+          path: liquidity-acceptance-base.json
+          if-no-files-found: warn
 
   bsc-read-only-acceptance:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.chain == 'bsc') }}
@@ -103,7 +109,13 @@ jobs:
           fi
       - name: Execute BSC finalized-state acceptance
         if: steps.config.outputs.ready == 'true'
-        run: python -m veltrix.liquidity_acceptance --chain bsc --token-address "$TARGET_TOKEN"
+        run: python -m veltrix.liquidity_acceptance --chain bsc --token-address "$TARGET_TOKEN" --output liquidity-acceptance-bsc.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liquidity-acceptance-bsc
+          path: liquidity-acceptance-bsc.json
+          if-no-files-found: warn
 
   solana-read-only-acceptance:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.chain == 'solana') }}
@@ -141,4 +153,10 @@ jobs:
           fi
       - name: Execute Solana finalized-slot acceptance
         if: steps.config.outputs.ready == 'true'
-        run: python -m veltrix.liquidity_acceptance --chain solana --token-address "$TARGET_TOKEN"
+        run: python -m veltrix.liquidity_acceptance --chain solana --token-address "$TARGET_TOKEN" --output liquidity-acceptance-solana.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liquidity-acceptance-solana
+          path: liquidity-acceptance-solana.json
+          if-no-files-found: warn
