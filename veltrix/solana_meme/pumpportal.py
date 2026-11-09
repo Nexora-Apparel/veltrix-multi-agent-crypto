@@ -6,6 +6,7 @@ trade streams and has no wallet, signing, swap, or transaction capabilities.
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from collections.abc import Iterator
@@ -33,6 +34,7 @@ class PumpPortalDiscovery:
         if (
             isinstance(timeout_seconds, bool)
             or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
             or timeout_seconds <= 0
         ):
             raise ValueError("timeout_seconds must be positive")
