@@ -121,6 +121,8 @@ class JupiterSolanaSellSimulationProvider:
             raise ProviderError("Jupiter returned an error while assembling simulation order")
         if order.get("inputMint") != canonical or order.get("outputMint") != WRAPPED_SOL_MINT:
             raise ProviderError("Jupiter simulation order token pair mismatch")
+        if order.get("taker") != self.taker:
+            raise ProviderError("Jupiter simulation order taker mismatch")
         try:
             amount = int(order.get("inAmount"))
         except (TypeError, ValueError) as exc:
