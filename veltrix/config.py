@@ -45,6 +45,9 @@ class Settings:
     helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
     alchemy_api_key: str = os.getenv("ALCHEMY_API_KEY", "")
     solana_rpc_url: str = os.getenv("SOLANA_RPC_URL", "")
+    solana_sellability_enabled: bool = os.getenv("SOLANA_SELLABILITY_ENABLED", "false").lower() == "true"
+    jupiter_api_key: str = os.getenv("JUPITER_API_KEY", "")
+    jupiter_quote_min_interval_seconds: float = float(os.getenv("JUPITER_QUOTE_MIN_INTERVAL_SECONDS", "2.1"))
     solana_liquidity_pool_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_POOL_RPC_URL", "")
     solana_liquidity_locker_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_LOCKER_RPC_URL", "")
     solana_raydium_amm_v4_executable_hash: str = os.getenv("SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH", "")
@@ -94,6 +97,7 @@ def settings() -> Settings:
             or s.launch_index_max_pages > 100
             or s.launch_block_chunk_size < 1 or s.launch_block_chunk_size > 10_000
             or s.funding_lookback_blocks < 1
+            or s.jupiter_quote_min_interval_seconds < 2.0
             or not 1 <= s.funding_graph_max_pages <= 1_000
             or not 1 <= s.funding_graph_max_wallets <= 10_000
             or not 1 <= s.funding_graph_max_total_pages <= 10_000
