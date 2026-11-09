@@ -1,9 +1,10 @@
-"""Finalized read-only Solana Raydium AMM V4 + UNCX LP locker reader.
+"""Finalized read-only Raydium V4/CPMM inventory and UNCX V4 locker reader.
 
 Pool state and locker state are read through separate RPC endpoints. The
 reader requires the same finalized slot across all account queries, verifies
-the upgradeable program's deployed ELF hash, decodes Anchor TokenLock PDAs,
-derives UNCX custody/vault PDAs, and reconciles token-account balances.
+deployed ELF hashes, decodes Anchor TokenLock PDAs, derives UNCX custody/vault
+PDAs, and reconciles token-account balances. CPMM pools are inventoried but
+remain unverified until a source-verifiable CPMM locker is available.
 """
 import base64
 import hashlib
@@ -84,11 +85,12 @@ class _SolanaRpc:
 
 
 class SolanaRaydiumV4CpmmSnapshotReader:
-    """Exhaustive Raydium AMM V4 pool scan and UNCX TokenLock account decoder.
+    """Exhaustive Raydium V4 + CPMM pool scan; UNCX lock decoder for V4 only.
 
-    This profile deliberately supports Raydium AMM V4 only. CP Swap, CLMM,
-    Meteora DLMM and PumpSwap require separate state layouts and are not
-    silently included in the inventory.
+    CLMM, Meteora DLMM, Orca and PumpSwap require separate state layouts and
+    are not silently included in the declared supported-AMM inventory.
+    CPMM pools are included but cannot pass the liquidity gate without a
+    separately verified CPMM locker.
     """
     def __init__(
         self, pool_rpc_url, locker_rpc_url, *,
@@ -414,13 +416,22 @@ class SolanaRaydiumV4CpmmSnapshotReader:
         if len(discovered) >= self.max_pools:
             raise ProviderError("combined Raydium V4 and CPMM inventory reached configured cap")
 
-        block_time = self.pool_rpc.call("getBlockTime", [slot])
-        locker_block_time = self.locker_rpc.call("getBlockTime", [slot])
-        if (not isinstance(block_time, int) or block_time <= 0
-                or locker_block_time != block_time):
-            raise ProviderError("independent Solana RPCs disagree on finalized slot timestamp")
+        block_options = {
+            "commitment": "finalized", "transactionDetails": "none",
+            "rewards": False, "maxSupportedTransactionVersion": 0,
+        }
+        pool_block = self.pool_rpc.call("getBlock", [slot, block_options])
+        locker_block = self.locker_rpc.call("getBlock", [slot, block_options])
+        if (not isinstance(pool_block, dict) or not isinstance(locker_block, dict)
+                or not pool_block.get("blockhash")
+                or pool_block.get("blockhash") != locker_block.get("blockhash")
+                or not isinstance(pool_block.get("blockTime"), int)
+                or pool_block.get("blockTime") <= 0
+                or locker_block.get("blockTime") != pool_block.get("blockTime")):
+            raise ProviderError("independent Solana RPCs disagree on finalized slot block identity")
+        block_time = pool_block["blockTime"]
         observed_ms = block_time * 1000
-        finalized_ref = f"slot:{slot}"
+        finalized_ref = f"slot:{slot}:{pool_block['blockhash']}"
 
         pools = []
         positions = []
