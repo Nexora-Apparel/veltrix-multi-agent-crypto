@@ -29,6 +29,7 @@ def base_deployment():
         abi_profile="uncx-v2.1-locks-nonce", expected_code_hash=CODE_HASH,
         source_ref="https://verified.example/base-locker",
         independence_group="uncx", chain_id=8453,
+        observed_code_hash=CODE_HASH,
     )
 
 
@@ -65,6 +66,7 @@ def base_batch(*, second_pool=False, incomplete=False, expired=False,
         chain="base", token_address=TOKEN, provider="base-pool-indexer",
         observed_at_ms=NOW - 1_000, finalized_ref="block:100",
         pool_set_id="token-pools-v1", inventory_complete=not incomplete,
+        independence_group="independent-pool-indexer",
         pools=tuple(pools), positions=tuple(positions),
         deployments=(deployment,),
     )
@@ -153,7 +155,7 @@ def solana_batch():
         abi_profile="uncx-anchor-idl-v0.1", expected_code_hash=digest,
         source_ref="https://github.com/uncx-network/raydium-amm-lp-locker",
         independence_group="uncx", program_executable_hash=digest,
-        custody_authority=SOLANA_AUTHORITY,
+        observed_code_hash=digest, custody_authority=SOLANA_AUTHORITY,
     )
     pool = PoolLiquiditySnapshot(
         chain="solana", token_address=SOLANA_MINT, pool_address=SOLANA_POOL,
@@ -176,6 +178,7 @@ def solana_batch():
         chain="solana", token_address=SOLANA_MINT, provider="solana-pool-indexer",
         observed_at_ms=NOW - 100, finalized_ref="slot:900",
         pool_set_id="mint-pools-v1", inventory_complete=True,
+        independence_group="independent-pool-indexer",
         pools=(pool,), positions=(position,), deployments=(deployment,),
     )
 
