@@ -50,7 +50,9 @@ class SolanaRiskEvidenceStore:
     def record(self, report: SolanaRiskEvidenceReport) -> bool:
         if not isinstance(report, SolanaRiskEvidenceReport):
             raise TypeError("report must be a SolanaRiskEvidenceReport")
-        payload = json.dumps(asdict(report), sort_keys=True, separators=(",", ":"))
+        payload_data = asdict(report)
+        payload_data["risk_state"] = report.risk_state
+        payload = json.dumps(payload_data, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         with self._connect() as db:
             cursor = db.execute(
