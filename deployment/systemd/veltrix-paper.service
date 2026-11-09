@@ -24,6 +24,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+InaccessiblePaths=/etc/veltrix/dashboard.env
 ReadWritePaths=/var/lib/veltrix
 ProtectKernelTunables=true
 ProtectKernelModules=true
