@@ -88,6 +88,15 @@ def build_runtime(
         "VELTRIX_SOLANA_DISCOVERY_DB",
         "data/solana_discovery.sqlite3",
     )
+    if refresh_interval_ms is not None and (
+        isinstance(refresh_interval_ms, bool) or not isinstance(refresh_interval_ms, int)
+    ):
+        raise ValueError("refresh_interval_ms must be an integer")
+    if batch_size is not None and (
+        isinstance(batch_size, bool) or not isinstance(batch_size, int)
+    ):
+        raise ValueError("batch_size must be an integer")
+
     try:
         poll_interval = float(
             poll_interval_seconds
