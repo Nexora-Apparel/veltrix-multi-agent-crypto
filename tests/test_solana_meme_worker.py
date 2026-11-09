@@ -33,7 +33,7 @@ def test_build_engine_reads_environment_configuration(tmp_path, monkeypatch):
     assert engine.poll_interval_seconds == 45
 
 
-@pytest.mark.parametrize("interval", ["invalid", "4", "3601", "nan"])
+@pytest.mark.parametrize("interval", ["invalid", "4", "3601", "nan", "inf"])
 def test_build_engine_rejects_invalid_poll_interval(tmp_path, monkeypatch, interval):
     monkeypatch.setenv("VELTRIX_SOLANA_DISCOVERY_DB", str(tmp_path / "bad.sqlite3"))
     monkeypatch.setenv("VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS", interval)
