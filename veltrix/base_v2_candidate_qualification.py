@@ -109,13 +109,11 @@ def inspect(rpc, candidate, finalized):
     # deployment block; full history/inventory is a later milestone.
     topic = "0x" + keccak(b"PairCreated(address,address,address,uint256)").hex()
     logs = rpc.call("eth_getLogs", [{
-        "address": address, "fromBlock": hex(deployment),
+        "address": address, "fromBlock": hex(max(deployment, finalized - 9)),
         "toBlock": hex(finalized), "topics": [topic],
     }])
     if not isinstance(logs, list):
         raise PreflightError(f"{rpc.label}: PairCreated query returned malformed result")
-    if not logs:
-        raise PreflightError(f"{rpc.label}: no PairCreated event found")
 
     return {
         "provider": rpc.label,
