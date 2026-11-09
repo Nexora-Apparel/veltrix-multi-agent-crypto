@@ -43,6 +43,8 @@ class SolanaSellabilityWorker:
         quote_supply_fraction: float = 0.01,
         market_store=None,
         paper_notional_usd: float | None = None,
+        max_market_age_ms: int = 120_000,
+        max_risk_age_ms: int = 300_000,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         paths = {
@@ -51,7 +53,7 @@ class SolanaSellabilityWorker:
         }
         if len(paths) != 1 or ":memory:" in paths:
             raise ValueError("sellability worker stores must share one persistent SQLite database")
-        if min(refresh_interval_ms, lease_ms, retry_base_ms) < 1 or retry_max_ms < retry_base_ms:
+        if min(refresh_interval_ms, lease_ms, retry_base_ms, max_market_age_ms, max_risk_age_ms) < 1 or retry_max_ms < retry_base_ms:
             raise ValueError("invalid sellability worker timing")
         if not 0.000001 <= quote_supply_fraction <= 0.05:
             raise ValueError("quote_supply_fraction must be between 0.000001 and 0.05")
@@ -74,6 +76,8 @@ class SolanaSellabilityWorker:
         self.quote_supply_fraction = quote_supply_fraction
         self.market_store = market_store
         self.paper_notional_usd = paper_notional_usd
+        self.max_market_age_ms = max_market_age_ms
+        self.max_risk_age_ms = max_risk_age_ms
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._initialize()
 
@@ -185,13 +189,24 @@ class SolanaSellabilityWorker:
                 latest = self.risk_store.latest(mint)
                 report = latest.get("report") if latest else None
                 if (not isinstance(report, dict) or not report.get("mint_evidence_id")
-                        or not isinstance(report.get("total_supply_raw"), int)):
-                    raise RuntimeError("fresh finalized mint supply evidence is unavailable")
+                        or report.get("mint_supply_reconciled") is not True
+                        or not isinstance(report.get("mint_supply_raw"), int)
+                        or not isinstance(report.get("mint_decimals"), int)
+                        or isinstance(report.get("mint_decimals"), bool)):
+                    raise RuntimeError("reconciled finalized mint supply and decimals are unavailable")
+                risk_observed = report.get("observed_at_ms")
+                if (isinstance(risk_observed, bool) or not isinstance(risk_observed, int)
+                        or not 0 <= self.clock_ms() - risk_observed <= self.max_risk_age_ms):
+                    raise RuntimeError("risk evidence is stale or future-dated")
                 supply = report["mint_supply_raw"]
                 if self.market_store is not None and self.paper_notional_usd is not None:
                     market = self.market_store.latest(mint)
                     if not isinstance(market, dict) or not market.get("price_usd"):
                         raise RuntimeError("fresh market USD price is unavailable for exact paper sizing")
+                    market_observed = market.get("retrieved_at_ms")
+                    if (isinstance(market_observed, bool) or not isinstance(market_observed, int)
+                            or not 0 <= self.clock_ms() - market_observed <= self.max_market_age_ms):
+                        raise RuntimeError("market USD price is stale or future-dated")
                     size = calculate_paper_exit_size(
                         mint,
                         notional_usd=self.paper_notional_usd,
