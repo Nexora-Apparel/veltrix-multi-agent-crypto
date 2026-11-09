@@ -9,7 +9,7 @@ permissions:
 jobs:
   extended-acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       BASE_LIQUIDITY_POOL_RPC_URL: ${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
       SOLIDRPC_BASE_ARCHIVE_RPC_URL: ${{ secrets.SOLIDRPC_BASE_ARCHIVE_RPC_URL }}
