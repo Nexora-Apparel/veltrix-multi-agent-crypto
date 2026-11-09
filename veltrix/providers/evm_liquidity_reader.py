@@ -376,6 +376,7 @@ class EvmV2LiquiditySnapshotReader:
         """Enumerate legacy BSC locks by per-LP index and cross-check event history."""
         deposits_by_lp = {}
         event_count = 0
+        seen_events = set()
         for start in range(locker.deployment_block, final_block + 1, self.block_chunk_size):
             end = min(final_block, start + self.block_chunk_size - 1)
             for topic in (BSC_DEPOSIT_TOPIC, BSC_WITHDRAW_TOPIC):
@@ -390,8 +391,25 @@ class EvmV2LiquiditySnapshotReader:
                     raise ProviderError("BSC locker event history reached a provider or configured cap")
                 for log in logs:
                     if (not isinstance(log, dict) or log.get("removed") is True
-                            or log.get("address", "").lower() != locker.address.lower()):
-                        raise ProviderError("BSC locker history contains removed or misattributed logs")
+                            or not isinstance(log.get("address"), str)
+                            or log["address"].lower() != locker.address.lower()
+                            or log.get("topics") != [topic]):
+                        raise ProviderError("BSC locker history contains removed, malformed or misattributed logs")
+                    log_block = _hex_int(log.get("blockNumber"), "BSC locker event block")
+                    log_index = _hex_int(log.get("logIndex"), "BSC locker event log index")
+                    tx_hash = log.get("transactionHash")
+                    block_hash = log.get("blockHash")
+                    if (not start <= log_block <= end or not isinstance(tx_hash, str)
+                            or not HASH.fullmatch(tx_hash.removeprefix("0x"))
+                            or (block_hash is not None and (
+                                not isinstance(block_hash, str)
+                                or not HASH.fullmatch(block_hash.removeprefix("0x"))
+                            ))):
+                        raise ProviderError("BSC locker event provenance is outside the requested range")
+                    event_key = (log_block, log_index, tx_hash.lower())
+                    if event_key in seen_events:
+                        raise ProviderError("BSC locker event history contains duplicate log identities")
+                    seen_events.add(event_key)
                     data = log.get("data", "")
                     if not isinstance(data, str) or not data.startswith("0x"):
                         raise ProviderError("BSC locker event data is malformed")
