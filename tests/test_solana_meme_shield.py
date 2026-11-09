@@ -131,6 +131,18 @@ def test_route_impact_and_size_bounds_are_enforced():
     assert oversized_fraction.decision == "BLOCK"
 
 
+def test_malformed_route_outputs_errors_and_expiry_lifetime_veto():
+    bad_minimum = evaluate(route=route(minimum_output_raw=60_000_000))
+    assert bad_minimum.decision == "BLOCK"
+    assert "sell-route minimum output exceeds quoted output" in bad_minimum.reasons
+    provider_error = evaluate(route=route(errors=("provider warning",)))
+    assert provider_error.decision == "BLOCK"
+    assert "sell-route evidence contains provider or validation errors" in provider_error.reasons
+    long_expiry = evaluate(route=route(quote_expires_at_ms=400_001))
+    assert long_expiry.decision == "BLOCK"
+    assert "sell-route quote expiry exceeds the permitted evidence lifetime" in long_expiry.reasons
+
+
 def test_missing_or_unverified_composite_safety_vetoes():
     assert evaluate(safety=None).decision == "BLOCK"
 
