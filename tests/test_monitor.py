@@ -191,6 +191,7 @@ def test_discovered_launch_origin_requires_explicit_provider_trust(tmp_path):
 
 
 def test_monitor_submits_only_verified_all_pool_liquidity_evidence(tmp_path):
+    import time
     from types import SimpleNamespace
     from veltrix.liquidity_evidence import (
         LiquidityInventoryBatch, LockerDeployment, LockerPositionSnapshot,
