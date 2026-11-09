@@ -50,7 +50,7 @@ def base_batch(*, second_pool=False, incomplete=False, expired=False,
         locker_address=("0x4444444444444444444444444444444444444444" if unsupported else LOCKER),
         position_id="lock-1", amount=1_000, unlock_at_ms=NOW - 1 if expired else NOW + 86_400_000,
         observed_at_ms=NOW - 1_000, owner="0x5555555555555555555555555555555555555555",
-        evidence_ref="tx:lock-1",
+        evidence_ref="tx:lock-1", finalized_ref="block:100",
     )]
     if second_pool:
         pools.append(PoolLiquiditySnapshot(
@@ -172,7 +172,7 @@ def solana_batch():
         evidence_ref="signature:lock-1", account_owner=SOLANA_PROGRAM,
         custody_account="CustodyTokenAccount111111111111111111111",
         custody_authority=SOLANA_AUTHORITY, custody_token_mint=SOLANA_LP,
-        custody_account_owner=TOKEN_PROGRAM,
+        custody_account_owner=TOKEN_PROGRAM, finalized_ref="slot:900",
     )
     return LiquidityInventoryBatch(
         chain="solana", token_address=SOLANA_MINT, provider="solana-pool-indexer",
