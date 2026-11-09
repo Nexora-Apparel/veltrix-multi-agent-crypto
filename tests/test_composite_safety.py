@@ -123,3 +123,14 @@ def test_bundle_chain_must_match_requested_token_chain():
     report = validator().validate(TOKEN, valid_bundle(), NOW, chain="base")
     assert not report.passed
     assert "launch bundle chain mismatch" in report.reasons
+
+
+def test_malformed_launch_provenance_fails_closed_without_crashing():
+    report = valid_bundle(
+        accepted_transactions="not-an-int",
+        scanned_through_ms="unknown",
+    )
+    result = validator().validate(TOKEN, report, NOW, chain="solana")
+    assert not result.passed
+    assert "launch transaction count is invalid" in result.reasons
+    assert "launch indexer did not prove coverage through window end" in result.reasons
