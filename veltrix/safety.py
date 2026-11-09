@@ -15,6 +15,7 @@ class SafetyEvidence:
     liquidity_locked: bool | None
     dev_hold_pct: float | None
     bundled_supply_pct: float | None
+    creator_hold_pct: float | None = None
 
 @dataclass(frozen=True)
 class SafetyReport:
