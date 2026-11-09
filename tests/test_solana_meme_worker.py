@@ -40,3 +40,13 @@ def test_build_engine_rejects_invalid_poll_interval(tmp_path, monkeypatch, inter
 
     with pytest.raises(ValueError):
         build_engine(websocket_factory=lambda *args, **kwargs: None)
+
+def test_build_engine_accepts_optional_provider_websocket_endpoint(tmp_path, monkeypatch):
+    endpoint = "wss://pumpportal.fun/api/data?api-key=redacted-test-key"
+    monkeypatch.setenv("VELTRIX_PUMPPORTAL_WS_ENDPOINT", endpoint)
+    engine = build_engine(
+        database_path=tmp_path / "endpoint.sqlite3",
+        poll_interval_seconds=30,
+        websocket_factory=lambda *args, **kwargs: None,
+    )
+    assert engine.primary_stream.adapter.endpoint == endpoint
