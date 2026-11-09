@@ -22,6 +22,8 @@ class LaunchBuyEvidence:
     transaction_id: str
     token_amount: float
     observed_at_ms: int
+    funder_provider: str = ""
+    funder_evidence_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,15 @@ class LaunchBundleReport:
     accepted_transactions: int
     rejected: tuple[str, ...]
     notes: tuple[str, ...]
+    evidence_id: str = ""
+    observed_at_ms: int = 0
+    scanned_through_ms: int = 0
+    supply_source: str = ""
+    supply_block_ref: str = ""
+    supply_observed_at_ms: int = 0
+    pages_scanned: int = 0
+    funder_providers: tuple[str, ...] = ()
+    provenance: tuple[str, ...] = ()
 
 
 class LaunchBundleAnalyzer:
@@ -48,10 +59,14 @@ class LaunchBundleAnalyzer:
         trusted_providers: Iterable[str] = (),
         launch_window_ms: int = 120_000,
         min_cluster_wallets: int = 2,
+        trusted_funder_providers: Iterable[str] | None = None,
     ):
         if launch_window_ms <= 0 or min_cluster_wallets < 2:
             raise ValueError("launch window must be positive and cluster size at least two")
         self.trusted_providers = frozenset(trusted_providers)
+        self.trusted_funder_providers = frozenset(
+            trusted_funder_providers if trusted_funder_providers is not None else trusted_providers
+        )
         self.launch_window_ms = launch_window_ms
         self.min_cluster_wallets = min_cluster_wallets
 
@@ -99,9 +114,13 @@ class LaunchBundleAnalyzer:
                 rejected.append(f"{prefix}: chain or token mismatch")
                 continue
             if not all(isinstance(value, str) and value.strip() for value in (
-                item.wallet_address, item.funder_address, item.transaction_id
+                item.wallet_address, item.funder_address, item.transaction_id,
+                item.funder_provider, item.funder_evidence_id,
             )):
-                rejected.append(f"{prefix}: wallet, funder or transaction ID missing")
+                rejected.append(f"{prefix}: wallet, funder or funding provenance missing")
+                continue
+            if item.funder_provider not in self.trusted_funder_providers:
+                rejected.append(f"{prefix}: funding provider is not trusted")
                 continue
             if not isinstance(item.observed_at_ms, int) or isinstance(item.observed_at_ms, bool):
                 rejected.append(f"{prefix}: invalid timestamp")
