@@ -185,7 +185,7 @@ def test_market_evidence_from_store_row_validates_persisted_shape():
         "mint": MINT,
         "pair_address": "pool-1",
         "price_usd": 0.001,
-        "selected_pool_liquidity_usd": 100_000,
+        "liquidity_usd": 100_000,
         "volume_h1_usd": 50_000,
         "price_change_m5_pct": None,
         "retrieved_at_ms": NOW,
