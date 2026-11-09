@@ -733,3 +733,54 @@ class LaunchIntelligenceService:
             token_address, chain, evidence_bundle, now_ms
         )
         return report, safety
+
+
+def build_launch_intelligence_service(
+    settings, intelligence_adapters, *,
+    solana_supply_resolver=None, funding_resolvers=None,
+):
+    """Build only providers whose credentials/endpoints are explicitly configured.
+
+    Solana historical supply remains an injected resolver because a current
+    getTokenSupply response cannot certify supply at a past launch slot.
+    """
+    funding_resolvers = funding_resolvers or {}
+    indexers = []
+
+    if settings.helius_api_key:
+        sol_funder = funding_resolvers.get("solana") or HeliusNativeFundingResolver(
+            settings.helius_api_key,
+        )
+        indexers.append(HeliusLaunchIndexer(
+            settings.helius_api_key, sol_funder, solana_supply_resolver,
+            max_pages=settings.launch_index_max_pages,
+        ))
+
+    for chain, rpc_url, quote_tokens in (
+        ("base", settings.base_rpc_url, settings.alchemy_quote_tokens_base),
+        ("bsc", settings.bsc_rpc_url, settings.alchemy_quote_tokens_bsc),
+    ):
+        if not rpc_url:
+            continue
+        funder = funding_resolvers.get(chain) or EvmQuoteFundingResolver(
+            chain, rpc_url, quote_tokens,
+            block_chunk_size=settings.launch_block_chunk_size,
+            lookback_blocks=settings.funding_lookback_blocks,
+        )
+        indexers.append(EvmRpcLaunchIndexer(
+            chain, rpc_url, funder, quote_token_addresses=quote_tokens,
+            block_chunk_size=settings.launch_block_chunk_size,
+        ))
+
+    analyzer = LaunchBundleAnalyzer(
+        trusted_providers=settings.trusted_bundle_providers,
+        launch_window_ms=settings.launch_window_ms,
+        trusted_funder_providers=settings.trusted_funding_providers,
+    )
+    return LaunchIntelligenceService(
+        indexers=indexers, analyzer=analyzer,
+        intelligence_adapters=intelligence_adapters,
+        trusted_launch_providers=settings.trusted_bundle_providers,
+        trusted_funding_providers=settings.trusted_funding_providers,
+        launch_window_ms=settings.launch_window_ms,
+    )
