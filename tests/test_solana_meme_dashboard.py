@@ -163,7 +163,7 @@ def test_remote_dashboard_binding_requires_long_access_token(tmp_path):
 
     server = build_server(
         host="0.0.0.0",
-        port=8765,
+        port=0,
         database_path=db_path,
         access_token="r" * 40,
     )
