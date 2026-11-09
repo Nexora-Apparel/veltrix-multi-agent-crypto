@@ -36,7 +36,8 @@ class SolanaAgentContextProvider:
         adapters = getattr(coordinator, "adapters", None)
         if adapters is None or "helius" not in getattr(adapters, "trusted_wallet_providers", ()):
             raise ValueError("Helius must be explicitly allowlisted for wallet observations")
-        if not isinstance(getattr(market_store, "database_path", None), str):
+        market_path = getattr(market_store, "database_path", None)
+        if not isinstance(market_path, str) or not market_path.strip() or market_path == ":memory:":
             raise ValueError("a persistent market snapshot store is required")
         if min(max_market_age_ms, wallet_window_ms, volume_baseline_observations) < 1:
             raise ValueError("market, wallet and baseline bounds must be positive")
