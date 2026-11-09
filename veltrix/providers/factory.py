@@ -67,9 +67,9 @@ def build_holder_inventory_providers(settings, *, session=None):
 def build_funding_graph_providers(settings, *, session=None):
     """Build only funding sources whose documented chain coverage is adequate.
 
-    Alchemy documents internal-transfer coverage on Base, but not BSC. The
-    factory intentionally leaves BSC and Solana unconfigured rather than
-    silently presenting partial histories as complete.
+    Alchemy documents internal-transfer coverage on Base, but not BSC. Helius
+    Parsed Events supplies Solana native-SOL ancestry. BSC remains withheld
+    rather than silently presenting partial histories as complete.
     """
     from .alchemy_funding import AlchemyBaseFundingGraphProvider
     from .helius_funding import HeliusSolanaFundingGraphProvider
@@ -87,6 +87,7 @@ def build_funding_graph_providers(settings, *, session=None):
             settings.alchemy_api_key, session=session,
             max_pages=getattr(settings, "funding_graph_max_pages", 100),
             max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
+            max_total_pages=getattr(settings, "funding_graph_max_total_pages", 1_000),
         )
     return providers
 
