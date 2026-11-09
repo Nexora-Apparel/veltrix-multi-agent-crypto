@@ -81,16 +81,11 @@ def test_signed_root_provider_verifies_ed25519_and_binds_request():
     }
 
 
-def test_signed_root_provider_rejects_tampered_payload():
-    provider, _, private = setup_provider(payload())
-    # Valid signature is replaced with a payload mutation after signing.
-    mutated = payload(roots=["0x" + "c" * 40])
-    provider.session.payload = signed_payload(private, mutated)
-    # The signature remains valid for the changed payload; it must still match
-    # the requested token and configured provider. An altered envelope alone
-    # is covered by the invalid-signature test below.
-    result = provider.fetch_attestation("base", "0x" + "a" * 40)
-    assert result.roots == ("0x" + "c" * 40,)
+def test_signed_root_provider_rejects_payload_tampering():
+    provider, _, _ = setup_provider(payload())
+    provider.session.payload["payload"]["roots"] = ["0x" + "c" * 40]
+    with pytest.raises(ProviderError, match="signature verification failed"):
+        provider.fetch_attestation("base", "0x" + "a" * 40)
 
 
 def test_signed_root_provider_rejects_invalid_signature():
