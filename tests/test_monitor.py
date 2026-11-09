@@ -134,6 +134,13 @@ def test_discovered_launch_is_resolved_and_submitted_to_composite_gate(tmp_path)
     result = monitor.last_launch_results[("base", "discovered-token")]
     assert result["status"] == "blocked"
     assert result["origin_evidence_id"] == "origin-evidence"
+    import sqlite3
+    with sqlite3.connect(str(tmp_path / "launch-runtime.db")) as conn:
+        row = conn.execute(
+            "SELECT payload FROM events WHERE event='LAUNCH_INTELLIGENCE'"
+        ).fetchone()
+    assert row is not None
+    assert "origin-evidence" in row[0]
 
 
 def test_discovered_launch_origin_requires_explicit_provider_trust(tmp_path):
