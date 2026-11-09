@@ -6,7 +6,7 @@ from veltrix.launch_bundles import LaunchBundleReport
 def passing_report():
     now = 1_001
     bundle = SafetyEvidenceBundle(
-        liquidity=SafetyEvidence("x", "lock", "lock-1", 1000, True, None, None, claim="liquidity_lock", chain="solana", coverage_complete=True, source_ref="https://evidence.invalid/lock", method="full_lp_inventory", independence_group="lock-org"),
+        liquidity=SafetyEvidence("x", "lock", "lock-1", 1000, True, None, None, claim="liquidity_lock", chain="solana", coverage_complete=True, source_ref="https://evidence.invalid/lock", method="full_lp_inventory", independence_group="lock-org", liquidity_inventory_complete=True, liquidity_pool_count=1, liquidity_locked_pool_count=1, liquidity_locked_lp_pct=100.0),
         developer_holdings=SafetyEvidence("x", "dev", "dev-1", 1000, None, 4.5, None, claim="developer_holdings", chain="solana", coverage_complete=True, source_ref="https://evidence.invalid/dev", method="full_holder_graph", independence_group="dev-org"),
         launch_bundle=LaunchBundleReport(
             chain="solana", token_address="x", provider="bundle",
