@@ -45,7 +45,7 @@ def test_multiple_buys_from_one_wallet_count_once_but_notional_is_summed():
 def test_exact_duplicate_observation_is_not_double_counted():
     event = WalletBuyEvent("solana", TOKEN, WALLET_A, 9900, 20, "helius")
     events = [event, event, WalletBuyEvent("solana", TOKEN, WALLET_B, 9950, 30, "helius")]
-    cluster = SolanaWhaleFlowAggregator([WALLET_A, WALLET_B]).aggregate(events, 10000)[0]
+    cluster = SolanaWhaleFlowAggregator([WALLET_A, WALLET_B], min_buy_usd=10).aggregate(events, 10000)[0]
     assert cluster.total_notional_usd == 50
 
 
