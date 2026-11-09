@@ -272,5 +272,5 @@ def test_monitor_submits_only_verified_all_pool_liquidity_evidence(tmp_path):
     assert evidence.claim == "liquidity_lock"
     assert evidence.liquidity_inventory_complete is True
     assert evidence.liquidity_locked_lp_pct == 100.0
-    assert evidence.independence_group == "independent-indexer"
+    assert evidence.independence_group == "independent-indexer+locker-operator"
     assert monitor.last_liquidity_results[("base", token)]["status"] == "verified"
