@@ -6,7 +6,8 @@ import pytest
 from solders.pubkey import Pubkey
 
 from veltrix.providers.solana_liquidity_reader import (
-    BPF_UPGRADEABLE_LOADER, RAYDIUM_AMM_V4_PROGRAM, TOKEN_PROGRAM, UNCX_PROGRAM,
+    BPF_UPGRADEABLE_LOADER, RAYDIUM_AMM_V4_PROGRAM, RAYDIUM_CPMM_PROGRAM,
+    RAYDIUM_CPMM_STATE_SIZE, TOKEN_PROGRAM, UNCX_PROGRAM,
     TOKEN_LOCK_DISCRIMINATOR, SolanaRaydiumV4UncxSnapshotReader,
 )
 
@@ -22,6 +23,8 @@ def reader():
     return SolanaRaydiumV4UncxSnapshotReader(
         "https://solana-pools.example", "https://solana-locks.example",
         expected_raydium_executable_hash="a" * 64,
+        expected_raydium_cpmm_executable_hash="b" * 64,
+        registry_complete=True,
     )
 
 
@@ -120,3 +123,73 @@ def test_only_upgradeable_program_data_layout_is_supported():
     )
     with pytest.raises(Exception, match="ProgramData account layout is invalid"):
         instance._verify_uncx_program(99)
+
+
+def test_cpmm_pool_state_is_discovered_by_token_mint_and_lp_offsets():
+    instance = reader()
+    target = str(LP_MINT)
+    quote = str(OWNER)
+    lp_mint = str(Pubkey.from_string("So11111111111111111111111111111111111111113"))
+    pool_address = str(Pubkey.from_string("Vote111111111111111111111111111111111111111"))
+    data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
+    data[136:168] = bytes(Pubkey.from_string(lp_mint))
+    data[168:200] = bytes(LP_MINT)
+    data[200:232] = bytes(OWNER)
+    encoded = base64.b64encode(bytes(data)).decode()
+
+    class Rpc:
+        provider_id = "rpc"
+        def call(self, method, params):
+            if method == "getProgramAccounts":
+                return {
+                    "context": {"slot": 900},
+                    "value": [{
+                        "pubkey": pool_address,
+                        "account": {
+                            "owner": RAYDIUM_CPMM_PROGRAM,
+                            "data": [encoded, "base64"],
+                        },
+                    }],
+                }
+            raise AssertionError(method)
+
+    rows = instance._scan_cpmm_pools(Rpc(), target, 900)
+    assert len(rows) == 1
+    pool = rows[pool_address]
+    assert pool["lp_mint"] == lp_mint
+    assert pool["base_mint"] == target
+    assert pool["quote_mint"] == quote
+    assert pool["pool_type"] == "raydium-cpmm"
+
+
+def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
+    instance = reader()
+    target = str(LP_MINT)
+
+    class Rpc:
+        def __init__(self, values):
+            self.values = values
+        def call(self, method, params):
+            return {"context": {"slot": 900}, "value": self.values}
+
+    instance.pool_rpc = Rpc([])
+    instance.locker_rpc = Rpc([{"pubkey": "missing", "account": {}}])
+    with pytest.raises(Exception, match="independent Solana RPCs disagree"):
+        instance._discover_cpmm_pools(target, 900)
+
+
+def test_solana_reader_requires_both_rayidium_hashes_and_complete_scope():
+    with pytest.raises(ValueError, match="CPMM executable SHA-256"):
+        SolanaRaydiumV4UncxSnapshotReader(
+            "https://solana-pools.example", "https://solana-locks.example",
+            expected_raydium_executable_hash="a" * 64,
+            expected_raydium_cpmm_executable_hash="",
+            registry_complete=True,
+        )
+    with pytest.raises(ValueError, match="registry must be explicitly certified"):
+        SolanaRaydiumV4UncxSnapshotReader(
+            "https://solana-pools.example", "https://solana-locks.example",
+            expected_raydium_executable_hash="a" * 64,
+            expected_raydium_cpmm_executable_hash="b" * 64,
+            registry_complete=False,
+        )
