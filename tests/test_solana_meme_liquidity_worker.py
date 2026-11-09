@@ -61,9 +61,12 @@ def test_worker_persists_incomplete_inventory_without_certifying_liquidity(tmp_p
     assert result.discovered == result.processed == result.stored == 1
     assert result.passed == 0
     assert result.failed == 0
-    saved = store.latest(MINT)["report"]
+    saved_row = store.latest(MINT)
+    saved = saved_row["report"]
     assert saved["passed"] is False
     assert saved["pool_count"] == 0
+    assert saved_row["inventory"]["finalized_ref"] == "slot:100:hash"
+    assert saved_row["inventory"]["provider"] == Provider.provider_id
     assert any("pool inventory is not certified complete" in reason for reason in saved["reasons"])
 
 
@@ -111,3 +114,23 @@ def test_worker_rejects_split_databases_and_invalid_limits(tmp_path):
             assert False, "expected invalid batch rejection"
         except ValueError:
             pass
+
+
+
+def test_store_rejects_report_inventory_identity_mismatch(tmp_path):
+    from dataclasses import replace
+
+    path = tmp_path / "mismatch.sqlite3"
+    store = SolanaLiquidityEvidenceStore(path)
+    batch = LiquidityInventoryBatch(
+        chain="solana", token_address=MINT, provider="reader",
+        independence_group="pool-indexer", observed_at_ms=NOW - 100,
+        finalized_ref="slot:100:hash", pool_set_id="raydium-v4-cpmm",
+        inventory_complete=False, pools=(), positions=(), deployments=(),
+    )
+    report = LiquidityEvidenceAnalyzer().evaluate(
+        batch, chain="solana", token_address=MINT, now_ms=NOW,
+    )
+    wrong_batch = replace(batch, token_address="11111111111111111111111111111111")
+    with pytest.raises(ValueError, match="identity mismatch"):
+        store.record(report, wrong_batch)
