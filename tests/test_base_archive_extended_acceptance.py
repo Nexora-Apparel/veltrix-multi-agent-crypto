@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from veltrix.base_archive_extended_acceptance import (
@@ -17,7 +19,7 @@ class FakeRpc:
 
     def call(self, method, params):
         self.calls.append((method, params))
-        key = (method, tuple(params) if isinstance(params, list) else str(params))
+        key = (method, json.dumps(params, sort_keys=True))
         if key in self.responses:
             value = self.responses[key]
             return value() if callable(value) else value
@@ -36,7 +38,7 @@ def test_quantity_rejects_malformed_values(value):
 
 def test_block_by_tag_normalizes_number_and_hash():
     rpc = FakeRpc({
-        ("eth_getBlockByNumber", ("finalized", False)): {
+        ("eth_getBlockByNumber", json.dumps(["finalized", False], sort_keys=True)): {
             "number": "0x100", "hash": "0xABCDEF"
         }
     })
@@ -61,12 +63,12 @@ def test_normalized_logs_sorts_and_normalizes_log_fields():
         "data": "0x1234",
     }
     rpc = FakeRpc({
-        ("eth_getLogs", str([{
+        ("eth_getLogs", json.dumps([{
             "address": "0x0000000000000000000000000000000000000001",
             "fromBlock": "0x10",
             "toBlock": "0x10",
             "topics": [PAIR_CREATED_TOPIC],
-        }])): [second, first]
+        }], sort_keys=True)): [second, first]
     })
     rows = normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16)
     assert [row["transactionHash"] for row in rows] == ["0xaaaa", "0xbbbb"]
@@ -81,7 +83,7 @@ def test_normalized_logs_rejects_malformed_rows():
             "fromBlock": "0x10",
             "toBlock": "0x10",
             "topics": [PAIR_CREATED_TOPIC],
-        }])): ["not-an-object"]
+        }], sort_keys=True)): ["not-an-object"]
     })
     with pytest.raises(Exception, match="malformed log row"):
         normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16)
