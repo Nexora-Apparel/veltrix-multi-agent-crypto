@@ -29,7 +29,7 @@ def result():
     return coordinator.collect("solana", ["mint"], 900_000, 1_000_000)
 
 
-def test_core_uses_verified_whale_cluster_with_scout_consensus(tmp_path):
+def test_verified_whale_cluster_cannot_bypass_missing_solana_risk_evidence(tmp_path):
     broker = PaperBroker(str(tmp_path / "verified-core.db"), 500, 10, 50)
     core = Core(broker)
     token = {
@@ -39,9 +39,8 @@ def test_core_uses_verified_whale_cluster_with_scout_consensus(tmp_path):
         "smart_wallet_buys": ["fake-wallet-1", "fake-wallet-2"],
     }
     decision = core.evaluate_with_intelligence(token, result())
-    assert decision is not None
-    assert decision["side"] == "BUY"
-    assert len(broker.snapshot()["open_positions"]) == 1
+    assert decision is None
+    assert broker.snapshot()["open_positions"] == []
 
 
 def test_core_rejects_caller_whale_claims_when_intelligence_chain_mismatches(tmp_path):
