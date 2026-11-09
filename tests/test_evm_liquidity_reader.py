@@ -6,7 +6,7 @@ from eth_hash.auto import keccak
 from veltrix.liquidity_evidence import LiquidityEvidenceAnalyzer
 from veltrix.providers.evm_liquidity_reader import (
     EvmFactorySpec, EvmLockerSpec, EvmV2LiquiditySnapshotReader,
-    NEW_LOCK_TOPIC, PAIR_CREATED_TOPIC,
+    BSC_DEPOSIT_TOPIC, BSC_WITHDRAW_TOPIC, NEW_LOCK_TOPIC, PAIR_CREATED_TOPIC,
 )
 
 
@@ -40,12 +40,11 @@ def pair_created_log(pair=PAIR):
     }
 
 
-def new_lock_log():
+def bsc_deposit_log():
     return {
-        "address": LOCKER, "removed": False, "topics": [NEW_LOCK_TOPIC],
-        "data": "0x" + word(0) + address_topic(PAIR)[2:] + address_topic(OWNER)[2:]
-        + word(100) + word(BLOCK_TIME - 100) + word(BLOCK_TIME + 100_000)
-        + word(0),
+        "address": LOCKER, "removed": False, "topics": [BSC_DEPOSIT_TOPIC],
+        "data": "0x" + address_topic(PAIR)[2:] + address_topic(OWNER)[2:]
+        + word(100) + word(BLOCK_TIME - 100) + word(BLOCK_TIME + 100_000),
         "blockNumber": "0x64", "transactionHash": "0x" + "ef" * 32,
     }
 
@@ -82,8 +81,10 @@ class RpcSession:
             address = params[0]["address"].lower()
             if address == FACTORY.lower():
                 return Response([pair_created_log()] if params[0]["fromBlock"] == "0x1" else [])
-            if address == LOCKER.lower() and params[0]["topics"][0] == NEW_LOCK_TOPIC:
-                return Response([] if self.omit_bsc_event else [new_lock_log()])
+            if address == LOCKER.lower() and params[0]["topics"][0] == BSC_DEPOSIT_TOPIC:
+                return Response([] if self.omit_bsc_event else [bsc_deposit_log()])
+            if address == LOCKER.lower() and params[0]["topics"][0] == BSC_WITHDRAW_TOPIC:
+                return Response([])
             return Response([])
         if method == "eth_call":
             call = params[0]
@@ -99,6 +100,15 @@ class RpcSession:
                 return Response("0x" + word(100))
             if selector == "0x" + keccak(b"uniswapFactory()")[:4].hex():
                 return Response("0x" + address_topic(FACTORY)[2:])
+            if selector == "0x" + keccak(b"getNumLocksForToken(address)")[:4].hex():
+                return Response("0x" + word(1))
+            if selector == "0x" + keccak(b"tokenLocks(address,uint256)")[:4].hex():
+                legacy_lock = (
+                    word(BLOCK_TIME - 100) + word(100) + word(100)
+                    + word(BLOCK_TIME + 100_000) + word(0)
+                    + address_topic(OWNER)[2:]
+                )
+                return Response("0x" + legacy_lock)
             if selector == "0x" + keccak(b"NONCE()")[:4].hex():
                 return Response("0x" + word(1))
             if selector == "0x" + keccak(b"LOCKS(uint256)")[:4].hex():
@@ -116,7 +126,7 @@ class RpcSession:
 
 def reader(chain, session=None, **kwargs):
     amm_id = "uniswap-v2" if chain == "base" else "pancakeswap-v2"
-    profile = "uncx-v2.1-locks-nonce" if chain == "base" else "uncx-v1-user-lock-index"
+    profile = "uncx-v2.1-locks-nonce" if chain == "base" else "uncx-v1-token-lock-index-events"
     session = session or RpcSession(chain)
     return EvmV2LiquiditySnapshotReader(
         chain, "https://pool-rpc.example", "https://locker-rpc.example",
@@ -146,7 +156,7 @@ def test_evm_reader_discovers_pool_and_reconciles_lock_at_one_finalized_block(ch
 
 
 def test_bsc_reader_requires_event_history_to_reconcile_every_nonce():
-    with pytest.raises(Exception, match="event history does not reconcile"):
+    with pytest.raises(Exception, match="event count does not reconcile"):
         reader("bsc", RpcSession("bsc", omit_bsc_event=True)).fetch_inventory(TOKEN)
 
 
