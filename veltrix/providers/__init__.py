@@ -1,6 +1,7 @@
 """Read-only market and wallet intelligence providers."""
 from .base import MarketEvent, ProviderError
 from .dexscreener import DexScreenerProvider
+from .jupiter_swap import JupiterSwapV2QuoteProvider
 from .alchemy import AlchemyWalletProvider
 from .helius import HeliusWalletProvider
 from .alchemy_funding import AlchemyBaseFundingGraphProvider
@@ -17,7 +18,7 @@ from .launch import (
 )
 
 __all__ = [
-    "MarketEvent", "ProviderError", "DexScreenerProvider",
+    "MarketEvent", "ProviderError", "DexScreenerProvider", "JupiterSwapV2QuoteProvider",
     "AlchemyWalletProvider", "HeliusWalletProvider", "SolanaHolderInventoryProvider",
     "EvmHolderInventoryProvider", "AlchemyBaseFundingGraphProvider", "HeliusSolanaFundingGraphProvider", "SignedDeveloperRootProvider",
     "build_funding_graph_providers", "build_holder_inventory_providers", "build_wallet_providers", "build_developer_evidence_orchestrator",
