@@ -16,6 +16,10 @@ from ..providers.base import ProviderError
 from ..providers.goplus import GoPlusTokenSafetyProvider
 from ..providers.holder_inventory import SolanaHolderInventoryProvider
 from ..providers.intelligence import TokenSafetyObservation
+from ..providers.solana_mint import (
+    SolanaMintAuthorityProvider, SolanaMintAuthoritySnapshot,
+    TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
+)
 from .candidates import canonical_mint
 
 
@@ -39,6 +43,13 @@ class SolanaRiskEvidenceReport:
     top10_holder_pct: float | None
     missing_claims: tuple[str, ...]
     errors: tuple[str, ...]
+    mint_evidence_id: str | None = None
+    mint_finalized_slot: int | None = None
+    token_program_id: str | None = None
+    mint_authority: str | None = None
+    freeze_authority: str | None = None
+    token_2022_extension_types: tuple[str, ...] = ()
+    token_2022_extension_review_complete: bool = False
 
     @property
     def risk_state(self) -> str:
@@ -54,6 +65,7 @@ class SolanaRiskEvidenceCollector:
     REQUIRED_UNKNOWN_CLAIMS = (
         "developer_wallet_linkage",
         "bundled_supply",
+        "mint_account_state",
         "mint_authority",
         "freeze_authority",
         "token_2022_extension_review",
@@ -66,6 +78,7 @@ class SolanaRiskEvidenceCollector:
         goplus_provider: GoPlusTokenSafetyProvider,
         holder_provider: SolanaHolderInventoryProvider,
         *,
+        mint_provider: SolanaMintAuthorityProvider | None = None,
         max_age_ms: int = 300_000,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
@@ -73,6 +86,7 @@ class SolanaRiskEvidenceCollector:
             raise ValueError("max_age_ms must be positive")
         self.goplus_provider = goplus_provider
         self.holder_provider = holder_provider
+        self.mint_provider = mint_provider
         self.max_age_ms = max_age_ms
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
@@ -133,6 +147,41 @@ class SolanaRiskEvidenceCollector:
         except Exception as exc:
             errors.append(f"holders: {type(exc).__name__}: {str(exc)[:240]}")
 
+        mint_snapshot = None
+        if self.mint_provider is not None:
+            try:
+                candidate = self.mint_provider.fetch_snapshot(canonical)
+                if not isinstance(candidate, SolanaMintAuthoritySnapshot):
+                    raise ProviderError("mint provider returned an untyped snapshot")
+                if candidate.mint != canonical:
+                    raise ProviderError("mint provider returned evidence for another mint")
+                if candidate.provider != getattr(self.mint_provider, "provider_id", None):
+                    raise ProviderError("mint provider identity mismatch")
+                if not isinstance(candidate.evidence_id, str) or not candidate.evidence_id.strip():
+                    raise ProviderError("mint evidence provenance is incomplete")
+                if (isinstance(candidate.observed_at_ms, bool)
+                        or not isinstance(candidate.observed_at_ms, int)
+                        or candidate.observed_at_ms > now
+                        or now - candidate.observed_at_ms > self.max_age_ms):
+                    raise ProviderError("mint evidence is stale or future-dated")
+                if (isinstance(candidate.finalized_slot, bool)
+                        or not isinstance(candidate.finalized_slot, int)
+                        or candidate.finalized_slot < 0):
+                    raise ProviderError("mint finalized slot is invalid")
+                if candidate.token_program_id not in {TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID}:
+                    raise ProviderError("mint token-program identity is unsupported")
+                if candidate.extension_tlv_structure_valid is not True:
+                    raise ProviderError("Token-2022 extension TLV structure is incomplete")
+                if not isinstance(candidate.extension_types, tuple) or any(
+                    not isinstance(name, str) or not name for name in candidate.extension_types
+                ):
+                    raise ProviderError("mint extension type inventory is malformed")
+                if not isinstance(candidate.unknown_extension_ids, tuple):
+                    raise ProviderError("mint unknown-extension inventory is malformed")
+                mint_snapshot = candidate
+            except Exception as exc:
+                errors.append(f"mint_account: {type(exc).__name__}: {str(exc)[:240]}")
+
         holder_count = total_supply = balance_sum = None
         coverage_complete = False
         top1 = top5 = top10 = None
@@ -159,6 +208,13 @@ class SolanaRiskEvidenceCollector:
                 top10 = sum(balances[:10]) / denominator * 100.0
 
         missing = list(self.REQUIRED_UNKNOWN_CLAIMS)
+        if mint_snapshot is not None:
+            for claim in ("mint_account_state", "mint_authority", "freeze_authority"):
+                missing.remove(claim)
+            if not mint_snapshot.extension_types:
+                missing.remove("token_2022_extension_review")
+        if mint_snapshot is None:
+            missing.append("mint_account_state")
         if goplus_observation is None:
             missing.append("goplus_token_security_observation")
         if holder_snapshot is None:
@@ -185,4 +241,13 @@ class SolanaRiskEvidenceCollector:
             top10_holder_pct=top10,
             missing_claims=tuple(missing),
             errors=tuple(errors),
+            mint_evidence_id=(mint_snapshot.evidence_id if mint_snapshot else None),
+            mint_finalized_slot=(mint_snapshot.finalized_slot if mint_snapshot else None),
+            token_program_id=(mint_snapshot.token_program_id if mint_snapshot else None),
+            mint_authority=(mint_snapshot.mint_authority if mint_snapshot else None),
+            freeze_authority=(mint_snapshot.freeze_authority if mint_snapshot else None),
+            token_2022_extension_types=(mint_snapshot.extension_types if mint_snapshot else ()),
+            token_2022_extension_review_complete=(
+                mint_snapshot is not None and not mint_snapshot.extension_types
+            ),
         )
