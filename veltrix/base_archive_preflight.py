@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -45,42 +46,96 @@ class Rpc:
         self.request_id = 0
 
     def call(self, method, params):
-        self.request_id += 1
         body = json.dumps({
-            "jsonrpc": "2.0", "id": self.request_id,
-            "method": method, "params": params,
+            "jsonrpc": "2.0", "method": method, "params": params,
         }).encode()
-        request = urllib.request.Request(
-            self.url, data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read(2_000_000).decode("utf-8", "replace")
-                payload = json.loads(raw)
-        except urllib.error.HTTPError as exc:
-            raw = exc.read(2000).decode("utf-8", "replace")
-            detail = {
-                "provider": self.label, "method": method,
-                "params": params, "http_status": exc.code,
-                "response_body": redact(raw),
-            }
-            print("BASE_ARCHIVE_HTTP_DIAGNOSTIC: " + json.dumps(detail), file=sys.stderr)
-            raise PreflightError(
-                f"{self.label}: {method} params={json.dumps(params)} HTTP {exc.code}"
-            ) from exc
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise PreflightError(
-                f"{self.label}: {method} transport failure ({type(exc).__name__})"
-            ) from exc
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise PreflightError(f"{self.label}: {method} returned invalid JSON") from exc
-        if not isinstance(payload, dict) or "error" in payload or "result" not in payload:
-            error = payload.get("error", {}) if isinstance(payload, dict) else {}
-            message = redact(str(error.get("message", "malformed JSON-RPC response")))
-            raise PreflightError(f"{self.label}: {method} RPC error: {message}")
-        return payload["result"]
+        max_attempts = 7
+        for attempt in range(max_attempts):
+            # Keep sustained request volume below common free-tier CU/s limits.
+            if hasattr(self, "_last_request_at"):
+                elapsed = time.monotonic() - self._last_request_at
+                if elapsed < 0.25:
+                    time.sleep(0.25 - elapsed)
+            self.request_id += 1
+            payload_body = json.loads(body)
+            payload_body["id"] = self.request_id
+            request = urllib.request.Request(
+                self.url, data=json.dumps(payload_body).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            self._last_request_at = time.monotonic()
+            try:
+                with urllib.request.urlopen(request, timeout=45) as response:
+                    raw = response.read(2_000_000).decode("utf-8", "replace")
+                    payload = json.loads(raw)
+            except urllib.error.HTTPError as exc:
+                raw = exc.read(2000).decode("utf-8", "replace")
+                if exc.code in (429, 502, 503, 504) and attempt < max_attempts - 1:
+                    retry_after = exc.headers.get("Retry-After")
+                    try:
+                        delay = float(retry_after) if retry_after else 2 ** (attempt + 1)
+                    except (TypeError, ValueError):
+                        delay = 2 ** (attempt + 1)
+                    delay = min(max(delay, 1.0), 30.0)
+                    print(
+                        f"BASE_ARCHIVE_RETRY: provider={self.label} method={method} "
+                        f"http_status={exc.code} attempt={attempt + 1}/{max_attempts} "
+                        f"sleep_seconds={delay:g}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                detail = {
+                    "provider": self.label, "method": method,
+                    "params": params, "http_status": exc.code,
+                    "response_body": redact(raw),
+                }
+                print("BASE_ARCHIVE_HTTP_DIAGNOSTIC: " + json.dumps(detail), file=sys.stderr)
+                raise PreflightError(
+                    f"{self.label}: {method} params={json.dumps(params)} HTTP {exc.code} "
+                    f"after {attempt + 1} attempt(s)"
+                ) from exc
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                if attempt < max_attempts - 1:
+                    delay = min(2 ** (attempt + 1), 30)
+                    print(
+                        f"BASE_ARCHIVE_RETRY: provider={self.label} method={method} "
+                        f"transport={type(exc).__name__} attempt={attempt + 1}/{max_attempts} "
+                        f"sleep_seconds={delay}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise PreflightError(
+                    f"{self.label}: {method} transport failure "
+                    f"({type(exc).__name__}) after {max_attempts} attempts"
+                ) from exc
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise PreflightError(f"{self.label}: {method} returned invalid JSON") from exc
+
+            if not isinstance(payload, dict):
+                raise PreflightError(f"{self.label}: {method} returned malformed JSON-RPC response")
+            if "error" in payload:
+                error = payload.get("error", {})
+                code = error.get("code") if isinstance(error, dict) else None
+                message = redact(str(error.get("message", "RPC error"))) if isinstance(error, dict) else "RPC error"
+                if code in (-32005, 429) and attempt < max_attempts - 1:
+                    delay = min(2 ** (attempt + 1), 30)
+                    print(
+                        f"BASE_ARCHIVE_RETRY: provider={self.label} method={method} "
+                        f"rpc_code={code} attempt={attempt + 1}/{max_attempts} "
+                        f"sleep_seconds={delay}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise PreflightError(f"{self.label}: {method} RPC error: {message}")
+            if "result" not in payload:
+                raise PreflightError(f"{self.label}: {method} response missing result")
+            return payload["result"]
+
+        raise PreflightError(f"{self.label}: {method} exhausted retry attempts")
 
 
 def quantity(value, label):
