@@ -123,3 +123,29 @@ def test_store_is_append_only_and_deduplicates(tmp_path):
     assert first is not None
     assert store.record(worker._collect(MINT, NOW)) is False
     assert store.count(MINT) == 1
+
+
+def test_worker_rejects_root_attestation_for_another_mint(tmp_path):
+    launches, markets, store, worker = setup(tmp_path)
+    add_candidate(launches, markets)
+    worker.root_provider.fetch_attestation = lambda chain, mint: DeveloperRootAttestation(
+        chain, "another-mint", "signed-roots", "proof", NOW - 100,
+        ("dev-wallet",), True, "https://roots.example/proof",
+        signature_verified=True, signing_key_fingerprint="a" * 64,
+    )
+    result = worker.run_once()
+    assert result.failed == 1
+    assert store.latest(MINT)["report"]["coverage_complete"] is False
+
+
+def test_worker_rejects_unsigned_or_untrusted_root_attestation(tmp_path):
+    launches, markets, store, worker = setup(tmp_path)
+    add_candidate(launches, markets)
+    worker.root_provider.fetch_attestation = lambda chain, mint: DeveloperRootAttestation(
+        chain, mint, "signed-roots", "proof", NOW - 100,
+        ("dev-wallet",), True, "https://roots.example/proof",
+        signature_verified=False, signing_key_fingerprint="a" * 64,
+    )
+    result = worker.run_once()
+    assert result.failed == 1
+    assert store.latest(MINT)["report"]["coverage_complete"] is False
