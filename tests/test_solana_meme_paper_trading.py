@@ -365,3 +365,41 @@ def test_paper_broker_rejects_missing_or_enabled_execution_authority(tmp_path):
             "b" * 64, MINT, 1.0, 25, "approved",
             created_at_ms=NOW, paper_review_eligible=True, execution_authorized=True,
         )
+
+def test_broker_enforces_total_portfolio_exposure_cap_and_reports_exposure(tmp_path):
+    broker = PaperBroker(str(tmp_path / "exposure.sqlite3"), 100, 5, 50)
+    first = broker.open_position_from_consensus(
+        "exposure-1", MINT, 1.0, 40, "first approved",
+        created_at_ms=NOW, paper_review_eligible=True,
+        execution_authorized=False, fee_bps=0, slippage_bps=0,
+        max_portfolio_exposure_pct=0.5,
+    )
+    second = broker.open_position_from_consensus(
+        "exposure-2", "mint-two", 1.0, 20, "second approved",
+        created_at_ms=NOW + 1, paper_review_eligible=True,
+        execution_authorized=False, fee_bps=0, slippage_bps=0,
+        max_portfolio_exposure_pct=0.5,
+    )
+
+    assert first["status"] == "OPENED"
+    assert second["status"] == "BLOCKED"
+    snapshot = broker.snapshot()
+    assert snapshot["portfolio_exposure_usd"] == pytest.approx(40)
+    assert snapshot["portfolio_exposure_pct"] == pytest.approx(40)
+
+
+def test_worker_blocks_entry_that_would_exceed_portfolio_exposure_policy(tmp_path):
+    _, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    worker.policy = PaperTradingPolicy(
+        position_usd=25,
+        fee_bps=100,
+        slippage_bps=50,
+        max_portfolio_exposure_pct=0.05,
+    )
+
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "exposure cap" in broker.paper_decisions(limit=1)[0]["reason"]
