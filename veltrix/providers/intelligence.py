@@ -190,7 +190,7 @@ class VerifiedIntelligenceAdapters:
                 continue
             # Namespace transaction IDs by chain, wallet and token. This prevents
             # false collisions across chains and preserves distinct token legs.
-            tx_key = (chain, item.wallet_address.lower(), item.transaction_id.lower(), item.token_address.lower())
+            tx_key = (chain, item.wallet_address.lower(), item.transaction_id, item.token_address.lower())
             if tx_key in seen_transactions:
                 rejected.append(f"{prefix}: duplicate transaction")
                 continue
