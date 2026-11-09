@@ -74,6 +74,15 @@ response timestamp while retaining later observations.
 Both workers require the same persistent SQLite file as the Phase 03 launch
 store. In-memory or split databases are rejected.
 
+Before enabling the continuous worker, run the live market-data probe:
+
+```bash
+python -m veltrix.solana_meme.market_smoke
+```
+
+It fetches the public wrapped-SOL token-pairs response and verifies that the
+provider can produce a normalized Solana market snapshot.
+
 The supervised runtime is started with:
 
 ```bash
