@@ -128,3 +128,11 @@ def test_solana_readiness_exposes_missing_cpmm_locker_adapter():
                if row.chain == "solana" and row.claim == "liquidity_lock")
     assert any("no source-verifiable UNCX CPMM locker adapter exists" in item
                for item in row.blockers)
+
+
+def test_base_readiness_reports_conflicting_uncx_deployment_metadata():
+    report = build_provider_readiness(settings())
+    row = next(row for row in report.claims
+               if row.chain == "base" and row.claim == "liquidity_lock")
+    assert any("metadata conflicts with the official source repository" in item
+               for item in row.blockers)
