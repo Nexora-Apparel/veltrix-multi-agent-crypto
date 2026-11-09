@@ -30,13 +30,14 @@ def address_topic(address):
     return "0x" + address[2:].lower().rjust(64, "0")
 
 
-def pair_created_log(pair=PAIR):
+def pair_created_log(pair=PAIR, pair_count=1, log_index=0):
     return {
         "address": FACTORY, "removed": False, "topics": [
             PAIR_CREATED_TOPIC, address_topic(TOKEN), address_topic(OTHER),
         ],
-        "data": "0x" + address_topic(pair)[2:] + word(1),
-        "blockNumber": "0x64", "transactionHash": "0x" + "cd" * 32,
+        "data": "0x" + address_topic(pair)[2:] + word(pair_count),
+        "blockNumber": "0x1", "logIndex": hex(log_index),
+        "transactionHash": "0x" + "cd" * 32,
     }
 
 
@@ -45,7 +46,8 @@ def bsc_deposit_log():
         "address": LOCKER, "removed": False, "topics": [BSC_DEPOSIT_TOPIC],
         "data": "0x" + address_topic(PAIR)[2:] + address_topic(OWNER)[2:]
         + word(100) + word(BLOCK_TIME - 100) + word(BLOCK_TIME + 100_000),
-        "blockNumber": "0x64", "transactionHash": "0x" + "ef" * 32,
+        "blockNumber": "0x1", "logIndex": "0x0",
+        "transactionHash": "0x" + "ef" * 32,
     }
 
 
@@ -194,7 +196,7 @@ def test_factory_scan_includes_unlocked_second_pool_in_inventory():
         def post(self, url, json, timeout):
             method, params = json["method"], json["params"]
             if method == "eth_getLogs" and params[0]["address"].lower() == FACTORY.lower():
-                return Response([pair_created_log(PAIR), pair_created_log(second)]
+                return Response([pair_created_log(PAIR, 1, 0), pair_created_log(second, 2, 1)]
                                 if params[0]["fromBlock"] == "0x1" else [])
             if (method == "eth_call" and params[0]["to"].lower() == FACTORY.lower()
                     and params[0]["data"][:10] == "0x" + keccak(b"allPairsLength()")[:4].hex()):
