@@ -173,11 +173,16 @@ class DexScreenerProvider:
             if isinstance(created, bool):
                 raise ProviderError("Invalid pairCreatedAt")
             try:
-                created = int(created)
+                created_number = float(created)
             except (TypeError, ValueError) as exc:
                 raise ProviderError("Invalid pairCreatedAt") from exc
-            if created <= 0:
+            if (
+                not math.isfinite(created_number)
+                or created_number <= 0
+                or not created_number.is_integer()
+            ):
                 raise ProviderError("Invalid pairCreatedAt")
+            created = int(created_number)
 
         return MarketEvent(
             chain=chain,
