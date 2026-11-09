@@ -330,3 +330,35 @@ def build_solana_launch_bundle_worker(settings, launch_store, evidence_store, *,
     return SolanaLaunchBundleWorker(
         launch_store, provider, analyzer, evidence_store,
     )
+
+
+def build_solana_sellability_worker(settings, launch_store, risk_store, evidence_store, *, session=None):
+    """Build optional Jupiter quote-only sellability evidence collection.
+
+    Uses Swap API V2 /order without a taker. Keyless access is supported at
+    0.5 requests/second; an existing optional JUPITER_API_KEY raises that limit.
+    This worker never receives a signer and never calls /execute.
+    """
+    if not getattr(settings, "solana_sellability_enabled", False) or risk_store is None:
+        return None
+
+    from .jupiter_swap import JupiterSwapV2QuoteProvider
+    from ..solana_meme.sellability import SolanaSellabilityEvaluator
+    from ..solana_meme.sellability_worker import SolanaSellabilityWorker
+
+    provider = JupiterSwapV2QuoteProvider(
+        api_key=getattr(settings, "jupiter_api_key", ""),
+        session=session,
+        minimum_request_interval_seconds=getattr(
+            settings, "jupiter_quote_min_interval_seconds", 2.1,
+        ),
+    )
+    evaluator = SolanaSellabilityEvaluator(
+        provider, max_age_ms=15_000,
+        min_supply_fraction=0.005, max_supply_fraction=0.05,
+        max_price_impact_bps=300.0,
+    )
+    return SolanaSellabilityWorker(
+        launch_store, risk_store, evaluator, evidence_store,
+        refresh_interval_ms=30_000, quote_supply_fraction=0.01,
+    )
