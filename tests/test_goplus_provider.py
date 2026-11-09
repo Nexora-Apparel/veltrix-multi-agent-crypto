@@ -78,7 +78,8 @@ def test_goplus_base_uses_documented_chain_id_and_creator_percent():
         clock_ms=lambda: 1234,
     )
     result = provider.fetch_safety_observation("base", token)
-    assert result.dev_hold_pct == 3.0
+    assert result.dev_hold_pct is None
+    assert result.creator_hold_pct == 3.0
     assert result.bundled_supply_pct is None
     assert provider.session.calls[0][0].endswith("/token_security/8453")
 
@@ -100,7 +101,8 @@ def test_goplus_bsc_maps_creator_fraction_to_percentage_points():
         clock_ms=lambda: 1234,
     )
     result = provider.fetch_safety_observation("bsc", token)
-    assert result.dev_hold_pct == 4.9
+    assert result.dev_hold_pct is None
+    assert result.creator_hold_pct == 4.9
     assert result.bundled_supply_pct is None
 
 
