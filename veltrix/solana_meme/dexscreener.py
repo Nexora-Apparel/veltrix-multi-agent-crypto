@@ -55,9 +55,14 @@ class DexScreenerDiscovery:
     @staticmethod
     def _entries(payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
+            if "chainId" not in payload and "tokenAddress" not in payload:
+                raise DexScreenerError("unexpected object shape; token fields are missing")
             return [payload]
         if isinstance(payload, list):
-            return [item for item in payload if isinstance(item, dict)]
+            entries = [item for item in payload if isinstance(item, dict)]
+            if payload and not entries:
+                raise DexScreenerError("unexpected array shape; no candidate objects found")
+            return entries
         raise DexScreenerError("unexpected response shape; expected object or array")
 
     def _fetch_endpoint(self, path: str, source: str) -> tuple[SolanaCandidate, ...]:
