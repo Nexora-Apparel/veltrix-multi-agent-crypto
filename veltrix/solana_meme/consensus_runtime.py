@@ -154,6 +154,11 @@ def build_runtime(
                 "TRUSTED_WALLET_PROVIDERS including helius, and an explicit wallet allowlist"
             )
 
+    if wallet_event_provider is None and wallet_event_batch_provider is not None:
+        # Keep the single-mint compatibility surface while the worker uses the
+        # batch callable to avoid one Helius request per candidate.
+        wallet_event_provider = wallet_event_batch_provider
+
     worker = ConsensusWorker(
         launch_store,
         market_store,
