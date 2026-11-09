@@ -6,6 +6,7 @@ read-only mode and never initializes, mutates, or executes trades.
 from __future__ import annotations
 
 import hmac
+from contextlib import closing
 import json
 import logging
 import os
@@ -112,7 +113,7 @@ class PaperDashboardReader:
         now = self.clock_ms()
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("dashboard clock must return a positive integer")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             self._require_tables(
                 db, "account", "positions", "position_state", "trades",
                 "paper_execution_costs", "paper_consensus_decisions",
@@ -299,7 +300,8 @@ const $=id=>document.getElementById(id), money=n=>new Intl.NumberFormat(undefine
 function cell(row,value,cls){const td=document.createElement("td");td.textContent=value??"—";if(cls)td.className=cls;row.appendChild(td);return td}
 async function get(path,token){const headers={};if(token)headers.Authorization="Bearer "+token;const r=await fetch(path,{headers,cache:"no-store"});if(!r.ok)throw new Error(r.status===401?"Access token required":("Request failed ("+r.status+")"));return r.json()}
 async function refresh(){const token=$("token").value.trim();$("error").textContent="";try{
-const [o,p,d,perf]=await Promise.all([get("/api/overview",token),get("/api/positions",token),get("/api/decisions?limit=50",token),get("/api/performance?days=30",token)]);
+const [or,pr,dr,perfr]=await Promise.all([get("/api/overview",token),get("/api/positions",token),get("/api/decisions?limit=50",token),get("/api/performance?days=30",token)]);
+const o=or.data,p=pr.data,d=dr.data,perf=perfr.data;
 const a=o.account,stats=o.performance,cost=o.costs;
 $("equity").textContent=money(a.equity_usd);$("cash").textContent=money(a.cash_usd);$("realized").textContent=money(a.realized_pnl_usd);$("unrealized").textContent=money(a.unrealized_pnl_usd);$("exposure").textContent=money(a.portfolio_exposure_usd)+" · "+Number(a.portfolio_exposure_pct).toFixed(1)+"%";
 $("realized").className="value "+(a.realized_pnl_usd>=0?"positive":"negative");$("unrealized").className="value "+(a.unrealized_pnl_usd>=0?"positive":"negative");
