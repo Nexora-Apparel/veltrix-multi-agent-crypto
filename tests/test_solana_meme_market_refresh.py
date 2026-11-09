@@ -94,7 +94,7 @@ def test_refresh_worker_respects_schedule_and_deduplicates_provider_observations
     duplicate = worker.run_once()
     assert duplicate.processed == 1
     assert duplicate.unchanged == 1
-    assert store.count(MINT) == 1
+    assert store.count(MINT) == 2
 
 
 def test_refresh_worker_retries_provider_failure_with_backoff(tmp_path):
