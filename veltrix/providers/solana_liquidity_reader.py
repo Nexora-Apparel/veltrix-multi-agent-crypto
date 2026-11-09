@@ -21,11 +21,13 @@ from .base import ProviderError
 
 
 RAYDIUM_AMM_V4_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+RAYDIUM_CPMM_PROGRAM = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
 UNCX_PROGRAM = "GsSCS3vPWrtJ5Y9aEVVT65fmrex5P5RGHXdZvsdbWgfo"
 TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 BPF_UPGRADEABLE_LOADER = "BPFLoaderUpgradeab1e11111111111111111111111"
 RAYDIUM_V4_STATE_SIZE = 752
+RAYDIUM_CPMM_STATE_SIZE = 637
 UNCX_TOKEN_LOCK_SIZE = 146
 TOKEN_LOCK_DISCRIMINATOR = hashlib.sha256(b"account:TokenLock").digest()[:8]
 TOKEN_LOCK_LP_MINT_OFFSET = 41
@@ -92,6 +94,8 @@ class SolanaRaydiumV4UncxSnapshotReader:
         self, pool_rpc_url, locker_rpc_url, *,
         expected_uncx_executable_hash=None,
         expected_raydium_executable_hash=None,
+        expected_raydium_cpmm_executable_hash=None,
+        registry_complete=False,
         pool_independence_group="solana-raydium-indexer",
         locker_independence_group="solana-uncx-locker-rpc",
         session=None, max_pools=20_000, max_locks_per_pool=20_000,
@@ -110,7 +114,14 @@ class SolanaRaydiumV4UncxSnapshotReader:
                 or len(expected_raydium_executable_hash) != 64
                 or any(ch not in "0123456789abcdef" for ch in expected_raydium_executable_hash)):
             raise ValueError("a pinned Raydium AMM V4 executable SHA-256 hash is required")
+        if (not isinstance(expected_raydium_cpmm_executable_hash, str)
+                or len(expected_raydium_cpmm_executable_hash) != 64
+                or any(ch not in "0123456789abcdef" for ch in expected_raydium_cpmm_executable_hash)):
+            raise ValueError("a pinned Raydium CPMM executable SHA-256 hash is required")
+        if registry_complete is not True:
+            raise ValueError("Solana supported-AMM registry must be explicitly certified complete")
         self.expected_raydium_hash = expected_raydium_executable_hash
+        self.expected_raydium_cpmm_hash = expected_raydium_cpmm_executable_hash
         self.pool_rpc = _SolanaRpc(
             pool_rpc_url, provider_id="solana-raydium-pool-rpc", session=session
         )
@@ -123,6 +134,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
         self.max_locks_per_pool = max_locks_per_pool
         self.provider_id = "solana-raydium-v4-finalized-pool-inventory"
         self.amm_program = Pubkey.from_string(RAYDIUM_AMM_V4_PROGRAM)
+        self.cpmm_program = Pubkey.from_string(RAYDIUM_CPMM_PROGRAM)
         self.uncx_program = Pubkey.from_string(UNCX_PROGRAM)
         self.token_program = Pubkey.from_string(TOKEN_PROGRAM)
 
@@ -191,6 +203,11 @@ class SolanaRaydiumV4UncxSnapshotReader:
     def _verify_raydium_program(self, slot):
         return self._verify_program_executable(
             RAYDIUM_AMM_V4_PROGRAM, self.expected_raydium_hash, slot, "Raydium AMM V4"
+        )
+
+    def _verify_raydium_cpmm_program(self, slot):
+        return self._verify_program_executable(
+            RAYDIUM_CPMM_PROGRAM, self.expected_raydium_cpmm_hash, slot, "Raydium CPMM"
         )
 
     def _scan_raydium_pools(self, rpc, token_mint, slot):
