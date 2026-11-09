@@ -93,3 +93,13 @@ def test_whale_aggregator_consumes_only_adapter_accepted_events():
     assert len(clusters) == 1
     decision = adapter.whale_decision(batch, len(clusters))
     assert decision.accepted
+
+
+def test_wallet_adapter_does_not_crash_on_malformed_provider_fields():
+    adapter = VerifiedIntelligenceAdapters(["wallet-indexer"])
+    batch = adapter.adapt_wallet_observations([
+        wallet(tx="bad-side", side=None),
+        wallet(tx="bad-time", observed_at_ms="yesterday"),
+    ], 1_000_000)
+    assert batch.accepted == ()
+    assert len(batch.rejected) == 2
