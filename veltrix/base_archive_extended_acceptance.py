@@ -43,7 +43,7 @@ def block_by_number(rpc, number):
     return block["hash"].lower()
 
 
-def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_block_span=10):
+def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_block_span=10, coverage=None):
     """Fetch historical logs in provider-compatible chunks.
 
     Alchemy Free permits at most a 10-block eth_getLogs range. Scan backward
@@ -60,6 +60,9 @@ def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_blo
     chunk_to = to_block
     while chunk_to >= from_block:
         chunk_from = max(from_block, chunk_to - max_block_span + 1)
+        if coverage is not None:
+            coverage["queried_from_block"] = chunk_from
+            coverage["queried_to_block"] = to_block
         rows = rpc.call("eth_getLogs", [{
             "address": factory,
             "fromBlock": hex(chunk_from),
@@ -137,7 +140,11 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
     # historical anchors show allPairsLength increasing. This tests actual
     # historical log retrieval rather than only empty single-block queries.
     log_from, log_to = anchors[-2], anchors[-1]
-    logs = normalized_logs(rpc, factory, log_from + 1, log_to, stop_after=expected_delta)
+    log_coverage = {}
+    logs = normalized_logs(
+        rpc, factory, log_from + 1, log_to,
+        stop_after=expected_delta, coverage=log_coverage,
+    )
     expected_delta = (
         results[str(log_to)]["all_pairs_length"]
         - results[str(log_from)]["all_pairs_length"]
@@ -165,6 +172,8 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
             "to_block": log_to,
             "expected_pair_count_delta": expected_delta,
             "retrieved_log_count": len(logs),
+            "queried_from_block": log_coverage["queried_from_block"],
+            "queried_to_block": log_coverage["queried_to_block"],
             "logs": logs,
         },
         "checks": {
