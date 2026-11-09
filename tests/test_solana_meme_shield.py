@@ -109,6 +109,15 @@ def test_wrong_exit_size_blocks():
     assert "sell-route quote does not match intended paper exit size" in result.reasons
 
 
+def test_boolean_raw_sell_amount_is_rejected():
+    result = evaluate(
+        route=route(input_amount_raw=True),
+        sell_amount_raw=1,
+    )
+    assert result.decision == "BLOCK"
+    assert "sell-route quote does not match intended paper exit size" in result.reasons
+
+
 def test_route_size_fraction_must_reconcile_to_supply():
     result = evaluate(route=route(input_supply_fraction=0.02))
     assert result.decision == "BLOCK"
