@@ -5,6 +5,7 @@ from .candidates import (
     deduplicate_candidates, normalize_candidate,
 )
 from .launch_stream import LaunchStore, LaunchStreamManager
+from .market_data import MarketDataUnavailable, SolanaMarketData, SolanaMarketSnapshot
 from .pumpportal import PumpPortalDiscovery, PumpPortalError
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "deduplicate_candidates", "normalize_candidate",
     "PumpPortalDiscovery", "PumpPortalError",
     "LaunchStore", "LaunchStreamManager",
+    "MarketDataUnavailable", "SolanaMarketData", "SolanaMarketSnapshot",
 ]
