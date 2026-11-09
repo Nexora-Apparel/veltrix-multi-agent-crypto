@@ -106,3 +106,15 @@ def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit
     assert row.configured and row.trusted
     assert not row.capability_complete
     assert any("live read-only acceptance" in item for item in row.blockers)
+
+
+def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
+    report = build_provider_readiness(settings(
+        solana_liquidity_pool_rpc_url="https://solana-pool.example",
+        solana_liquidity_locker_rpc_url="https://solana-locker.example",
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "liquidity_lock")
+    assert not row.configured
+    assert any("separate Solana pool and locker RPC endpoints" not in item
+               for item in row.blockers)
