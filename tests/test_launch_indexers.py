@@ -422,7 +422,7 @@ def test_helius_launch_indexer_does_not_count_decoded_sell_as_buy():
     }])
     indexer = HeliusLaunchIndexer(
         "secret", FundingResolver(),
-        lambda token, launch: (1_000_000, "helius-launch", "slot:123"),
+        lambda token, launch, **kwargs: (1_000_000, "helius-launch", "slot:123"),
         session=session, clock_ms=lambda: NOW,
     )
     batch = indexer.index_launch("MintABC", LAUNCH, END, launch_slot=10)
