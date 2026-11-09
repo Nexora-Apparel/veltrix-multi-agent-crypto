@@ -47,7 +47,9 @@ def test_helius_launch_scan_paginates_and_emits_provenance_backed_swap():
         "signature": "sol-swap-1", "parserStatus": "OK",
         "parsed": {
             "blockTime": LAUNCH // 1000 + 30,
-            "summary": {"type": "swap"},
+            "summary": {"type": "swap", "parsedData": {
+                "kind": "buy", "output_mint": "MintABC",
+            }},
             "tokenTransfers": [{
                 "mint": "MintABC", "toUserAccount": "buyer-wallet",
                 "fromUserAccount": "pool-wallet",
