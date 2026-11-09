@@ -27,7 +27,7 @@ class SolanaMarketAgentContextProvider:
         baseline_observations: int = 5,
         volume_spike_multiple: float = 2.0,
         max_latest_age_ms: int = 120_000,
-        max_baseline_age_ms: int = 3_600_000,
+        max_baseline_age_ms: int = 900_000,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if isinstance(baseline_observations, bool) or not isinstance(baseline_observations, int) or baseline_observations < 3:
@@ -86,6 +86,7 @@ class SolanaMarketAgentContextProvider:
                     or observed in seen):
                 continue
             if (isinstance(retrieved, bool) or not isinstance(retrieved, int)
+                    or retrieved >= latest_at
                     or not 0 <= now - retrieved <= self.max_baseline_age_ms):
                 continue
             if (isinstance(volume, bool) or not isinstance(volume, (int, float))
