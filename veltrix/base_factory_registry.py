@@ -27,6 +27,9 @@ class BaseFactoryIdentity:
             address=self.address,
             deployment_block=self.deployment_block,
             expected_code_hash=self.expected_code_hash,
+            chain_id=self.chain_id,
+            creation_tx=self.creation_tx,
+            source_ref=self.source_ref,
         )
 
     def validate_observation(
