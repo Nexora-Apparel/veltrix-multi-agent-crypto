@@ -28,11 +28,13 @@ class CompositeTokenSafetyValidator:
         trusted_liquidity_providers: Iterable[str] = (),
         trusted_developer_providers: Iterable[str] = (),
         trusted_bundle_providers: Iterable[str] = (),
+        trusted_funding_providers: Iterable[str] = (),
         max_age_ms: int = 300_000,
     ):
         self.trusted_liquidity = frozenset(trusted_liquidity_providers)
         self.trusted_developer = frozenset(trusted_developer_providers)
         self.trusted_bundle = frozenset(trusted_bundle_providers)
+        self.trusted_funding = frozenset(trusted_funding_providers)
         if max_age_ms <= 0:
             raise ValueError("max_age_ms must be positive")
         self.max_age_ms = max_age_ms
@@ -113,11 +115,31 @@ class CompositeTokenSafetyValidator:
                     or report.launch_at_ms > report.window_end_ms):
                 reasons.append("launch bundle time range is invalid")
             else:
-                age = now_ms - report.window_end_ms
-                if age < 0 or age > self.max_age_ms:
-                    reasons.append("launch bundle evidence is stale or timestamp is invalid")
+                if report.window_end_ms > now_ms:
+                    reasons.append("launch bundle evidence window is in the future")
             if report.coverage_complete is not True or report.rejected:
                 reasons.append("launch bundle coverage or evidence validation is incomplete")
+            if not isinstance(report.evidence_id, str) or not report.evidence_id.strip():
+                reasons.append("launch bundle evidence identifier is missing")
+            if (not isinstance(report.observed_at_ms, int)
+                    or isinstance(report.observed_at_ms, bool)
+                    or report.observed_at_ms > now_ms
+                    or now_ms - report.observed_at_ms > self.max_age_ms):
+                reasons.append("launch bundle report provenance is stale or invalid")
+            if (not isinstance(report.scanned_through_ms, int)
+                    or report.scanned_through_ms < report.window_end_ms):
+                reasons.append("launch indexer did not prove coverage through window end")
+            if report.supply_source != report.provider or not report.supply_block_ref:
+                reasons.append("historical launch-time supply provenance is missing")
+            if (not isinstance(report.supply_observed_at_ms, int)
+                    or isinstance(report.supply_observed_at_ms, bool)
+                    or report.supply_observed_at_ms > now_ms
+                    or now_ms - report.supply_observed_at_ms > self.max_age_ms):
+                reasons.append("launch-time supply evidence is stale or invalid")
+            if not report.funder_providers or any(
+                provider not in self.trusted_funding for provider in report.funder_providers
+            ):
+                reasons.append("shared-funder evidence provider is missing or untrusted")
             try:
                 bundled_pct = float(report.bundled_supply_pct)
                 if isinstance(report.bundled_supply_pct, bool):
@@ -165,5 +187,6 @@ def composite_validator_from_settings(settings) -> CompositeTokenSafetyValidator
         trusted_liquidity_providers=getattr(settings, "trusted_liquidity_providers", ()),
         trusted_developer_providers=getattr(settings, "trusted_developer_providers", ()),
         trusted_bundle_providers=getattr(settings, "trusted_bundle_providers", ()),
+        trusted_funding_providers=getattr(settings, "trusted_funding_providers", ()),
         max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
     )
