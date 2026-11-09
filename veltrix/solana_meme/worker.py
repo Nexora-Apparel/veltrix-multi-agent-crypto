@@ -6,6 +6,7 @@ Run with:
 Configuration:
     VELTRIX_SOLANA_DISCOVERY_DB=data/solana_discovery.sqlite3
     VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS=30
+    VELTRIX_PUMPPORTAL_WS_ENDPOINT=wss://pumpportal.fun/api/data
 """
 from __future__ import annotations
 
@@ -47,7 +48,10 @@ def build_engine(
         raise ValueError("VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS must be numeric") from exc
 
     store = LaunchStore(db_path)
-    primary_adapter = PumpPortalDiscovery(websocket_factory=websocket_factory)
+    primary_adapter = PumpPortalDiscovery(
+        websocket_factory=websocket_factory,
+        endpoint=os.getenv("VELTRIX_PUMPPORTAL_WS_ENDPOINT") or None,
+    )
     primary_manager = LaunchStreamManager(primary_adapter, store)
     secondary_adapter = DexScreenerDiscovery(session=http_session)
     return SolanaDiscoveryEngine(
