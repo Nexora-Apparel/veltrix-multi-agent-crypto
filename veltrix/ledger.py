@@ -1,14 +1,34 @@
 """Durable SQLite paper ledger. No exchange connectivity or real orders."""
 import json
+import math
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 class PaperBroker:
     def __init__(self, db_path: str, starting_balance: float = 500.0, max_positions: int = 10, max_position_usd: float = 50.0, stop_loss_pct: float = 0.06, trailing_pct: float = 0.06):
-        if starting_balance <= 0 or max_positions < 1 or max_position_usd <= 0 or not 0 < stop_loss_pct < 1 or not 0 < trailing_pct < 1:
+        for name, value in (
+            ("starting_balance", starting_balance),
+            ("max_position_usd", max_position_usd),
+            ("stop_loss_pct", stop_loss_pct),
+            ("trailing_pct", trailing_pct),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError(f"{name} must be finite")
+        if (
+            starting_balance <= 0
+            or isinstance(max_positions, bool)
+            or not isinstance(max_positions, int)
+            or max_positions < 1
+            or max_position_usd <= 0
+            or not 0 < stop_loss_pct < 1
+            or not 0 < trailing_pct < 1
+        ):
             raise ValueError("Invalid paper account limits")
+        if not isinstance(db_path, (str, Path)) or not str(db_path).strip() or str(db_path) == ":memory:":
+            raise ValueError("PaperBroker requires a persistent SQLite database path")
         self.db_path = str(db_path)
         self.max_positions, self.max_position_usd = max_positions, max_position_usd
         self.stop_loss_pct, self.trailing_pct = stop_loss_pct, trailing_pct
@@ -26,20 +46,39 @@ class PaperBroker:
             """)
             db.execute("INSERT OR IGNORE INTO account(id,starting_balance,cash) VALUES(1,?,?)", (starting_balance, starting_balance))
 
+    @contextmanager
     def _connect(self):
+        """Open, commit/rollback, and always close one SQLite connection."""
         db = sqlite3.connect(self.db_path, timeout=15)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     def snapshot(self, prices=None):
-        prices = prices or {}
+        prices = {} if prices is None else prices
+        if not isinstance(prices, dict):
+            raise TypeError("prices must be a mapping of token to positive mark price")
         with self._connect() as db:
             account = db.execute("SELECT * FROM account WHERE id=1").fetchone()
             positions = [dict(p) for p in db.execute("SELECT * FROM positions ORDER BY opened_at").fetchall()]
             unrealized = 0.0
             for p in positions:
-                mark = float(prices.get(p["token"], p["entry_price"]))
+                raw_mark = prices.get(p["token"], p["entry_price"])
+                if (
+                    isinstance(raw_mark, bool)
+                    or not isinstance(raw_mark, (int, float))
+                    or not math.isfinite(float(raw_mark))
+                    or raw_mark <= 0
+                ):
+                    raise ValueError("mark prices must be finite and positive")
+                mark = float(raw_mark)
                 p["mark_price"] = mark
                 p["market_value"] = p["quantity"] * mark
                 p["unrealized_pnl"] = p["market_value"] - p["cost_basis"]
@@ -49,7 +88,15 @@ class PaperBroker:
                 "equity": account["cash"] + sum(p["market_value"] for p in positions)}
 
     def open_position(self, token: str, price: float, amount_usd: float, reason: str):
-        if not token or price <= 0 or amount_usd <= 0 or amount_usd > self.max_position_usd:
+        if (
+            not isinstance(token, str) or not token.strip()
+            or isinstance(price, bool) or not isinstance(price, (int, float))
+            or not math.isfinite(float(price)) or price <= 0
+            or isinstance(amount_usd, bool) or not isinstance(amount_usd, (int, float))
+            or not math.isfinite(float(amount_usd)) or amount_usd <= 0
+            or amount_usd > self.max_position_usd
+            or not isinstance(reason, str) or not reason.strip()
+        ):
             raise ValueError("Invalid or over-limit paper entry")
         now, qty = time.time(), amount_usd / price
         with self._connect() as db:
@@ -84,7 +131,15 @@ class PaperBroker:
         return {"token":pos["token"],"quantity_sold":qty,"proceeds":proceeds,"realized_pnl":pnl,"remaining_quantity":remaining_qty,"reason":reason}
 
     def close_fraction(self, token: str, price: float, fraction: float, reason: str):
-        if price <= 0 or not 0 < fraction <= 1: raise ValueError("Invalid paper exit")
+        if (
+            not isinstance(token, str) or not token.strip()
+            or isinstance(price, bool) or not isinstance(price, (int, float))
+            or not math.isfinite(float(price)) or price <= 0
+            or isinstance(fraction, bool) or not isinstance(fraction, (int, float))
+            or not math.isfinite(float(fraction)) or not 0 < fraction <= 1
+            or not isinstance(reason, str) or not reason.strip()
+        ):
+            raise ValueError("Invalid paper exit")
         now = time.time()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -94,8 +149,12 @@ class PaperBroker:
 
     def process_market_price(self, token: str, price: float):
         """Apply one-time 2x/3x partial exits and a 6% initial/trailing stop."""
-        if not token or price <= 0:
-            raise ValueError("Token and positive mark price are required")
+        if (
+            not isinstance(token, str) or not token.strip()
+            or isinstance(price, bool) or not isinstance(price, (int, float))
+            or not math.isfinite(float(price)) or price <= 0
+        ):
+            raise ValueError("Token and finite positive mark price are required")
         now = time.time()
         actions = []
         with self._connect() as db:
@@ -131,8 +190,12 @@ class PaperBroker:
 
     def recent_market_observations(self, token, limit=20):
         """Return prior persisted market observations, newest first."""
-        if not token or limit < 1:
-            return []
+        if (
+            not isinstance(token, str) or not token.strip()
+            or isinstance(limit, bool) or not isinstance(limit, int)
+            or limit < 1
+        ):
+            raise ValueError("token and positive integer limit are required")
         with self._connect() as db:
             rows = db.execute(
                 "SELECT payload FROM events WHERE event='MARKET_OBSERVATION' ORDER BY id DESC LIMIT ?",
