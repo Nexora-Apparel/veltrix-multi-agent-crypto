@@ -27,9 +27,19 @@ HEX_HASH = re.compile(r"^[0-9a-f]{64}$")
 EVM_LOCKER_CANDIDATES = {
     "base": {
         "uncx-univ2-v2": {
-            "address": "0xc4E637D37113192F4F1F060DaEbD7758De7F4131",
+            "address": "0xED9180976c2a4742C7A57354FD39d8BEc6cbd8AB",
             "abi_profile": "uncx-v2.1-locks-nonce",
-            "source_ref": "https://docs.uncx.network/guides/for-projects/liquidity-lockers-v2/",
+            "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
+        },
+        "uncx-sushiswap-v2": {
+            "address": "0xBeddF48499788607B4c2e704e9099561ab38Aae8",
+            "abi_profile": "uncx-v2.1-locks-nonce",
+            "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
+        },
+        "uncx-aerodrome": {
+            "address": "0x30e522deDfFE3e3d11Cd53E27d18Cd4F016eD870",
+            "abi_profile": "uncx-v2.1-locks-nonce",
+            "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
         },
     },
     "bsc": {
@@ -49,7 +59,9 @@ EVM_LOCKER_CANDIDATES = {
 SOLANA_UNCX_PROGRAM_CANDIDATES = {
     "raydium-amm-v4": {
         "program_id": "GsSCS3vPWrtJ5Y9aEVVT65fmrex5P5RGHXdZvsdbWgfo",
-        "storage_account": "BzKincxjgFQjj4FmhaWrwHES1ekBGN73YesA7JwJJo7X",
+        "documented_lp_storage_account": "BzKincxjgFQjj4FmhaWrwHES1ekBGN73YesA7JwJJo7X",
+        "custody_authority_seed": "uncx_authority",
+        "lp_vault_seed": "uncx_lp_vault",
         "published_executable_sha256": "60838187b2c2b92fc6094bba1dcc2a9607ca40f7fb0fdb9e7011e08fa0c863e9",
         "source_ref": "https://github.com/uncx-network/raydium-amm-lp-locker",
     },
