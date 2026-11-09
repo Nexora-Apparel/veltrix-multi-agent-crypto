@@ -267,3 +267,14 @@ executable_sellability claim.
 - This context can support Scout only. A second independent BUY agent is still required; Sniper depends on a separately certified composite safety report. Whale remains inactive until a separate trusted wallet-evidence provider exists.
 - The provider is exported and tested but not wired into runtime settings or allowlisted in production.
 - GitHub Actions run [42687790632](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687790632) passed on code/test commit `a0927118adef8a6897a8e970d5208ca6188ece8e`: 470 passed, 5 skipped.
+
+
+## 2026-11-09 — Agent context and decision-runner crash recovery
+
+- Added `SolanaMarketAgentContextProvider` for Scout market inputs. It compares hourly volume only within the same selected pool, using five distinct prior observations, a 2x median threshold, a 15-minute baseline freshness cap and a 120-second latest-snapshot cap. Pool changes or insufficient/stale history cannot create a volume-spike signal.
+- Added `SolanaAgentContextProvider`, composing market context with the existing Helius wallet-flow coordinator. Helius wallet identities are included only when the configured tracked-wallet and provider allowlists accept them. The factory defaults to market-only context and adds Helius only when credentials, at least two tracked wallets and the Helius trust entry are present.
+- Agent context now has a content-addressed evidence ID and explicit provider ID. The decision runner requires that provider ID in its own trusted-context allowlist.
+- Hardened decision claims with atomic per-mint SQLite claiming. The runner reconciles stale claims against the PaperBroker ledger before processing; matching post-claim positions are marked reconciled, while uncertain outcomes become `INDETERMINATE_NO_REPLAY` and block later evidence cycles for that mint.
+- Added `acknowledge_indeterminate_claim` for an operator to release a mint only after ledger reconciliation and a recorded operator note. No automatic replay is allowed.
+- GitHub Actions run [42688293786](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42688293786) passed on commit `6ead1000f5b0996f078312c4c7fcdff1237efdda`: 474 passed, 5 skipped.
+- Runtime activation remains withheld. The default capability catalogue still lacks certifying Solana liquidity-lock and developer-holdings providers, so no production composite-safety report can pass. The runner is not wired to the runtime and live trading remains disabled.
