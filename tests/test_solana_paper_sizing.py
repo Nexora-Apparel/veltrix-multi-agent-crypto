@@ -18,7 +18,7 @@ def test_usd_position_converts_to_exact_raw_token_amount_without_rounding_up():
 def test_decimal_rounding_is_downward_and_never_exceeds_requested_notional():
     result = calculate_paper_exit_size(
         MINT, notional_usd=1, token_price_usd=0.003,
-        decimals=2, total_supply_raw=100_000,
+        decimals=2, total_supply_raw=1_000_000,
         min_supply_fraction=0.000001,
     )
     assert result.input_amount_raw == 33_333
@@ -29,7 +29,7 @@ def test_raw_amount_must_remain_inside_supply_fraction_bounds():
     with pytest.raises(ValueError, match="supply-fraction"):
         calculate_paper_exit_size(
             MINT, notional_usd=1, token_price_usd=1,
-            decimals=6, total_supply_raw=1_000_000_000_000,
+            decimals=6, total_supply_raw=10_000_000_000_000,
         )
     with pytest.raises(ValueError, match="supply-fraction"):
         calculate_paper_exit_size(
