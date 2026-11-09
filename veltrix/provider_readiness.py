@@ -55,9 +55,16 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
     developer_trust = _trusted(settings, "trusted_developer_providers")
     bundle_trust = _trusted(settings, "trusted_bundle_providers")
     funding_trust = _trusted(settings, "trusted_funding_providers")
+    root_trust = _trusted(settings, "trusted_developer_root_providers")
+    holder_trust = _trusted(settings, "trusted_holder_inventory_providers")
+    developer_funding_trust = _trusted(settings, "trusted_developer_funding_providers")
     origin_trust = _trusted(settings, "trusted_launch_origin_providers")
     goplus_configured = True  # Public EVM endpoint; Solana beta is authenticated.
     helius = bool(getattr(settings, "helius_api_key", ""))
+    solana_rpc = bool(getattr(settings, "solana_rpc_url", ""))
+    root_url = bool(getattr(settings, "developer_root_attestation_url", ""))
+    root_key = bool(getattr(settings, "developer_root_attestation_public_key", ""))
+    root_provider_id = getattr(settings, "developer_root_attestation_provider_id", "signed-developer-roots")
     base_rpc = bool(getattr(settings, "base_rpc_url", ""))
     bsc_rpc = bool(getattr(settings, "bsc_rpc_url", ""))
     base_quotes = bool(getattr(settings, "alchemy_quote_tokens_base", ()))
@@ -83,9 +90,35 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             False, ("goplus",) if liquidity_configured else (), tuple(liquidity_blockers),
         ))
 
+        developer_blockers = [
+            "no capability-certified connector proves complete developer-linked wallet holdings",
+        ]
+        if not root_url or not root_key:
+            developer_blockers.append("signed independent developer-root endpoint or Ed25519 public key is missing")
+        if root_provider_id not in root_trust:
+            developer_blockers.append(f"{root_provider_id} is not explicitly trusted for developer-root attestations")
+        if chain == "solana":
+            holder_id, funding_id = "solana-rpc-holder-inventory", "helius-solana-funding-graph"
+            holder_configured, funding_configured = solana_rpc, helius
+        elif chain == "base":
+            holder_id, funding_id = "base-rpc-holder-inventory", "alchemy-base-funding-graph"
+            holder_configured, funding_configured = base_rpc, bool(getattr(settings, "alchemy_api_key", ""))
+        else:
+            holder_id, funding_id = "bsc-rpc-holder-inventory", None
+            holder_configured, funding_configured = bsc_rpc, False
+        if not holder_configured:
+            developer_blockers.append(f"{chain} holder inventory RPC is not configured")
+        if holder_id not in holder_trust:
+            developer_blockers.append(f"{holder_id} is not explicitly trusted for holder inventory")
+        if funding_id is None or not funding_configured:
+            developer_blockers.append(f"{chain} complete first-funder ancestry provider is unavailable")
+        elif funding_id not in developer_funding_trust:
+            developer_blockers.append(f"{funding_id} is not explicitly trusted for developer funding ancestry")
+        if not developer_trust:
+            developer_blockers.append("no provider is explicitly trusted for the developer-holdings claim")
         rows.append(ClaimReadiness(
             chain, "developer_holdings", False, bool(developer_trust), False, (),
-            ("no connector proves complete developer-linked wallet holdings",),
+            tuple(developer_blockers),
         ))
 
         if chain == "solana":
