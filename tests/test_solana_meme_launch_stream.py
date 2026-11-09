@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import threading
 
 import pytest
@@ -56,11 +57,36 @@ def test_outages_are_tracked_and_recovered_per_source(tmp_path):
 
     store.record_source_healthy("dexscreener-latest-profile", occurred_at_ms=3000)
     assert store.active_outage_count(source="dexscreener-latest-profile") == 0
+    assert store.event_count(event_type="feed_source_healthy") == 1
+    store.record_source_healthy("dexscreener-latest-profile", occurred_at_ms=3050)
+    assert store.event_count(event_type="feed_source_healthy") == 1
     assert store.active_outage_count(source="dexscreener-latest-boost") == 1
 
     store.record_candidate(candidate("dexscreener-latest-boost", 3100))
     assert store.active_outage_count() == 0
 
+
+
+def test_store_migrates_existing_outage_table_without_source_column(tmp_path):
+    database = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(database) as db:
+        db.execute("""
+            CREATE TABLE launch_feed_outages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at_ms INTEGER NOT NULL,
+                ended_at_ms INTEGER,
+                reason TEXT NOT NULL
+            )
+        """)
+        db.execute(
+            "INSERT INTO launch_feed_outages(started_at_ms, reason) VALUES (?, ?)",
+            (100, "legacy outage"),
+        )
+
+    store = LaunchStore(database)
+    assert store.active_outage_count(source="pumpportal-new-token") == 1
+    store.record_source_healthy("pumpportal-new-token", occurred_at_ms=200)
+    assert store.active_outage_count() == 0
 
 def test_candidate_observation_closes_only_its_own_source_outage(tmp_path):
     store = LaunchStore(tmp_path / "coverage.sqlite3")
