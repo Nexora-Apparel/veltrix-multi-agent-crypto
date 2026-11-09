@@ -44,7 +44,7 @@ def candidate():
 
 def setup_worker(
     tmp_path, *, now=10_000, wallet_event_provider=None,
-    retry_base_ms=500, lease_ms=100,
+    wallet_event_batch_provider=None, retry_base_ms=500, lease_ms=100,
 ):
     path = tmp_path / "shared.sqlite3"
     launches = LaunchStore(path)
@@ -62,6 +62,7 @@ def setup_worker(
     worker = ConsensusWorker(
         launches, markets, risks, ConsensusEngine(), decisions,
         clock_ms=clock, wallet_event_provider=wallet_event_provider,
+        wallet_event_batch_provider=wallet_event_batch_provider,
         retry_base_ms=retry_base_ms, retry_max_ms=1000,
         lease_ms=lease_ms,
     )
@@ -188,3 +189,44 @@ def test_consensus_worker_fetches_wallet_events_once_for_entire_batch(tmp_path):
     decision = store.latest(MINT)
     whale_vote = next(vote for vote in decision["votes"] if vote["agent"] == "whale")
     assert whale_vote["stance"] == "SUPPORT"
+
+def test_consensus_worker_uses_one_batch_wallet_scan_without_per_mint_fallback(tmp_path):
+    batch_calls = []
+    single_calls = []
+
+    def batch_provider(mints, now_ms):
+        batch_calls.append((tuple(mints), now_ms))
+        return ()
+
+    def single_provider(mint):
+        single_calls.append(mint)
+        raise AssertionError("per-mint fallback must not run when batch provider is configured")
+
+    _, _, _, store, worker, _ = setup_worker(
+        tmp_path,
+        wallet_event_provider=single_provider,
+        wallet_event_batch_provider=batch_provider,
+    )
+
+    result = worker.run_once()
+
+    assert result.recorded == 1
+    assert batch_calls == [((MINT,), 10_000)]
+    assert single_calls == []
+    assert store.latest(MINT)["execution_authorized"] is False
+
+
+def test_consensus_worker_batch_wallet_provider_failure_fails_closed(tmp_path):
+    def failing_batch(_mints, _now_ms):
+        raise RuntimeError("Helius unavailable")
+
+    _, _, _, store, worker, _ = setup_worker(
+        tmp_path, wallet_event_batch_provider=failing_batch
+    )
+
+    result = worker.run_once()
+
+    assert result.recorded == 1
+    assert result.failed == 0
+    assert store.latest(MINT)["status"] == "ABSTAIN"
+    assert store.latest(MINT)["execution_authorized"] is False
