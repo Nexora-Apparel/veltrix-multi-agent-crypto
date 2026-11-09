@@ -214,3 +214,10 @@ executable_sellability claim.
 - The generic supply-fraction mode remains available only when no market store is supplied, for diagnostics and isolated tests.
 - GitHub Actions run [42685911725](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42685911725) passed on commit `77877bd930d7162ed9459ec1f136c2c9d200704a`: 455 passed, 5 skipped.
 - Runtime flag remains `SOLANA_SELLABILITY_ENABLED=false` by default. Quote requests remain read-only and do not require a taker, signer, or transaction submission.
+
+
+## 2026-11-09 — Next integration boundary documented
+
+- Added `docs/solana-paper-decision-runner.md` defining the next bridge from persisted evidence stores into Core and the paper broker.
+- The runner is a design boundary only; it has not been implemented or enabled. It must reconstruct typed evidence, enforce freshness and exact quote sizing, retain audit provenance, and remain unable to sign or submit transactions.
+- Acceptance tests are specified for stale/missing evidence, unknown risk claims, amount mismatches, duplicate processing, cash/position limits and transaction-submission exclusion.
