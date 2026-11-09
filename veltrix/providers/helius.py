@@ -9,6 +9,7 @@ import requests
 
 from .base import ProviderError
 from .intelligence import SmartWalletObservation
+from .helius_data import unwrap_parsed_transaction, token_transfer_amount
 
 
 class HeliusWalletProvider:
@@ -85,7 +86,8 @@ class HeliusWalletProvider:
         return tuple(observations)
 
     def _append_swap_observations(self, tx, wallet, targets, since_ms, now_ms, output, seen):
-        if not isinstance(tx, dict):
+        tx = unwrap_parsed_transaction(tx)
+        if tx is None:
             return
         summary = tx.get("summary") or {}
         if not isinstance(summary, dict) or str(summary.get("type", "")).lower() != "swap":
@@ -111,7 +113,7 @@ class HeliusWalletProvider:
             if transfer.get("fromUserAccount") == wallet:
                 continue
             try:
-                amount = float(transfer.get("tokenAmount"))
+                amount = token_transfer_amount(transfer)
                 price = float(self.price_usd_resolver(mint))
             except (TypeError, ValueError, RuntimeError):
                 continue
