@@ -25,6 +25,9 @@ agent.
 - Fresh evidence and a fresh, positively verified composite safety certificate.
 - At least two distinct BUY agents, all targeting the same mint.
 - A fresh sell-side route quote for the exact intended raw-token exit size.
+  Its size fraction must reconcile to finalized raw supply and remain within
+  0.5%–5%; quote impact must be at most 300 bps; quote outputs, route plan,
+  provider provenance, expiry and validation errors are checked again by Shield.
 - Position count below 10 and paper notional in (0, $50].
 
 There is no confidence-score averaging, fallback prior, or agent override.
