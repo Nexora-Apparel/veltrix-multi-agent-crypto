@@ -20,6 +20,9 @@ Paper-only research and monitoring system for Solana, Base and BSC. It has no wa
 - SQLite paper ledger: persists market observations, paper fills, positions, one-time 2x/3x exit milestones and peak prices. Fresh observed prices trigger the initial 6% stop, one-time partial profit-taking at 2x and 3x, then a 6% trailing stop on the remainder. Snapshot supports unrealized PnL/equity; session report summarizes realized PnL, closed-position win rate, best/worst trade and open positions.
 - GitHub Actions: Python 3.11 compile and pytest checks.
 
+
+- Static provider-readiness inventory (`veltrix.provider_readiness`): reports configured endpoints, claim-specific trust, known connector capability limits and missing provenance per chain without making network calls. It deliberately reports GoPlus liquidity evidence as incomplete and developer-linked holdings as unsupported; credentials and allowlists cannot turn those limitations into a pass. Launch-bundle readiness separately checks launch indexer, funding-trace and origin-resolver configuration/trust. This inventory is operational guidance only: actual per-token freshness, coverage and evidence are still checked by the runtime composite gate.
+
 ## Setup
 Python 3.11+
 ```bash
