@@ -48,6 +48,9 @@ class Settings:
     solana_sellability_enabled: bool = os.getenv("SOLANA_SELLABILITY_ENABLED", "false").lower() == "true"
     jupiter_api_key: str = os.getenv("JUPITER_API_KEY", "")
     jupiter_quote_min_interval_seconds: float = float(os.getenv("JUPITER_QUOTE_MIN_INTERVAL_SECONDS", "2.1"))
+    solana_sell_simulation_enabled: bool = os.getenv("SOLANA_SELL_SIMULATION_ENABLED", "false").lower() == "true"
+    solana_sell_simulation_taker: str = os.getenv("SOLANA_SELL_SIMULATION_TAKER", "")
+    solana_sell_simulation_cases_json: str = os.getenv("SOLANA_SELL_SIMULATION_CASES_JSON", "")
     solana_liquidity_pool_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_POOL_RPC_URL", "")
     solana_liquidity_locker_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_LOCKER_RPC_URL", "")
     solana_raydium_amm_v4_executable_hash: str = os.getenv("SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH", "")
