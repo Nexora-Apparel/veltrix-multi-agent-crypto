@@ -75,6 +75,15 @@ class Core:
         reasons = [f"{s.agent}: {s.reason}" for s in signals]
 
         chain = str(token.get("chain", "")).lower()
+        if not chain:
+            # A valid Solana public key must not bypass the Solana Shield by
+            # omitting its chain label from the normalized token snapshot.
+            from .solana_meme.candidates import canonical_mint
+            try:
+                canonical_mint(address)
+                chain = "solana"
+            except (TypeError, ValueError):
+                pass
         if chain == "solana":
             decision = self.solana_shield.evaluate(
                 address,
