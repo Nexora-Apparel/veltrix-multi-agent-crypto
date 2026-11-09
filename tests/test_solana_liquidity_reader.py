@@ -7,7 +7,7 @@ from solders.pubkey import Pubkey
 
 from veltrix.providers.solana_liquidity_reader import (
     BPF_UPGRADEABLE_LOADER, RAYDIUM_AMM_V4_PROGRAM, RAYDIUM_CPMM_PROGRAM,
-    RAYDIUM_CPMM_STATE_SIZE, TOKEN_PROGRAM, UNCX_PROGRAM,
+    RAYDIUM_CPMM_STATE_SIZE, RAYDIUM_CPMM_POOL_DISCRIMINATOR, TOKEN_PROGRAM, UNCX_PROGRAM,
     TOKEN_LOCK_DISCRIMINATOR, SolanaRaydiumV4CpmmSnapshotReader,
 )
 
@@ -132,6 +132,7 @@ def test_cpmm_pool_state_is_discovered_by_token_mint_and_lp_offsets():
     lp_mint = str(Pubkey.from_bytes(bytes([7]) * 32))
     pool_address = str(Pubkey.from_string("Vote111111111111111111111111111111111111111"))
     data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
+    data[:8] = RAYDIUM_CPMM_POOL_DISCRIMINATOR
     data[136:168] = bytes(Pubkey.from_string(lp_mint))
     data[168:200] = bytes(LP_MINT)
     data[200:232] = bytes(OWNER)
@@ -167,6 +168,7 @@ def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
     target = str(LP_MINT)
 
     data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
+    data[:8] = RAYDIUM_CPMM_POOL_DISCRIMINATOR
     data[136:168] = bytes(Pubkey.from_bytes(bytes([7]) * 32))
     data[168:200] = bytes(LP_MINT)
     data[200:232] = bytes(OWNER)
