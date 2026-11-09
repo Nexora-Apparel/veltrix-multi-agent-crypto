@@ -329,10 +329,16 @@ class PaperBroker:
         return {"token": token, "quantity": qty, "entry_price": price, "cost_basis": amount_usd}
 
     @staticmethod
-    def _sell_in_transaction(db, pos, price, fraction, reason, now):
+    def _sell_in_transaction(
+        db, pos, mark_price, fill_price, fraction, reason, now,
+        fee_bps=0.0, decision_id=None,
+    ):
         qty = pos["quantity"] * fraction
         basis = pos["cost_basis"] * fraction
-        proceeds = qty * price
+        gross_proceeds = qty * fill_price
+        fee = gross_proceeds * fee_bps / 10_000
+        proceeds = gross_proceeds - fee
+        slippage_cost = qty * abs(mark_price - fill_price)
         pnl = proceeds - basis
         remaining_qty, remaining_basis = pos["quantity"] - qty, pos["cost_basis"] - basis
         db.execute("UPDATE account SET cash=cash+? WHERE id=1", (proceeds,))
@@ -341,11 +347,36 @@ class PaperBroker:
             db.execute("DELETE FROM position_state WHERE token=?", (pos["token"],))
         else:
             db.execute("UPDATE positions SET quantity=?,cost_basis=? WHERE token=?", (remaining_qty, remaining_basis, pos["token"]))
-        db.execute("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), pos["token"], "SELL", price, qty, proceeds, pnl, reason, now))
-        db.execute("INSERT INTO events(event,payload,created_at) VALUES(?,?,?)", ("POSITION_PARTIALLY_CLOSED" if remaining_qty > 1e-12 else "POSITION_CLOSED", json.dumps({"token":pos["token"],"price":price,"quantity":qty,"realized_pnl":pnl,"reason":reason}), now))
-        return {"token":pos["token"],"quantity_sold":qty,"proceeds":proceeds,"realized_pnl":pnl,"remaining_quantity":remaining_qty,"reason":reason}
+        trade_id = str(uuid.uuid4())
+        db.execute("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)", (trade_id, pos["token"], "SELL", fill_price, qty, gross_proceeds, pnl, reason, now))
+        db.execute(
+            """INSERT INTO paper_execution_costs
+            (trade_id,decision_id,side,mark_price,fill_price,fee_usd,slippage_cost_usd)
+            VALUES(?,?,?,?,?,?,?)""",
+            (trade_id, decision_id, "SELL", mark_price, fill_price, fee, slippage_cost),
+        )
+        db.execute(
+            "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
+            ("POSITION_PARTIALLY_CLOSED" if remaining_qty > 1e-12 else "POSITION_CLOSED",
+             json.dumps({
+                 "token":pos["token"], "mark_price":mark_price, "fill_price":fill_price,
+                 "quantity":qty, "gross_proceeds":gross_proceeds, "fee_usd":fee,
+                 "slippage_cost_usd":slippage_cost, "net_proceeds":proceeds,
+                 "realized_pnl":pnl, "reason":reason,
+             }), now),
+        )
+        return {
+            "token":pos["token"], "quantity_sold":qty, "proceeds":proceeds,
+            "gross_proceeds":gross_proceeds, "fee_usd":fee,
+            "slippage_cost_usd":slippage_cost, "mark_price":mark_price,
+            "fill_price":fill_price, "realized_pnl":pnl,
+            "remaining_quantity":remaining_qty, "reason":reason,
+        }
 
-    def close_fraction(self, token: str, price: float, fraction: float, reason: str):
+    def close_fraction(
+        self, token: str, price: float, fraction: float, reason: str, *,
+        fee_bps: float = 0.0, slippage_bps: float = 0.0, decision_id=None,
+    ):
         if (
             not isinstance(token, str) or not token.strip()
             or isinstance(price, bool) or not isinstance(price, (int, float))
@@ -360,9 +391,17 @@ class PaperBroker:
             db.execute("BEGIN IMMEDIATE")
             pos = db.execute("SELECT * FROM positions WHERE token=?", (token,)).fetchone()
             if pos is None: raise ValueError("No open position for token")
-            return self._sell_in_transaction(db, pos, price, fraction, reason, now)
+            fee, slippage = self._validate_execution_costs(fee_bps, slippage_bps)
+            fill = float(price) * (1 - slippage / 10_000)
+            return self._sell_in_transaction(
+                db, pos, float(price), fill, float(fraction), reason, now,
+                fee_bps=fee, decision_id=decision_id,
+            )
 
-    def process_market_price(self, token: str, price: float):
+    def process_market_price(
+        self, token: str, price: float, *, fee_bps: float = 0.0,
+        slippage_bps: float = 0.0, decision_id=None,
+    ):
         """Apply one-time 2x/3x partial exits and a 6% initial/trailing stop."""
         if (
             not isinstance(token, str) or not token.strip()
@@ -370,6 +409,8 @@ class PaperBroker:
             or not math.isfinite(float(price)) or price <= 0
         ):
             raise ValueError("Token and finite positive mark price are required")
+        fee, slippage = self._validate_execution_costs(fee_bps, slippage_bps)
+        fill_price = float(price) * (1 - slippage / 10_000)
         now = time.time()
         actions = []
         with self._connect() as db:
@@ -387,18 +428,18 @@ class PaperBroker:
             trailing_active = bool(state["hit_3x"])
             trailing_stop = peak * (1 - self.trailing_pct)
             if price <= initial_stop or (trailing_active and price <= trailing_stop):
-                actions.append(self._sell_in_transaction(db, pos, price, 1.0, "trailing_stop" if trailing_active else "stop_loss", now))
+                actions.append(self._sell_in_transaction(db, pos, float(price), fill_price, 1.0, "trailing_stop" if trailing_active else "stop_loss", now, fee_bps=fee, decision_id=decision_id))
                 return actions
             multiple = price / pos["entry_price"]
             if multiple >= 3 and not state["hit_3x"]:
                 # If the feed jumps over 2x between observations, do not fabricate
                 # a historical 2x fill. Mark that milestone as passed and execute
                 # the currently observable 3x partial only.
-                result = self._sell_in_transaction(db, pos, price, 0.5, "take_profit_3x", now)
+                result = self._sell_in_transaction(db, pos, float(price), fill_price, 0.5, "take_profit_3x", now, fee_bps=fee, decision_id=decision_id)
                 actions.append(result)
                 db.execute("UPDATE position_state SET hit_2x=1, hit_3x=1 WHERE token=?", (token,))
             elif multiple >= 2 and not state["hit_2x"]:
-                result = self._sell_in_transaction(db, pos, price, 0.5, "take_profit_2x", now)
+                result = self._sell_in_transaction(db, pos, float(price), fill_price, 0.5, "take_profit_2x", now, fee_bps=fee, decision_id=decision_id)
                 actions.append(result)
                 db.execute("UPDATE position_state SET hit_2x=1 WHERE token=?", (token,))
         return actions
