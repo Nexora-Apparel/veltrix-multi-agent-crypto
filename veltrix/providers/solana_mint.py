@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import struct
 import time
 from dataclasses import dataclass
@@ -61,7 +60,7 @@ class SolanaMintAuthoritySnapshot:
     decimals: int
     extension_types: tuple[str, ...]
     unknown_extension_ids: tuple[int, ...]
-    extension_parse_complete: bool
+    extension_tlv_structure_valid: bool
     account_data_sha256: str
 
 
@@ -203,7 +202,7 @@ class SolanaMintAuthorityProvider:
             decimals=decimals,
             extension_types=extension_types,
             unknown_extension_ids=unknown_ids,
-            extension_parse_complete=parse_complete,
+            extension_tlv_structure_valid=parse_complete,
             account_data_sha256=data_hash,
         )
 
