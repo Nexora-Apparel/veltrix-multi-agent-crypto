@@ -193,3 +193,14 @@ executable_sellability claim.
 - Added tests for absent, stale, expired, wrong-size, unreconciled, high-impact and malformed route evidence; unknown token-risk claims still veto.
 - GitHub Actions run [42684690748](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42684690748) passed on code/test commit `4bc3b2e6c4fc4abd06d0ae371736cbf320ac8c0e`: 441 passed, 5 skipped. Earlier Core integration run [42684511802](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42684511802) passed 440 tests.
 - PR #1 remains draft and unmerged. The `main` branch remains unchanged. No wallet signing, transaction submission or live trading was added.
+
+
+## 2026-11-09 — Exact paper exit sizing and supply reconciliation
+
+- Added `calculate_paper_exit_size`, using Decimal arithmetic and downward raw-unit rounding to convert the configured USD paper notional and token USD price into a raw SPL-token amount.
+- The sizing utility requires finalized token decimals and raw supply, rejects amounts below one raw unit and enforces a 0.0001%–5% supply-fraction band.
+- Extended risk evidence to retain finalized mint supply and decimals and explicitly reconcile both against the holder inventory. Mismatches remain provider errors and cannot pass Shield.
+- Shield now recomputes the expected raw exit amount from paper notional, current token price, finalized decimals and supply. A quote for a different size is rejected, even if it is otherwise fresh and low-impact.
+- Core passes the current token USD price into Shield and preserves the exact raw exit amount, quote evidence ID and `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN` state in the paper trade result/audit.
+- GitHub Actions run [42685456844](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42685456844) passed on code/test commit `f6b89ce60cfb973a0a5adcd3fb7fafaae2aa35e2`: 453 passed, 5 skipped.
+- No live transaction signing, submission or wallet use was added.
