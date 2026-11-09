@@ -81,14 +81,16 @@ class DexScreenerProvider:
                 or observed_at_ms <= 0
             ):
                 raise ProviderError("Invalid local provider response timestamp")
-            requested = set(batch)
             for pair in payload:
-                try:
-                    event = self._normalize(pair, chain_id, observed_at_ms)
-                except ProviderError:
-                    continue
-                if event is not None and event.token_address in requested:
-                    events.append(event)
+                for requested_address in batch:
+                    try:
+                        event = self._normalize(
+                            pair, chain_id, observed_at_ms, requested_address
+                        )
+                    except ProviderError:
+                        continue
+                    if event is not None:
+                        events.append(event)
         return events
 
     @staticmethod
@@ -139,27 +141,64 @@ class DexScreenerProvider:
         pair: Any,
         chain: str,
         observed_at_ms: int,
+        token_address: str | None = None,
     ) -> MarketEvent | None:
         if not isinstance(pair, dict) or pair.get("chainId") != chain:
             return None
         base = pair.get("baseToken")
         quote = pair.get("quoteToken")
-        if not isinstance(base, dict):
+        if not isinstance(base, dict) or not isinstance(quote, dict):
             return None
-        address = base.get("address")
+        base_address = base.get("address")
+        quote_address = quote.get("address")
         pair_address = pair.get("pairAddress")
-        if not isinstance(address, str) or not address.strip():
+        if not isinstance(base_address, str) or not base_address.strip():
+            return None
+        if not isinstance(quote_address, str) or not quote_address.strip():
             return None
         if not isinstance(pair_address, str) or not pair_address.strip():
             return None
 
+        requested = token_address or base_address
+        if requested == base_address:
+            side = "base"
+            token = base
+            other = quote
+            price_usd = cls._number(pair.get("priceUsd"), "priceUsd") or 0.0
+            fdv = cls._number(pair.get("fdv"), "fdv", optional=True)
+            market_cap = cls._number(pair.get("marketCap"), "marketCap", optional=True)
+            price_change = pair.get("priceChange")
+            price_change = price_change if isinstance(price_change, dict) else {}
+            change_m5 = cls._signed_number(
+                price_change.get("m5"), "priceChange.m5", optional=True
+            )
+            change_h1 = cls._signed_number(
+                price_change.get("h1"), "priceChange.h1", optional=True
+            ) if price_change.get("h1") is not None else None
+            change_h24 = cls._signed_number(
+                price_change.get("h24"), "priceChange.h24", optional=True
+            ) if price_change.get("h24") is not None else None
+        elif requested == quote_address:
+            side = "quote"
+            token = quote
+            other = base
+            base_price = cls._number(pair.get("priceUsd"), "priceUsd") or 0.0
+            price_native = cls._number(pair.get("priceNative"), "priceNative")
+            if price_native is None or price_native <= 0:
+                raise ProviderError("Invalid priceNative for quote-token valuation")
+            price_usd = base_price / price_native
+            # FDV, market cap and price changes in this payload describe the base token.
+            fdv = None
+            market_cap = None
+            change_m5 = change_h1 = change_h24 = None
+        else:
+            return None
+
         liquidity = pair.get("liquidity")
         volume = pair.get("volume")
-        price_change = pair.get("priceChange")
         transactions = pair.get("txns")
         liquidity = liquidity if isinstance(liquidity, dict) else {}
         volume = volume if isinstance(volume, dict) else {}
-        price_change = price_change if isinstance(price_change, dict) else {}
         transactions = transactions if isinstance(transactions, dict) else {}
 
         def tx(period: str, direction: str) -> int | None:
@@ -186,27 +225,23 @@ class DexScreenerProvider:
 
         return MarketEvent(
             chain=chain,
-            token_address=address.strip(),
+            token_address=requested,
             pair_address=pair_address.strip(),
-            symbol=base.get("symbol") if isinstance(base.get("symbol"), str) else None,
-            price_usd=cls._number(pair.get("priceUsd"), "priceUsd") or 0.0,
+            symbol=token.get("symbol") if isinstance(token.get("symbol"), str) else None,
+            price_usd=price_usd,
             liquidity_usd=cls._number(liquidity.get("usd", 0), "liquidity.usd") or 0.0,
             volume_h1_usd=cls._number(volume.get("h1", 0), "volume.h1") or 0.0,
-            price_change_m5_pct=cls._signed_number(price_change.get("m5"), "priceChange.m5"),
+            price_change_m5_pct=change_m5,
             observed_at_ms=observed_at_ms,
             pair_created_at_ms=created,
             source=cls.name,
-            name=base.get("name") if isinstance(base.get("name"), str) else None,
-            fdv_usd=cls._number(pair.get("fdv"), "fdv", optional=True),
-            market_cap_usd=cls._number(pair.get("marketCap"), "marketCap", optional=True),
+            name=token.get("name") if isinstance(token.get("name"), str) else None,
+            fdv_usd=fdv,
+            market_cap_usd=market_cap,
             volume_m5_usd=cls._number(volume.get("m5"), "volume.m5", optional=True),
             volume_h24_usd=cls._number(volume.get("h24"), "volume.h24", optional=True),
-            price_change_h1_pct=cls._signed_number(
-                price_change.get("h1"), "priceChange.h1"
-            ) if price_change.get("h1") is not None else None,
-            price_change_h24_pct=cls._signed_number(
-                price_change.get("h24"), "priceChange.h24"
-            ) if price_change.get("h24") is not None else None,
+            price_change_h1_pct=change_h1,
+            price_change_h24_pct=change_h24,
             txns_m5_buys=tx("m5", "buys"),
             txns_m5_sells=tx("m5", "sells"),
             txns_h1_buys=tx("h1", "buys"),
@@ -214,6 +249,7 @@ class DexScreenerProvider:
             txns_h24_buys=tx("h24", "buys"),
             txns_h24_sells=tx("h24", "sells"),
             dex_id=pair.get("dexId") if isinstance(pair.get("dexId"), str) else None,
-            quote_token_symbol=quote.get("symbol") if isinstance(quote, dict)
-            and isinstance(quote.get("symbol"), str) else None,
+            quote_token_symbol=other.get("symbol") if isinstance(other.get("symbol"), str)
+            else None,
+            pool_token_side=side,
         )
