@@ -104,3 +104,18 @@ def test_base_funding_graph_caps_wallet_ancestry():
     )
     with pytest.raises(ProviderError, match="wallet cap"):
         provider.fetch_snapshot("token", [wallet])
+
+
+
+def test_base_funding_graph_enforces_global_page_budget():
+    wallet_a = "0x" + "a" * 40
+    wallet_b = "0x" + "b" * 40
+    def handler(body):
+        if body["method"] == "eth_getBlockByNumber":
+            return {"result": {"number": "0xa"}}
+        return {"result": {"transfers": []}}
+    provider = AlchemyBaseFundingGraphProvider(
+        "key", session=Session(handler), max_total_pages=1
+    )
+    with pytest.raises(ProviderError, match="total page budget"):
+        provider.fetch_snapshot("token", [wallet_a, wallet_b])
