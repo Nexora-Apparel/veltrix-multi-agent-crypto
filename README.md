@@ -128,19 +128,20 @@ The earlier liquidity layer accepted typed snapshot readers but did not itself a
 - UNCX's current deployment page lists Base Uniswap V2 at `0xED9180976c2a4742C7A57354FD39d8BEc6cbd8AB` and BSC PancakeSwap V2 at `0xC765bddB93b0D1c1A88282BA0fa6B2d00E3e0c83`, but marks deployment verification as pending for some entries. These are discovery candidates only: pin and verify the live runtime code hash and constructor factory before use. <https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts>
 - Base Uniswap V2 factory reference: `0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6`. <https://developers.uniswap.org/docs/protocols/v2/deployments>
 
-### Solana Raydium AMM V4 + UNCX
+### Solana Raydium AMM V4 + CPMM pool inventory; UNCX V4 locker
 
-- `veltrix.providers.solana_liquidity_reader.SolanaRaydiumV4UncxSnapshotReader` discovers Raydium AMM V4 pool state accounts using the documented 752-byte layout and base/quote mint offsets; it includes pools whether or not a locker record exists.
+- `veltrix.providers.solana_liquidity_reader.SolanaRaydiumV4CpmmSnapshotReader` discovers Raydium AMM V4 pools (752-byte state; mint offsets 400/432; LP mint offset 464) and Raydium CPMM pools (637-byte `PoolState`; mint offsets 168/200; LP mint offset 136). It cross-checks both inventories through both RPC endpoints and includes pools whether or not a locker record exists.
 - It enumerates UNCX Anchor `TokenLock` accounts by LP mint, validates the 146-byte account layout and discriminator, derives each `["uncx_locker", lock_id_le]` PDA and verifies the bump and program owner.
 - It derives `["uncx_authority"]` and `["uncx_lp_vault", amm_id]` PDAs from the published program source. The SPL token vault must be owned by the classic Token Program, contain the expected LP mint, and be controlled by the derived authority. Vault balance must exactly equal the sum of current lock amounts. Pool lists, TokenLock account lists, program accounts, LP mint accounts and vault accounts are cross-checked through both configured RPC endpoints at the same finalized slot.
-- The deployed upgradeable-loader ProgramData ELF hash is checked against the published UNCX verifiable-executable hash. Pool and locker reads must return the same finalized slot; stale, truncated or inconsistent RPC responses fail closed.
-- Both the UNCX locker executable and Raydium AMM V4 executable must match independently pinned SHA-256 hashes. Current Solana AMM scope is Raydium AMM V4 only. CP Swap, CLMM, Meteora DLMM and PumpSwap are not included until their own pool layouts, lock programs, PDA derivations and executable hashes are independently verified. <https://github.com/uncx-network/raydium-amm-lp-locker>
+- The deployed upgradeable-loader ProgramData ELF hash is checked against the published UNCX verifiable-executable hash. Both Raydium AMM V4 and CPMM executable hashes must also be independently pinned. Pool and locker reads must return the same finalized slot; stale, truncated or inconsistent RPC responses fail closed.
+- UNCX LP-lock evidence is implemented for Raydium AMM V4 only. The public UNCX CPMM locker repository currently does not provide the program source/account layout needed to verify its locker; every discovered CPMM pool is therefore retained with zero certified locker custody and blocks the all-pool safety claim. <https://github.com/uncx-network/raydium-cp-swap-lp-locker>
+- Current Solana pool inventory scope is Raydium AMM V4 + CPMM. CLMM, Meteora DLMM, Orca and PumpSwap are not included until their pool layouts and program identities are independently verified. The explicit `SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE` flag must remain false until the operator has confirmed the declared scope is complete. <https://github.com/uncx-network/raydium-amm-lp-locker>
 
 ### Configuration and live acceptance
 
 - Configure separate pool and locker RPC URLs for each chain in `.env` or GitHub Actions secrets.
 - EVM factory/locker JSON registries require the exact deployment block and 64-character runtime code hash (without `0x`). The Base locker ABI profile is `uncx-v2.1-locks-nonce`; BSC is `uncx-v1-user-lock-index`.
-- Keep `BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE` and `BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE` false until every factory in the supported V2 scope is included.
+- Keep `BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE`, `BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE` and `SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE` false until every factory/program in the declared supported scope is included. Pin both Raydium program hashes before constructing the Solana reader.
 - Run the GitHub Actions workflow **Liquidity live read-only acceptance** manually with a chain and token address. It reports reader acceptance separately from the token's actual liquidity-lock safety result. A structurally valid reader can pass acceptance while the token correctly remains blocked because some pools are unlocked.
 - Reader IDs are not added to `TRUSTED_LIQUIDITY_PROVIDERS` by code. Live acceptance, deployment ownership review, registry review and explicit operator trust are prerequisites. No transactions are sent.
 
