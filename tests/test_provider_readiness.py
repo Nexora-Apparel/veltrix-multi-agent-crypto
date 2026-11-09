@@ -47,12 +47,12 @@ def test_missing_credentials_and_trust_are_reported_separately():
     assert any("not explicitly trusted" in item for item in sol_bundle.blockers)
 
 
-def test_goplus_sol_requires_access_token_but_evm_public_endpoint_does_not():
+def test_goplus_does_not_configure_a_complete_chain_specific_locker_reader():
     report = build_provider_readiness(settings())
     rows = {(row.chain, row.claim): row for row in report.claims}
     assert not rows[("solana", "liquidity_lock")].configured
-    assert rows[("base", "liquidity_lock")].configured
-    assert rows[("bsc", "liquidity_lock")].configured
+    assert not rows[("base", "liquidity_lock")].configured
+    assert not rows[("bsc", "liquidity_lock")].configured
     assert not rows[("base", "liquidity_lock")].capability_complete
 
 
@@ -90,3 +90,19 @@ def test_liquidity_readiness_names_missing_chain_specific_snapshot_readers():
                    for item in row.blockers) for row in rows.values())
     assert any("pinned runtime bytecode hash" in item for item in rows["base"].blockers)
     assert any("deployed executable" in item for item in rows["solana"].blockers)
+
+
+def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit_trust():
+    report = build_provider_readiness(settings(
+        base_liquidity_pool_rpc_url="https://base-pool.example",
+        base_liquidity_locker_rpc_url="https://base-locker.example",
+        base_liquidity_factories_json='[{"amm_id":"uniswap-v2"}]',
+        base_liquidity_lockers_json='[{"amm_id":"uniswap-v2"}]',
+        base_liquidity_registry_complete=True,
+        trusted_liquidity_providers=("base-finalized-all-factory-liquidity",),
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "base" and row.claim == "liquidity_lock")
+    assert row.configured and row.trusted
+    assert not row.capability_complete
+    assert any("live read-only acceptance" in item for item in row.blockers)
