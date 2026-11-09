@@ -96,3 +96,17 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
 This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
+
+
+### 09.2 — Wallet domain isolation
+
+Implemented in `veltrix/wallet_isolation.py` with focused tests in `tests/test_wallet_isolation.py`.
+
+- `PaperLedgerIdentity` is a synthetic ledger/account reference and is a distinct type from a blockchain wallet identity.
+- `PaperExecutionContext` accepts only a `PaperLedgerIdentity`; it cannot be initialized with a live wallet identity.
+- `ReadOnlyWalletContext` accepts only a public `WalletIdentity` and an immutable allowlist of read-only capabilities (`balance`, `transactions`).
+- Write, signing, submission, and mutable capabilities are rejected.
+- The module contains no private-key/seed fields, signer implementation, provider connection, transaction mutation, or submission code.
+- The contexts intentionally expose no conversion path between paper and live wallet domains.
+
+This is a type-level isolation boundary. It does not prove operating-system, process, database, or provider isolation; those require deployment-level controls and later integration tests. Phase 09.2 remains in progress until those controls are specified and independently verified.
