@@ -20,20 +20,21 @@ class AlchemyBaseFundingGraphProvider:
     supported_chains = frozenset({"base"})
 
     def __init__(self, api_key, *, session=None, timeout=20.0, clock_ms=None,
-                 max_pages=100, max_wallets=2_000, page_size=1_000,
+                 max_pages=100, max_wallets=2_000, max_total_pages=1_000, page_size=1_000,
                  base_url="https://base-mainnet.g.alchemy.com/v2"):
         if not api_key:
             raise ValueError("Alchemy API key is required")
         if not 1 <= max_pages <= 1_000 or not 1 <= max_wallets <= 10_000:
             raise ValueError("Invalid funding graph limits")
-        if not 1 <= page_size <= 1_000:
-            raise ValueError("Alchemy page size must be between 1 and 1000")
+        if not 1 <= page_size <= 1_000 or max_total_pages < 1:
+            raise ValueError("Invalid Alchemy page or total-page bound")
         self.api_key = api_key
         self.session = session or requests.Session()
         self.timeout = timeout
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self.max_pages = max_pages
         self.max_wallets = max_wallets
+        self.max_total_pages = max_total_pages
         self.page_size = page_size
         self.endpoint = f"{base_url.rstrip('/')}/{api_key}"
         self._request_id = 0
@@ -56,12 +57,14 @@ class AlchemyBaseFundingGraphProvider:
             raise ProviderError(f"Alchemy {method} returned an RPC error")
         return payload["result"]
 
-    def _first_funder(self, wallet, end_block, now_ms):
+    def _first_funder(self, wallet, end_block, now_ms, page_budget):
         cursor = None
         first = None
         seen = set()
         previous_order = None
-        for _ in range(self.max_pages):
+        pages = 0
+        for _ in range(min(self.max_pages, page_budget)):
+            pages += 1
             query = {
                 "fromBlock": "0x0",
                 "toBlock": hex(end_block),
@@ -109,10 +112,10 @@ class AlchemyBaseFundingGraphProvider:
                     first = (sender, tx_hash)
             cursor = result.get("pageKey")
             if not cursor:
-                return first
+                return first, pages
         if cursor:
             raise ProviderError("Alchemy funding history exceeded pagination bound")
-        return first
+        return first, pages
 
     def fetch_snapshot(self, token_address, holder_wallets):
         if not isinstance(token_address, str) or not token_address:
@@ -139,6 +142,7 @@ class AlchemyBaseFundingGraphProvider:
         queue = list(wallets)
         queried = set()
         relationships = []
+        total_pages = 0
         while queue:
             wallet = queue.pop(0)
             key = wallet.lower()
@@ -147,7 +151,11 @@ class AlchemyBaseFundingGraphProvider:
             if len(queried) >= self.max_wallets:
                 raise ProviderError("Funding ancestry exceeded the configured wallet cap")
             queried.add(key)
-            first = self._first_funder(wallet, end_block, now_ms)
+            remaining_pages = self.max_total_pages - total_pages
+            if remaining_pages <= 0:
+                raise ProviderError("Funding graph exceeded total page budget")
+            first, pages = self._first_funder(wallet, end_block, now_ms, remaining_pages)
+            total_pages += pages
             if first is None:
                 relationships.append(FundingRelationship(
                     wallet, None, None, now_ms,
