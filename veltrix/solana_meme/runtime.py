@@ -16,6 +16,10 @@ from .market_refresh import MarketRefreshWorker
 from .market_store import MarketSnapshotStore
 from .pipeline import SolanaMemePipeline
 from .pumpportal import PumpPortalDiscovery
+from .risk_store import SolanaRiskEvidenceStore
+from .risk_worker import SolanaRiskEvidenceWorker
+from ..config import settings as load_settings
+from ..providers.factory import build_solana_risk_evidence_collector
 
 
 def run_service(
@@ -41,7 +45,14 @@ def run_service(
     market_data = SolanaMarketData()
     enrichment = CandidateEnrichmentWorker(launches, market_data, markets)
     refresh = MarketRefreshWorker(launches, market_data, markets)
-    pipeline = SolanaMemePipeline(enrichment, refresh)
+    configured = load_settings()
+    risk_collector = build_solana_risk_evidence_collector(configured)
+    risk_worker = None
+    risk_store = None
+    if risk_collector is not None:
+        risk_store = SolanaRiskEvidenceStore(database)
+        risk_worker = SolanaRiskEvidenceWorker(launches, risk_collector, risk_store)
+    pipeline = SolanaMemePipeline(enrichment, refresh, risk_worker)
 
     stop_event = threading.Event()
     stream = LaunchStreamManager(PumpPortalDiscovery(), launches)
@@ -53,6 +64,8 @@ def run_service(
     deadline = time.monotonic() + duration_seconds if duration_seconds else None
     print("VELTRIX Solana read-only discovery and market pipeline started.")
     print("No wallet, signer, paper broker, or live execution is connected.")
+    if risk_worker is None:
+        print("Risk evidence collection is disabled: configure existing GOPLUS_ACCESS_TOKEN and SOLANA_RPC_URL.")
     try:
         while not stop_event.is_set():
             if deadline is not None and time.monotonic() >= deadline:
@@ -68,6 +81,10 @@ def run_service(
                     f"unchanged={result.refresh.unchanged}, "
                     f"refresh failures={result.refresh.failed}, "
                     f"refresh jobs deferred={result.refresh.deferred}"
+                    + (
+                        f", risk reports stored={result.risk.stored}, risk failures={result.risk.failed}"
+                        if result.risk is not None else ", risk collection disabled"
+                    )
                 )
             except Exception as exc:
                 launches.record_event(
@@ -89,6 +106,7 @@ def run_service(
             "VELTRIX pipeline stopped. "
             f"launch candidates stored={launches.candidate_count()}, "
             f"market snapshots stored={markets.count()}, "
+            f"risk reports stored={risk_store.count() if risk_store is not None else 0}, "
             f"active feed outages={launches.active_outage_count()}"
         )
 
