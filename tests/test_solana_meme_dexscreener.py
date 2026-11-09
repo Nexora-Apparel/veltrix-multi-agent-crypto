@@ -120,11 +120,12 @@ def test_invalid_response_shape_is_reported_as_source_error():
     assert "response shape" in batch.errors[0][1]
 
 
-def test_rejects_invalid_timeout():
+@pytest.mark.parametrize("timeout", [0, -1, True, "10", float("nan"), float("inf")])
+def test_rejects_invalid_timeout(timeout):
     import pytest
 
     with pytest.raises(ValueError):
-        DexScreenerDiscovery(timeout_seconds=0)
+        DexScreenerDiscovery(timeout_seconds=timeout)
 
 def test_rejects_object_response_without_token_fields():
     session = FakeSession({
