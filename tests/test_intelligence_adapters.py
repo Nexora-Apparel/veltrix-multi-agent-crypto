@@ -161,3 +161,16 @@ def test_provider_contract_fails_closed_on_safety_identity_mismatch():
     )
     assert not report.passed
     assert "evidence provider is not trusted" in report.reasons
+
+
+def test_wallet_adapter_deduplicates_by_chain_wallet_transaction_and_token():
+    adapter = VerifiedIntelligenceAdapters(["wallet-indexer"])
+    batch = adapter.adapt_wallet_observations([
+        wallet(wallet="w1", tx="same-signature", token_address="mint-a"),
+        wallet(wallet="w1", tx="same-signature", token_address="mint-b"),
+        wallet(wallet="w1", tx="same-signature", token_address="mint-a"),
+        wallet(wallet="w2", tx="same-signature", token_address="mint-a"),
+    ], 1_000_100)
+    assert len(batch.accepted) == 3
+    assert len(batch.rejected) == 1
+    assert "duplicate transaction" in batch.rejected[0]
