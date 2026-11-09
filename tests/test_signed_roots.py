@@ -76,6 +76,8 @@ def test_signed_root_provider_verifies_ed25519_and_binds_request():
     assert result.provider == "independent-root-registry"
     assert result.roots == ("0x" + "b" * 40,)
     assert result.coverage_complete
+    assert result.signature_verified is True
+    assert len(result.signing_key_fingerprint) == 64
     assert session.calls[0]["params"] == {
         "chain": "base", "token_address": "0x" + "a" * 40,
     }
