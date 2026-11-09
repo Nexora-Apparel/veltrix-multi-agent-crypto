@@ -36,7 +36,7 @@ class SignedDeveloperRootProvider:
         try:
             raw_key = base64.b64decode(public_key_b64, validate=True)
             self.public_key = Ed25519PublicKey.from_public_bytes(raw_key)
-        self.signing_key_fingerprint = hashlib.sha256(raw_key).hexdigest()
+            self.signing_key_fingerprint = hashlib.sha256(raw_key).hexdigest()
         except (ValueError, TypeError) as exc:
             raise ValueError("Developer-root Ed25519 public key must be base64-encoded 32 bytes") from exc
         self.endpoint = endpoint
