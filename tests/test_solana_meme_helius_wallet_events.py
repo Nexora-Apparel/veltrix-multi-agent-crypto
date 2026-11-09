@@ -141,3 +141,37 @@ def test_helius_wallet_provider_surfaces_provider_outage_for_runtime_logging():
     source = build_provider(fake)
     with pytest.raises(ProviderError, match="retry on the next consensus cycle"):
         source((MINT_A,), now_ms=10_000)
+
+def test_stored_spot_price_resolver_requires_fresh_valid_market_evidence():
+    from veltrix.providers.base import ProviderError
+    from veltrix.solana_meme.helius_wallet_events import StoredMarketSpotPriceResolver
+
+    class Store:
+        def __init__(self, row):
+            self.row = row
+
+        def latest(self, mint):
+            return self.row
+
+    resolver = StoredMarketSpotPriceResolver(
+        Store({"retrieved_at_ms": 9_900, "price_usd": 0.25}),
+        clock_ms=lambda: 10_000,
+        max_age_ms=200,
+    )
+    assert resolver(MINT_A) == 0.25
+
+    stale = StoredMarketSpotPriceResolver(
+        Store({"retrieved_at_ms": 9_000, "price_usd": 0.25}),
+        clock_ms=lambda: 10_000,
+        max_age_ms=200,
+    )
+    with pytest.raises(ProviderError, match="stale or future-dated"):
+        stale(MINT_A)
+
+    invalid = StoredMarketSpotPriceResolver(
+        Store({"retrieved_at_ms": 9_900, "price_usd": float("nan")}),
+        clock_ms=lambda: 10_000,
+        max_age_ms=200,
+    )
+    with pytest.raises(ProviderError, match="invalid"):
+        invalid(MINT_A)
