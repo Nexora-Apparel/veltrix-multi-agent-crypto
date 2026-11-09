@@ -10,6 +10,7 @@ from .developer_worker import DeveloperEvidenceBatchResult, SolanaDeveloperEvide
 from .bundle_worker import LaunchBundleBatchResult, SolanaLaunchBundleWorker
 from .sellability_worker import SellabilityBatchResult, SolanaSellabilityWorker
 from .sell_simulation_worker import SellSimulationBatchResult, SolanaSellSimulationWorker
+from .liquidity_worker import SolanaLiquidityBatchResult, SolanaLiquidityEvidenceWorker
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class SolanaPipelineCycleResult:
     refresh: MarketRefreshBatchResult
     sellability: SellabilityBatchResult | None = None
     sell_simulation: SellSimulationBatchResult | None = None
+    liquidity: SolanaLiquidityBatchResult | None = None
 
 
 class SolanaMemePipeline:
@@ -44,6 +46,8 @@ class SolanaMemePipeline:
         sellability_batch_size: int = 2,
         sell_simulation_worker: SolanaSellSimulationWorker | None = None,
         sell_simulation_batch_size: int = 1,
+        liquidity_worker: SolanaLiquidityEvidenceWorker | None = None,
+        liquidity_batch_size: int = 2,
     ) -> None:
         paths = {enrichment_worker.database_path, refresh_worker.database_path}
         if risk_worker is not None:
@@ -56,6 +60,8 @@ class SolanaMemePipeline:
             paths.add(sellability_worker.database_path)
         if sell_simulation_worker is not None:
             paths.add(sell_simulation_worker.database_path)
+        if liquidity_worker is not None:
+            paths.add(liquidity_worker.database_path)
         if len(paths) != 1:
             raise ValueError("all Solana pipeline workers must share one SQLite database")
         if isinstance(risk_batch_size, bool) or not isinstance(risk_batch_size, int) or not 1 <= risk_batch_size <= 100:
@@ -80,6 +86,10 @@ class SolanaMemePipeline:
             raise ValueError("sell_simulation_batch_size must be between 1 and 10")
         self.sell_simulation_worker = sell_simulation_worker
         self.sell_simulation_batch_size = sell_simulation_batch_size
+        if isinstance(liquidity_batch_size, bool) or not isinstance(liquidity_batch_size, int) or not 1 <= liquidity_batch_size <= 10:
+            raise ValueError("liquidity_batch_size must be between 1 and 10")
+        self.liquidity_worker = liquidity_worker
+        self.liquidity_batch_size = liquidity_batch_size
 
     def run_once(self, *, limit: int = 25) -> SolanaPipelineCycleResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
@@ -105,9 +115,13 @@ class SolanaMemePipeline:
             self.sell_simulation_worker.run_once(limit=min(limit, self.sell_simulation_batch_size))
             if self.sell_simulation_worker is not None else None
         )
+        liquidity = (
+            self.liquidity_worker.run_once(limit=min(limit, self.liquidity_batch_size))
+            if self.liquidity_worker is not None else None
+        )
         refresh = self.refresh_worker.run_once(limit=limit)
         return SolanaPipelineCycleResult(
             enrichment=enrichment, risk=risk, developer=developer,
             bundle=bundle, refresh=refresh, sellability=sellability,
-            sell_simulation=sell_simulation,
+            sell_simulation=sell_simulation, liquidity=liquidity,
         )
