@@ -99,6 +99,9 @@ class LockerPositionSnapshot:
     evidence_ref: str
     account_owner: str | None = None
     custody_account: str | None = None
+    custody_authority: str | None = None
+    custody_token_mint: str | None = None
+    custody_account_owner: str | None = None
 
 
 @dataclass(frozen=True)
@@ -251,6 +254,7 @@ class LiquidityEvidenceAnalyzer:
         total_supply = 0
         total_active_locked = 0
         active_locked_pool_count = 0
+        per_pool_locked_pct = []
         earliest_unlock = None
         seen_positions = set()
         for pool in batch.pools:
@@ -268,7 +272,7 @@ class LiquidityEvidenceAnalyzer:
                 reasons.append("pool or LP token address is malformed")
             if pool.inventory_provider != batch.provider or pool.pool_set_id != batch.pool_set_id:
                 reasons.append("pool inventory provider or set identity mismatch")
-            if pool.inventory_complete is not True or not pool.finalized_ref if hasattr(pool, "finalized_ref") else False:
+            if pool.inventory_complete is not True:
                 reasons.append("pool-level inventory coverage is incomplete")
             if (not isinstance(pool.total_lp_supply, int) or isinstance(pool.total_lp_supply, bool)
                     or pool.total_lp_supply <= 0):
@@ -300,8 +304,15 @@ class LiquidityEvidenceAnalyzer:
             if chain == "solana":
                 if not position.account_owner or not _same_address("solana", position.account_owner, position.locker_address):
                     reasons.append("Solana lock account owner does not match verified locker program")
-                if not position.custody_account:
-                    reasons.append("Solana locker token-account custody is missing")
+                if not position.custody_account or not position.custody_authority:
+                    reasons.append("Solana locker token-account custody or authority is missing")
+                if not _same_address("solana", position.custody_token_mint or "", position.lp_token_address):
+                    reasons.append("Solana locker custody token mint does not match LP mint")
+                if position.custody_account_owner not in {
+                    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+                }:
+                    reasons.append("Solana custody account is not owned by a supported token program")
             if not position.position_id or position.position_id in seen_positions:
                 reasons.append("locker position ID is missing or duplicated")
             seen_positions.add(position.position_id)
@@ -313,6 +324,8 @@ class LiquidityEvidenceAnalyzer:
                     or position.unlock_at_ms <= 0):
                 reasons.append("locker unlock timestamp is missing or invalid")
                 continue
+            if deployment is not None and not _same_address(chain, position.locker_address, deployment.address):
+                reasons.append("locker position address does not match pinned deployment")
             if not position.evidence_ref:
                 reasons.append("locker position source reference is missing")
             if (not isinstance(position.observed_at_ms, int) or isinstance(position.observed_at_ms, bool)
@@ -330,26 +343,22 @@ class LiquidityEvidenceAnalyzer:
             if active > pool.total_lp_supply:
                 reasons.append("active locked LP exceeds pool LP total supply")
             total_active_locked += active
+            per_pool_locked_pct.append(100.0 * active / pool.total_lp_supply)
             if active > 0:
                 active_locked_pool_count += 1
                 unlocks = [item.unlock_at_ms for item in positions if item.amount > 0 and item.unlock_at_ms > now_ms]
                 if unlocks:
                     earliest_unlock = min(earliest_unlock, min(unlocks)) if earliest_unlock else min(unlocks)
 
-        locked_pct = (100.0 * total_active_locked / total_supply) if total_supply > 0 else None
-        if locked_pct is None or not math.isfinite(locked_pct) or locked_pct < self.minimum_locked_pct:
-            reasons.append("active locked LP does not cover the required share of all discovered pool supply")
+        # LP units are pool-specific and cannot be summed into a meaningful
+        # cross-pool ratio. The weakest pool determines the aggregate result.
+        locked_pct = min(per_pool_locked_pct) if per_pool_locked_pct else None
+        if locked_pct is None or not math.isfinite(locked_pct) or any(
+            pct < self.minimum_locked_pct for pct in per_pool_locked_pct
+        ):
+            reasons.append("at least one discovered pool lacks the required active locked LP share")
         if len(pools) != len(batch.pools):
             reasons.append("pool inventory contains malformed or duplicate entries")
-        if len(active_locked_pool_count and [p for p in pools.values() if positions_by_pool[
-            p.pool_address.lower() if chain in {"base", "bsc"} else p.pool_address]]) < 0:
-            reasons.append("unreachable inventory consistency guard")
-
-        if chain in {"base", "bsc"} and any(
-            not _valid_address(chain, d.address) for d in batch.deployments
-            if isinstance(d, LockerDeployment)
-        ):
-            reasons.append("EVM locker deployment is unsupported")
         passed = not reasons and bool(pools) and locked_pct is not None
         return LiquidityEvidenceReport(
             chain, token_address, passed, len(batch.pools), len(pools),
