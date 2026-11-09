@@ -140,14 +140,16 @@ class SolanaRiskEvidenceWorker:
 
     def _succeed(self, mint: str, now: int, report_errors: tuple[str, ...]) -> None:
         with self._connect() as db:
+            degraded = bool(report_errors)
             db.execute("""
                 UPDATE solana_risk_evidence_jobs
-                SET status = 'active', consecutive_failures = 0,
+                SET status = 'active', consecutive_failures = ?,
                     next_refresh_at_ms = ?, lease_until_ms = NULL,
                     last_success_at_ms = ?, last_error = ?, updated_at_ms = ?
                 WHERE mint = ?
             """, (
-                now + self.refresh_interval_ms,
+                1 if degraded else 0,
+                now + (self.retry_base_ms if degraded else self.refresh_interval_ms),
                 now,
                 "; ".join(report_errors)[:500] if report_errors else None,
                 now,
