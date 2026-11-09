@@ -33,7 +33,7 @@ def decode_address(value, label):
     if not isinstance(value, str) or not value.startswith("0x"):
         raise PreflightError(f"{label}: malformed ABI result")
     raw = bytes.fromhex(value[2:])
-    if len(raw) != 32 or raw[:12] != b"\\x00" * 12:
+    if len(raw) != 32 or raw[:12] != b"\x00" * 12:
         raise PreflightError(f"{label}: malformed ABI address")
     return "0x" + raw[12:].hex()
 
@@ -141,7 +141,9 @@ def main():
     except json.JSONDecodeError as exc:
         raise PreflightError("candidate manifest is not valid JSON") from exc
     expected = {"sushiswap-v2", "baseswap-v2", "quickswap-v2", "swapbased-v2"}
-    if not isinstance(candidates, list) or {x.get("amm_id") for x in candidates if isinstance(x, dict)} != expected or len(candidates) != 4:
+    if (not isinstance(candidates, list) or len(candidates) != 4
+            or any(not isinstance(item, dict) for item in candidates)
+            or {item.get("amm_id") for item in candidates} != expected):
         raise PreflightError("manifest must contain exactly the four named provisional candidates")
     for item in candidates:
         if (not isinstance(item.get("amm_id"), str)
@@ -195,7 +197,7 @@ def main():
     }
     with open("base-v2-candidate-qualification.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
-        f.write("\\n")
+        f.write("\n")
     print(json.dumps({"status": result["status"], "finalized_block": height,
                       "candidate_count": len(reports),
                       "report": "base-v2-candidate-qualification.json"}, indent=2))
