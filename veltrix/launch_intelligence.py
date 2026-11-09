@@ -42,6 +42,7 @@ class LaunchIndexSnapshot:
     observations: tuple[LaunchBuyEvidence, ...]
     coverage: LaunchCoverage
     observed_at_ms: int
+    supply_block_ref: str = ""
 
 
 class LaunchIndexProvider(Protocol):
@@ -73,6 +74,7 @@ class LaunchIntelligenceService:
         analyzer: LaunchBundleAnalyzer,
         composite_validator: CompositeTokenSafetyValidator,
         trusted_launch_providers: Iterable[str] = (),
+        trusted_funding_providers: Iterable[str] = (),
         launch_window_ms: int = 120_000,
     ):
         if launch_window_ms <= 0:
@@ -81,6 +83,7 @@ class LaunchIntelligenceService:
         self.analyzer = analyzer
         self.validator = composite_validator
         self.trusted_launch_providers = frozenset(trusted_launch_providers)
+        self.trusted_funding_providers = frozenset(trusted_funding_providers)
         self.launch_window_ms = launch_window_ms
 
     def evaluate(
@@ -126,6 +129,13 @@ class LaunchIntelligenceService:
         observations = snapshot.observations if isinstance(snapshot, LaunchIndexSnapshot) else ()
         launch_at = snapshot.launch_at_ms if isinstance(snapshot, LaunchIndexSnapshot) else now_ms
         supply = snapshot.total_supply if isinstance(snapshot, LaunchIndexSnapshot) else None
+        funding_ok = all(
+            item.funder_provider in self.trusted_funding_providers
+            and bool(item.funder_evidence_id) and bool(item.funder_address)
+            for item in observations
+        )
+        if observations and not funding_ok:
+            coverage_ok = False
         report = self.analyzer.analyze(
             provider=provider_id,
             chain=chain,
@@ -135,6 +145,20 @@ class LaunchIntelligenceService:
             observations=observations,
             coverage_complete=coverage_ok,
             now_ms=now_ms,
+        )
+        report = LaunchBundleReport(
+            **{
+                **report.__dict__,
+                "evidence_id": snapshot.coverage.evidence_id if isinstance(snapshot, LaunchIndexSnapshot) else "",
+                "observed_at_ms": snapshot.observed_at_ms if isinstance(snapshot, LaunchIndexSnapshot) else 0,
+                "scanned_through_ms": snapshot.coverage.indexed_through_ms if isinstance(snapshot, LaunchIndexSnapshot) else 0,
+                "supply_source": provider_id,
+                "supply_block_ref": snapshot.supply_block_ref if isinstance(snapshot, LaunchIndexSnapshot) else "",
+                "supply_observed_at_ms": snapshot.observed_at_ms if isinstance(snapshot, LaunchIndexSnapshot) else 0,
+                "pages_scanned": snapshot.coverage.pages_completed if isinstance(snapshot, LaunchIndexSnapshot) else 0,
+                "funder_providers": tuple(sorted({item.funder_provider for item in observations if item.funder_provider})),
+                "provenance": (snapshot.coverage.evidence_id,) if isinstance(snapshot, LaunchIndexSnapshot) else (),
+            }
         )
         safety = self.validator.validate(
             token_address,
