@@ -17,6 +17,7 @@ def passing_report():
             evidence_id="bundle-evidence", observed_at_ms=1000,
             scanned_through_ms=1000, supply_source="bundle",
             supply_block_ref="slot:123", supply_observed_at_ms=1000,
+            pages_scanned=1, provenance=("launch-scan:complete",),
         ),
     )
     return CompositeTokenSafetyValidator(
