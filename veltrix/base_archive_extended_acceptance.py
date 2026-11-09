@@ -140,11 +140,6 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
     # historical anchors show allPairsLength increasing. This tests actual
     # historical log retrieval rather than only empty single-block queries.
     log_from, log_to = anchors[-2], anchors[-1]
-    log_coverage = {}
-    logs = normalized_logs(
-        rpc, factory, log_from + 1, log_to,
-        stop_after=expected_delta, coverage=log_coverage,
-    )
     expected_delta = (
         results[str(log_to)]["all_pairs_length"]
         - results[str(log_from)]["all_pairs_length"]
@@ -153,6 +148,11 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
         raise PreflightError(
             f"{rpc.label}: selected historical log range has no pair-count increase"
         )
+    log_coverage = {}
+    logs = normalized_logs(
+        rpc, factory, log_from + 1, log_to,
+        stop_after=expected_delta, coverage=log_coverage,
+    )
     if len(logs) != expected_delta:
         raise PreflightError(
             f"{rpc.label}: PairCreated log count {len(logs)} does not match "
