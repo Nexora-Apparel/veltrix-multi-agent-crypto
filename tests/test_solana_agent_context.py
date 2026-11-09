@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
+from veltrix.providers import factory as provider_factory
+
 import pytest
 
 from veltrix.providers.coordinator import CrossChainIntelligenceResult
 from veltrix.providers.intelligence import AdapterBatch
 from veltrix.whales import WhaleCluster, WalletBuyEvent
 from veltrix.solana_meme.agent_context import SolanaAgentContextProvider
+from veltrix.solana_meme.market_agent_context import SolanaMarketAgentContextProvider
 from veltrix.solana_meme.market_data import SolanaMarketSnapshot
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 
@@ -137,3 +140,29 @@ def test_stale_baseline_does_not_emit_volume_spike(tmp_path):
         "market": markets.latest(MINT), "evaluation_now_ms": NOW,
     })
     assert context.volume_spike is False
+
+
+def test_factory_uses_market_context_without_helius_wallet_configuration(tmp_path):
+    settings = SimpleNamespace(
+        helius_api_key="", tracked_smart_wallets=(),
+        trusted_wallet_providers=(),
+    )
+    provider = provider_factory.build_solana_agent_context_provider(
+        settings, market_store(tmp_path),
+    )
+    assert isinstance(provider, SolanaMarketAgentContextProvider)
+
+
+def test_factory_adds_helius_only_with_explicit_wallet_trust(tmp_path, monkeypatch):
+    settings = SimpleNamespace(
+        helius_api_key="configured", tracked_smart_wallets=("wallet-a", "wallet-b"),
+        trusted_wallet_providers=("helius",),
+    )
+    monkeypatch.setattr(
+        provider_factory, "build_intelligence_coordinator",
+        lambda settings: FakeCoordinator(),
+    )
+    provider = provider_factory.build_solana_agent_context_provider(
+        settings, market_store(tmp_path),
+    )
+    assert isinstance(provider, SolanaAgentContextProvider)
