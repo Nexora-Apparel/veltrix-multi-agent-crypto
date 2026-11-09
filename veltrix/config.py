@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,6 +46,21 @@ class Settings:
     helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
     alchemy_api_key: str = os.getenv("ALCHEMY_API_KEY", "")
     solana_rpc_url: str = os.getenv("SOLANA_RPC_URL", "")
+    solana_liquidity_pool_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_POOL_RPC_URL", "")
+    solana_liquidity_locker_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_LOCKER_RPC_URL", "")
+    base_liquidity_pool_rpc_url: str = os.getenv("BASE_LIQUIDITY_POOL_RPC_URL", "")
+    base_liquidity_locker_rpc_url: str = os.getenv("BASE_LIQUIDITY_LOCKER_RPC_URL", "")
+    bsc_liquidity_pool_rpc_url: str = os.getenv("BSC_LIQUIDITY_POOL_RPC_URL", "")
+    bsc_liquidity_locker_rpc_url: str = os.getenv("BSC_LIQUIDITY_LOCKER_RPC_URL", "")
+    base_liquidity_factories_json: str = os.getenv("BASE_LIQUIDITY_AMM_FACTORIES_JSON", "")
+    base_liquidity_lockers_json: str = os.getenv("BASE_UNCX_LOCKERS_JSON", "")
+    bsc_liquidity_factories_json: str = os.getenv("BSC_LIQUIDITY_AMM_FACTORIES_JSON", "")
+    bsc_liquidity_lockers_json: str = os.getenv("BSC_UNCX_LOCKERS_JSON", "")
+    base_liquidity_registry_complete: bool = os.getenv("BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE", "false").lower() == "true"
+    bsc_liquidity_registry_complete: bool = os.getenv("BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE", "false").lower() == "true"
+    liquidity_reader_max_logs: int = int(os.getenv("LIQUIDITY_READER_MAX_LOGS", "200000"))
+    liquidity_reader_max_pools: int = int(os.getenv("LIQUIDITY_READER_MAX_POOLS", "50000"))
+    liquidity_reader_max_locks: int = int(os.getenv("LIQUIDITY_READER_MAX_LOCKS", "100000"))
     holder_inventory_max_accounts: int = int(os.getenv("HOLDER_INVENTORY_MAX_ACCOUNTS", "50000"))
     holder_inventory_max_logs: int = int(os.getenv("HOLDER_INVENTORY_MAX_LOGS", "200000"))
     holder_inventory_max_holders: int = int(os.getenv("HOLDER_INVENTORY_MAX_HOLDERS", "50000"))
@@ -81,6 +97,9 @@ def settings() -> Settings:
             or not 1 <= s.funding_graph_max_total_pages <= 10_000
             or not 1 <= s.holder_inventory_max_accounts <= 100_000
             or s.holder_inventory_max_logs < 1
-            or s.holder_inventory_max_holders < 1):
+            or s.holder_inventory_max_holders < 1
+            or s.liquidity_reader_max_logs < 1
+            or s.liquidity_reader_max_pools < 1
+            or s.liquidity_reader_max_locks < 1):
         raise ValueError("Invalid risk, discovery or polling configuration")
     return s
