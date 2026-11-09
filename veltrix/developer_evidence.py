@@ -5,6 +5,7 @@ attestation evidence. It never promotes an untrusted root list or incomplete
 provider response into a developer-holdings claim.
 """
 from dataclasses import dataclass
+from urllib.parse import urlparse
 from typing import Iterable
 
 from .composite_safety import SafetyEvidenceBundle
@@ -99,9 +100,12 @@ class DeveloperEvidenceOrchestrator:
                 raise ValueError("developer-root attestation provider is not trusted")
             if not root_attestation.coverage_complete or not root_attestation.roots:
                 raise ValueError("developer-root attestation is incomplete")
+            source = urlparse(root_attestation.source_ref or "")
             if (root_attestation.signature_verified is not True
                     or not isinstance(root_attestation.signing_key_fingerprint, str)
-                    or len(root_attestation.signing_key_fingerprint) != 64):
+                    or len(root_attestation.signing_key_fingerprint) != 64
+                    or any(c not in "0123456789abcdef" for c in root_attestation.signing_key_fingerprint)
+                    or source.scheme != "https" or not source.netloc):
                 raise ValueError("developer-root attestation lacks verified Ed25519 signer provenance")
             if (not root_attestation.evidence_id or not root_attestation.source_ref
                     or not isinstance(root_attestation.observed_at_ms, int)
