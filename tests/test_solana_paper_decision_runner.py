@@ -125,6 +125,7 @@ def test_runner_blocks_missing_evidence_and_is_idempotent(tmp_path):
         developer_store=developers, bundle_store=bundles,
         sellability_store=routes, safety_store=safety, broker=broker,
         core=Core(broker), agent_context_provider=context_provider,
+        trusted_agent_context_providers=("independent-agent-context",),
     )
     first = runner.run_once()
     second = runner.run_once()
