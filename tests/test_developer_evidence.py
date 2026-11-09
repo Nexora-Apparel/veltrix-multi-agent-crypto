@@ -50,6 +50,8 @@ def test_orchestrator_analyzes_and_persists_rejected_evidence(tmp_path):
         analyzer=None,
         intelligence_adapters=adapter,
         trusted_root_providers=("independent-roots",),
+        trusted_holder_providers=("holder-index",),
+        trusted_funding_providers=("funding-index",),
         certified_provider_id=None,
         audit_sink=broker,
     )
@@ -83,6 +85,8 @@ def test_untrusted_root_provider_is_rejected_and_audited(tmp_path):
         analyzer=None,
         intelligence_adapters=Adapter(),
         trusted_root_providers=(),
+        trusted_holder_providers=("holder-index",),
+        trusted_funding_providers=("funding-index",),
         audit_sink=broker,
     )
     roots = DeveloperRootAttestation(
