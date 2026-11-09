@@ -71,6 +71,10 @@ def safety_evidence(provider, *, liquidity=None, dev=None):
         source_ref=f"https://evidence.invalid/{provider}",
         method="full_lp_inventory" if liquidity is True else "full_holder_graph",
         independence_group=provider,
+        liquidity_inventory_complete=liquidity is True,
+        liquidity_pool_count=1 if liquidity is True else None,
+        liquidity_locked_pool_count=1 if liquidity is True else None,
+        liquidity_locked_lp_pct=100.0 if liquidity is True else None,
     )
 
 
