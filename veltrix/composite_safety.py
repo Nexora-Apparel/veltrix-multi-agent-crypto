@@ -142,6 +142,10 @@ class CompositeTokenSafetyValidator:
                 )
             ):
                 reasons.append("shared-funder evidence provider is missing or untrusted")
+            if report.accepted_transactions > 0 and (
+                set(report.funder_providers) & (set(provider_ids) | {report.provider})
+            ):
+                reasons.append("funding trace provider must be independent from other safety claims")
             try:
                 bundled_pct = float(report.bundled_supply_pct)
                 if isinstance(report.bundled_supply_pct, bool):
