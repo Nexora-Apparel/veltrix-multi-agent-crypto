@@ -41,13 +41,13 @@ def pair_created_log(pair=PAIR, pair_count=1, log_index=0):
     }
 
 
-def bsc_deposit_log():
+def bsc_deposit_log(log_index=0, tx_suffix="ef"):
     return {
         "address": LOCKER, "removed": False, "topics": [BSC_DEPOSIT_TOPIC],
         "data": "0x" + address_topic(PAIR)[2:] + address_topic(OWNER)[2:]
         + word(100) + word(BLOCK_TIME - 100) + word(BLOCK_TIME + 100_000),
-        "blockNumber": "0x1", "logIndex": "0x0",
-        "transactionHash": "0x" + "ef" * 32,
+        "blockNumber": "0x1", "logIndex": hex(log_index),
+        "transactionHash": "0x" + tx_suffix * 32, "blockHash": BLOCK_HASH,
     }
 
 
@@ -86,7 +86,7 @@ class RpcSession:
                 return Response([pair_created_log()] if params[0]["fromBlock"] == "0x1" else [])
             if (address == LOCKER.lower() and params[0]["topics"][0] == BSC_DEPOSIT_TOPIC
                     and params[0]["fromBlock"] == "0x1"):
-                return Response([] if self.omit_bsc_event else [bsc_deposit_log()] + ([bsc_deposit_log()] if self.extra_bsc_relock else []))
+                return Response([] if self.omit_bsc_event else [bsc_deposit_log()] + ([bsc_deposit_log(1, "ab")] if self.extra_bsc_relock else []))
             if address == LOCKER.lower() and params[0]["topics"][0] == BSC_WITHDRAW_TOPIC:
                 return Response([])
             return Response([])
