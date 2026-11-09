@@ -46,8 +46,17 @@ class Rpc:
             )
             response.raise_for_status()
             payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            raise ProbeError(f"{self.label}: {method} request failed") from exc
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "unknown"
+            raise ProbeError(f"{self.label}: {method} HTTP {status}") from exc
+        except requests.Timeout as exc:
+            raise ProbeError(f"{self.label}: {method} timed out after 25 seconds") from exc
+        except requests.ConnectionError as exc:
+            raise ProbeError(f"{self.label}: {method} connection failed ({type(exc).__name__})") from exc
+        except requests.RequestException as exc:
+            raise ProbeError(f"{self.label}: {method} transport failed ({type(exc).__name__})") from exc
+        except ValueError as exc:
+            raise ProbeError(f"{self.label}: {method} returned invalid JSON") from exc
         if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
             raise ProbeError(f"{self.label}: {method} returned an RPC error")
         return payload["result"]
