@@ -30,7 +30,16 @@ def main():
             time.sleep(min(cfg.poll_seconds, max(0, deadline-time.monotonic())))
     except KeyboardInterrupt:
         print("Session interrupted; inspect the SQLite ledger. Performance is not certified.")
-    print(f"Session ended. Realized PnL: {broker.totals()['realized_pnl']:.2f} USD; no live orders were sent.")
+    report = broker.session_report()
+    print("PAPER SESSION REPORT")
+    print(f"Starting balance: ${report['starting_balance']:.2f}")
+    print(f"Cash: ${report['cash']:.2f}")
+    print(f"Realized PnL: ${report['realized_pnl']:.2f}")
+    print(f"Closed positions: {report['closed_positions']}; win rate: {report['win_rate_pct']:.1f}%")
+    print(f"Open positions remaining: {report['open_positions']}")
+    print(f"Best closed position: {report['best_trade']}")
+    print(f"Worst closed position: {report['worst_trade']}")
+    print("No live orders were sent. This is not a certified strategy-performance result.")
 
 if __name__ == "__main__":
     main()
