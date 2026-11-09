@@ -24,6 +24,7 @@ class SafetyReport:
     checks: tuple[str, ...]
     reasons: tuple[str, ...]
     observed_at_ms: int
+    creator_hold_pct: float | None = None
 
 class TokenSafetyValidator:
     def __init__(self, trusted_providers: Iterable[str] = (), max_age_ms: int = 300_000):
@@ -63,4 +64,7 @@ class TokenSafetyValidator:
         else:
             checks.append("bundled_supply_zero")
         passed = not reasons and len(checks) == 3
-        return SafetyReport(token_address, passed, tuple(checks), tuple(reasons), evidence.observed_at_ms)
+        return SafetyReport(
+            token_address, passed, tuple(checks), tuple(reasons),
+            evidence.observed_at_ms, creator_hold_pct=evidence.creator_hold_pct,
+        )
