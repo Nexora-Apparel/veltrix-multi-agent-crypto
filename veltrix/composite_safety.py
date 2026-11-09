@@ -37,6 +37,12 @@ class CompositeTokenSafetyValidator:
             raise ValueError("max_age_ms must be positive")
         self.max_age_ms = max_age_ms
 
+    @staticmethod
+    def _same_token(chain: str, left: str, right: str) -> bool:
+        if not isinstance(left, str) or not isinstance(right, str):
+            return False
+        return left.lower() == right.lower() if chain in {"base", "bsc"} else left == right
+
     def validate(
         self, token_address: str, bundle: SafetyEvidenceBundle | None, now_ms: int,
         chain: str,
@@ -60,15 +66,19 @@ class CompositeTokenSafetyValidator:
             if not isinstance(evidence, SafetyEvidence):
                 reasons.append(f"{label}: typed evidence is missing")
                 continue
-            if evidence.token_address != token_address:
+            if not self._same_token(chain_key, evidence.token_address, token_address):
                 reasons.append(f"{label}: token address mismatch")
-            if evidence.provider not in trusted:
+            if not isinstance(evidence.provider, str) or evidence.provider not in trusted:
                 reasons.append(f"{label}: provider is not trusted")
-            if not evidence.evidence_id:
+            if not isinstance(evidence.evidence_id, str) or not evidence.evidence_id.strip():
                 reasons.append(f"{label}: evidence identifier is missing")
-            age = now_ms - evidence.observed_at_ms
-            if age < 0 or age > self.max_age_ms:
-                reasons.append(f"{label}: evidence is stale or timestamp is invalid")
+            if (not isinstance(evidence.observed_at_ms, int)
+                    or isinstance(evidence.observed_at_ms, bool)):
+                reasons.append(f"{label}: evidence timestamp is invalid")
+            else:
+                age = now_ms - evidence.observed_at_ms
+                if age < 0 or age > self.max_age_ms:
+                    reasons.append(f"{label}: evidence is stale or timestamp is invalid")
             if isinstance(evidence.provider, str) and evidence.provider:
                 provider_ids.append(evidence.provider)
             if field == "liquidity_locked":
@@ -79,6 +89,8 @@ class CompositeTokenSafetyValidator:
             else:
                 try:
                     dev_pct = float(evidence.dev_hold_pct)
+                    if isinstance(evidence.dev_hold_pct, bool):
+                        dev_pct = float("nan")
                 except (TypeError, ValueError):
                     dev_pct = float("nan")
                 if not math.isfinite(dev_pct) or not 0 <= dev_pct < 5:
@@ -90,22 +102,35 @@ class CompositeTokenSafetyValidator:
         if not isinstance(report, LaunchBundleReport):
             reasons.append("launch bundle report is missing or malformed")
         else:
-            if report.token_address != token_address:
+            if not self._same_token(chain_key, report.token_address, token_address):
                 reasons.append("launch bundle token address mismatch")
-            if report.chain.lower() != chain_key:
+            if not isinstance(report.chain, str) or report.chain.lower() != chain_key:
                 reasons.append("launch bundle chain mismatch")
-            if report.provider not in self.trusted_bundle:
+            if not isinstance(report.provider, str) or report.provider not in self.trusted_bundle:
                 reasons.append("launch bundle provider is not trusted")
-            age = now_ms - report.window_end_ms
-            if age < 0 or age > self.max_age_ms:
-                reasons.append("launch bundle evidence is stale or timestamp is invalid")
+            if (not isinstance(report.launch_at_ms, int) or isinstance(report.launch_at_ms, bool)
+                    or not isinstance(report.window_end_ms, int) or isinstance(report.window_end_ms, bool)
+                    or report.launch_at_ms > report.window_end_ms):
+                reasons.append("launch bundle time range is invalid")
+            else:
+                age = now_ms - report.window_end_ms
+                if age < 0 or age > self.max_age_ms:
+                    reasons.append("launch bundle evidence is stale or timestamp is invalid")
             if report.coverage_complete is not True or report.rejected:
                 reasons.append("launch bundle coverage or evidence validation is incomplete")
-            if report.bundled_supply_pct != 0:
+            try:
+                bundled_pct = float(report.bundled_supply_pct)
+                if isinstance(report.bundled_supply_pct, bool):
+                    bundled_pct = float("nan")
+            except (TypeError, ValueError):
+                bundled_pct = float("nan")
+            if not math.isfinite(bundled_pct) or bundled_pct != 0:
                 reasons.append("bundled supply is missing or non-zero")
             else:
                 checks.append("bundled_supply_zero")
-            if report.shared_funder_clusters != 0:
+            if (not isinstance(report.shared_funder_clusters, int)
+                    or isinstance(report.shared_funder_clusters, bool)
+                    or report.shared_funder_clusters != 0):
                 reasons.append("launch bundle report contains shared-funder clusters")
 
         # Require three distinct provider identities for the three independent claims.
