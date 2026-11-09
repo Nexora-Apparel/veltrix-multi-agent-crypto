@@ -4,6 +4,8 @@ from veltrix.developer_concentration import HolderBalance, HolderSnapshot
 from veltrix.providers.intelligence import TokenSafetyObservation
 from veltrix.solana_meme.candidates import normalize_candidate
 from veltrix.solana_meme.launch_stream import LaunchStore
+from veltrix.solana_meme.market_data import SolanaMarketSnapshot
+from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 from veltrix.solana_meme.sellability import (
@@ -42,6 +44,9 @@ def risk_report(now=100_000, *, mint_evidence=True):
         missing_claims=("executable_sellability",), errors=(),
         mint_evidence_id="mint:1" if mint_evidence else None,
         mint_finalized_slot=1 if mint_evidence else None,
+        mint_supply_raw=1_000_000_000 if mint_evidence else None,
+        mint_decimals=6 if mint_evidence else None,
+        mint_supply_reconciled=mint_evidence,
     )
 
 
@@ -125,3 +130,34 @@ def test_worker_rejects_split_databases_and_invalid_limits(tmp_path):
             assert False, "expected invalid limit rejection"
         except ValueError:
             pass
+
+
+def test_worker_quotes_exact_configured_paper_notional_using_market_price(tmp_path):
+    path = tmp_path / "exact-paper-size.sqlite3"
+    launches = LaunchStore(path)
+    risks = SolanaRiskEvidenceStore(path)
+    markets = MarketSnapshotStore(path)
+    store = SolanaSellabilityEvidenceStore(path)
+    candidate = normalize_candidate(
+        {"chain": "solana", "mint": MINT},
+        source="pumpportal-new-token", observed_at_ms=90_000,
+    )
+    launches.record_candidate(candidate)
+    risks.record(risk_report())
+    markets.record(SolanaMarketSnapshot(
+        mint=MINT, selected_pair_address="pair-1", symbol="USDC",
+        price_usd=1.0, selected_pool_liquidity_usd=100_000,
+        selected_pool_volume_h1_usd=20_000, price_change_m5_pct=1.0,
+        pair_count=1, retrieved_at_ms=105_000, provider_observed_at_ms=105_000,
+        pair_created_at_ms=90_000, quality_flags=(),
+    ))
+    evaluator = SolanaSellabilityEvaluator(FakeQuoteProvider(), clock_ms=lambda: 105_000)
+    worker = SolanaSellabilityWorker(
+        launches, risks, evaluator, store, market_store=markets,
+        paper_notional_usd=50, clock_ms=lambda: 105_000,
+    )
+    result = worker.run_once()
+    assert result.route_observed == 1
+    report = store.latest(MINT)["report"]
+    assert report["input_amount_raw"] == 50_000_000
+    assert report["input_supply_fraction"] == 0.05
