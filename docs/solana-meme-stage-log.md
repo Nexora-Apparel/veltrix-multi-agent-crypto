@@ -257,3 +257,13 @@ executable_sellability claim.
 - Added tests for both recovery paths and confirmed neither path creates a duplicate paper position.
 - GitHub Actions run [42687501006](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687501006) passed on code/test commit `2743734fcdb9f8f07ae4ebbdb67d1952c86e5022`: 461 passed, 5 skipped.
 - The runner remains disabled in the runtime pending independently certified safety and agent-context providers.
+
+
+## 2026-11-09 — Market-derived Scout context
+
+- Added `SolanaMarketAgentContextProvider` using persisted DexScreener market snapshots.
+- It derives a volume-spike flag only after five distinct prior observations from the same selected pool; compares latest hourly volume with the prior-observation median and carries a content-addressed evidence ID.
+- Pool changes, stale snapshots, insufficient history or zero baseline volume cannot produce a spike signal. The adapter never invents smart-wallet BUY evidence; `smart_wallet_buys` remains empty.
+- This context can support Scout only. A second independent BUY agent is still required; Sniper depends on a separately certified composite safety report. Whale remains inactive until a separate trusted wallet-evidence provider exists.
+- The provider is exported and tested but not wired into runtime settings or allowlisted in production.
+- GitHub Actions run [42687790632](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687790632) passed on code/test commit `a0927118adef8a6897a8e970d5208ca6188ece8e`: 470 passed, 5 skipped.
