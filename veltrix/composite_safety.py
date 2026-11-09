@@ -38,12 +38,16 @@ class CompositeTokenSafetyValidator:
         self.max_age_ms = max_age_ms
 
     def validate(
-        self, token_address: str, bundle: SafetyEvidenceBundle | None, now_ms: int
+        self, token_address: str, bundle: SafetyEvidenceBundle | None, now_ms: int,
+        chain: str,
     ) -> SafetyReport:
         reasons: list[str] = []
         checks: list[str] = []
         if not isinstance(token_address, str) or not token_address.strip():
             reasons.append("missing token address")
+        chain_key = chain.lower() if isinstance(chain, str) else ""
+        if chain_key not in {"solana", "base", "bsc"}:
+            reasons.append("unsupported or missing token chain")
         if bundle is None or not isinstance(bundle, SafetyEvidenceBundle):
             return SafetyReport(token_address or "", False, (), ("composite safety evidence is missing",), now_ms)
 
@@ -88,6 +92,8 @@ class CompositeTokenSafetyValidator:
         else:
             if report.token_address != token_address:
                 reasons.append("launch bundle token address mismatch")
+            if report.chain.lower() != chain_key:
+                reasons.append("launch bundle chain mismatch")
             if report.provider not in self.trusted_bundle:
                 reasons.append("launch bundle provider is not trusted")
             age = now_ms - report.window_end_ms
