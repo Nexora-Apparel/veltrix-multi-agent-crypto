@@ -137,3 +137,25 @@ def test_orchestrator_fetches_signed_root_attestation_when_not_supplied(tmp_path
     assert roots.calls == [("base", "0xtoken")]
     assert result.report.coverage_complete
     assert result.report.root_provider == "signed-root-registry"
+
+
+def test_unverified_root_object_cannot_enter_concentration_analysis(tmp_path):
+    service = DeveloperEvidenceOrchestrator(
+        holder_providers={"base": HolderProvider()},
+        funding_providers={"base": FundingProvider()},
+        analyzer=None,
+        intelligence_adapters=Adapter(),
+        trusted_root_providers=("independent-roots",),
+        trusted_holder_providers=("holder-index",),
+        trusted_funding_providers=("funding-index",),
+    )
+    roots = DeveloperRootAttestation(
+        "base", "0xtoken", "independent-roots", "root-proof",
+        NOW - 100, ("0xdev",), True, "https://roots.example/proof",
+    )
+    result = service.evaluate(
+        chain="base", token_address="0xtoken", root_attestation=roots,
+        liquidity_evidence=None, launch_bundle=None, now_ms=NOW,
+    )
+    assert result.report.coverage_complete is False
+    assert any("verified Ed25519 signer provenance" in x for x in result.report.reasons)
