@@ -58,12 +58,23 @@ class HeliusConsensusWalletEventSource:
         price = float(value)
         return price if math.isfinite(price) and price > 0 else 0.0
 
-    def __call__(self, mint: str) -> tuple[WalletBuyEvent, ...]:
-        now = self.clock_ms()
+    def fetch_many(
+        self, mints: tuple[str, ...] | list[str], now_ms: int | None = None
+    ) -> tuple[WalletBuyEvent, ...]:
+        """Fetch all allowlisted-wallet observations in one provider batch."""
+        targets = tuple(dict.fromkeys(mints))
+        if not targets:
+            return ()
+        if any(not isinstance(mint, str) or not mint.strip() for mint in targets):
+            raise ValueError("wallet evidence targets must be non-empty mint strings")
+        now = self.clock_ms() if now_ms is None else now_ms
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("wallet source clock must return a positive integer")
         observations = self.provider.fetch_wallet_observations(
-            "solana", (mint,), max(0, now - self.max_age_ms)
+            "solana", targets, max(0, now - self.max_age_ms)
         )
         batch = self.adapters.adapt_wallet_observations(observations, now)
         return batch.accepted
+
+    def __call__(self, mint: str) -> tuple[WalletBuyEvent, ...]:
+        return self.fetch_many((mint,))
