@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from veltrix.solana_meme.paper_runtime import PaperTradingRuntime, build_runtime
+from veltrix.solana_meme.paper_runtime import PaperTradingRuntime, build_runtime, main
 
 
 def test_paper_runtime_builds_all_stores_on_one_persistent_database(tmp_path, monkeypatch):
