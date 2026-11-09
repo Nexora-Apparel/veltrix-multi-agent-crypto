@@ -66,9 +66,26 @@ class GoPlusTokenSafetyProvider:
             evidence_id=f"goplus:{evidence_id}",
             observed_at_ms=self.clock_ms(),
             liquidity_locked=locked,
-            dev_hold_pct=None,
+            dev_hold_pct=self._creator_hold_pct(item) if chain_key == "bsc" else None,
             bundled_supply_pct=None,
         )
+
+    @staticmethod
+    def _creator_hold_pct(item):
+        """Map GoPlus creator_percent (0..1 fraction) to percentage points.
+
+        The official BSC response defines 1 as 100%. Missing, malformed,
+        non-finite or out-of-range values remain unknown. Solana is not mapped
+        here because its documented response schema does not establish this field.
+        """
+        raw = item.get("creator_percent")
+        try:
+            fraction = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if not 0 <= fraction <= 1 or not fraction < float("inf"):
+            return None
+        return fraction * 100.0
 
     @staticmethod
     def _liquidity_lock_status(item):
