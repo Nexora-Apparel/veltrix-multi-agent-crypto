@@ -10,6 +10,7 @@ from typing import Callable
 from .launch_stream import LaunchStore
 from .risk_store import SolanaRiskEvidenceStore
 from .sellability import SolanaSellabilityEvaluator
+from .paper_sizing import calculate_paper_exit_size
 from .sellability_store import SolanaSellabilityEvidenceStore
 
 
@@ -40,6 +41,8 @@ class SolanaSellabilityWorker:
         retry_base_ms: int = 5_000,
         retry_max_ms: int = 300_000,
         quote_supply_fraction: float = 0.01,
+        market_store=None,
+        paper_notional_usd: float | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         paths = {
@@ -50,8 +53,15 @@ class SolanaSellabilityWorker:
             raise ValueError("sellability worker stores must share one persistent SQLite database")
         if min(refresh_interval_ms, lease_ms, retry_base_ms) < 1 or retry_max_ms < retry_base_ms:
             raise ValueError("invalid sellability worker timing")
-        if not 0.005 <= quote_supply_fraction <= 0.05:
-            raise ValueError("quote_supply_fraction must be between 0.005 and 0.05")
+        if not 0.000001 <= quote_supply_fraction <= 0.05:
+            raise ValueError("quote_supply_fraction must be between 0.000001 and 0.05")
+        if market_store is not None and market_store.database_path != launch_store.database_path:
+            raise ValueError("market store must share the sellability worker database")
+        if paper_notional_usd is not None:
+            if isinstance(paper_notional_usd, bool) or not isinstance(paper_notional_usd, (int, float)) or not 0 < paper_notional_usd <= 50:
+                raise ValueError("paper_notional_usd must be in (0, 50]")
+            if market_store is None:
+                raise ValueError("market store is required for exact paper-notional sell quotes")
         self.launch_store = launch_store
         self.risk_store = risk_store
         self.evaluator = evaluator
@@ -62,6 +72,8 @@ class SolanaSellabilityWorker:
         self.retry_base_ms = retry_base_ms
         self.retry_max_ms = retry_max_ms
         self.quote_supply_fraction = quote_supply_fraction
+        self.market_store = market_store
+        self.paper_notional_usd = paper_notional_usd
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._initialize()
 
@@ -97,8 +109,11 @@ class SolanaSellabilityWorker:
             latest = self.risk_store.latest(row["mint"])
             report = latest.get("report") if latest else None
             if (isinstance(report, dict) and report.get("mint_evidence_id")
-                    and isinstance(report.get("total_supply_raw"), int)
-                    and report["total_supply_raw"] > 0):
+                    and report.get("mint_supply_reconciled") is True
+                    and isinstance(report.get("mint_supply_raw"), int)
+                    and report["mint_supply_raw"] > 0
+                    and isinstance(report.get("mint_decimals"), int)
+                    and not isinstance(report.get("mint_decimals"), bool)):
                 eligible.append(row["mint"])
         return eligible
 
@@ -172,8 +187,21 @@ class SolanaSellabilityWorker:
                 if (not isinstance(report, dict) or not report.get("mint_evidence_id")
                         or not isinstance(report.get("total_supply_raw"), int)):
                     raise RuntimeError("fresh finalized mint supply evidence is unavailable")
-                supply = report["total_supply_raw"]
-                amount = max(1, int(supply * self.quote_supply_fraction))
+                supply = report["mint_supply_raw"]
+                if self.market_store is not None and self.paper_notional_usd is not None:
+                    market = self.market_store.latest(mint)
+                    if not isinstance(market, dict) or not market.get("price_usd"):
+                        raise RuntimeError("fresh market USD price is unavailable for exact paper sizing")
+                    size = calculate_paper_exit_size(
+                        mint,
+                        notional_usd=self.paper_notional_usd,
+                        token_price_usd=market["price_usd"],
+                        decimals=report["mint_decimals"],
+                        total_supply_raw=supply,
+                    )
+                    amount = size.input_amount_raw
+                else:
+                    amount = max(1, int(supply * self.quote_supply_fraction))
                 evidence = self.evaluator.evaluate(
                     mint, total_supply_raw=supply, input_amount_raw=amount,
                     now_ms=self.clock_ms(),
