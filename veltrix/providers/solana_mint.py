@@ -98,8 +98,8 @@ class SolanaMintAuthorityProvider:
         if len(raw) != 32:
             raise ProviderError("mint optional authority field is truncated")
         if tag == 0:
-            if any(raw):
-                raise ProviderError("mint None authority contains non-zero key bytes")
+            # SPL COption semantics are determined by the tag. The payload bytes
+            # are not authoritative when the option is None and need not be zero.
             return None
         if tag == 1:
             try:
