@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .database import shared_database_path
 from .consensus import ConsensusEngine
 from .consensus_store import ConsensusStore
 from .consensus_worker import ConsensusBatchResult, ConsensusWorker
@@ -78,10 +79,7 @@ def build_runtime(
     wallet_event_provider: Any | None = None,
     wallet_event_batch_provider: Any | None = None,
 ) -> ConsensusRuntime:
-    db_path = database_path or os.getenv(
-        "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
-    )
+    db_path = shared_database_path(database_path)
     try:
         poll = float(
             poll_interval_seconds

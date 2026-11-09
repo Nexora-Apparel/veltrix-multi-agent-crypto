@@ -4,7 +4,7 @@ Run with:
     python -m veltrix.solana_meme.worker
 
 Configuration:
-    VELTRIX_SOLANA_DISCOVERY_DB=data/solana_discovery.sqlite3
+    VELTRIX_SOLANA_DISCOVERY_DB defaults to DB_PATH, then data/solana_discovery.sqlite3
     VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS=30
     VELTRIX_PUMPPORTAL_WS_ENDPOINT=wss://pumpportal.fun/api/data
 """
@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .database import shared_database_path
 from .dexscreener import DexScreenerDiscovery
 from .discovery import SolanaDiscoveryEngine
 from .launch_stream import LaunchStore, LaunchStreamManager
@@ -33,10 +34,7 @@ def build_engine(
     websocket_factory: Any | None = None,
 ) -> SolanaDiscoveryEngine:
     """Construct the production discovery runtime without opening network sockets."""
-    db_path = database_path or os.getenv(
-        "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
-    )
+    db_path = shared_database_path(database_path)
     raw_interval = (
         poll_interval_seconds
         if poll_interval_seconds is not None

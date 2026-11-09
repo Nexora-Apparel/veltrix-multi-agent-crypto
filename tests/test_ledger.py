@@ -78,3 +78,72 @@ def test_price_gap_to_3x_does_not_fabricate_2x_fill(tmp_path):
     with broker._connect() as db:
         reasons=[row[0] for row in db.execute("SELECT reason FROM trades WHERE side='SELL'").fetchall()]
     assert "take_profit_2x" not in reasons
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"starting_balance": float("nan")},
+        {"starting_balance": float("inf")},
+        {"max_position_usd": float("nan")},
+        {"stop_loss_pct": float("nan")},
+        {"trailing_pct": float("inf")},
+        {"max_positions": True},
+        {"max_positions": 1.5},
+    ],
+)
+def test_paper_broker_rejects_non_finite_or_untyped_limits(tmp_path, kwargs):
+    limits = dict(
+        starting_balance=500,
+        max_positions=10,
+        max_position_usd=50,
+        stop_loss_pct=0.06,
+        trailing_pct=0.06,
+    )
+    limits.update(kwargs)
+    with pytest.raises(ValueError):
+        PaperBroker(str(tmp_path / "invalid-limits.db"), **limits)
+
+
+@pytest.mark.parametrize(
+    "price,amount",
+    [
+        (float("nan"), 10),
+        (float("inf"), 10),
+        (True, 10),
+        (1, float("nan")),
+        (1, float("inf")),
+        (1, True),
+    ],
+)
+def test_paper_broker_rejects_invalid_entry_values(tmp_path, price, amount):
+    broker = PaperBroker(str(tmp_path / "invalid-entry.db"))
+    with pytest.raises(ValueError):
+        broker.open_position("mint", price, amount, "test")
+
+
+def test_paper_broker_rejects_invalid_exit_and_mark_values(tmp_path):
+    broker = PaperBroker(str(tmp_path / "invalid-exit.db"))
+    broker.open_position("mint", 1, 10, "test")
+    for price in (float("nan"), float("inf"), True):
+        with pytest.raises(ValueError):
+            broker.process_market_price("mint", price)
+        with pytest.raises(ValueError):
+            broker.close_fraction("mint", price, 1.0, "invalid")
+    with pytest.raises(ValueError):
+        broker.close_fraction("mint", 1.0, float("nan"), "invalid")
+    with pytest.raises(ValueError):
+        broker.snapshot({"mint": float("nan")})
+
+
+def test_paper_broker_closes_sqlite_connections(tmp_path):
+    broker = PaperBroker(str(tmp_path / "connection.db"))
+    with broker._connect() as db:
+        connection = db
+        assert db.execute("SELECT 1").fetchone()[0] == 1
+    with pytest.raises(Exception):
+        connection.execute("SELECT 1")
+
+
+def test_paper_broker_requires_persistent_database(tmp_path):
+    with pytest.raises(ValueError, match="persistent SQLite"):
+        PaperBroker(":memory:")

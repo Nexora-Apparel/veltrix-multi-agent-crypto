@@ -19,6 +19,7 @@ from typing import Any
 
 from ..config import settings as load_settings
 from ..providers.factory import build_solana_risk_evidence_collector
+from .database import shared_database_path
 from .launch_stream import LaunchStore
 from .market_store import MarketSnapshotStore
 from .risk_store import SolanaRiskEvidenceStore
@@ -77,10 +78,7 @@ def build_runtime(
     clock_ms: Any | None = None,
 ) -> SolanaRiskRuntime:
     config = settings_obj or load_settings()
-    db_path = database_path or os.getenv(
-        "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
-    )
+    db_path = shared_database_path(database_path)
     try:
         poll = float(
             poll_interval_seconds

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..providers.dexscreener import DexScreenerProvider
+from .database import shared_database_path
 from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .launch_stream import LaunchStore
 from .market_data import SolanaMarketData
@@ -84,10 +85,7 @@ def build_runtime(
     provider: Any | None = None,
     clock_ms: Any | None = None,
 ) -> TokenIntelligenceRuntime:
-    db_path = database_path or os.getenv(
-        "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
-    )
+    db_path = shared_database_path(database_path)
     if refresh_interval_ms is not None and (
         isinstance(refresh_interval_ms, bool) or not isinstance(refresh_interval_ms, int)
     ):
