@@ -61,3 +61,14 @@ def test_service_templates_do_not_embed_wallet_key_material():
         unit = _unit(name).lower()
         for forbidden in ("private_key=", "seed_phrase=", "mnemonic=", "keypair_json="):
             assert forbidden not in unit
+
+
+
+def test_host_verification_script_checks_actual_systemd_mount_namespace():
+    script = (ROOT / "deployment" / "verify_phase09_isolation.sh").read_text(encoding="utf-8")
+    assert "nsenter -t" in script
+    assert "ReadOnlyPaths" in script
+    assert "ReadWritePaths" in script
+    assert "test ! -w" in script
+    assert "veltrix-wallet-observer" in script
+    assert "MANUAL REQUIRED" in script
