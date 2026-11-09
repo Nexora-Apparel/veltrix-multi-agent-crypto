@@ -83,7 +83,8 @@ class RpcSession:
             address = params[0]["address"].lower()
             if address == FACTORY.lower():
                 return Response([pair_created_log()] if params[0]["fromBlock"] == "0x1" else [])
-            if address == LOCKER.lower() and params[0]["topics"][0] == BSC_DEPOSIT_TOPIC:
+            if (address == LOCKER.lower() and params[0]["topics"][0] == BSC_DEPOSIT_TOPIC
+                    and params[0]["fromBlock"] == "0x1"):
                 return Response([] if self.omit_bsc_event else [bsc_deposit_log()])
             if address == LOCKER.lower() and params[0]["topics"][0] == BSC_WITHDRAW_TOPIC:
                 return Response([])
