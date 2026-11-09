@@ -89,7 +89,10 @@ def main():
     pool = Rpc(os.getenv("BASE_LIQUIDITY_POOL_RPC_URL"), "pool/Alchemy")
     locker = Rpc(os.getenv("BASE_LIQUIDITY_LOCKER_RPC_URL"), "locker/Chainstack")
 
-    reports = []
+    # First validate both independent providers and obtain the finalized anchor
+    # from the primary Alchemy endpoint. Chainstack may reject the symbolic
+    # safe/finalized tags with HTTP 403 while still serving explicit block reads.
+    contexts = []
     for rpc in (pool, locker):
         if quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID") != CHAIN_ID:
             raise ProbeError(f"{rpc.label}: endpoint is not Base Mainnet")
@@ -100,8 +103,6 @@ def main():
                 or quantity(receipt.get("blockNumber"), "receipt block") != args.deployment_block):
             raise ProbeError(f"{rpc.label}: creation receipt does not match factory/deployment block")
 
-        # Probe all confirmation tags independently. Keep "finalized" as the
-        # acceptance requirement; "latest"/"safe" are diagnostics, not fallbacks.
         tag_results = {}
         finalized = None
         for tag in ("latest", "safe", "finalized"):
@@ -118,25 +119,34 @@ def main():
                     finalized = block
             except ProbeError as exc:
                 tag_results[tag] = {"status": "error", "error": str(exc)}
-        if finalized is None:
-            diagnostic = {
-                "status": "blocked",
-                "provider": rpc.label,
-                "chain_id": CHAIN_ID,
-                "block_tag_checks": tag_results,
-                "note": "latest/safe success cannot substitute for finalized verification",
-            }
-            with open(args.output, "w", encoding="utf-8") as handle:
-                json.dump({"status": "blocked", "diagnostics": [diagnostic]}, handle, indent=2)
-                handle.write("\n")
-            compact = "; ".join(
-                f"{tag}={item['status']}" + (f" ({item['error']})" if item['status'] == "error" else "")
-                for tag, item in tag_results.items()
-            )
-            raise ProbeError(f"{rpc.label}: finalized block unavailable; tag diagnostics: {compact}")
-        final_number = quantity(finalized.get("number"), "finalized block number")
-        if final_number < args.deployment_block:
-            raise ProbeError(f"{rpc.label}: finalized head precedes factory deployment")
+        contexts.append({"rpc": rpc, "tag_results": tag_results, "finalized": finalized})
+
+    # Finality authority is the primary independent provider. Require its
+    # finalized tag; never downgrade the acceptance anchor to latest or safe.
+    anchor = contexts[0]["finalized"]
+    if anchor is None:
+        compact = "; ".join(
+            f"{tag}={item['status']}" + (f" ({item['error']})" if item["status"] == "error" else "")
+            for tag, item in contexts[0]["tag_results"].items()
+        )
+        raise ProbeError(f"{pool.label}: finalized anchor unavailable; tag diagnostics: {compact}")
+    final_number = quantity(anchor.get("number"), "primary finalized block number")
+    if final_number < args.deployment_block:
+        raise ProbeError(f"{pool.label}: finalized head precedes factory deployment")
+
+    reports = []
+    for context in contexts:
+        rpc = context["rpc"]
+        tag_results = context["tag_results"]
+        # Pin BOTH providers to the exact block selected by Alchemy's finalized
+        # tag. This permits an explicit-height read on Chainstack when its
+        # symbolic safe/finalized tags are access-denied, without weakening
+        # finality or accepting a different block.
+        pinned = rpc.call("eth_getBlockByNumber", [hex(final_number), False])
+        if not isinstance(pinned, dict) or not pinned.get("hash"):
+            raise ProbeError(f"{rpc.label}: cannot retrieve finalized anchor block {final_number}")
+        if pinned["hash"].lower() != anchor["hash"].lower():
+            raise ProbeError(f"{rpc.label}: block hash disagrees with primary finalized anchor")
         code = rpc.call("eth_getCode", [args.factory, hex(final_number)])
         if not isinstance(code, str) or not code.startswith("0x") or len(code) <= 2:
             raise ProbeError(f"{rpc.label}: factory runtime bytecode is empty")
@@ -157,7 +167,8 @@ def main():
             "creation_tx": args.creation_tx,
             "deployment_block": args.deployment_block,
             "finalized_block": final_number,
-            "finalized_block_hash": finalized["hash"],
+            "finalized_block_hash": pinned["hash"],
+            "finality_anchor_provider": pool.label,
             "runtime_code_bytes": len(raw_code),
             "runtime_code_hash": code_hash,
             "all_pairs_length": pair_count,
