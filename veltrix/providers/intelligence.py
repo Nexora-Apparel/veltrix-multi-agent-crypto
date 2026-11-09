@@ -217,6 +217,27 @@ class VerifiedIntelligenceAdapters:
             ))
         return AdapterBatch(tuple(accepted), tuple(rejected))
 
+    def validate_composite_safety(self, token_address, chain, evidence_bundle, now_ms):
+        """Validate claim-separated liquidity, developer and launch-bundle evidence."""
+        from ..composite_safety import CompositeTokenSafetyValidator
+
+        validator = getattr(self, "composite_safety_validator", None)
+        if not isinstance(validator, CompositeTokenSafetyValidator):
+            return SafetyReport(
+                token_address, False, (),
+                ("claim-specific composite safety provider allowlists are not configured",),
+                now_ms,
+            )
+        return validator.validate(token_address, evidence_bundle, now_ms, chain=chain)
+
+    def set_composite_safety_validator(self, validator):
+        """Install an explicitly configured claim-specific composite validator."""
+        from ..composite_safety import CompositeTokenSafetyValidator
+
+        if not isinstance(validator, CompositeTokenSafetyValidator):
+            raise TypeError("validator must be a CompositeTokenSafetyValidator")
+        self.composite_safety_validator = validator
+
     def validate_safety_observation(
         self, token_address: str, observation: TokenSafetyObservation | None, now_ms: int
     ) -> SafetyReport:
