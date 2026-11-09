@@ -188,3 +188,17 @@ def test_worker_rejects_invalid_retry_configuration(tmp_path, kwargs):
         CandidateEnrichmentWorker(
             launches, SolanaMarketData(FakeMarketProvider()), snapshots, **kwargs
         )
+
+def test_expired_lease_at_attempt_limit_becomes_dead(tmp_path):
+    launches, _, _, worker = setup_worker(
+        tmp_path, max_attempts=1, lease_ms=100, now=10_000
+    )
+    launches.record_candidate(launch(MINT_A))
+    worker._discover_jobs(10_000)
+    assert worker._claim(10_000, 1) == [MINT_A]
+
+    worker.clock_ms = lambda: 10_101
+    result = worker.run_once()
+    assert result.processed == 0
+    assert worker.status()["dead"] == 1
+    assert worker.status()["retry"] == 0
