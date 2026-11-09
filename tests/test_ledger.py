@@ -64,3 +64,12 @@ def test_session_report_summarizes_closed_positions(tmp_path):
     assert report["win_rate_pct"]==50
     assert report["best_trade"]["token"]=="winner"
     assert report["worst_trade"]["token"]=="loser"
+
+def test_price_gap_to_3x_does_not_fabricate_2x_fill(tmp_path):
+    broker=PaperBroker(str(tmp_path/"gap.db"),500,10,50)
+    broker.open_position("gap-token",10,50,"consensus")
+    result=broker.process_market_price("gap-token",30)
+    assert len(result)==1 and result[0]["reason"]=="take_profit_3x"
+    assert result[0]["quantity_sold"]==50/10/2
+    # A later 2x retest must not create a false, late 2x fill.
+    assert broker.process_market_price("gap-token",20)==[]
