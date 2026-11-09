@@ -72,33 +72,58 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
 
     rows = []
     for chain in CHAINS:
-        # GoPlus public EVM endpoint is configured without a key; Solana beta
-        # requires its access token. Its connector still cannot certify complete LP coverage.
-        liquidity_configured = goplus_configured if chain in {"base", "bsc"} else bool(
-            getattr(settings, "goplus_access_token", "")
-        )
+        if chain == "base":
+            reader_configured = all((
+                getattr(settings, "base_liquidity_pool_rpc_url", ""),
+                getattr(settings, "base_liquidity_locker_rpc_url", ""),
+                getattr(settings, "base_liquidity_factories_json", ""),
+                getattr(settings, "base_liquidity_lockers_json", ""),
+                getattr(settings, "base_liquidity_registry_complete", False),
+            ))
+            liquidity_provider_id = "base-finalized-all-factory-liquidity"
+        elif chain == "bsc":
+            reader_configured = all((
+                getattr(settings, "bsc_liquidity_pool_rpc_url", ""),
+                getattr(settings, "bsc_liquidity_locker_rpc_url", ""),
+                getattr(settings, "bsc_liquidity_factories_json", ""),
+                getattr(settings, "bsc_liquidity_lockers_json", ""),
+                getattr(settings, "bsc_liquidity_registry_complete", False),
+            ))
+            liquidity_provider_id = "bsc-finalized-all-factory-liquidity"
+        else:
+            reader_configured = bool(
+                getattr(settings, "solana_liquidity_pool_rpc_url", "")
+                and getattr(settings, "solana_liquidity_locker_rpc_url", "")
+            )
+            liquidity_provider_id = "solana-raydium-v4-finalized-pool-inventory"
+
         liquidity_blockers = []
-        if not liquidity_configured:
-            liquidity_blockers.append("no configured liquidity evidence connector")
-        if "goplus" not in liquidity_trust:
-            liquidity_blockers.append("goplus is not explicitly trusted for liquidity")
+        if not reader_configured:
+            liquidity_blockers.append(
+                "separate pool and locker RPC endpoints, pinned factory/locker registries and explicit complete-AMM registry attestation are required"
+                if chain in {"base", "bsc"} else
+                "separate Solana pool and locker RPC endpoints are required"
+            )
+        if liquidity_provider_id not in liquidity_trust:
+            liquidity_blockers.append(
+                f"{liquidity_provider_id} is not explicitly trusted for the liquidity-lock claim"
+            )
         liquidity_blockers.append(
-            "GoPlus response coverage does not prove every LP position is locked"
-        )
-        liquidity_blockers.append(
-            "no production chain-specific locker RPC snapshot reader and exhaustive pool inventory source is configured or capability-certified"
+            "live read-only acceptance against production finalized state has not been recorded; provider capability remains disabled"
         )
         if chain in {"base", "bsc"}:
             liquidity_blockers.append(
-                f"{chain} UNCX candidate still requires pinned runtime bytecode hash, chain-specific ABI enumeration and finalized LP custody reconciliation"
+                f"{chain} locker runtime hash, factory event coverage, lock history and LP custody reconciliation must pass live acceptance"
             )
         else:
             liquidity_blockers.append(
-                "Solana UNCX Raydium AMM V4 is only a candidate; deployed executable, lock PDA decoding and custody-authority derivation require live verification"
+                "Solana support is scoped to Raydium AMM V4; deployed UNCX executable, TokenLock PDAs and LP vault ownership must pass live acceptance"
             )
         rows.append(ClaimReadiness(
-            chain, "liquidity_lock", liquidity_configured, "goplus" in liquidity_trust,
-            False, ("goplus",) if liquidity_configured else (), tuple(liquidity_blockers),
+            chain, "liquidity_lock", reader_configured,
+            liquidity_provider_id in liquidity_trust,
+            False, (liquidity_provider_id,) if reader_configured else (),
+            tuple(liquidity_blockers),
         ))
 
         developer_blockers = [
