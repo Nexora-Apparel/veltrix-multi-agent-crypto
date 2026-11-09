@@ -320,13 +320,16 @@ def test_inspect_provider_reuses_captured_finalized_observation(monkeypatch):
         lambda *_: (_ for _ in ()).throw(AssertionError("finalized tag reread")),
     )
     monkeypatch.setattr(acceptance, "block_by_number", lambda _rpc, n: "0x" + f"{n:064x}")
-    monkeypatch.setattr(
-        acceptance, "normalized_logs",
-        lambda *_args, **_kwargs: [{
+    def fake_logs(*_args, **kwargs):
+        kwargs["coverage"].update({
+            "queried_from_block": 11, "queried_to_block": 20,
+        })
+        return [{
             "blockNumber": 20, "transactionHash": "0x" + "22" * 32,
             "logIndex": 0, "data": "0x" + "00" * 64,
-        }],
-    )
+        }]
+
+    monkeypatch.setattr(acceptance, "normalized_logs", fake_logs)
     monkeypatch.setattr(acceptance, "validate_pair_created_sequence", lambda *_: None)
 
     captured = {"number": 20, "hash": "0x" + "33" * 32}
