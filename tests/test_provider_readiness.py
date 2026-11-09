@@ -54,3 +54,30 @@ def test_goplus_sol_requires_access_token_but_evm_public_endpoint_does_not():
     assert rows[("base", "liquidity_lock")].configured
     assert rows[("bsc", "liquidity_lock")].configured
     assert not rows[("base", "liquidity_lock")].capability_complete
+
+
+def test_developer_readiness_reports_signed_root_and_chain_provider_blockers():
+    report = build_provider_readiness(settings(
+        solana_rpc_url="https://solana.example",
+        helius_api_key="configured",
+        base_rpc_url="https://base.example",
+        alchemy_api_key="configured",
+        bsc_rpc_url="https://bsc.example",
+        trusted_developer_root_providers=(),
+        trusted_holder_inventory_providers=(),
+        trusted_developer_funding_providers=(),
+        developer_root_attestation_url="",
+        developer_root_attestation_public_key="",
+        developer_root_attestation_provider_id="signed-developer-roots",
+    ))
+    rows = {row.chain: row for row in report.claims if row.claim == "developer_holdings"}
+    assert any("Ed25519 public key is missing" in x for x in rows["solana"].blockers)
+    assert any("solana-rpc-holder-inventory is not explicitly trusted" in x
+               for x in rows["solana"].blockers)
+    assert any("helius-solana-funding-graph is not explicitly trusted" in x
+               for x in rows["solana"].blockers)
+    assert any("base-rpc-holder-inventory is not explicitly trusted" in x
+               for x in rows["base"].blockers)
+    assert any("bsc complete first-funder ancestry provider is unavailable" in x
+               for x in rows["bsc"].blockers)
+    assert all(not row.capability_complete for row in rows.values())
