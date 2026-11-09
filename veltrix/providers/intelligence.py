@@ -36,6 +36,7 @@ class TokenSafetyObservation:
     liquidity_locked: bool | None
     dev_hold_pct: float | None
     bundled_supply_pct: float | None
+    creator_hold_pct: float | None = None
 
 
 class SmartWalletProvider(Protocol):
@@ -148,6 +149,7 @@ class VerifiedIntelligenceAdapters:
                 liquidity_locked=getattr(observation, "liquidity_locked", None),
                 dev_hold_pct=getattr(observation, "dev_hold_pct", None),
                 bundled_supply_pct=getattr(observation, "bundled_supply_pct", None),
+                creator_hold_pct=getattr(observation, "creator_hold_pct", None),
             )
         return self.validate_safety_observation(token_address, observation, now_ms)
 
@@ -228,6 +230,7 @@ class VerifiedIntelligenceAdapters:
             liquidity_locked=observation.liquidity_locked,
             dev_hold_pct=observation.dev_hold_pct,
             bundled_supply_pct=observation.bundled_supply_pct,
+            creator_hold_pct=observation.creator_hold_pct,
         )
         return self.safety_validator.validate(token_address, evidence, now_ms)
 
