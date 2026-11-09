@@ -22,6 +22,7 @@ class Settings:
     stop_loss: float = float(os.getenv("STOP_LOSS_PCT", "0.06"))
     poll_seconds: int = int(os.getenv("POLL_SECONDS", "60"))
     db_path: str = os.getenv("DB_PATH", "veltrix_paper.db")
+    paper_trading_enabled: bool = os.getenv("PAPER_TRADING_ENABLED", "false").lower() == "true"
     discovery_enabled: bool = os.getenv("DISCOVERY_ENABLED", "false").lower() == "true"
     discovery_chains: tuple[str, ...] = _chains()
     max_discovered_per_chain: int = int(os.getenv("MAX_DISCOVERED_PER_CHAIN", "20"))
