@@ -107,17 +107,17 @@ def test_risk_worker_respects_refresh_interval(tmp_path):
 def test_risk_worker_retries_collector_exception_with_backoff(tmp_path):
     clock = Clock(10_000)
     collector = FakeCollector(clock, fail=True)
-    _, _, _, _, worker, _ = setup_worker(
+    _, _, _, _, worker, worker_clock = setup_worker(
         tmp_path, collector=collector, retry_base_ms=500, retry_max_ms=1000
     )
     first = worker.run_once()
     assert first.failed == 1
     assert worker.status()["retry"] == 1
 
-    clock.value = 10_499
+    worker_clock.value = 10_499
     assert worker.run_once().processed == 0
 
-    clock.value = 10_500
+    worker_clock.value = 10_500
     collector.fail = False
     retried = worker.run_once()
     assert retried.recorded == 1
