@@ -174,6 +174,17 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
             "retrieved_log_count": len(logs),
             "queried_from_block": log_coverage["queried_from_block"],
             "queried_to_block": log_coverage["queried_to_block"],
+            "queried_block_count": (
+                log_to - log_coverage["queried_from_block"] + 1
+            ),
+            "scan_direction": "backward",
+            "coverage_complete": (
+                log_coverage["queried_from_block"] == log_from + 1
+            ),
+            "completeness_basis": (
+                "retrieved PairCreated count equals the full-interval "
+                "allPairsLength delta; each PairCreated increments allPairsLength once"
+            ),
             "logs": logs,
         },
         "checks": {
@@ -199,11 +210,23 @@ def main():
 
     first_finalized = block_by_tag(primary, "finalized")
     second_finalized = block_by_tag(candidate, "finalized")
-    if first_finalized["number"] != second_finalized["number"]:
-        raise PreflightError("providers disagree on finalized block number")
-    if first_finalized["hash"] != second_finalized["hash"]:
-        raise PreflightError("providers disagree on finalized block hash")
-    finalized_number = first_finalized["number"]
+    # Providers can report different finalized heights while still agreeing
+    # on the common finalized history. Compare both at the lower height.
+    common_finalized_number = min(
+        first_finalized["number"], second_finalized["number"]
+    )
+    first_common_hash = block_by_number(primary, common_finalized_number)
+    second_common_hash = block_by_number(candidate, common_finalized_number)
+    if first_common_hash != second_common_hash:
+        raise PreflightError(
+            "providers disagree on block hash at common finalized height "
+            f"{common_finalized_number}"
+        )
+    common_finalized = {
+        "number": common_finalized_number,
+        "hash": first_common_hash,
+    }
+    finalized_number = common_finalized_number
     if finalized_number <= deployment_block + 1000:
         raise PreflightError("finalized head is too close to deployment for extended anchors")
 
@@ -242,17 +265,29 @@ def main():
         "factory": factory,
         "creation_tx": creation_tx,
         "deployment_block": deployment_block,
-        "finalized_block": first_finalized,
+        "finalized_block": common_finalized,
+        "provider_finalized_heads": {
+            "primary/Alchemy": first_finalized,
+            "candidate/SolidRPC": second_finalized,
+        },
         "historical_anchor_blocks": anchors,
         "providers": [first, second],
-        "comparison": "matching finalized head and historical block, code, call, plus non-empty PairCreated log range reconciled to pair-count delta",
+        "comparison": (
+            "provider finalized heads recorded independently; both providers "
+            "match the common finalized checkpoint and historical block, code, "
+            "call, plus non-empty PairCreated logs reconciled to pair-count delta"
+        ),
     }
     with open("base-archive-extended-acceptance.json", "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=2)
         handle.write("\n")
     print(json.dumps({
         "status": "passed",
-        "finalized_block": first_finalized,
+        "finalized_block": common_finalized,
+        "provider_finalized_heads": {
+            "primary/Alchemy": first_finalized,
+            "candidate/SolidRPC": second_finalized,
+        },
         "historical_anchor_count": len(anchors),
         "historical_checks": [
             "eth_getBlockByNumber", "eth_getCode", "eth_call",
