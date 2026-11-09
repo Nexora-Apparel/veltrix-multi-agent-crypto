@@ -126,6 +126,12 @@ class SolanaShieldPolicy:
                     or evidence.mint_finalized_slot < 0
                     or evidence.token_program_id not in {TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID}):
                 reasons.append("finalized mint-account provenance is incomplete")
+            if (evidence.mint_supply_reconciled is not True
+                    or evidence.mint_supply_raw != evidence.total_supply_raw
+                    or isinstance(evidence.mint_decimals, bool)
+                    or not isinstance(evidence.mint_decimals, int)
+                    or not 0 <= evidence.mint_decimals <= 38):
+                reasons.append("finalized mint supply and decimals do not reconcile with holder inventory")
             if evidence.mint_authority is not None:
                 reasons.append("mint authority remains active")
             if evidence.freeze_authority is not None:
