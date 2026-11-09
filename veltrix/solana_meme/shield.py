@@ -205,6 +205,18 @@ class SolanaShieldPolicy:
             if (isinstance(fraction, bool) or not isinstance(fraction, (int, float))
                     or not math.isfinite(fraction) or not 0.005 <= fraction <= 0.05):
                 reasons.append("sell-route size fraction is outside paper bounds")
+            elif (isinstance(sellability.input_amount_raw, int)
+                    and isinstance(evidence, SolanaRiskEvidenceReport)
+                    and isinstance(evidence.total_supply_raw, int)
+                    and not isinstance(evidence.total_supply_raw, bool)
+                    and evidence.total_supply_raw > 0
+                    and not math.isclose(
+                        fraction,
+                        sellability.input_amount_raw / evidence.total_supply_raw,
+                        rel_tol=1e-9,
+                        abs_tol=1e-12,
+                    )):
+                reasons.append("sell-route size fraction does not reconcile to token supply")
 
         if isinstance(open_positions, bool) or not isinstance(open_positions, int) or open_positions < 0:
             reasons.append("open position count is invalid")
