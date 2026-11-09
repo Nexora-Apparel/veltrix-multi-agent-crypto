@@ -8,7 +8,7 @@ from solders.pubkey import Pubkey
 from veltrix.providers.solana_liquidity_reader import (
     BPF_UPGRADEABLE_LOADER, RAYDIUM_AMM_V4_PROGRAM, RAYDIUM_CPMM_PROGRAM,
     RAYDIUM_CPMM_STATE_SIZE, TOKEN_PROGRAM, UNCX_PROGRAM,
-    TOKEN_LOCK_DISCRIMINATOR, SolanaRaydiumV4UncxSnapshotReader,
+    TOKEN_LOCK_DISCRIMINATOR, SolanaRaydiumV4CpmmSnapshotReader,
 )
 
 
@@ -20,7 +20,7 @@ LOCK_ID = 17
 
 
 def reader():
-    return SolanaRaydiumV4UncxSnapshotReader(
+    return SolanaRaydiumV4CpmmSnapshotReader(
         "https://solana-pools.example", "https://solana-locks.example",
         expected_raydium_executable_hash="a" * 64,
         expected_raydium_cpmm_executable_hash="b" * 64,
@@ -180,14 +180,14 @@ def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
 
 def test_solana_reader_requires_both_rayidium_hashes_and_complete_scope():
     with pytest.raises(ValueError, match="CPMM executable SHA-256"):
-        SolanaRaydiumV4UncxSnapshotReader(
+        SolanaRaydiumV4CpmmSnapshotReader(
             "https://solana-pools.example", "https://solana-locks.example",
             expected_raydium_executable_hash="a" * 64,
             expected_raydium_cpmm_executable_hash="",
             registry_complete=True,
         )
     with pytest.raises(ValueError, match="registry must be explicitly certified"):
-        SolanaRaydiumV4UncxSnapshotReader(
+        SolanaRaydiumV4CpmmSnapshotReader(
             "https://solana-pools.example", "https://solana-locks.example",
             expected_raydium_executable_hash="a" * 64,
             expected_raydium_cpmm_executable_hash="b" * 64,
