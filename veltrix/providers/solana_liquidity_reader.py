@@ -132,7 +132,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
         self.locker_group = locker_independence_group
         self.max_pools = max_pools
         self.max_locks_per_pool = max_locks_per_pool
-        self.provider_id = "solana-raydium-v4-finalized-pool-inventory"
+        self.provider_id = "solana-raydium-v4-cpmm-finalized-pool-inventory"
         self.amm_program = Pubkey.from_string(RAYDIUM_AMM_V4_PROGRAM)
         self.cpmm_program = Pubkey.from_string(RAYDIUM_CPMM_PROGRAM)
         self.uncx_program = Pubkey.from_string(UNCX_PROGRAM)
