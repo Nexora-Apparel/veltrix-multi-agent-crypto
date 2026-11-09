@@ -1,16 +1,29 @@
-"""Polling coordinator for explicitly configured token addresses."""
+"""Polling coordinator for configured watchlists and profile-discovered candidates."""
+from .discovery import DexScreenerDiscovery
 from .ledger import PaperBroker
 from .providers.dexscreener import DexScreenerProvider
 
 class MarketMonitor:
-    def __init__(self, watchlist, db_path, provider=None):
+    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20):
         self.watchlist = watchlist
         self.provider = provider or DexScreenerProvider()
+        self.discovery = discovery or DexScreenerDiscovery()
+        self.discovery_enabled = discovery_enabled
+        self.allowed_chains = tuple(allowed_chains)
+        self.max_discovered_per_chain = max_discovered_per_chain
         self.ledger = PaperBroker(db_path)
 
     def poll_once(self):
         observations = []
-        for chain, addresses in self.watchlist.items():
+        addresses_by_chain = {chain: list(addresses) for chain, addresses in self.watchlist.items()}
+        if self.discovery_enabled:
+            candidates = self.discovery.discover(self.allowed_chains)
+            for candidate in candidates:
+                self.ledger.record_discovery_candidate(candidate)
+                chain_addresses = addresses_by_chain.setdefault(candidate.chain, [])
+                if candidate.token_address not in chain_addresses and len(chain_addresses) < self.max_discovered_per_chain:
+                    chain_addresses.append(candidate.token_address)
+        for chain, addresses in addresses_by_chain.items():
             if not addresses:
                 continue
             events = self.provider.fetch_token_pairs(chain, addresses)
