@@ -181,3 +181,15 @@ executable_sellability claim.
 - Native SOL balance is recorded but not assigned an arbitrary universal threshold; route fee/rent requirements vary.
 - Simulation remains opt-in and requires a dedicated funded test wallet; no seed phrase or signing key is accepted.
 - GitHub Actions run [42682361273](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42682361273) passed on code commit `cdf88c95e07aa45f4a73cb97eea77e5ed81e7496`: 437 passed, 5 skipped.
+
+
+## 2026-11-09 — Shield paper-entry sell-route gate
+
+- Extended `SolanaShieldPolicy` to require a typed, fresh, provenance-backed sell-side route observation for the exact intended raw-token exit size.
+- Validates canonical mint, quote expiry, route plan, positive quote/minimum output, price impact (maximum 300 bps), supply fraction (0.5%–5%) and reconciliation of that fraction to the finalized raw token supply.
+- Keeps all unknown mandatory token-risk claims as vetoes. The `executable_sellability` item remains unresolved as a live-execution-only claim; a paper route does not clear it.
+- Added Core integration. Solana paper entries now fail closed when route evidence or the intended raw-token exit size is absent.
+- The paper trade result and broker audit reason preserve the exact state `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN` and the route evidence ID.
+- Added tests for absent, stale, expired, wrong-size, unreconciled, high-impact and malformed route evidence; unknown token-risk claims still veto.
+- GitHub Actions run [42684511802](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42684511802) passed on commit `c67d3be194136bf6d9f7f966d570ffee87c004d6`: 440 passed, 5 skipped.
+- PR #1 remains draft and unmerged. The `main` branch remains unchanged. No wallet signing, transaction submission or live trading was added.
