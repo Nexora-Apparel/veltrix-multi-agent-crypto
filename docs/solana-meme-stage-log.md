@@ -308,3 +308,14 @@ executable_sellability claim.
 - The worker does not convert a report into a safety certificate. The provider capability catalogue remains partial for Solana because the reader covers only Raydium AMM V4/CPMM and does not establish complete active-AMM coverage; CPMM locker verification is also incomplete.
 - Tests on code commit `f940aacb57ca5528eca1fc30ae36fadc3f308e38`: 480 passed, 5 skipped.
 - Tests on current PR head `d3005272fae30839627b1d8b2430c7cbc25bf9be` (documentation update): 480 passed, 5 skipped. Workflow run [42692097618](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42692097618) succeeded.
+
+
+## 2026-11-09 — Persist exact Solana liquidity source inventory
+
+- The liquidity evidence worker already ran in the read-only pipeline when the explicit Solana reader configuration is complete.
+- Hardened evidence retention: each worker result now stores the full typed source inventory alongside the analyzer report, including pool records, LP supplies, locker positions, deployment identity, custody references and finalized block references.
+- Added a strict chain/mint identity check before analysis and persistence.
+- Added tests that verify raw inventory survives persistence and mismatched report/inventory identity is rejected.
+- Incomplete inventories remain persisted as blocked evidence; provider failures remain retryable and do not fabricate evidence.
+- GitHub Actions run [42692637558](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42692637558) passed on commit `897e760a9128c1b354ec69d175ec532ceb2c6c30`: 481 passed, 5 skipped.
+- The Solana liquidity capability remains **partial / non-certifying** because active AMM registry and locker-program coverage are incomplete. No Shield certification or paper-entry permission was granted by this change.
