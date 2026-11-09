@@ -44,6 +44,9 @@ class HeliusConsensusWalletEventSource:
         self.market_store = market_store
         self.clock_ms = clock_ms
         self.max_age_ms = max_age_ms
+        # Helius observations use a current persisted spot price for an explicitly
+        # labeled notional estimate; it is not historical execution value.
+        self.provider.price_usd_resolver = self._spot_price
 
     def _spot_price(self, mint: str) -> float:
         row = self.market_store.latest(mint)
