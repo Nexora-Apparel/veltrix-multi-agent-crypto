@@ -129,3 +129,31 @@ def test_paper_runtime_rejects_split_legacy_and_discovery_databases(tmp_path, mo
 
     with pytest.raises(ValueError, match="must reference the same SQLite file"):
         build_runtime(clock_ms=lambda: 10_000)
+
+def test_paper_runtime_uses_legacy_db_path_when_shared_override_is_absent(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "legacy-ledger.sqlite3"
+    monkeypatch.setenv("DB_PATH", str(database))
+    monkeypatch.delenv("VELTRIX_SOLANA_DISCOVERY_DB", raising=False)
+
+    runtime = build_runtime(clock_ms=lambda: 10_000)
+
+    assert runtime.worker.broker.db_path == str(database)
+    assert runtime.worker.market_store.database_path == str(database)
+    assert runtime.worker.risk_store.database_path == str(database)
+    assert runtime.worker.consensus_store.database_path == str(database)
+
+
+def test_paper_runtime_rejects_conflicting_database_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "legacy.sqlite3"))
+    monkeypatch.setenv("VELTRIX_SOLANA_DISCOVERY_DB", str(tmp_path / "solana.sqlite3"))
+
+    with pytest.raises(ValueError, match="must reference the same SQLite file"):
+        build_runtime()
+
+
+def test_paper_runtime_refuses_live_trading_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    with pytest.raises(RuntimeError, match="Phase 07 refuses to start"):
+        build_runtime(database_path=tmp_path / "live-blocked.sqlite3")
