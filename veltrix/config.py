@@ -31,6 +31,8 @@ class Settings:
     trusted_developer_providers: tuple[str, ...] = _provider_names("TRUSTED_DEVELOPER_PROVIDERS")
     trusted_bundle_providers: tuple[str, ...] = _provider_names("TRUSTED_BUNDLE_PROVIDERS")
     trusted_funding_providers: tuple[str, ...] = _provider_names("TRUSTED_FUNDING_PROVIDERS")
+    trusted_launch_origin_providers: tuple[str, ...] = _provider_names("TRUSTED_LAUNCH_ORIGIN_PROVIDERS")
+    launch_intelligence_enabled: bool = os.getenv("LAUNCH_INTELLIGENCE_ENABLED", "false").lower() == "true"
     wallet_evidence_max_age_ms: int = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
     safety_evidence_max_age_ms: int = int(os.getenv("SAFETY_EVIDENCE_MAX_AGE_MS", "300000"))
     goplus_access_token: str = os.getenv("GOPLUS_ACCESS_TOKEN", "")
