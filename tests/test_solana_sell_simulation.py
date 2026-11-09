@@ -1,6 +1,9 @@
 import base64
 
 import pytest
+from types import SimpleNamespace
+
+import veltrix.providers.solana_sell_simulation as simulation_module
 
 from veltrix.providers.solana_sell_simulation import JupiterSolanaSellSimulationProvider
 
@@ -33,7 +36,6 @@ class FakeSession:
             "outputMint": WSOL,
             "inAmount": "1000",
             "requestId": "order-123",
-            "taker": self.taker,
             "transaction": base64.b64encode(b"unsigned-solana-transaction").decode(),
         })
 
@@ -53,7 +55,24 @@ class FakeSession:
         })
 
 
-def provider(session):
+class FakeVersionedTransaction:
+    signer = TAKER
+    signatures_value = [bytes(64)]
+
+    @classmethod
+    def from_bytes(cls, raw):
+        assert raw == b"unsigned-solana-transaction"
+        return SimpleNamespace(
+            message=SimpleNamespace(
+                header=SimpleNamespace(num_required_signatures=1),
+                account_keys=[cls.signer],
+            ),
+            signatures=cls.signatures_value,
+        )
+
+
+def provider(session, monkeypatch):
+    monkeypatch.setattr(simulation_module, "VersionedTransaction", FakeVersionedTransaction)
     return JupiterSolanaSellSimulationProvider(
         "https://rpc.example/solana",
         TAKER,
@@ -64,9 +83,9 @@ def provider(session):
     )
 
 
-def test_simulates_unsigned_sell_without_signing_or_submitting():
+def test_simulates_unsigned_sell_without_signing_or_submitting(monkeypatch):
     session = FakeSession()
-    result = provider(session).simulate_sell(MINT, 1000)
+    result = provider(session, monkeypatch).simulate_sell(MINT, 1000)
 
     assert result.state == "SIMULATION_SUCCEEDED"
     assert result.simulated_slot == 123456
@@ -86,8 +105,8 @@ def test_simulates_unsigned_sell_without_signing_or_submitting():
     assert rpc_payload["params"][1]["replaceRecentBlockhash"] is True
 
 
-def test_simulation_error_is_recorded_not_promoted_to_success():
-    result = provider(FakeSession(simulation_error={"InstructionError": [2, "Custom"]})).simulate_sell(
+def test_simulation_error_is_recorded_not_promoted_to_success(monkeypatch):
+    result = provider(FakeSession(simulation_error={"InstructionError": [2, "Custom"]}), monkeypatch).simulate_sell(
         MINT, 1000,
     )
     assert result.state == "SIMULATION_FAILED"
@@ -102,8 +121,26 @@ def test_rejects_missing_or_malformed_rpc_and_wallet_configuration():
         JupiterSolanaSellSimulationProvider("https://rpc.example", "not-a-public-key")
 
 
-def test_rejects_invalid_sell_amount_before_network_calls():
+def test_rejects_invalid_sell_amount_before_network_calls(monkeypatch):
     session = FakeSession()
     with pytest.raises(ValueError):
-        provider(session).simulate_sell(MINT, 0)
+        provider(session, monkeypatch).simulate_sell(MINT, 0)
     assert session.calls == []
+
+
+def test_rejects_transaction_that_does_not_require_configured_taker_signature(monkeypatch):
+    session = FakeSession()
+    FakeVersionedTransaction.signer = "11111111111111111111111111111111"
+    with pytest.raises(Exception, match="not a required transaction signer"):
+        provider(session, monkeypatch).simulate_sell(MINT, 1000)
+    assert [call[0] for call in session.calls] == ["GET"]
+    FakeVersionedTransaction.signer = TAKER
+
+
+def test_rejects_transaction_with_existing_signature(monkeypatch):
+    session = FakeSession()
+    FakeVersionedTransaction.signatures_value = [bytes([1]) + bytes(63)]
+    with pytest.raises(Exception, match="not fully unsigned"):
+        provider(session, monkeypatch).simulate_sell(MINT, 1000)
+    assert [call[0] for call in session.calls] == ["GET"]
+    FakeVersionedTransaction.signatures_value = [bytes(64)]
