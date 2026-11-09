@@ -253,3 +253,31 @@ def test_bsc_reader_accepts_relock_history_without_overcounting_positions():
     batch = reader("bsc", RpcSession("bsc", extra_bsc_relock=True)).fetch_inventory(TOKEN)
     assert batch.inventory_complete
     assert len(batch.positions) == 1
+
+
+@pytest.mark.parametrize("mutation, message", [
+    ("duplicate", "duplicate log identities"),
+    ("topic", "misattributed logs"),
+    ("block", "outside the requested range"),
+])
+def test_bsc_event_history_rejects_duplicate_or_misattributed_logs(mutation, message):
+    class BadEventSession(RpcSession):
+        def post(self, url, json, timeout):
+            response = super().post(url, json, timeout)
+            method, params = json["method"], json["params"]
+            if (method == "eth_getLogs" and params[0]["address"].lower() == LOCKER.lower()
+                    and params[0]["topics"][0] == BSC_DEPOSIT_TOPIC
+                    and response.value):
+                row = dict(response.value[0])
+                if mutation == "duplicate":
+                    response.value.append(dict(row))
+                elif mutation == "topic":
+                    row["topics"] = ["0x" + "00" * 32]
+                    response.value = [row]
+                else:
+                    row["blockNumber"] = "0x999"
+                    response.value = [row]
+            return response
+
+    with pytest.raises(Exception, match=message):
+        reader("bsc", BadEventSession("bsc")).fetch_inventory(TOKEN)
