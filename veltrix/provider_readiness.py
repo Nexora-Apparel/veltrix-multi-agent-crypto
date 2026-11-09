@@ -135,7 +135,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             liquidity_blockers.append(
                 "Base UNCX V2.1 deployment metadata conflicts with the official source repository; direct deployment and factory confirmation is required"
             )
-        else:
+        if chain == "solana":
             liquidity_blockers.append(
                 "Solana support is scoped to Raydium AMM V4 + CPMM; deployed program hashes, TokenLock PDAs and LP vault ownership must pass live acceptance"
             )
