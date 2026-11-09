@@ -21,14 +21,14 @@ class HeliusSolanaFundingGraphProvider:
     NATIVE_SOL_MINT = "So11111111111111111111111111111111111111111"
 
     def __init__(self, api_key, *, session=None, timeout=25.0, max_pages=100,
-                 max_wallets=2_000, page_size=1_000, clock_ms=None,
+                 max_wallets=2_000, page_size=100, clock_ms=None,
                  base_url="https://mainnet.helius-rpc.com"):
         if not api_key:
             raise ValueError("Helius API key is required")
         if not 1 <= max_pages <= 10_000 or not 1 <= max_wallets <= 10_000:
             raise ValueError("Invalid Solana funding graph bounds")
-        if not 1 <= page_size <= 1_000:
-            raise ValueError("Helius page size must be between 1 and 1000")
+        if not 1 <= page_size <= 100:
+            raise ValueError("Helius Parsed Events Scan limit must be between 1 and 100")
         self.api_key = api_key
         self.session = session or requests.Session()
         self.timeout = timeout
