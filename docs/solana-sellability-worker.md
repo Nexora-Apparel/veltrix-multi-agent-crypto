@@ -15,9 +15,10 @@ the current paper notional at $50. For each mint, the worker:
 4. Requests a sell-side Jupiter V2 quote for that exact amount.
 5. Persists the route observation separately from risk evidence.
 
-The allowed size band is 0.0001%–5% of finalized supply. Missing/stale market
-price, missing mint metadata, mismatched supply/decimals, or an amount outside
-the configured band fails closed and is retried. A diagnostic-only worker
+The allowed size band is 0.0001%–5% of finalized supply. Market price must be no older than 120 seconds and risk evidence no older
+than 300 seconds. Missing/stale market price, stale risk evidence, missing mint
+metadata, mismatched supply/decimals, or an amount outside the configured band
+fails closed and is retried. A diagnostic-only worker
 without a market store may still use the configured supply fraction.
 
 ## Evidence boundary
