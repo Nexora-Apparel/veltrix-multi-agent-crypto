@@ -1,0 +1,63 @@
+name: Base factory metadata probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      factory_address:
+        description: Base V2 factory address
+        required: true
+        default: "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
+        type: string
+      creation_tx:
+        description: Factory creation transaction hash
+        required: true
+        default: "0x3c94031f81d9afe3beeb8fbcf4dcf1bd5b5688b86081d94e3d0231514dc00d31"
+        type: string
+      deployment_block:
+        description: Factory deployment block
+        required: true
+        default: "6601915"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_LIQUIDITY_POOL_RPC_URL: ${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
+      BASE_LIQUIDITY_LOCKER_RPC_URL: ${{ secrets.BASE_LIQUIDITY_LOCKER_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install probe dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests "eth-hash[pycryptodome]>=0.7,<1"
+      - name: Validate independent Base RPC configuration
+        shell: bash
+        run: |
+          test -n "$BASE_LIQUIDITY_POOL_RPC_URL"
+          test -n "$BASE_LIQUIDITY_LOCKER_RPC_URL"
+          if [[ "$BASE_LIQUIDITY_POOL_RPC_URL" == "$BASE_LIQUIDITY_LOCKER_RPC_URL" ]]; then
+            echo "::error::Pool and locker RPC endpoints must be distinct."
+            exit 1
+          fi
+      - name: Probe factory deployment and runtime code
+        run: |
+          python -m veltrix.base_factory_probe \
+            --factory "${{ inputs.factory_address }}" \
+            --creation-tx "${{ inputs.creation_tx }}" \
+            --deployment-block "${{ inputs.deployment_block }}" \
+            --output base-factory-probe.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: base-factory-probe
+          path: base-factory-probe.json
+          if-no-files-found: warn
