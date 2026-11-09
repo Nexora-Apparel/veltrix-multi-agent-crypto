@@ -22,6 +22,21 @@ def event(observed, price=0.001, pair="pool-1"):
         observed_at_ms=observed,
         pair_created_at_ms=1000,
         source="dexscreener",
+        name="Meme Token",
+        fdv_usd=100_000,
+        market_cap_usd=90_000,
+        volume_m5_usd=100,
+        volume_h24_usd=10_000,
+        price_change_h1_pct=1.5,
+        price_change_h24_pct=5.0,
+        txns_m5_buys=10,
+        txns_m5_sells=5,
+        txns_h1_buys=100,
+        txns_h1_sells=50,
+        txns_h24_buys=1000,
+        txns_h24_sells=800,
+        dex_id="raydium",
+        quote_token_symbol="SOL",
     )
 
 
