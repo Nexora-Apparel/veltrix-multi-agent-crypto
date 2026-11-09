@@ -141,15 +141,22 @@ class SolanaRaydiumV4UncxSnapshotReader:
             raise ProviderError("Solana account reads did not share one finalized slot")
         return value
 
+    def _get_account_crosschecked(self, address, slot):
+        pool_value = self._get_account(self.pool_rpc, address, slot)
+        locker_value = self._get_account(self.locker_rpc, address, slot)
+        if pool_value != locker_value:
+            raise ProviderError("independent Solana RPCs disagree on finalized account state")
+        return locker_value
+
     def _verify_uncx_program(self, slot):
-        program_account = self._get_account(self.locker_rpc, UNCX_PROGRAM, slot)
+        program_account = self._get_account_crosschecked(UNCX_PROGRAM, slot)
         if program_account.get("executable") is not True or program_account.get("owner") != BPF_UPGRADEABLE_LOADER:
             raise ProviderError("UNCX program is not an upgradeable-loader executable")
         program_data = _decode_account_data(program_account, "UNCX program")
         if len(program_data) != 36 or struct.unpack_from("<I", program_data, 0)[0] != 2:
             raise ProviderError("UNCX program account has an unexpected loader state")
         programdata_address = str(Pubkey.from_bytes(program_data[4:36]))
-        programdata = self._get_account(self.locker_rpc, programdata_address, slot)
+        programdata = self._get_account_crosschecked(programdata_address, slot)
         if programdata.get("owner") != BPF_UPGRADEABLE_LOADER:
             raise ProviderError("UNCX ProgramData account owner is invalid")
         data = _decode_account_data(programdata, "UNCX ProgramData")
@@ -169,11 +176,11 @@ class SolanaRaydiumV4UncxSnapshotReader:
             raise ProviderError("deployed UNCX executable hash does not match verified source")
         return observed
 
-    def _discover_raydium_pools(self, token_mint, slot):
+    def _scan_raydium_pools(self, rpc, token_mint, slot):
         mint_key = str(Pubkey.from_string(token_mint))
         rows = {}
         for offset in (400, 432):
-            response = self.pool_rpc.call("getProgramAccounts", [
+            response = rpc.call("getProgramAccounts", [
                 RAYDIUM_AMM_V4_PROGRAM,
                 {"encoding": "base64", "commitment": "finalized",
                  "withContext": True, "minContextSlot": slot,
@@ -182,7 +189,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
                      {"memcmp": {"offset": offset, "bytes": mint_key}},
                  ]},
             ])
-            actual_slot = self._context_slot(response, "Raydium pool discovery", slot)
+            self._context_slot(response, "Raydium pool discovery", slot)
             values = response.get("value")
             if not isinstance(values, list) or len(values) >= self.max_pools:
                 raise ProviderError("Raydium pool discovery is malformed or at its result cap")
@@ -211,7 +218,14 @@ class SolanaRaydiumV4UncxSnapshotReader:
                 }
         if len(rows) > self.max_pools:
             raise ProviderError("Raydium pool inventory exceeds configured cap")
-        return tuple(rows.values())
+        return rows
+
+    def _discover_raydium_pools(self, token_mint, slot):
+        pool_rows = self._scan_raydium_pools(self.pool_rpc, token_mint, slot)
+        locker_rows = self._scan_raydium_pools(self.locker_rpc, token_mint, slot)
+        if pool_rows != locker_rows:
+            raise ProviderError("independent Solana RPCs disagree on complete Raydium pool inventory")
+        return tuple(pool_rows.values())
 
     def _decode_token_lock(self, address, account):
         if account.get("owner") != UNCX_PROGRAM:
@@ -241,8 +255,8 @@ class SolanaRaydiumV4UncxSnapshotReader:
             "initial_amount": initial_amount, "amount": current_amount, "owner": owner,
         }
 
-    def _read_lock_records(self, lp_mint, slot):
-        response = self.locker_rpc.call("getProgramAccounts", [
+    def _scan_lock_records(self, rpc, lp_mint, slot):
+        response = rpc.call("getProgramAccounts", [
             UNCX_PROGRAM,
             {"encoding": "base64", "commitment": "finalized",
              "withContext": True, "minContextSlot": slot,
@@ -258,8 +272,15 @@ class SolanaRaydiumV4UncxSnapshotReader:
         return tuple(self._decode_token_lock(row.get("pubkey"), row.get("account") or {})
                      for row in values)
 
+    def _read_lock_records(self, lp_mint, slot):
+        pool_records = self._scan_lock_records(self.pool_rpc, lp_mint, slot)
+        locker_records = self._scan_lock_records(self.locker_rpc, lp_mint, slot)
+        if pool_records != locker_records:
+            raise ProviderError("independent Solana RPCs disagree on complete UNCX lock account inventory")
+        return locker_records
+
     def _read_lp_supply(self, lp_mint, slot):
-        value = self._get_account(self.locker_rpc, lp_mint, slot)
+        value = self._get_account_crosschecked(lp_mint, slot)
         if value.get("owner") != TOKEN_PROGRAM:
             raise ProviderError("Raydium LP mint is not owned by the classic SPL Token program")
         data = _decode_account_data(value, "LP mint")
@@ -272,7 +293,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
         vault, _ = Pubkey.find_program_address(
             [b"uncx_lp_vault", bytes(Pubkey.from_string(amm_id))], self.uncx_program
         )
-        value = self._get_account(self.locker_rpc, str(vault), slot)
+        value = self._get_account_crosschecked(str(vault), slot)
         if value.get("owner") != TOKEN_PROGRAM:
             raise ProviderError("UNCX LP vault is not owned by the classic SPL Token program")
         data = _decode_account_data(value, "UNCX LP vault")
@@ -300,8 +321,10 @@ class SolanaRaydiumV4UncxSnapshotReader:
         if not discovered:
             raise ProviderError("no Raydium AMM V4 pools were discovered for the token")
         block_time = self.pool_rpc.call("getBlockTime", [slot])
-        if not isinstance(block_time, int) or block_time <= 0:
-            raise ProviderError("Solana finalized slot has no verified block time")
+        locker_block_time = self.locker_rpc.call("getBlockTime", [slot])
+        if (not isinstance(block_time, int) or block_time <= 0
+                or locker_block_time != block_time):
+            raise ProviderError("independent Solana RPCs disagree on finalized slot timestamp")
         observed_ms = block_time * 1000
         finalized_ref = f"slot:{slot}"
 
