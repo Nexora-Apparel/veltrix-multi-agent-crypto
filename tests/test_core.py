@@ -110,3 +110,9 @@ def test_core_cannot_bypass_solana_shield_by_omitting_chain_label(tmp_path):
     core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
     assert core.evaluate({"address": MINT, "price": 1.0}) is None
     assert broker.snapshot()["open_positions"] == []
+
+def test_core_cannot_bypass_solana_shield_with_evm_chain_label(tmp_path):
+    broker = PaperBroker(str(tmp_path / "solana-mislabeled.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
+    assert core.evaluate({"address": MINT, "chain": "base", "price": 1.0}) is None
+    assert broker.snapshot()["open_positions"] == []
