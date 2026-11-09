@@ -13,12 +13,17 @@ Optional controls:
 - `--duration-seconds`: finite run duration; 0 runs until interrupted.
 
 The runtime starts one supervised PumpPortal new-token stream in a background
-thread, persists launches, performs initial DexScreener enrichment, then runs
-scheduled market refreshes. Both workers share one SQLite database. Shutdown
-sets the shared stop event and attempts a bounded stream-thread join.
+thread, persists launches, performs initial DexScreener enrichment, optionally
+collects GoPlus + finalized holder + finalized mint-account risk evidence, and
+runs scheduled market refreshes. Risk collection is enabled only when the
+existing `GOPLUS_ACCESS_TOKEN` and `SOLANA_RPC_URL` settings are configured.
+No new secret is introduced.
 
-The runtime is deliberately isolated from Core, the paper broker, wallet
-intelligence, private keys, signers, Jupiter, and all live execution. It only
-collects launch and market observations. It does not claim exhaustive launch
-coverage: PumpPortal stream interruptions remain recorded coverage gaps, and
-there is no historical launch backfill in this runtime.
+All workers share one SQLite database. Shutdown sets the shared stop event and
+attempts a bounded stream-thread join.
+
+The runtime is deliberately isolated from Core and the paper broker. It has no
+wallet, private key, signer, Jupiter, transaction submission, or live execution
+path. It only collects launch, market, and risk observations. It does not claim
+exhaustive launch coverage: PumpPortal stream interruptions remain recorded
+coverage gaps, and there is no historical launch backfill in this runtime.
