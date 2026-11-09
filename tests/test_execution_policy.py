@@ -307,3 +307,57 @@ def test_consumer_failure_fails_closed():
             consumer=BrokenConsumer(),
             now=9_001,
         )
+
+
+def test_sqlite_authorization_store_survives_reconstruction(tmp_path):
+    from veltrix.authorization_store import SQLiteAuthorizationConsumer
+
+    database = tmp_path / "auth" / "consumed.sqlite3"
+    first_process = SQLiteAuthorizationConsumer(database)
+    assert first_process.consume("authorization-1", 10_000)
+    restarted_process = SQLiteAuthorizationConsumer(database)
+    assert not restarted_process.consume("authorization-1", 10_000)
+    assert restarted_process.consume("authorization-2", 10_000)
+
+
+def test_sqlite_authorization_store_allows_only_one_concurrent_consumer(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from veltrix.authorization_store import SQLiteAuthorizationConsumer
+
+    database = tmp_path / "concurrent.sqlite3"
+
+    def attempt(_):
+        return SQLiteAuthorizationConsumer(database).consume("same-authorization", 20_000)
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        outcomes = list(executor.map(attempt, range(24)))
+
+    assert outcomes.count(True) == 1
+    assert outcomes.count(False) == 23
+
+
+@pytest.mark.parametrize(
+    "authorization_id,expires_at",
+    [
+        ("", 10_000),
+        ("valid", True),
+        ("valid", 0),
+        ("valid", 1.5),
+    ],
+)
+def test_sqlite_authorization_store_rejects_malformed_values(
+    tmp_path, authorization_id, expires_at
+):
+    from veltrix.authorization_store import SQLiteAuthorizationConsumer
+
+    store = SQLiteAuthorizationConsumer(tmp_path / "invalid.sqlite3")
+    with pytest.raises(ValueError):
+        store.consume(authorization_id, expires_at)
+
+
+def test_sqlite_authorization_store_rejects_memory_database():
+    from veltrix.authorization_store import SQLiteAuthorizationConsumer
+
+    with pytest.raises(ValueError):
+        SQLiteAuthorizationConsumer(":memory:")
