@@ -297,3 +297,14 @@ executable_sellability claim.
 - Updated tests to supply typed persisted market rows and added a superseded-snapshot race test.
 - GitHub Actions run [42689166638](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42689166638) passed on commit `aeac91603e6cd000465a5af7dfb557f55c615984`: 476 passed, 5 skipped.
 - The first CI attempt on the implementation commit failed because one baseline-free test still passed an empty packet. The test was corrected to use the persisted snapshot; the latest code commit is green.
+
+
+## 2026-11-09 — Solana liquidity evidence persistence and worker
+
+- Added `SolanaLiquidityEvidenceStore`, an append-only SQLite store with deterministic report deduplication and per-mint history.
+- Added `SolanaLiquidityEvidenceWorker`: bounded batch claiming, leases, expired-lease recovery, refresh scheduling, exponential retry, and persistence of analyzer reports.
+- Connected the worker to the optional Solana liquidity reader in the runtime and pipeline. It activates only when the existing factory can build the reader from two independent HTTPS RPC endpoints, pinned executable hashes, and explicit supported-AMM registry configuration.
+- Added runtime diagnostics for disabled/active liquidity inventory and report counts.
+- The worker does not convert a report into a safety certificate. The provider capability catalogue remains partial for Solana because the reader covers only Raydium AMM V4/CPMM and does not establish complete active-AMM coverage; CPMM locker verification is also incomplete.
+- Tests on code commit `f940aacb57ca5528eca1fc30ae36fadc3f308e38`: 480 passed, 5 skipped.
+- Tests on current PR head `d3005272fae30839627b1d8b2430c7cbc25bf9be` (documentation update): 480 passed, 5 skipped. Workflow run [42692097618](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42692097618) succeeded.
