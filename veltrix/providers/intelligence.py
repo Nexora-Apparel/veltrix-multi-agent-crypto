@@ -8,8 +8,8 @@ from dataclasses import dataclass
 import math
 from typing import Iterable
 
-from .safety import SafetyEvidence, SafetyReport, TokenSafetyValidator
-from .whales import WalletBuyEvent
+from ..safety import SafetyEvidence, SafetyReport, TokenSafetyValidator
+from ..whales import WalletBuyEvent
 
 
 SUPPORTED_CHAINS = frozenset({"solana", "base", "bsc"})
