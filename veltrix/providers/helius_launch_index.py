@@ -156,12 +156,30 @@ class HeliusSolanaLaunchIndexProvider:
             raise ValueError("launch_window_ms must be a positive integer")
         now = self.clock_ms()
         origin = self.origin_resolver.resolve(mint, window_ms, now_ms=now)
+        if (origin.chain != "solana" or origin.token_address != mint
+                or origin.provider != self.origin_resolver.provider_id
+                or origin.complete is not True
+                or not origin.evidence_id
+                or origin.launch_at_ms + window_ms != origin.window_end_ms):
+            raise ProviderError("Solana launch-origin evidence is invalid or incomplete")
         end_ms = origin.window_end_ms
         mint_snapshot = self.mint_provider.fetch_snapshot(mint)
-        if mint_snapshot.mint != mint or mint_snapshot.supply_raw <= 0:
+        if (mint_snapshot.mint != mint
+                or mint_snapshot.provider != self.mint_provider.provider_id
+                or not mint_snapshot.evidence_id
+                or isinstance(mint_snapshot.supply_raw, bool)
+                or not isinstance(mint_snapshot.supply_raw, int)
+                or mint_snapshot.supply_raw <= 0
+                or isinstance(mint_snapshot.decimals, bool)
+                or not isinstance(mint_snapshot.decimals, int)
+                or not 0 <= mint_snapshot.decimals <= 38
+                or not isinstance(mint_snapshot.finalized_slot, int)
+                or isinstance(mint_snapshot.finalized_slot, bool)
+                or mint_snapshot.finalized_slot < 0):
             raise ProviderError("Finalized mint supply evidence is invalid")
-        if mint_snapshot.observed_at_ms > now:
-            raise ProviderError("Finalized mint supply evidence is future-dated")
+        if (mint_snapshot.observed_at_ms > now
+                or now - mint_snapshot.observed_at_ms > 300_000):
+            raise ProviderError("Finalized mint supply evidence is stale or future-dated")
         total_supply = mint_snapshot.supply_raw / (10 ** mint_snapshot.decimals)
 
         raw_rows, pages, scanned_through_ms, scan_complete = self._scan_launch_window(
@@ -213,7 +231,14 @@ class HeliusSolanaLaunchIndexProvider:
                     edge.wallet_address: edge for edge in funding_snapshot.relationships
                 }
                 funding_complete = (
-                    funding_snapshot.coverage_complete is True
+                    funding_snapshot.provider == self.funding_provider.provider_id
+                    and funding_snapshot.chain == "solana"
+                    and funding_snapshot.token_address == mint
+                    and bool(funding_snapshot.evidence_id)
+                    and bool(funding_snapshot.block_ref)
+                    and funding_snapshot.observed_at_ms <= now
+                    and now - funding_snapshot.observed_at_ms <= 300_000
+                    and funding_snapshot.coverage_complete is True
                     and set(buyer_wallets).issubset(funding_by_wallet)
                     and all(funding_by_wallet[w].funder_address for w in buyer_wallets)
                 )
