@@ -184,7 +184,8 @@ def test_exact_size_worker_rejects_stale_market_price(tmp_path):
     evaluator = SolanaSellabilityEvaluator(FakeQuoteProvider(), clock_ms=lambda: 105_000)
     worker = SolanaSellabilityWorker(
         launches, risks, evaluator, store, market_store=markets,
-        paper_notional_usd=50, clock_ms=lambda: 105_000,
+        paper_notional_usd=50, max_market_age_ms=1_000,
+        clock_ms=lambda: 105_000,
     )
     result = worker.run_once()
     assert result.failed == 1
