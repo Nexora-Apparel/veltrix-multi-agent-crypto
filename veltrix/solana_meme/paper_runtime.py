@@ -148,6 +148,7 @@ def build_runtime(
         max_decision_age_ms=_env_int("VELTRIX_PAPER_MAX_DECISION_AGE_MS", 120_000),
         max_market_age_ms=_env_int("VELTRIX_PAPER_MAX_MARKET_AGE_MS", 120_000),
         max_risk_age_ms=_env_int("VELTRIX_PAPER_MAX_RISK_AGE_MS", 300_000),
+        max_portfolio_exposure_pct=_env_float("VELTRIX_PAPER_MAX_PORTFOLIO_EXPOSURE_PCT", 0.5),
     )
     worker = PaperTradingWorker(
         consensus_store,
