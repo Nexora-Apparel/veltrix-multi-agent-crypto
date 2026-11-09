@@ -57,7 +57,7 @@ def signals():
 def test_two_agent_consensus_can_only_approve_paper_entry():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=50, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
+        open_positions=0, amount=50, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "APPROVE_PAPER_ENTRY"
     assert result.approved_for_paper is True
@@ -68,16 +68,16 @@ def test_unknown_risk_claims_veto_even_with_positive_safety_report():
     incomplete = replace(evidence(), missing_claims=("mint_authority",))
     result = SolanaShieldPolicy().evaluate(
         MINT, incomplete, safety(), signals(),
-        open_positions=0, amount=10, now_ms=10_000,
+        open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
-    assert "mandatory risk claims remain unknown" in result.reasons
+    assert "mandatory token-risk claims remain unknown" in result.reasons
 
 
 def test_missing_or_unverified_composite_safety_vetoes():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), None, signals(),
-        open_positions=0, amount=10, now_ms=10_000,
+        open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
 
@@ -85,7 +85,7 @@ def test_missing_or_unverified_composite_safety_vetoes():
 def test_one_agent_cannot_approve():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), safety(), signals()[:1],
-        open_positions=0, amount=10, now_ms=10_000,
+        open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
     assert "insufficient distinct BUY-agent consensus" in result.reasons
@@ -95,17 +95,17 @@ def test_position_limits_and_stale_evidence_veto():
     policy = SolanaShieldPolicy()
     full = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=10, amount=10, now_ms=10_000,
+        open_positions=10, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert full.decision == "BLOCK"
     oversized = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=51, now_ms=10_000,
+        open_positions=0, amount=51, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert oversized.decision == "BLOCK"
     stale = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=10, now_ms=400_001, sellability=route(), sell_amount_raw=10_000_000,
+        open_positions=0, amount=10, now_ms=400_001, sellability=route(), sell_amount_raw=10_000_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert stale.decision == "BLOCK"
 
@@ -115,7 +115,7 @@ def test_cross_mint_signal_vetoes():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), safety(),
         [Signal("scout", MINT, "BUY", "a"), Signal("whale", other, "BUY", "b")],
-        open_positions=0, amount=10, now_ms=10_000,
+        open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
     assert "BUY signals do not unanimously target this mint" in result.reasons
@@ -124,7 +124,7 @@ def test_cross_mint_signal_vetoes():
 def test_invalid_amount_is_rejected():
     result = SolanaShieldPolicy().evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=float("nan"), now_ms=10_000,
+        open_positions=0, amount=float("nan"), now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
 
@@ -132,7 +132,7 @@ def test_liquidity_lock_must_be_positively_verified():
     for value in (False, None):
         result = SolanaShieldPolicy().evaluate(
             MINT, replace(evidence(), liquidity_locked=value), safety(), signals(),
-            open_positions=0, amount=10, now_ms=10_000,
+            open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
         )
         assert result.decision == "BLOCK"
 
@@ -141,7 +141,7 @@ def test_missing_evidence_provenance_vetoes_even_complete_claims():
     incomplete = replace(evidence(), holder_evidence_id="")
     result = SolanaShieldPolicy().evaluate(
         MINT, incomplete, safety(), signals(),
-        open_positions=0, amount=10, now_ms=10_000,
+        open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
     assert "risk evidence provenance is incomplete" in result.reasons
@@ -150,7 +150,7 @@ def test_invalid_evaluation_timestamp_and_boolean_supply_are_rejected():
     policy = SolanaShieldPolicy()
     invalid_time = policy.evaluate(
         MINT, evidence(), safety(), signals(),
-        open_positions=0, amount=10, now_ms="not-a-timestamp", sellability=route(), sell_amount_raw=10_000_000,
+        open_positions=0, amount=10, now_ms="not-a-timestamp", sellability=route(), sell_amount_raw=10_000_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert invalid_time.decision == "BLOCK"
     boolean_supply = replace(
@@ -158,7 +158,7 @@ def test_invalid_evaluation_timestamp_and_boolean_supply_are_rejected():
     )
     invalid_supply = policy.evaluate(
         MINT, boolean_supply, safety(), signals(),
-        open_positions=0, amount=10, now_ms=10_000,
+        open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert invalid_supply.decision == "BLOCK"
 
@@ -171,7 +171,7 @@ def test_active_mint_or_freeze_authority_vetoes_entry():
     ):
         result = SolanaShieldPolicy().evaluate(
             MINT, replace(evidence(), **changes), safety(), signals(),
-            open_positions=0, amount=10, now_ms=10_000,
+            open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
         )
         assert result.decision == "BLOCK"
         assert expected in result.reasons
@@ -186,7 +186,7 @@ def test_token_2022_extension_presence_requires_separate_policy_review():
             token_2022_extension_types=("permanent_delegate",),
             token_2022_extension_review_complete=False,
         ),
-        safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        safety(), signals(), open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
     )
     assert result.decision == "BLOCK"
     assert "Token-2022 extensions require separate policy certification" in result.reasons
@@ -199,7 +199,7 @@ def test_route_observation_is_required_but_never_marks_execution_proven():
     assert blocked.decision == "BLOCK"
     assert "typed sell-route evidence is required for paper entry" in blocked.reasons
     approved = SolanaShieldPolicy().evaluate(
-        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
         sellability=route(), sell_amount_raw=10_000_000,
     )
     assert approved.decision == "APPROVE_PAPER_ENTRY"
@@ -209,21 +209,21 @@ def test_route_observation_is_required_but_never_marks_execution_proven():
 
 def test_route_quote_must_match_exit_size_and_unknown_token_risk_still_vetoes():
     mismatch = SolanaShieldPolicy().evaluate(
-        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        MINT, evidence(), safety(), signals(), open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
         sellability=route(input_amount_raw=9_000_000), sell_amount_raw=10_000_000,
     )
     assert mismatch.decision == "BLOCK"
     assert "sell-route quote does not match intended paper exit size" in mismatch.reasons
     unknown = replace(evidence(), missing_claims=("bundled_supply",))
     blocked = SolanaShieldPolicy().evaluate(
-        MINT, unknown, safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        MINT, unknown, safety(), signals(), open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
         sellability=route(), sell_amount_raw=10_000_000,
     )
     assert blocked.decision == "BLOCK"
     assert "mandatory token-risk claims remain unknown" in blocked.reasons
     live_unknown = replace(evidence(), missing_claims=("executable_sellability",))
     paper = SolanaShieldPolicy().evaluate(
-        MINT, live_unknown, safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+        MINT, live_unknown, safety(), signals(), open_positions=0, amount=10, now_ms=10_000, sellability=route(), sell_amount_raw=10_000_000,
         sellability=route(), sell_amount_raw=10_000_000,
     )
     assert paper.decision == "APPROVE_PAPER_ENTRY"
