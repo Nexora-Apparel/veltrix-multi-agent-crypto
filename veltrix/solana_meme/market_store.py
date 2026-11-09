@@ -31,7 +31,7 @@ class MarketSnapshotStore:
                     volume_m5_usd REAL,
                     volume_h1_usd REAL NOT NULL,
                     volume_h24_usd REAL,
-                    price_change_m5_pct REAL NOT NULL,
+                    price_change_m5_pct REAL,
                     price_change_h1_pct REAL,
                     price_change_h24_pct REAL,
                     txns_m5_buys INTEGER,
