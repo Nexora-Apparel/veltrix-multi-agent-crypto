@@ -28,6 +28,8 @@ PAIR_CREATED_TOPIC = "0x" + keccak(b"PairCreated(address,address,address,uint256
 NEW_LOCK_TOPIC = "0x" + keccak(
     b"onNewLock(uint256,address,address,uint256,uint256,uint256,uint16)"
 ).hex()
+BSC_DEPOSIT_TOPIC = "0x830357565da6ecfc26d8d9f69df488ed6f70361af9a07e570544aeb5c5e765e5"
+BSC_WITHDRAW_TOPIC = "0xccad973dcd043c7d680389db4378bd6b9775db7124092e9e0422c9e46d7985dc"
 
 
 def _word(value):
@@ -290,51 +292,13 @@ class EvmV2LiquiditySnapshotReader:
             raise ProviderError("discovered pair does not contain requested token")
         return token0, token1
 
-    def _read_locker_positions(self, locker, pools, block_hex, final_block):
-        self._code(self.locker_rpc, locker.address, block_hex, locker.expected_code_hash)
-        factory_data = self._call(
-            self.locker_rpc, locker.address, "0x" + _selector("uniswapFactory()").hex(), block_hex
-        )
-        factory_address = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\x00"))
-        matching_factory = next(
-            (f for f in self.factories if f.address.lower() == factory_address.lower()
-             and f.amm_id == locker.amm_id), None
-        )
-        if matching_factory is None:
-            raise ProviderError("locker constructor factory is not in the certified AMM registry")
+    def _read_base_v21_positions(self, locker, pools, block_hex):
         nonce_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("NONCE()").hex(), block_hex
         )
-        nonce = _decode_uint(bytes.fromhex(nonce_data[2:]).rjust(32, b"\x00"))
-        if nonce > self.max_locks:
-            raise ProviderError("locker nonce exceeds configured exhaustive scan limit")
-
-        event_ids = None
-        if self.chain == "bsc":
-            event_ids = set()
-            scanned = 0
-            for start in range(locker.deployment_block, final_block + 1, self.block_chunk_size):
-                end = min(final_block, start + self.block_chunk_size - 1)
-                logs = self.locker_rpc.call("eth_getLogs", [{
-                    "address": locker.address, "fromBlock": hex(start),
-                    "toBlock": hex(end), "topics": [NEW_LOCK_TOPIC],
-                }])
-                if not isinstance(logs, list):
-                    raise ProviderError("BSC locker event scan returned malformed logs")
-                scanned += len(logs)
-                if scanned >= self.max_logs:
-                    raise ProviderError("BSC locker event history exceeds complete-scan limit")
-                for log in logs:
-                    if (log.get("removed") is True
-                            or log.get("address", "").lower() != locker.address.lower()):
-                        raise ProviderError("BSC locker event history contains removed or misattributed logs")
-                    data = log.get("data", "")
-                    if not isinstance(data, str) or not data.startswith("0x") or len(data) < 66:
-                        raise ProviderError("BSC onNewLock event is malformed")
-                    event_ids.add(_decode_uint(bytes.fromhex(data[2:66])))
-            if event_ids != set(range(nonce)):
-                raise ProviderError("BSC lock event history does not reconcile to NONCE")
-
+        nonce = _decode_uint(bytes.fromhex(nonce_data[2:]).rjust(32, b"\\x00"))
+        if nonce >= self.max_locks:
+            raise ProviderError("Base locker nonce exceeds configured exhaustive scan limit")
         positions = []
         pool_keys = {p[0].lower() for p in pools}
         for lock_id in range(nonce):
@@ -344,20 +308,130 @@ class EvmV2LiquiditySnapshotReader:
             )
             record = _decode_lock(data)
             if record["lock_id"] != lock_id:
-                raise ProviderError("locker LOCKS index does not match stored lock ID")
+                raise ProviderError("Base LOCKS index does not match stored lock ID")
             lp = record["lp_token"]
             if lp.lower() not in pool_keys or record["amount"] == 0:
                 continue
             if record["unlock_date"] <= 0 or record["owner"] == ZERO:
-                raise ProviderError("active locker record has invalid owner or unlock time")
+                raise ProviderError("Base active lock has invalid owner or unlock time")
             positions.append(LockerPositionSnapshot(
-                chain=self.chain, pool_address=lp, lp_token_address=lp,
+                chain="base", pool_address=lp, lp_token_address=lp,
                 locker_address=locker.address, position_id=f"{locker.address.lower()}:{lock_id}",
                 amount=record["amount"], unlock_at_ms=record["unlock_date"] * 1000,
                 observed_at_ms=self._observed_ms, owner=record["owner"],
                 evidence_ref=f"{self._finalized_ref}:lock:{lock_id}",
                 finalized_ref=self._finalized_ref,
             ))
+        return positions
+
+    def _read_bsc_v1_positions(self, locker, pools, block_hex, final_block):
+        """Enumerate legacy BSC locks by per-LP index and cross-check event history."""
+        deposits_by_lp = {}
+        event_count = 0
+        for start in range(locker.deployment_block, final_block + 1, self.block_chunk_size):
+            end = min(final_block, start + self.block_chunk_size - 1)
+            for topic in (BSC_DEPOSIT_TOPIC, BSC_WITHDRAW_TOPIC):
+                logs = self.locker_rpc.call("eth_getLogs", [{
+                    "address": locker.address, "fromBlock": hex(start),
+                    "toBlock": hex(end), "topics": [topic],
+                }])
+                if not isinstance(logs, list):
+                    raise ProviderError("BSC locker event history returned malformed logs")
+                event_count += len(logs)
+                if event_count >= self.max_logs or len(logs) >= 10_000:
+                    raise ProviderError("BSC locker event history reached a provider or configured cap")
+                for log in logs:
+                    if (not isinstance(log, dict) or log.get("removed") is True
+                            or log.get("address", "").lower() != locker.address.lower()):
+                        raise ProviderError("BSC locker history contains removed or misattributed logs")
+                    data = log.get("data", "")
+                    if not isinstance(data, str) or not data.startswith("0x"):
+                        raise ProviderError("BSC locker event data is malformed")
+                    raw = bytes.fromhex(data[2:])
+                    if topic == BSC_DEPOSIT_TOPIC:
+                        if len(raw) != 5 * 32:
+                            raise ProviderError("BSC onDeposit event has unexpected ABI size")
+                        lp = _decode_address(raw[0:32])
+                        user = _decode_address(raw[32:64])
+                        amount = _decode_uint(raw[64:96])
+                        lock_date = _decode_uint(raw[96:128])
+                        unlock_date = _decode_uint(raw[128:160])
+                        if user == ZERO or amount <= 0 or lock_date <= 0 or unlock_date <= 0:
+                            raise ProviderError("BSC onDeposit event contains invalid lock fields")
+                        deposits_by_lp.setdefault(lp.lower(), 0)
+                        deposits_by_lp[lp.lower()] += 1
+                    else:
+                        if len(raw) != 2 * 32:
+                            raise ProviderError("BSC onWithdraw event has unexpected ABI size")
+                        lp = _decode_address(raw[0:32])
+                        amount = _decode_uint(raw[32:64])
+                        if amount <= 0:
+                            raise ProviderError("BSC onWithdraw event has invalid amount")
+
+        positions = []
+        for pair, *_ in pools:
+            count_data = self._call(
+                self.locker_rpc, locker.address,
+                _call_data("getNumLocksForToken(address)", _address_word(pair)),
+                block_hex,
+            )
+            lock_count = _decode_uint(bytes.fromhex(count_data[2:]).rjust(32, b"\\x00"))
+            if lock_count >= self.max_locks:
+                raise ProviderError("BSC per-LP lock index exceeds configured exhaustive scan limit")
+            if deposits_by_lp.get(pair.lower(), 0) != lock_count:
+                raise ProviderError("BSC onDeposit event count does not reconcile to per-LP lock index")
+            for index in range(lock_count):
+                data = self._call(
+                    self.locker_rpc, locker.address,
+                    _call_data(
+                        "tokenLocks(address,uint256)", _address_word(pair), _word(index)
+                    ),
+                    block_hex,
+                )
+                raw = bytes.fromhex(data[2:])
+                if len(raw) != 6 * 32:
+                    raise ProviderError("BSC tokenLocks index returned unexpected ABI tuple")
+                lock_date = _decode_uint(raw[0:32])
+                amount = _decode_uint(raw[32:64])
+                initial_amount = _decode_uint(raw[64:96])
+                unlock_date = _decode_uint(raw[96:128])
+                lock_id = _decode_uint(raw[128:160])
+                owner = _decode_address(raw[160:192])
+                if amount == 0:
+                    continue
+                if (lock_date <= 0 or unlock_date <= 0 or owner == ZERO
+                        or amount > initial_amount):
+                    raise ProviderError("BSC indexed lock has invalid current state")
+                positions.append(LockerPositionSnapshot(
+                    chain="bsc", pool_address=pair, lp_token_address=pair,
+                    locker_address=locker.address,
+                    position_id=f"{locker.address.lower()}:{pair.lower()}:{index}:{lock_id}",
+                    amount=amount, unlock_at_ms=unlock_date * 1000,
+                    observed_at_ms=self._observed_ms, owner=owner,
+                    evidence_ref=f"{self._finalized_ref}:tokenLocks:{pair}:{index}",
+                    finalized_ref=self._finalized_ref,
+                ))
+        return positions
+
+    def _read_locker_positions(self, locker, pools, block_hex, final_block):
+        self._code(self.locker_rpc, locker.address, block_hex, locker.expected_code_hash)
+        factory_data = self._call(
+            self.locker_rpc, locker.address, "0x" + _selector("uniswapFactory()").hex(), block_hex
+        )
+        factory_address = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\\x00"))
+        matching_factory = next(
+            (f for f in self.factories if f.address.lower() == factory_address.lower()
+             and f.amm_id == locker.amm_id), None
+        )
+        if matching_factory is None:
+            raise ProviderError("locker constructor factory is not in the certified AMM registry")
+
+        if self.chain == "base":
+            positions = self._read_base_v21_positions(locker, pools, block_hex)
+        else:
+            positions = self._read_bsc_v1_positions(
+                locker, pools, block_hex, final_block
+            )
         deployment = LockerDeployment(
             chain=self.chain, provider=self.locker_rpc.provider_id,
             address=locker.address, abi_profile=locker.abi_profile,
