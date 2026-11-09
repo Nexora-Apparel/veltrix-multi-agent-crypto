@@ -13,6 +13,7 @@ from .intelligence import SmartWalletObservation
 
 class HeliusWalletProvider:
     provider_id = "helius"
+    supported_chains = frozenset({"solana"})
 
     def __init__(self, api_key, tracked_wallets=(), price_usd_resolver=None,
                  base_url="https://mainnet.helius-rpc.com", timeout=20.0,
