@@ -3,7 +3,7 @@ import time
 from .config import settings
 from .ledger import PaperBroker
 from .monitor import MarketMonitor
-from .providers.factory import build_intelligence_coordinator
+from .providers.factory import build_intelligence_coordinator, build_developer_evidence_orchestrator
 from .providers.intelligence import VerifiedIntelligenceAdapters
 from .providers.launch import build_launch_intelligence_service
 from .launch_origin import build_launch_origin_resolvers
@@ -22,17 +22,22 @@ def main():
     wallet_intelligence = intelligence if intelligence.providers else None
     launch_service = None
     origin_resolvers = {}
+    developer_evidence = None
     if cfg.launch_intelligence_enabled:
         adapters = VerifiedIntelligenceAdapters.from_settings(cfg)
         launch_service = build_launch_intelligence_service(cfg, adapters)
         origin_resolvers = build_launch_origin_resolvers(cfg)
+        developer_evidence = build_developer_evidence_orchestrator(
+            cfg, adapters, audit_sink=broker,
+        )
     monitor = MarketMonitor(watchlist, cfg.db_path, discovery_enabled=cfg.discovery_enabled,
         allowed_chains=cfg.discovery_chains, max_discovered_per_chain=cfg.max_discovered_per_chain,
         broker=broker, wallet_intelligence=wallet_intelligence,
         wallet_max_age_ms=cfg.wallet_evidence_max_age_ms,
         launch_intelligence=launch_service,
         launch_origin_resolvers=origin_resolvers,
-        trusted_launch_origin_providers=cfg.trusted_launch_origin_providers)
+        trusted_launch_origin_providers=cfg.trusted_launch_origin_providers,
+        developer_evidence=developer_evidence)
     readiness = build_provider_readiness(cfg)
     print(f"Provider readiness: {len(readiness.blocked_claims)}/{len(readiness.claims)} chain/claim checks blocked; fully ready: {readiness.fully_ready}")
     for item in readiness.blocked_claims:
@@ -44,7 +49,7 @@ def main():
     print(f"Wallet intelligence connectors configured: {len(intelligence.providers)}; trusted: {len(cfg.trusted_wallet_providers)}")
     print(f"Launch intelligence enabled: {cfg.launch_intelligence_enabled}; indexers: {len(getattr(launch_service, 'indexers', {}))}; origin resolvers: {len(origin_resolvers)}")
     if cfg.launch_intelligence_enabled:
-        print("Launch candidates are automatically submitted to composite safety; liquidity/developer evidence is not configured here, so paper entries remain blocked.")
+        print("Launch candidates are submitted to bundle and developer-evidence analysis. Missing signed roots, liquidity evidence or certified claim providers fail closed; no paper entries are opened.")
     deadline = time.monotonic() + args.hours * 3600
     try:
         while time.monotonic() < deadline:
@@ -55,6 +60,11 @@ def main():
                 wallet_clusters = sum(len(batch.clusters) for batch in wallet_batches)
                 wallet_failures = sum(len(batch.provider_failures) for batch in wallet_batches)
                 launch_checked = len(monitor.last_launch_results)
+                developer_checked = len(monitor.last_developer_results)
+                developer_analyzed = sum(
+                    1 for item in monitor.last_developer_results.values()
+                    if item.get("status") == "analyzed"
+                )
                 launch_certified = sum(
                     1 for item in monitor.last_launch_results.values()
                     if item.get("status") == "certified"
@@ -65,6 +75,8 @@ def main():
                     f"multi-wallet clusters: {wallet_clusters}; "
                     f"provider failures: {wallet_failures}; "
                     f"launch candidates checked: {launch_checked}; "
+                    f"developer evidence checks: {developer_checked}; "
+                    f"complete developer analyses: {developer_analyzed}; "
                     f"composite safety passes: {launch_certified}"
                 )
             except Exception as exc:
