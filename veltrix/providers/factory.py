@@ -100,6 +100,16 @@ def build_developer_evidence_orchestrator(settings, intelligence_adapters, *,
 
     holders = holder_providers or build_holder_inventory_providers(settings)
     funding = funding_providers or build_funding_graph_providers(settings)
+    root_provider = None
+    root_url = getattr(settings, "developer_root_attestation_url", "")
+    root_key = getattr(settings, "developer_root_attestation_public_key", "")
+    if root_url and root_key:
+        from .signed_roots import SignedDeveloperRootProvider
+        root_provider = SignedDeveloperRootProvider(
+            root_url, root_key,
+            provider_id=getattr(settings, "developer_root_attestation_provider_id", "signed-developer-roots"),
+            max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
+        )
     return DeveloperEvidenceOrchestrator(
         holder_providers=holders, funding_providers=funding,
         analyzer=DeveloperConcentrationAnalyzer(
@@ -108,6 +118,7 @@ def build_developer_evidence_orchestrator(settings, intelligence_adapters, *,
         trusted_root_providers=getattr(settings, "trusted_developer_root_providers", ()),
         trusted_holder_providers=getattr(settings, "trusted_holder_inventory_providers", ()),
         trusted_funding_providers=getattr(settings, "trusted_developer_funding_providers", ()),
+        root_attestation_provider=root_provider,
         # No production capability is currently certified for this composite graph.
         certified_provider_id=None, audit_sink=audit_sink,
     )
