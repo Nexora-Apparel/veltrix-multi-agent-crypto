@@ -90,7 +90,7 @@ def main():
     rendered = json.dumps(result, indent=2, sort_keys=True)
     print(rendered)
     if args.output:
-        Path(args.output).write_text(rendered + "\\n", encoding="utf-8")
+        Path(args.output).write_text(rendered + "\n", encoding="utf-8")
     if result["reader_acceptance"] != "PASS":
         raise RuntimeError("read-only liquidity reader acceptance failed")
 
