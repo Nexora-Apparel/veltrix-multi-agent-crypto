@@ -8,7 +8,7 @@ that a real wallet can transfer the token, pay fees, or land the transaction.
 Likewise, an unsigned RPC simulation is only a point-in-time execution diagnostic;
 it is not authorisation to sign or broadcast.
 
-## Paper-entry gate (future implementation)
+## Paper-entry gate
 
 A paper entry may be considered only when all mandatory token-risk evidence is
 complete and fresh, including:
@@ -50,7 +50,9 @@ review remain mandatory.
   implemented as independent evidence components.
 - Simulation runs only for explicitly configured mint/raw-amount test cases.
 - Both simulation and its preflight remain disabled by default.
-- No Shield policy change has yet converted route observations into paper-entry
-  approval. That change must be implemented with tests proving that unknown
-  token-risk claims still veto entries.
+- Shield now requires a fresh, provenance-backed sell-side route observation
+  matching the intended raw-token exit size before it can approve a paper entry.
+- The execution-only `executable_sellability` unknown remains unresolved and is
+  not conflated with token-risk unknowns. Unknown mandatory token-risk claims
+  still veto paper entry.
 - No live entry path exists or is authorised.
