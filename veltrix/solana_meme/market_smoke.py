@@ -3,7 +3,7 @@
 Run with:
     python -m veltrix.solana_meme.market_smoke
 
-The check uses the public wrapped-SOL mint as a stable market-data probe. It
+The check uses the established BONK Solana mint as a stable meme-coin market-data probe. It
 reads one token-pairs response and performs no wallet or transaction actions.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from ..providers.dexscreener import DexScreenerProvider
 from .market_data import SolanaMarketData, SolanaMarketSnapshot
 
-WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
+BONK_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 
 
 @dataclass(frozen=True)
@@ -24,9 +24,9 @@ class MarketSmokeResult:
 
 def run_market_smoke(provider=None) -> MarketSmokeResult:
     market = SolanaMarketData(provider or DexScreenerProvider())
-    snapshot = market.fetch(WRAPPED_SOL_MINT)
+    snapshot = market.fetch(BONK_MINT)
     if snapshot.price_usd <= 0 or snapshot.pair_count < 1:
-        raise RuntimeError("DEX Screener returned no usable wrapped-SOL market snapshot")
+        raise RuntimeError("DEX Screener returned no usable BONK market snapshot")
     return MarketSmokeResult(snapshot=snapshot, pair_count=snapshot.pair_count)
 
 
