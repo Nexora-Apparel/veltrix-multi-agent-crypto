@@ -215,3 +215,31 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
             max_locks_per_pool=getattr(settings, "liquidity_reader_max_locks", 20_000),
         )
     return providers
+
+
+def build_solana_risk_evidence_collector(settings, *, session=None):
+    """Build the optional GoPlus + holder + finalized mint evidence collector.
+
+    Existing GOPLUS_ACCESS_TOKEN and SOLANA_RPC_URL settings are reused. No
+    provider is added to a trust allowlist and no missing credential is guessed.
+    """
+    goplus_token = getattr(settings, "goplus_access_token", "")
+    solana_rpc = getattr(settings, "solana_rpc_url", "")
+    if not goplus_token or not solana_rpc:
+        return None
+
+    from .goplus import GoPlusTokenSafetyProvider
+    from .holder_inventory import SolanaHolderInventoryProvider
+    from .solana_mint import SolanaMintAuthorityProvider
+    from ..solana_meme.risk_evidence import SolanaRiskEvidenceCollector
+
+    max_age = getattr(settings, "safety_evidence_max_age_ms", 300_000)
+    goplus = GoPlusTokenSafetyProvider(access_token=goplus_token, session=session)
+    holders = SolanaHolderInventoryProvider(
+        solana_rpc, session=session,
+        max_accounts=getattr(settings, "holder_inventory_max_accounts", 50_000),
+    )
+    mint = SolanaMintAuthorityProvider(solana_rpc, session=session)
+    return SolanaRiskEvidenceCollector(
+        goplus, holders, mint_provider=mint, max_age_ms=max_age,
+    )
