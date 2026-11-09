@@ -94,6 +94,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             reader_configured = bool(
                 getattr(settings, "solana_liquidity_pool_rpc_url", "")
                 and getattr(settings, "solana_liquidity_locker_rpc_url", "")
+                and getattr(settings, "solana_raydium_amm_v4_executable_hash", "")
             )
             liquidity_provider_id = "solana-raydium-v4-finalized-pool-inventory"
 
