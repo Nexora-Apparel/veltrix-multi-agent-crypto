@@ -142,7 +142,7 @@ class LaunchBundleAnalyzer:
             supply = float(total_supply)
         except (TypeError, ValueError):
             supply = float("nan")
-        if coverage_complete is True and math.isfinite(supply) and supply > 0:
+        if coverage_complete is True and not rejected and math.isfinite(supply) and supply > 0:
             if cluster_supply > supply:
                 rejected.append("cluster token amount exceeds total supply; percentage withheld")
             else:
@@ -151,8 +151,8 @@ class LaunchBundleAnalyzer:
             rejected.append("complete launch-window coverage and valid total supply are required")
         if not clusters:
             notes.append("No qualifying multi-wallet shared-funder cluster was observed.")
-        if coverage_complete is not True:
-            notes.append("Coverage is incomplete; absence of a detected cluster is not evidence of zero bundle supply.")
+        if coverage_complete is not True or rejected:
+            notes.append("Coverage or evidence validation is incomplete; no bundle percentage is certified.")
         return self._report(chain_key, token_address, provider, launch_at_ms, coverage_complete,
                             supply_pct, len(clusters), participating, accepted, rejected, notes,
                             window_end)
