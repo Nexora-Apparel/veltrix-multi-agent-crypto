@@ -39,3 +39,24 @@ Latest full CI passed at commit e1dfa1fe0472016386a8ded50ba47b7489e2df07:
 373 passed, 5 skipped; compileall and pytest both succeeded. This includes the read-only runtime,
 finalized mint parser, risk evidence factory, persistent risk store/worker, and pipeline wiring.
 Provider-backed production validation has not been performed.
+
+
+## Developer ancestry integration — 2026-11-09
+
+Added an opt-in Solana developer evidence worker and append-only report store:
+- verifies signed Ed25519 root attestations bound to the exact Solana mint;
+- requires explicit trust entries for holder inventory, Helius funding graph and root provider;
+- traces holder funding ancestry and counts only wallets whose ancestry reaches an attested root;
+- records linked supply, evidence provenance and incomplete-coverage reasons;
+- uses bounded SQLite leases, refresh scheduling and retry backoff;
+- is wired into the read-only pipeline after risk collection.
+
+The factory returns no worker unless the existing Helius and Solana RPC credentials,
+signed-root endpoint/public key, and all three provider trust entries are configured.
+No new API key or signing secret is introduced.
+
+**Not a bundle detector:** this worker does not infer bundled token purchases, shared creator control,
+or common ownership from timing or common exchange funding. It is not registered as a
+certified safety provider (`certified_provider_id=None`), so its output cannot become
+trusted `SafetyEvidence` or approve a paper/live entry. Real Helius/root-provider coverage
+and methodology still require external validation.
