@@ -21,6 +21,8 @@ class DeveloperRootAttestation:
     roots: tuple[str, ...]
     coverage_complete: bool
     source_ref: str
+    signature_verified: bool = False
+    signing_key_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,10 @@ class DeveloperEvidenceOrchestrator:
                 raise ValueError("developer-root attestation provider is not trusted")
             if not root_attestation.coverage_complete or not root_attestation.roots:
                 raise ValueError("developer-root attestation is incomplete")
+            if (root_attestation.signature_verified is not True
+                    or not isinstance(root_attestation.signing_key_fingerprint, str)
+                    or len(root_attestation.signing_key_fingerprint) != 64):
+                raise ValueError("developer-root attestation lacks verified Ed25519 signer provenance")
             if (not root_attestation.evidence_id or not root_attestation.source_ref
                     or not isinstance(root_attestation.observed_at_ms, int)
                     or isinstance(root_attestation.observed_at_ms, bool)
@@ -147,6 +153,8 @@ class DeveloperEvidenceOrchestrator:
             "root_provider": getattr(root_attestation, "provider", None),
             "root_evidence_id": getattr(root_attestation, "evidence_id", None),
             "root_source_ref": getattr(root_attestation, "source_ref", None),
+            "root_signature_verified": getattr(root_attestation, "signature_verified", False),
+            "root_signing_key_fingerprint": getattr(root_attestation, "signing_key_fingerprint", None),
             "reasons": list(report.reasons) + list(safety.reasons),
         }
         if self.audit_sink is not None:
