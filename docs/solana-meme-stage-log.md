@@ -60,3 +60,26 @@ or common ownership from timing or common exchange funding. It is not registered
 certified safety provider (`certified_provider_id=None`), so its output cannot become
 trusted `SafetyEvidence` or approve a paper/live entry. Real Helius/root-provider coverage
 and methodology still require external validation.
+
+
+## Pump.fun launch-window bundle evidence — implementation added
+
+Added a bounded Helius Parsed Events Scan adapter for Pump.fun buy instructions.
+It resolves the mint initialization transaction, scans the elapsed launch window,
+validates buyer token transfers, reads finalized mint supply, and links buyers
+to first-funder ancestry through the existing Helius funding graph.
+
+Added append-only bundle report storage and a low-volume scheduled worker.
+Activation requires explicit trust entries for:
+- `helius-launch-origin`
+- `helius-solana-launch-index`
+- `helius-solana-funding-graph`
+
+The output is a shared-funder launch-cohort heuristic, not proof of common
+ownership or developer control. It is not certified safety evidence. Incomplete
+scan pagination, missing buyer funding, stale supply, or invalid transaction
+provenance withholds the bundle percentage. This adapter covers Pump.fun only.
+
+The first CI attempt exposed a missing provider ID in the new test fixture;
+the fixture was corrected. The latest run must be checked against the newest
+branch head before this stage is marked CI-verified.
