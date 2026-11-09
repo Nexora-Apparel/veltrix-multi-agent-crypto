@@ -12,6 +12,7 @@ from typing import Iterable
 from ..safety import SafetyReport
 from .candidates import canonical_mint
 from .risk_evidence import SolanaRiskEvidenceReport
+from ..providers.solana_mint import TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,21 @@ class SolanaShieldPolicy:
                     reasons.append("risk evidence report is stale or future-dated")
             if not evidence.holder_coverage_complete:
                 reasons.append("complete reconciled holder inventory is required")
+            if (not isinstance(evidence.mint_evidence_id, str)
+                    or not evidence.mint_evidence_id.strip()
+                    or isinstance(evidence.mint_finalized_slot, bool)
+                    or not isinstance(evidence.mint_finalized_slot, int)
+                    or evidence.mint_finalized_slot < 0
+                    or evidence.token_program_id not in {TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID}):
+                reasons.append("finalized mint-account provenance is incomplete")
+            if evidence.mint_authority is not None:
+                reasons.append("mint authority remains active")
+            if evidence.freeze_authority is not None:
+                reasons.append("freeze authority remains active")
+            if evidence.token_2022_extension_types:
+                reasons.append("Token-2022 extensions require separate policy certification")
+            if evidence.token_2022_extension_review_complete is not True:
+                reasons.append("Token-2022 extension review is incomplete")
             if (isinstance(evidence.total_supply_raw, bool)
                     or not isinstance(evidence.total_supply_raw, int)
                     or evidence.total_supply_raw <= 0
