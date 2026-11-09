@@ -12,9 +12,9 @@ def main():
     if args.hours <= 0:
         raise SystemExit("--hours must be positive")
     watchlist = {"solana": cfg.solana_tokens, "base": cfg.base_tokens, "bsc": cfg.bsc_tokens}
-    broker = PaperBroker(cfg.db_path, cfg.balance, cfg.max_open, cfg.max_position)
+    broker = PaperBroker(cfg.db_path, cfg.balance, cfg.max_open, cfg.max_position, cfg.stop_loss)
     monitor = MarketMonitor(watchlist, cfg.db_path, discovery_enabled=cfg.discovery_enabled,
-        allowed_chains=cfg.discovery_chains, max_discovered_per_chain=cfg.max_discovered_per_chain)
+        allowed_chains=cfg.discovery_chains, max_discovered_per_chain=cfg.max_discovered_per_chain, broker=broker)
     count = sum(len(v) for v in watchlist.values())
     print(f"VELTRIX PAPER MONITOR: virtual balance {cfg.balance:.2f} USD; duration {args.hours:g}h; watchlist tokens {count}")
     print(f"Profile discovery enabled: {cfg.discovery_enabled}; chains: {','.join(cfg.discovery_chains)}")
