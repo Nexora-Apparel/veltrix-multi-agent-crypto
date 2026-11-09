@@ -1,30 +1,45 @@
 # Solana Shield Decision Gate
 
-The Solana Shield policy is a final veto before the paper broker. It is not an
-agent vote and cannot be overridden by Scout, Whale, Sniper, or any other agent.
+The Solana Shield is a final evidence veto before the paper broker. It is not
+an agent vote and cannot be overridden by Scout, Whale, Sniper, or another
+agent. The current implementation exposes a claim-aware evidence decision
+method; the broker integration remains a separate task.
 
-## Entry requirements
+## Decision states
 
-- A typed risk-evidence report for the exact canonical Solana mint.
-- No provider/validation errors and no unknown mandatory risk claims.
-- A complete holder inventory whose balances reconcile exactly to supply.
-- Fresh evidence and a fresh, positively verified composite safety certificate.
-- At least two distinct BUY agents, all targeting the same mint.
-- Position count below 10 and paper notional in (0, $50].
+- `BLOCK`: the evidence object is absent/untyped or an explicit adverse
+  condition is present, including a provider-confirmed liquidity-lock failure.
+- `HOLD`: mandatory claims are unknown, evidence is stale or incomplete,
+  holder balances do not reconcile, or provider/validation errors exist.
+- `READY_FOR_AGENT_CONSENSUS`: the evidence packet is structurally complete.
+  This is not a BUY signal and does not authorize a paper or live entry.
 
-Any failed or unknown condition returns BLOCK. There is no confidence-score
-averaging and no fallback approval.
+## Evidence requirements
 
-## Execution boundary
+- Evidence must be typed and tied to the exact canonical Solana mint.
+- GoPlus and holder inventory must carry independent provenance and timestamps.
+- Holder concentration is usable only when inventory is marked complete and
+  observed balances reconcile exactly to total supply.
+- Developer-wallet linkage, bundled-supply analysis, mint/freeze authority,
+  Token-2022 extension review, creator provenance, and executable sellability
+  must each be separately evidenced. Unknown is never treated as safe.
+- Explicit liquidity-lock failure causes BLOCK.
 
-The only positive decision is `APPROVE_PAPER_ENTRY`. This module has no
-wallet, key, signer, swap, transaction-submission, or live-trading interface.
-The existing live-trading guard remains authoritative. A paper approval is not
-evidence of expected profitability.
+## Paper and execution boundary
+
+The existing generic Shield consensus/position-limit method is retained for
+legacy compatibility. The new Solana evidence decision is an additional veto
+and must be composed with consensus, paper sizing, concurrent-position limits,
+and emergency-stop checks before a paper broker can accept an order.
+
+This stage does not authorize live execution. Wallet custody, transaction
+simulation, swap routing, and signing remain outside this module. A paper
+approval, when implemented downstream, is not evidence of profitability.
 
 ## Current operational implication
 
-The current evidence collector deliberately reports unknown developer linkage,
-bundled supply, mint/freeze authority, Token-2022 extensions, creator provenance,
-and executable sellability. Therefore the live implementation correctly blocks
-entries until those claims are separately implemented and verified.
+The current collector deliberately reports several mandatory claims as
+unknown. Therefore the expected decision for real candidates is HOLD until
+separate collectors provide complete, fresh, source-provenanced evidence.
+Synthetic complete reports in unit tests verify control flow only; they do not
+certify providers or prove real-world token safety.
