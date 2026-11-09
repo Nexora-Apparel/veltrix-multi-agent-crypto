@@ -1,6 +1,7 @@
 """Read-only coordinator for primary and secondary Solana discovery feeds."""
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ from typing import Callable
 
 from .dexscreener import DexScreenerDiscovery
 from .launch_stream import LaunchStore, LaunchStreamManager
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,15 @@ class SolanaDiscoveryEngine:
             primary_thread.start()
 
         while not stop_event.is_set():
-            self.poll_once()
+            result = self.poll_once()
+            for source, reason in result.source_errors:
+                LOGGER.warning("secondary discovery source %s failed: %s", source, reason)
+            LOGGER.debug(
+                "discovery cycle: candidates=%s healthy_sources=%s source_errors=%s",
+                result.candidates_stored,
+                result.healthy_sources,
+                len(result.source_errors),
+            )
             if stop_event.wait(self.poll_interval_seconds):
                 break
 
