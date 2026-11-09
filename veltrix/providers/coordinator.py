@@ -23,9 +23,13 @@ class CrossChainIntelligenceResult:
     provider_failures: tuple[str, ...]
 
     def agent_context(self, token_address: str) -> dict:
+        if self.chain in {"base", "bsc"}:
+            matches = lambda value: value.lower() == token_address.lower()
+        else:
+            matches = lambda value: value == token_address
         matching = [
             cluster for cluster in self.clusters
-            if cluster.token_address.lower() == token_address.lower()
+            if matches(cluster.token_address)
         ]
         wallets = sorted({
             wallet for cluster in matching for wallet in cluster.wallet_addresses
@@ -126,6 +130,11 @@ class CrossChainIntelligenceCoordinator:
         enriched = dict(token)
         address = enriched.get("address")
         if not isinstance(address, str) or not address:
+            enriched["smart_wallet_buys"] = []
+            enriched["whale_cluster_count"] = 0
+            enriched["whale_cluster_notional_usd"] = 0.0
+            return enriched
+        if str(enriched.get("chain", "")).lower() != result.chain:
             enriched["smart_wallet_buys"] = []
             enriched["whale_cluster_count"] = 0
             enriched["whale_cluster_notional_usd"] = 0.0
