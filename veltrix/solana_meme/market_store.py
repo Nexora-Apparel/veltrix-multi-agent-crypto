@@ -44,6 +44,7 @@ class MarketSnapshotStore:
                     market_cap_usd REAL,
                     dex_id TEXT,
                     quote_token_symbol TEXT,
+                    pool_token_side TEXT,
                     pair_count INTEGER NOT NULL,
                     retrieved_at_ms INTEGER NOT NULL,
                     response_received_at_ms INTEGER NOT NULL,
@@ -81,9 +82,9 @@ class MarketSnapshotStore:
                  price_change_m5_pct, price_change_h1_pct, price_change_h24_pct,
                  txns_m5_buys, txns_m5_sells, txns_h1_buys, txns_h1_sells,
                  txns_h24_buys, txns_h24_sells, fdv_usd, market_cap_usd,
-                 dex_id, quote_token_symbol, pair_count, retrieved_at_ms,
+                 dex_id, quote_token_symbol, pool_token_side, pair_count, retrieved_at_ms,
                  response_received_at_ms, pair_created_at_ms, quality_flags_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     snapshot.mint,
@@ -108,6 +109,7 @@ class MarketSnapshotStore:
                     snapshot.market_cap_usd,
                     snapshot.dex_id,
                     snapshot.quote_token_symbol,
+                    snapshot.pool_token_side,
                     snapshot.pair_count,
                     snapshot.retrieved_at_ms,
                     snapshot.response_received_at_ms,
