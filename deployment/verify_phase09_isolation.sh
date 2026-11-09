@@ -8,7 +8,7 @@ pass() { printf 'PASS: %s\n' "$*"; }
 require() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
 [[ "${EUID}" -eq 0 ]] || fail "run as root"
-for command in systemctl getent id stat runuser nsenter; do require "$command"; done
+for command in systemctl getent id stat runuser nsenter awk cut; do require "$command"; done
 
 DB="${VELTRIX_SOLANA_DISCOVERY_DB:-/var/lib/veltrix/solana_discovery.sqlite3}"
 PAPER_ENV=/etc/veltrix/paper.env
@@ -27,6 +27,9 @@ observer_uid="$(id -u veltrix-wallet-observer)"
 pass "three distinct service UIDs exist"
 
 unit_value() { systemctl show "$1" --property="$2" --value; }
+for unit in "$PAPER_UNIT" "$DASHBOARD_UNIT"; do
+  systemctl is-active --quiet "$unit" || fail "$unit must be active"
+done
 [[ "$(unit_value "$PAPER_UNIT" User)" == veltrix-paper ]] || fail "paper unit User mismatch"
 [[ "$(unit_value "$PAPER_UNIT" Group)" == veltrix-db ]] || fail "paper unit Group mismatch"
 [[ "$(unit_value "$DASHBOARD_UNIT" User)" == veltrix-dashboard ]] || fail "dashboard unit User mismatch"
@@ -36,6 +39,36 @@ dashboard_ro="$(unit_value "$DASHBOARD_UNIT" ReadOnlyPaths)"
 [[ "$paper_rw" == *"/var/lib/veltrix"* ]] || fail "paper writable state path missing"
 [[ "$dashboard_ro" == *"/var/lib/veltrix"* ]] || fail "dashboard read-only state path missing"
 pass "systemd identities and database mount policies match"
+
+# Confirm effective credentials of the running processes, not only unit config.
+paper_pid="$(unit_value "$PAPER_UNIT" MainPID)"
+dashboard_pid="$(unit_value "$DASHBOARD_UNIT" MainPID)"
+[[ "$paper_pid" =~ ^[1-9][0-9]*$ && "$dashboard_pid" =~ ^[1-9][0-9]*$ ]] \
+  || fail "both services must be running for process identity checks"
+proc_id() {
+  local pid="$1" field="$2"
+  awk -v field="$field" '$1 == field ":" { print $3; found=1 } END { if (!found) exit 1 }' "/proc/$pid/status"
+}
+[[ "$(proc_id "$paper_pid" Uid)" == "$paper_uid" ]] || fail "paper process effective UID mismatch"
+[[ "$(proc_id "$dashboard_pid" Uid)" == "$dashboard_uid" ]] || fail "dashboard process effective UID mismatch"
+db_gid="$(getent group veltrix-db | cut -d: -f3)"
+paper_secrets_gid="$(getent group veltrix-paper-secrets | cut -d: -f3)"
+dashboard_secrets_gid="$(getent group veltrix-dashboard-secrets | cut -d: -f3)"
+[[ "$(proc_id "$paper_pid" Gid)" == "$db_gid" ]] || fail "paper process effective GID mismatch"
+[[ "$(proc_id "$dashboard_pid" Gid)" == "$db_gid" ]] || fail "dashboard process effective GID mismatch"
+proc_has_group() {
+  local pid="$1" gid="$2"
+  awk -v gid="$gid" '$1 == "Groups:" { for (i=2; i<=NF; i++) if ($i == gid) found=1 } END { exit !found }' "/proc/$pid/status"
+}
+proc_has_group "$paper_pid" "$paper_secrets_gid" || fail "paper process lacks paper credential group"
+proc_has_group "$dashboard_pid" "$dashboard_secrets_gid" || fail "dashboard process lacks dashboard credential group"
+observer_groups="$(id -G veltrix-wallet-observer)"
+for forbidden_gid in "$db_gid" "$paper_secrets_gid" "$dashboard_secrets_gid"; do
+  for observer_gid in $observer_groups; do
+    [[ "$observer_gid" != "$forbidden_gid" ]] || fail "observer belongs to a paper/dashboard data or secret group"
+  done
+done
+pass "running process UIDs, GIDs and supplementary group boundaries match"
 
 [[ -f "$DB" ]] || fail "database file not found: $DB"
 [[ -f "$PAPER_ENV" && -f "$DASHBOARD_ENV" ]] || fail "service environment files are missing"
