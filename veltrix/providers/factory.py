@@ -243,3 +243,45 @@ def build_solana_risk_evidence_collector(settings, *, session=None):
     return SolanaRiskEvidenceCollector(
         goplus, holders, mint_provider=mint, max_age_ms=max_age,
     )
+
+
+def build_solana_developer_evidence_worker(settings, launch_store, evidence_store, *, session=None):
+    """Build developer ancestry collection only when all providers are explicitly trusted.
+
+    Reuses existing Helius/Solana RPC credentials and signed-root configuration.
+    This worker never receives a certified provider ID.
+    """
+    from ..solana_meme.developer_worker import SolanaDeveloperEvidenceWorker
+
+    endpoint = getattr(settings, "developer_root_attestation_url", "")
+    public_key = getattr(settings, "developer_root_attestation_public_key", "")
+    provider_id = getattr(settings, "developer_root_attestation_provider_id", "signed-developer-roots")
+    trusted_roots = getattr(settings, "trusted_developer_root_providers", ())
+    trusted_holders = getattr(settings, "trusted_holder_inventory_providers", ())
+    trusted_funding = getattr(settings, "trusted_developer_funding_providers", ())
+    if not (endpoint and public_key and provider_id in trusted_roots
+            and "solana-rpc-holder-inventory" in trusted_holders
+            and "helius-solana-funding-graph" in trusted_funding
+            and getattr(settings, "helius_api_key", "")
+            and getattr(settings, "solana_rpc_url", "")):
+        return None
+
+    from .signed_roots import SignedDeveloperRootProvider
+
+    holders = build_holder_inventory_providers(settings, session=session)
+    funding = build_funding_graph_providers(settings, session=session)
+    if "solana" not in holders or "solana" not in funding:
+        return None
+    root_provider = SignedDeveloperRootProvider(
+        endpoint, public_key, provider_id=provider_id, session=session,
+        max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
+    )
+    return SolanaDeveloperEvidenceWorker(
+        launch_store, holders["solana"], funding["solana"], root_provider,
+        evidence_store,
+        trusted_holder_providers=trusted_holders,
+        trusted_funding_providers=trusted_funding,
+        trusted_root_providers=trusted_roots,
+        max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
+        max_ancestry_depth=getattr(settings, "developer_ancestry_max_depth", 8),
+    )
