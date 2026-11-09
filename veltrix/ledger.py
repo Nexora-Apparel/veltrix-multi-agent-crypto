@@ -87,6 +87,195 @@ class PaperBroker:
         finally:
             db.close()
 
+    @staticmethod
+    def _finite_number(value, name, *, positive=False):
+        import math
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ValueError(f"{name} must be a finite number")
+        if positive and value <= 0:
+            raise ValueError(f"{name} must be positive")
+        return float(value)
+
+    @classmethod
+    def _validate_execution_costs(cls, fee_bps, slippage_bps):
+        fee = cls._finite_number(fee_bps, "fee_bps")
+        slippage = cls._finite_number(slippage_bps, "slippage_bps")
+        if not 0 <= fee <= 2_000 or not 0 <= slippage <= 2_000:
+            raise ValueError("fee_bps and slippage_bps must be between 0 and 2000")
+        return fee, slippage
+
+    def has_consensus_decision(self, decision_id):
+        if not isinstance(decision_id, str) or not decision_id.strip():
+            raise ValueError("decision_id is required")
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT execution_status FROM paper_consensus_decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+        return row["execution_status"] if row else None
+
+    def record_consensus_outcome(
+        self, decision_id, token, consensus_status, execution_status, reason,
+        *, created_at_ms, processed_at_ms=None,
+    ):
+        """Record a non-entry consensus outcome once; decision IDs are idempotency keys."""
+        if not isinstance(decision_id, str) or not decision_id.strip():
+            raise ValueError("decision_id is required")
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("token is required")
+        if not isinstance(consensus_status, str) or not consensus_status.strip():
+            raise ValueError("consensus_status is required")
+        if execution_status not in {"NOT_ELIGIBLE", "SKIPPED", "BLOCKED"}:
+            raise ValueError("unsupported paper execution outcome")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        if isinstance(created_at_ms, bool) or not isinstance(created_at_ms, int) or created_at_ms <= 0:
+            raise ValueError("created_at_ms must be a positive integer")
+        processed = int(time.time() * 1000) if processed_at_ms is None else processed_at_ms
+        if isinstance(processed, bool) or not isinstance(processed, int) or processed <= 0:
+            raise ValueError("processed_at_ms must be a positive integer")
+        with self._connect() as db:
+            cursor = db.execute(
+                """INSERT OR IGNORE INTO paper_consensus_decisions
+                (decision_id,token,consensus_status,execution_status,reason,
+                 created_at_ms,processed_at_ms)
+                VALUES(?,?,?,?,?,?,?)""",
+                (decision_id, token, consensus_status, execution_status,
+                 reason[:500], created_at_ms, processed),
+            )
+            if cursor.rowcount != 1:
+                return {"status": "DUPLICATE", "decision_id": decision_id}
+            db.execute(
+                "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
+                ("PAPER_DECISION_SKIPPED", json.dumps({
+                    "decision_id": decision_id, "token": token,
+                    "consensus_status": consensus_status,
+                    "execution_status": execution_status, "reason": reason[:500],
+                }), processed / 1000),
+            )
+        return {"status": execution_status, "decision_id": decision_id, "reason": reason}
+
+    def open_position_from_consensus(
+        self, decision_id, token, mark_price, amount_usd, reason, *,
+        consensus_status="CONSENSUS_APPROVED", created_at_ms,
+        fee_bps=100, slippage_bps=50, processed_at_ms=None,
+    ):
+        """Atomically open a paper position and consume one approved consensus ID."""
+        import math
+        if not isinstance(decision_id, str) or not decision_id.strip():
+            raise ValueError("decision_id is required")
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("token is required")
+        if consensus_status != "CONSENSUS_APPROVED":
+            raise ValueError("only CONSENSUS_APPROVED decisions may open paper positions")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reason is required")
+        if isinstance(created_at_ms, bool) or not isinstance(created_at_ms, int) or created_at_ms <= 0:
+            raise ValueError("created_at_ms must be a positive integer")
+        mark = self._finite_number(mark_price, "mark_price", positive=True)
+        amount = self._finite_number(amount_usd, "amount_usd", positive=True)
+        fee_rate, slippage_rate = self._validate_execution_costs(fee_bps, slippage_bps)
+        processed = int(time.time() * 1000) if processed_at_ms is None else processed_at_ms
+        if isinstance(processed, bool) or not isinstance(processed, int) or processed <= 0:
+            raise ValueError("processed_at_ms must be a positive integer")
+        if amount > self.max_position_usd:
+            raise ValueError("paper position exceeds the configured per-position limit")
+        fill = mark * (1 + slippage_rate / 10_000)
+        fee = amount * fee_rate / 10_000
+        quantity = amount / fill
+        slippage_cost = quantity * (fill - mark)
+        total_debit = amount + fee
+        trade_id = str(uuid.uuid4())
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute(
+                "SELECT execution_status FROM paper_consensus_decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+            if existing is not None:
+                return {"status": "DUPLICATE", "decision_id": decision_id}
+            count = int(db.execute("SELECT COUNT(*) FROM positions").fetchone()[0])
+            cash = float(db.execute("SELECT cash FROM account WHERE id=1").fetchone()[0])
+            blocked_reason = None
+            if count >= self.max_positions:
+                blocked_reason = "maximum open paper positions reached"
+            elif db.execute("SELECT 1 FROM positions WHERE token=?", (token,)).fetchone():
+                blocked_reason = "token already has an open paper position"
+            elif cash < total_debit:
+                blocked_reason = "insufficient paper cash after entry fee"
+            if blocked_reason:
+                db.execute(
+                    """INSERT INTO paper_consensus_decisions
+                    (decision_id,token,consensus_status,execution_status,reason,
+                     created_at_ms,processed_at_ms,notional_usd,mark_price,fill_price,fee_usd,slippage_cost_usd)
+                    VALUES(?,?,?,'BLOCKED',?,?,?,?,?,?,?,?)""",
+                    (decision_id, token, consensus_status, blocked_reason,
+                     created_at_ms, processed, amount, mark, fill, fee, slippage_cost),
+                )
+                db.execute(
+                    "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
+                    ("PAPER_ENTRY_BLOCKED", json.dumps({
+                        "decision_id": decision_id, "token": token, "reason": blocked_reason,
+                    }), processed / 1000),
+                )
+                return {"status": "BLOCKED", "decision_id": decision_id, "reason": blocked_reason}
+            db.execute("UPDATE account SET cash=cash-? WHERE id=1", (total_debit,))
+            db.execute(
+                "INSERT INTO positions(token,entry_price,quantity,cost_basis,opened_at) VALUES(?,?,?,?,?)",
+                (token, fill, quantity, total_debit, processed / 1000),
+            )
+            db.execute("INSERT INTO position_state(token,peak_price) VALUES(?,?)", (token, fill))
+            db.execute(
+                "INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)",
+                (trade_id, token, "BUY", fill, quantity, amount, 0.0, reason[:500], processed / 1000),
+            )
+            db.execute(
+                """INSERT INTO paper_execution_costs
+                (trade_id,decision_id,side,mark_price,fill_price,fee_usd,slippage_cost_usd)
+                VALUES(?,?,?,?,?,?,?)""",
+                (trade_id, decision_id, "BUY", mark, fill, fee, slippage_cost),
+            )
+            db.execute(
+                """INSERT INTO paper_consensus_decisions
+                (decision_id,token,consensus_status,execution_status,reason,
+                 created_at_ms,processed_at_ms,trade_id,notional_usd,mark_price,fill_price,fee_usd,slippage_cost_usd)
+                VALUES(?,?,?,'OPENED',?,?,?,?,?,?,?,?,?)""",
+                (decision_id, token, consensus_status, reason[:500],
+                 created_at_ms, processed, trade_id, amount, mark, fill, fee, slippage_cost),
+            )
+            db.execute(
+                "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
+                ("PAPER_CONSENSUS_EXECUTED", json.dumps({
+                    "decision_id": decision_id, "token": token,
+                    "mark_price": mark, "fill_price": fill,
+                    "notional_usd": amount, "quantity": quantity,
+                    "fee_usd": fee, "slippage_cost_usd": slippage_cost,
+                }), processed / 1000),
+            )
+        return {
+            "status": "OPENED", "decision_id": decision_id, "trade_id": trade_id,
+            "token": token, "quantity": quantity, "mark_price": mark,
+            "fill_price": fill, "notional_usd": amount, "fee_usd": fee,
+            "slippage_cost_usd": slippage_cost, "cost_basis": total_debit,
+        }
+
+    def paper_decisions(self, *, limit=100):
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000")
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM paper_consensus_decisions ORDER BY processed_at_ms DESC, decision_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def execution_cost_totals(self):
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT COALESCE(SUM(fee_usd),0) AS fees, COALESCE(SUM(slippage_cost_usd),0) AS slippage FROM paper_execution_costs"
+            ).fetchone()
+        return {"fees_usd": float(row["fees"]), "slippage_cost_usd": float(row["slippage"])}
+
     def snapshot(self, prices=None):
         prices = {} if prices is None else prices
         if not isinstance(prices, dict):
