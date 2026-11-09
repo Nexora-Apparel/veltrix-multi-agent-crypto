@@ -14,6 +14,8 @@ from .pipeline import SolanaMemePipeline, SolanaPipelineCycleResult
 from .risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
 from .risk_store import SolanaRiskEvidenceStore
 from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
+from .developer_store import DeveloperConcentrationStore
+from .developer_worker import DeveloperEvidenceBatchResult, SolanaDeveloperEvidenceWorker
 from .shield import ShieldDecision, SolanaShieldPolicy
 
 __all__ = [
@@ -28,5 +30,6 @@ __all__ = [
     "CandidateEnrichmentWorker", "EnrichmentBatchResult",
     "SolanaRiskEvidenceCollector", "SolanaRiskEvidenceReport",
     "SolanaRiskEvidenceStore", "RiskEvidenceBatchResult", "SolanaRiskEvidenceWorker",
+    "DeveloperConcentrationStore", "DeveloperEvidenceBatchResult", "SolanaDeveloperEvidenceWorker",
     "ShieldDecision", "SolanaShieldPolicy",
 ]
