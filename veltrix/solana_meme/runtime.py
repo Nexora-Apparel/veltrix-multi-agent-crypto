@@ -23,6 +23,7 @@ from .developer_worker import SolanaDeveloperEvidenceWorker
 from .bundle_store import LaunchBundleEvidenceStore
 from .sellability_store import SolanaSellabilityEvidenceStore
 from .sell_simulation_store import SolanaSellSimulationStore
+from .simulation_preflight_store import SolanaSimulationPreflightStore
 from ..config import settings as load_settings
 from ..providers.factory import (
     build_solana_risk_evidence_collector,
@@ -76,8 +77,10 @@ def run_service(
         configured, launches, risk_store, sellability_store,
     )
     sell_simulation_store = SolanaSellSimulationStore(database)
+    simulation_preflight_store = SolanaSimulationPreflightStore(database)
     sell_simulation_worker = build_solana_sell_simulation_worker(
         configured, database, sell_simulation_store,
+        preflight_store=simulation_preflight_store,
     )
     pipeline = SolanaMemePipeline(
         enrichment, refresh, risk_worker, developer_worker, bundle_worker,
@@ -137,7 +140,7 @@ def run_service(
                         if result.sellability is not None else ", sell-route evidence disabled"
                     )
                     + (
-                        f", sell simulations succeeded={result.sell_simulation.succeeded}, simulation failures={result.sell_simulation.simulation_failed}, provider failures={result.sell_simulation.provider_failed}"
+                        f", sell simulations succeeded={result.sell_simulation.succeeded}, simulation failures={result.sell_simulation.simulation_failed}, preflight blocked={result.sell_simulation.preflight_blocked}, provider failures={result.sell_simulation.provider_failed}"
                         if result.sell_simulation is not None else ", sell simulation disabled"
                     )
                 )
@@ -165,6 +168,7 @@ def run_service(
             f"developer reports stored={developer_store.count()}, "
             f"bundle reports stored={bundle_store.count()}, "
             f"sell simulations stored={sell_simulation_store.count()}, "
+            f"simulation preflights stored={simulation_preflight_store.count()}, "
             f"active feed outages={launches.active_outage_count()}"
         )
 
