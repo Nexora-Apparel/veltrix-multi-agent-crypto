@@ -148,7 +148,7 @@ def main():
     }
     with open("base-v2-deployment-discovery.json", "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
-        handle.write("\\n")
+        handle.write("\n")
     print(json.dumps({
         "status": report["status"],
         "finalized_block": height,
