@@ -29,5 +29,6 @@ class MarketMonitor:
             events = self.provider.fetch_token_pairs(chain, addresses)
             for event in events:
                 self.ledger.record_market_event(event)
+                self.ledger.process_market_price(event.token_address, event.price_usd)
                 observations.append(event)
         return observations
