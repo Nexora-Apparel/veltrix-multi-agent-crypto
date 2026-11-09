@@ -197,6 +197,14 @@ class SolanaShieldPolicy:
                     or not isinstance(sellability.route_plan_count, int)
                     or sellability.route_plan_count <= 0):
                 reasons.append("sell-route quote contains no valid route plan")
+            impact = sellability.price_impact_bps
+            if (isinstance(impact, bool) or not isinstance(impact, (int, float))
+                    or not math.isfinite(impact) or impact < 0 or impact > 300):
+                reasons.append("sell-route price impact is invalid or above paper limit")
+            fraction = sellability.input_supply_fraction
+            if (isinstance(fraction, bool) or not isinstance(fraction, (int, float))
+                    or not math.isfinite(fraction) or not 0.005 <= fraction <= 0.05):
+                reasons.append("sell-route size fraction is outside paper bounds")
 
         if isinstance(open_positions, bool) or not isinstance(open_positions, int) or open_positions < 0:
             reasons.append("open position count is invalid")
