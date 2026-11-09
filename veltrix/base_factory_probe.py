@@ -128,7 +128,7 @@ def main():
             }
             with open(args.output, "w", encoding="utf-8") as handle:
                 json.dump({"status": "blocked", "diagnostics": [diagnostic]}, handle, indent=2)
-                handle.write("\\n")
+                handle.write("\n")
             compact = "; ".join(
                 f"{tag}={item['status']}" + (f" ({item['error']})" if item['status'] == "error" else "")
                 for tag, item in tag_results.items()
