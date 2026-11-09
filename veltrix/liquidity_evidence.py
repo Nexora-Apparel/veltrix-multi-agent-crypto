@@ -138,9 +138,11 @@ class LiquidityEvidenceReport:
     pool_count: int
     verified_pool_count: int
     active_locked_pool_count: int
-    total_lp_supply: int
-    active_locked_lp: int
+    # LP token units are pool-specific; cross-pool sums are intentionally absent.
+    total_lp_supply: int | None
+    active_locked_lp: int | None
     active_locked_pct: float | None
+    per_pool_locked_pct: tuple[tuple[str, float], ...]
     earliest_unlock_at_ms: int | None
     evidence_id: str
     provider: str
@@ -282,8 +284,6 @@ class LiquidityEvidenceAnalyzer:
             deployment_map[deployment_key] = deployment
 
         pools = {}
-        total_supply = 0
-        total_active_locked = 0
         active_locked_pool_count = 0
         per_pool_locked_pct = []
         earliest_unlock = None
@@ -316,7 +316,6 @@ class LiquidityEvidenceAnalyzer:
                     or pool.locker_custody_amount < 0):
                 reasons.append("locker LP custody balance is invalid")
                 continue
-            total_supply += pool.total_lp_supply
 
         positions_by_pool = {key: [] for key in pools}
         for position in batch.positions:
@@ -383,8 +382,7 @@ class LiquidityEvidenceAnalyzer:
             active = sum(item.amount for item in positions if item.unlock_at_ms > now_ms)
             if active > pool.total_lp_supply:
                 reasons.append("active locked LP exceeds pool LP total supply")
-            total_active_locked += active
-            per_pool_locked_pct.append(100.0 * active / pool.total_lp_supply)
+            per_pool_locked_pct.append((pool.pool_address, 100.0 * active / pool.total_lp_supply))
             if active > 0:
                 active_locked_pool_count += 1
                 unlocks = [item.unlock_at_ms for item in positions if item.amount > 0 and item.unlock_at_ms > now_ms]
@@ -393,18 +391,18 @@ class LiquidityEvidenceAnalyzer:
 
         # LP units are pool-specific and cannot be summed into a meaningful
         # cross-pool ratio. The weakest pool determines the aggregate result.
-        locked_pct = min(per_pool_locked_pct) if per_pool_locked_pct else None
-        if locked_pct is None or not math.isfinite(locked_pct) or any(
-            pct < self.minimum_locked_pct for pct in per_pool_locked_pct
+        weakest_pool_pct = min((pct for _address, pct in per_pool_locked_pct), default=None)
+        if weakest_pool_pct is None or not math.isfinite(weakest_pool_pct) or any(
+            pct < self.minimum_locked_pct for _address, pct in per_pool_locked_pct
         ):
             reasons.append("at least one discovered pool lacks the required active locked LP share")
         if len(pools) != len(batch.pools):
             reasons.append("pool inventory contains malformed or duplicate entries")
-        passed = not reasons and bool(pools) and locked_pct is not None
+        passed = not reasons and bool(pools) and weakest_pool_pct is not None
         return LiquidityEvidenceReport(
             chain, token_address, passed, len(batch.pools), len(pools),
-            active_locked_pool_count, total_supply, total_active_locked, locked_pct,
-            earliest_unlock, _id_for(batch), batch.provider,
+            active_locked_pool_count, None, None, weakest_pool_pct,
+            tuple(per_pool_locked_pct), earliest_unlock, _id_for(batch), batch.provider,
             "+".join(sorted({d.independence_group for d in deployment_map.values()})),
             batch.observed_at_ms, batch.finalized_ref, tuple(dict.fromkeys(reasons)),
         )
@@ -412,7 +410,7 @@ class LiquidityEvidenceAnalyzer:
     @staticmethod
     def _report(chain, token, batch, reasons, now_ms):
         return LiquidityEvidenceReport(
-            chain, token, False, 0, 0, 0, 0, 0, None, None,
+            chain, token, False, 0, 0, 0, None, None, None, (), None,
             hashlib.sha256(f"{chain}:{token}:{now_ms}".encode()).hexdigest(),
             getattr(batch, "provider", "missing"), "unverified-locker",
             now_ms,
