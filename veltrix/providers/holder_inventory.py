@@ -5,11 +5,9 @@ EVM inventories are reconstructed from the complete ERC-20 Transfer log history
 from a caller-supplied deployment block through a finalized block, then checked
 against balanceOf and totalSupply at that same block.
 """
-import base64
 import hashlib
 import json
 import time
-from typing import Any
 
 import requests
 
@@ -241,6 +239,7 @@ class EvmHolderInventoryProvider:
 
         holders = {EVM_ZERO_ADDRESS}
         logs_count = 0
+        seen_logs = set()
         for start in range(deployment_block, end_block + 1, self.block_chunk_size):
             end = min(start + self.block_chunk_size - 1, end_block)
             logs = self._rpc("eth_getLogs", [{
@@ -257,9 +256,24 @@ class EvmHolderInventoryProvider:
             for log in logs:
                 topics = log.get("topics") if isinstance(log, dict) else None
                 if (not isinstance(topics, list) or len(topics) != 3
+                        or not isinstance(topics[0], str)
                         or topics[0].lower() != TRANSFER_TOPIC
                         or any(not isinstance(x, str) or len(x) != 66 for x in topics[1:])):
                     raise ProviderError("ERC-20 transfer log is malformed")
+                if (not isinstance(log.get("address"), str)
+                        or log["address"].lower() != token.lower()
+                        or log.get("removed") is True):
+                    raise ProviderError("ERC-20 log contract identity or canonicality is invalid")
+                block_number = _u256(log.get("blockNumber"))
+                if block_number < start or block_number > end:
+                    raise ProviderError("ERC-20 log is outside the requested block range")
+                tx_hash, log_index = log.get("transactionHash"), log.get("logIndex")
+                if not isinstance(tx_hash, str) or not tx_hash or not isinstance(log_index, str):
+                    raise ProviderError("ERC-20 log is missing transaction provenance")
+                log_key = (tx_hash.lower(), log_index.lower())
+                if log_key in seen_logs:
+                    raise ProviderError("ERC-20 transfer history contains duplicate logs")
+                seen_logs.add(log_key)
                 from_address = "0x" + topics[1][-40:].lower()
                 to_address = "0x" + topics[2][-40:].lower()
                 holders.add(from_address)
