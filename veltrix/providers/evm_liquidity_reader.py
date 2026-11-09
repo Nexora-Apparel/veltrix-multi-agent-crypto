@@ -250,8 +250,11 @@ class EvmV2LiquiditySnapshotReader:
         receipt = self.pool_rpc.call("eth_getTransactionReceipt", [factory.creation_tx])
         if not isinstance(receipt, dict):
             raise ProviderError("pinned factory creation transaction receipt is unavailable")
-        if (receipt.get("transactionHash", "").lower() != factory.creation_tx.lower()
-                or receipt.get("contractAddress", "").lower() != factory.address.lower()
+        tx_hash = receipt.get("transactionHash")
+        contract_address = receipt.get("contractAddress")
+        if (not isinstance(tx_hash, str) or not isinstance(contract_address, str)
+                or tx_hash.lower() != factory.creation_tx.lower()
+                or contract_address.lower() != factory.address.lower()
                 or _hex_int(receipt.get("blockNumber"), "factory creation receipt block") != factory.deployment_block
                 or _hex_int(receipt.get("status"), "factory creation receipt status") != 1):
             raise ProviderError("pinned factory creation receipt does not match registry identity")
