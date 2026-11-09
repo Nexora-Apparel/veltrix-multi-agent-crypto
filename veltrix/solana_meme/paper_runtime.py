@@ -107,6 +107,8 @@ def build_runtime(
     policy: PaperTradingPolicy | None = None,
     clock_ms: Any | None = None,
 ) -> PaperTradingRuntime:
+    if os.getenv("LIVE_TRADING", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        raise RuntimeError("Phase 07 refuses to start while LIVE_TRADING is enabled")
     db_path = database_path or os.getenv(
         "VELTRIX_SOLANA_DISCOVERY_DB",
         "data/solana_discovery.sqlite3",
