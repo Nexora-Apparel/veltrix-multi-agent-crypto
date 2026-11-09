@@ -105,3 +105,24 @@ def test_stop_event_prevents_reading_messages():
 def test_rejects_invalid_timeout_configuration(timeout):
     with pytest.raises(ValueError):
         PumpPortalDiscovery(timeout_seconds=timeout)
+
+def test_probe_connection_sends_only_new_token_subscription_and_closes():
+    ws = FakeWebSocket([])
+    adapter = PumpPortalDiscovery(websocket_factory=lambda *a, **k: ws)
+
+    adapter.probe_connection()
+
+    assert ws.sent == [{"method": "subscribeNewToken"}]
+    assert ws.closed
+
+
+def test_probe_connection_wraps_subscription_send_errors():
+    class SendFailure(FakeWebSocket):
+        def send(self, value):
+            raise OSError("send failed")
+
+    ws = SendFailure([])
+    adapter = PumpPortalDiscovery(websocket_factory=lambda *a, **k: ws)
+    with pytest.raises(PumpPortalError, match="subscription failed"):
+        adapter.probe_connection()
+    assert ws.closed
