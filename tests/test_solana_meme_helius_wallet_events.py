@@ -21,13 +21,16 @@ class FakeMarketStore:
 class FakeHelius:
     provider_id = "helius"
 
-    def __init__(self, wallets, observations):
+    def __init__(self, wallets, observations, error=None):
         self.tracked_wallets = tuple(wallets)
         self.observations = observations
+        self.error = error
         self.calls = []
 
     def fetch_wallet_observations(self, chain, token_addresses, since_ms):
         self.calls.append((chain, tuple(token_addresses), since_ms))
+        if self.error:
+            raise self.error
         return self.observations
 
 
@@ -130,3 +133,11 @@ def test_stored_market_price_resolver_rejects_stale_and_invalid_prices():
     )
     with pytest.raises(ProviderError, match="invalid"):
         invalid(MINT_A)
+
+def test_helius_wallet_provider_surfaces_provider_outage_for_runtime_logging():
+    from veltrix.providers.base import ProviderError
+
+    fake = FakeHelius((WALLET_A, WALLET_B), (), error=RuntimeError("provider down"))
+    source = build_provider(fake)
+    with pytest.raises(ProviderError, match="retry on the next consensus cycle"):
+        source((MINT_A,), now_ms=10_000)
