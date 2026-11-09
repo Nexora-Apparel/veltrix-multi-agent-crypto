@@ -188,6 +188,7 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
     if "solana" in chains and (sol_pool or sol_locker):
         providers["solana"] = SolanaRaydiumV4UncxSnapshotReader(
             sol_pool, sol_locker, session=session,
+            expected_raydium_executable_hash=getattr(settings, "solana_raydium_amm_v4_executable_hash", ""),
             max_pools=getattr(settings, "liquidity_reader_max_pools", 20_000),
             max_locks_per_pool=getattr(settings, "liquidity_reader_max_locks", 20_000),
         )
