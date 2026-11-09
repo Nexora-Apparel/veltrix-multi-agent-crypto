@@ -288,3 +288,12 @@ executable_sellability claim.
 - Added `docs/solana-liquidity-coverage.md` with the program coverage matrix, source links, required account/upgrade checks and next implementation sequence.
 - GitHub Actions run [42688687527](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42688687527) passed on commit `5e4bcdd9e12b15caf442532370abfbd7f898a9d1`: 475 passed, 5 skipped.
 - No capability was promoted to complete. No live trading or transaction signing was enabled.
+
+
+## 2026-11-09 — Agent-context packet consistency hardening
+
+- `SolanaMarketAgentContextProvider` now requires the exact persisted market snapshot supplied in the decision packet.
+- It rejects a packet if a newer market snapshot becomes the persisted history head between candidate selection and context construction. This prevents the runner from combining agent signals derived from one snapshot with evidence IDs from another.
+- Updated tests to supply typed persisted market rows and added a superseded-snapshot race test.
+- GitHub Actions run [42689166638](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42689166638) passed on commit `aeac91603e6cd000465a5af7dfb557f55c615984`: 476 passed, 5 skipped.
+- The first CI attempt on the implementation commit failed because one baseline-free test still passed an empty packet. The test was corrected to use the persisted snapshot; the latest code commit is green.
