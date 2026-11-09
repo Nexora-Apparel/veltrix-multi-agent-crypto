@@ -7,7 +7,8 @@ from solders.pubkey import Pubkey
 
 from veltrix.providers.solana_liquidity_reader import (
     BPF_UPGRADEABLE_LOADER, RAYDIUM_AMM_V4_PROGRAM, RAYDIUM_CPMM_PROGRAM,
-    RAYDIUM_CPMM_STATE_SIZE, RAYDIUM_CPMM_POOL_DISCRIMINATOR, TOKEN_PROGRAM, UNCX_PROGRAM,
+    RAYDIUM_CPMM_STATE_SIZE, RAYDIUM_CPMM_POOL_DISCRIMINATOR,
+    TOKEN_PROGRAM, TOKEN_2022_PROGRAM, UNCX_PROGRAM,
     TOKEN_LOCK_DISCRIMINATOR, SolanaRaydiumV4CpmmSnapshotReader,
 )
 
@@ -145,6 +146,8 @@ def cpmm_pool_row():
     data[136:168] = bytes(lp_mint_key)
     data[168:200] = bytes(token0_key)
     data[200:232] = bytes(token1_key)
+    data[232:264] = bytes(Pubkey.from_string(TOKEN_PROGRAM))
+    data[264:296] = bytes(Pubkey.from_string(TOKEN_2022_PROGRAM))
     encoded = base64.b64encode(bytes(data)).decode()
     return {
         "pubkey": str(pool_key),
@@ -204,3 +207,66 @@ def test_solana_reader_requires_both_rayidium_hashes_and_complete_scope():
             expected_raydium_cpmm_executable_hash="b" * 64,
             registry_complete=False,
         )
+
+
+def test_cpmm_token_mint_programs_and_vault_authority_are_verified():
+    instance = reader()
+    row, _lp_mint, _token0, _token1 = cpmm_pool_row()
+
+    class Rpc:
+        def call(self, method, params):
+            return {"context": {"slot": 900}, "value": [row]}
+
+    pool = instance._scan_cpmm_pools(Rpc(), str(LP_MINT), 900)[row["pubkey"]]
+    authority, _ = Pubkey.find_program_address(
+        [b"vault_and_lp_mint_auth_seed"], Pubkey.from_string(RAYDIUM_CPMM_PROGRAM)
+    )
+    accounts = {}
+    for mint, program, vault in (
+        (pool["base_mint"], pool["token0_program"], pool["vault0"]),
+        (pool["quote_mint"], pool["token1_program"], pool["vault1"]),
+    ):
+        mint_data = bytearray(82)
+        mint_data[45] = 1
+        vault_data = bytearray(165)
+        vault_data[:32] = bytes(Pubkey.from_string(mint))
+        vault_data[32:64] = bytes(authority)
+        vault_data[108] = 1
+        accounts[mint] = account(bytes(mint_data), program)
+        accounts[vault] = account(bytes(vault_data), program)
+
+    instance._get_account = lambda rpc, address, slot: accounts[address]
+    instance._verify_cpmm_pool_accounts(pool, 900)
+
+
+def test_cpmm_vault_with_wrong_authority_is_rejected():
+    instance = reader()
+    row, _lp_mint, _token0, _token1 = cpmm_pool_row()
+
+    class Rpc:
+        def call(self, method, params):
+            return {"context": {"slot": 900}, "value": [row]}
+
+    pool = instance._scan_cpmm_pools(Rpc(), str(LP_MINT), 900)[row["pubkey"]]
+    authority, _ = Pubkey.find_program_address(
+        [b"vault_and_lp_mint_auth_seed"], Pubkey.from_string(RAYDIUM_CPMM_PROGRAM)
+    )
+    accounts = {}
+    for mint, program, vault in (
+        (pool["base_mint"], pool["token0_program"], pool["vault0"]),
+        (pool["quote_mint"], pool["token1_program"], pool["vault1"]),
+    ):
+        mint_data = bytearray(82)
+        mint_data[45] = 1
+        vault_data = bytearray(165)
+        vault_data[:32] = bytes(Pubkey.from_string(mint))
+        vault_data[32:64] = bytes(authority)
+        vault_data[108] = 1
+        accounts[mint] = account(bytes(mint_data), program)
+        accounts[vault] = account(bytes(vault_data), program)
+    bad_vault = bytearray(base64.b64decode(accounts[pool["vault0"]]["data"][0]))
+    bad_vault[32:64] = bytes(Pubkey.from_bytes(bytes([9]) * 32))
+    accounts[pool["vault0"]] = account(bytes(bad_vault), pool["token0_program"])
+    instance._get_account = lambda rpc, address, slot: accounts[address]
+    with pytest.raises(Exception, match="vault mint, authority or state mismatch"):
+        instance._verify_cpmm_pool_accounts(pool, 900)
