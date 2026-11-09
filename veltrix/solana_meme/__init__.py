@@ -10,6 +10,7 @@ from .market_data import MarketDataUnavailable, SolanaMarketData, SolanaMarketSn
 from .market_store import MarketSnapshotStore
 from .pumpportal import PumpPortalDiscovery, PumpPortalError
 from .risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
+from .shield import ShieldDecision, SolanaShieldPolicy
 
 __all__ = [
     "CandidateRejected", "SolanaCandidate", "canonical_mint",
@@ -20,4 +21,5 @@ __all__ = [
     "MarketSnapshotStore",
     "CandidateEnrichmentWorker", "EnrichmentBatchResult",
     "SolanaRiskEvidenceCollector", "SolanaRiskEvidenceReport",
+    "ShieldDecision", "SolanaShieldPolicy",
 ]
