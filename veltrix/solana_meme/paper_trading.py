@@ -336,6 +336,8 @@ class PaperTradingWorker:
                 self.policy.position_usd,
                 "; ".join(reason for reason in agent_reasons if isinstance(reason, str)) or "Phase 06 consensus approval",
                 created_at_ms=decision["created_at_ms"],
+                paper_review_eligible=decision["paper_review_eligible"],
+                execution_authorized=decision["execution_authorized"],
                 fee_bps=self.policy.fee_bps,
                 slippage_bps=self.policy.slippage_bps,
                 processed_at_ms=now,
