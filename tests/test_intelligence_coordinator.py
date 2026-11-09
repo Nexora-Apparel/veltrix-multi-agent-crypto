@@ -92,9 +92,9 @@ def test_coordinator_provider_failure_isolated_and_token_context_is_safe():
     result = coordinator.collect("solana", ["mint"], 900_000, 1_000_000)
     assert len(result.clusters) == 1
     assert len(result.provider_failures) == 1
-    original = {"address": "mint", "symbol": "TEST"}
+    original = {"address": "mint", "chain": "solana", "symbol": "TEST"}
     enriched = coordinator.enrich_token(original, result)
-    assert original == {"address": "mint", "symbol": "TEST"}
+    assert original == {"address": "mint", "chain": "solana", "symbol": "TEST"}
     assert len(enriched["smart_wallet_buys"]) == 2
     assert enriched["whale_cluster_count"] == 1
 
