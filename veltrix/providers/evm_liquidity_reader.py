@@ -233,6 +233,8 @@ class EvmV2LiquiditySnapshotReader:
         return actual
 
     def _scan_factory(self, factory, final_block):
+        if factory.deployment_block > final_block:
+            raise ProviderError("configured factory deployment block is after finalized head")
         self._code(self.pool_rpc, factory.address, hex(final_block), factory.expected_code_hash)
         found = []
         count = 0
@@ -245,11 +247,12 @@ class EvmV2LiquiditySnapshotReader:
             if not isinstance(logs, list):
                 raise ProviderError("factory event scan returned malformed logs")
             count += len(logs)
-            if count > self.max_logs:
+            if count >= self.max_logs:
                 raise ProviderError("factory event history exceeds configured complete-scan limit")
             for log in logs:
-                if not isinstance(log, dict) or log.get("removed") is True:
-                    raise ProviderError("factory history contains malformed or removed logs")
+                if (not isinstance(log, dict) or log.get("removed") is True
+                        or log.get("address", "").lower() != factory.address.lower()):
+                    raise ProviderError("factory history contains malformed, removed or misattributed logs")
                 topics = log.get("topics")
                 data = log.get("data")
                 if not isinstance(topics, list) or len(topics) != 3 or topics[0].lower() != PAIR_CREATED_TOPIC.lower():
@@ -319,11 +322,12 @@ class EvmV2LiquiditySnapshotReader:
                 if not isinstance(logs, list):
                     raise ProviderError("BSC locker event scan returned malformed logs")
                 scanned += len(logs)
-                if scanned > self.max_logs:
+                if scanned >= self.max_logs:
                     raise ProviderError("BSC locker event history exceeds complete-scan limit")
                 for log in logs:
-                    if log.get("removed") is True:
-                        raise ProviderError("BSC locker event history contains removed logs")
+                    if (log.get("removed") is True
+                            or log.get("address", "").lower() != locker.address.lower()):
+                        raise ProviderError("BSC locker event history contains removed or misattributed logs")
                     data = log.get("data", "")
                     if not isinstance(data, str) or not data.startswith("0x") or len(data) < 66:
                         raise ProviderError("BSC onNewLock event is malformed")
@@ -383,7 +387,7 @@ class EvmV2LiquiditySnapshotReader:
         discovered = []
         for factory in self.factories:
             discovered.extend(self._scan_factory(factory, block_number))
-        if len(discovered) > self.max_pools:
+        if len(discovered) >= self.max_pools:
             raise ProviderError("AMM pool inventory exceeds configured limit")
         unique = {}
         for pair, token0, token1, factory in discovered:
