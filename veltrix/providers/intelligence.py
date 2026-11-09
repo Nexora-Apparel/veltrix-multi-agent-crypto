@@ -76,20 +76,24 @@ class VerifiedIntelligenceAdapters:
         accepted, rejected, seen_transactions = [], [], set()
         for index, item in enumerate(observations):
             prefix = f"whale: observation {index}"
-            if item.provider not in self.trusted_wallet_providers:
+            if not isinstance(item.provider, str) or item.provider not in self.trusted_wallet_providers:
                 rejected.append(f"{prefix}: provider is not trusted")
                 continue
-            if item.chain not in SUPPORTED_CHAINS:
+            chain = item.chain.lower() if isinstance(item.chain, str) else ""
+            if chain not in SUPPORTED_CHAINS:
                 rejected.append(f"{prefix}: unsupported or missing chain")
                 continue
-            if not item.token_address or not item.wallet_address:
+            if not isinstance(item.token_address, str) or not item.token_address or not isinstance(item.wallet_address, str) or not item.wallet_address:
                 rejected.append(f"{prefix}: token or wallet address is missing")
                 continue
-            if item.side.upper() != "BUY":
+            if not isinstance(item.side, str) or item.side.upper() != "BUY":
                 rejected.append(f"{prefix}: observation is not a buy")
                 continue
-            if not item.transaction_id:
+            if not isinstance(item.transaction_id, str) or not item.transaction_id:
                 rejected.append(f"{prefix}: transaction identifier is missing")
+                continue
+            if not isinstance(item.observed_at_ms, int) or isinstance(item.observed_at_ms, bool):
+                rejected.append(f"{prefix}: observation timestamp is invalid")
                 continue
             age = now_ms - item.observed_at_ms
             if age < 0 or age > self.max_wallet_age_ms:
@@ -103,13 +107,13 @@ class VerifiedIntelligenceAdapters:
             if not math.isfinite(notional) or notional <= 0:
                 rejected.append(f"{prefix}: notional must be finite and positive")
                 continue
-            tx_key = (item.chain, item.transaction_id)
+            tx_key = (chain, item.transaction_id)
             if tx_key in seen_transactions:
                 rejected.append(f"{prefix}: duplicate transaction")
                 continue
             seen_transactions.add(tx_key)
             accepted.append(WalletBuyEvent(
-                chain=item.chain,
+                chain=chain,
                 token_address=item.token_address,
                 wallet_address=item.wallet_address,
                 observed_at_ms=item.observed_at_ms,
@@ -141,7 +145,10 @@ class VerifiedIntelligenceAdapters:
             reasons.append("whale: no trusted, fresh buy observations")
         if cluster_count < 1:
             reasons.append("whale: no qualifying multi-wallet cluster")
-        return AgentEvidenceDecision("whale", not reasons, tuple(reasons))
+        accepted = bool(batch.accepted) and cluster_count >= 1
+        if not accepted and cluster_count < 1:
+            reasons.append("whale: no qualifying multi-wallet cluster")
+        return AgentEvidenceDecision("whale", accepted, tuple(reasons))
 
     @staticmethod
     def sniper_decision(report: SafetyReport) -> AgentEvidenceDecision:
