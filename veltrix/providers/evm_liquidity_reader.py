@@ -239,6 +239,7 @@ class EvmV2LiquiditySnapshotReader:
         self._code(self.pool_rpc, factory.address, hex(final_block), factory.expected_code_hash)
         found = []
         count = 0
+        event_lengths = []
         for start in range(factory.deployment_block, final_block + 1, self.block_chunk_size):
             end = min(final_block, start + self.block_chunk_size - 1)
             logs = self.pool_rpc.call("eth_getLogs", [{
@@ -248,12 +249,18 @@ class EvmV2LiquiditySnapshotReader:
             if not isinstance(logs, list):
                 raise ProviderError("factory event scan returned malformed logs")
             count += len(logs)
+            if len(logs) >= 10_000:
+                raise ProviderError("factory log chunk reached common RPC result cap")
             if count >= self.max_logs:
                 raise ProviderError("factory event history exceeds configured complete-scan limit")
             for log in logs:
                 if (not isinstance(log, dict) or log.get("removed") is True
                         or log.get("address", "").lower() != factory.address.lower()):
                     raise ProviderError("factory history contains malformed, removed or misattributed logs")
+                block_number = _hex_int(log.get("blockNumber"), "factory log block number")
+                log_index = _hex_int(log.get("logIndex"), "factory log index")
+                if not start <= block_number <= end or not log.get("transactionHash"):
+                    raise ProviderError("factory log provenance is outside the requested block range")
                 topics = log.get("topics")
                 data = log.get("data")
                 if not isinstance(topics, list) or len(topics) != 3 or topics[0].lower() != PAIR_CREATED_TOPIC.lower():
@@ -263,6 +270,8 @@ class EvmV2LiquiditySnapshotReader:
                 token0 = _decode_address(bytes.fromhex(topics[1][2:]).rjust(32, b"\x00"))
                 token1 = _decode_address(bytes.fromhex(topics[2][2:]).rjust(32, b"\x00"))
                 pair = _decode_address(bytes.fromhex(data[2:66]))
+                event_pair_count = _decode_uint(bytes.fromhex(data[66:130]))
+                event_lengths.append((block_number, log_index, event_pair_count))
                 if not ADDRESS.fullmatch(pair):
                     raise ProviderError("factory emitted malformed pair address")
                 if token0.lower() != self._token.lower() and token1.lower() != self._token.lower():
@@ -275,7 +284,9 @@ class EvmV2LiquiditySnapshotReader:
         all_pairs_length = _decode_uint(
             bytes.fromhex(length_data[2:]).rjust(32, b"\\x00")
         )
-        if count != all_pairs_length:
+        event_lengths.sort()
+        if (count != all_pairs_length
+                or [item[2] for item in event_lengths] != list(range(1, all_pairs_length + 1))):
             raise ProviderError("factory PairCreated history does not reconcile to allPairsLength")
         return found
 
