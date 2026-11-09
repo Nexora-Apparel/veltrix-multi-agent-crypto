@@ -41,10 +41,20 @@ def test_normalize_dexscreener_shape_as_solana_candidate():
     {"chainId": "base", "tokenAddress": MINT_A},
     {"chain": "bsc", "mint": MINT_A},
     {"chainId": "solana", "tokenAddress": "0x1234"},
+    {"tokenAddress": MINT_A},
+    {"chainId": None, "chain": "solana", "tokenAddress": MINT_A},
+    {"chainId": "solana", "chain": "base", "tokenAddress": MINT_A},
+    {"chainId": "solana", "chain": "", "tokenAddress": MINT_A},
+    {"chainId": 101, "tokenAddress": MINT_A},
 ])
-def test_normalize_rejects_other_chains_and_invalid_mints(payload):
+def test_normalize_rejects_other_chains_missing_or_conflicting_metadata(payload):
     with pytest.raises(CandidateRejected):
         normalize_candidate(payload, source="feed", observed_at_ms=100)
+
+
+def test_normalize_rejects_non_object_payload():
+    with pytest.raises(CandidateRejected):
+        normalize_candidate(None, source="feed", observed_at_ms=100)
 
 
 @pytest.mark.parametrize("timestamp", [0, -1, True, "100", None])
@@ -54,6 +64,16 @@ def test_normalize_rejects_invalid_timestamps(timestamp):
             {"chainId": "solana", "tokenAddress": MINT_A},
             source="feed",
             observed_at_ms=timestamp,
+        )
+
+
+@pytest.mark.parametrize("source", ["", " ", None, 123])
+def test_normalize_rejects_missing_or_invalid_source(source):
+    with pytest.raises(CandidateRejected):
+        normalize_candidate(
+            {"chainId": "solana", "tokenAddress": MINT_A},
+            source=source,
+            observed_at_ms=100,
         )
 
 
