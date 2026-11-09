@@ -2,6 +2,7 @@ from veltrix.solana_meme.dexscreener import DexScreenerDiscovery
 
 MINT_A = "So11111111111111111111111111111111111111112"
 MINT_B = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+MINT_C = "11111111111111111111111111111111"
 
 
 class FakeResponse:
@@ -39,7 +40,7 @@ def test_fetches_latest_profiles_and_boosts_and_filters_to_solana():
             {"chainId": "solana", "tokenAddress": MINT_A},
             {"chainId": "base", "tokenAddress": MINT_B},
             {"chainId": "solana", "tokenAddress": "not-a-mint"},
-            {"tokenAddress": MINT_B},
+            {"tokenAddress": MINT_C},
         ]),
         "/token-boosts/latest/v1": FakeResponse({
             "chainId": "solana", "tokenAddress": MINT_B, "amount": 10,
