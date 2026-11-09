@@ -20,10 +20,10 @@ EVM_ADDRESS = re.compile(r"^0x[a-fA-F0-9]{40}$")
 SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 HEX_HASH = re.compile(r"^[0-9a-f]{64}$")
 
-# The Base deployment is corroborated by official UNCX docs and live BaseScan
-# contract interactions. BSC's PancakeSwap V2 address is in the official UNCX
-# registry/source repository. Runtime bytecode hashes MUST still be pinned by
-# the operator and checked against the selected RPC before any evidence passes.
+# These are discovery candidates only. UNCX's current and legacy docs contain
+# conflicting Base labels and explicitly flag some rows as pending verification.
+# The runtime reader does not trust this list: operators must confirm the exact
+# locker/factory relationship, ABI and deployed bytecode hash before configuring it.
 EVM_LOCKER_CANDIDATES = {
     "base": {
         "uncx-univ2-v2": {
@@ -45,7 +45,7 @@ EVM_LOCKER_CANDIDATES = {
     "bsc": {
         "uncx-pancakeswap-v2": {
             "address": "0xC765bddB93b0D1c1A88282BA0fa6B2d00E3e0c83",
-            "abi_profile": "uncx-v1-user-lock-index",
+            "abi_profile": "uncx-v1-token-lock-index-events",
             "source_ref": "https://github.com/uncx-network/liquidity-locker-univ2-contracts",
         },
     },
