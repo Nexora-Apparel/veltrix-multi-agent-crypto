@@ -50,8 +50,10 @@ review remain mandatory.
   implemented as independent evidence components.
 - Simulation runs only for explicitly configured mint/raw-amount test cases.
 - Both simulation and its preflight remain disabled by default.
-- Shield now requires a fresh, provenance-backed sell-side route observation
-  matching the intended raw-token exit size before it can approve a paper entry.
+- Shield and Core now require a fresh, provenance-backed sell-side route
+  observation matching the intended raw-token exit size before a paper entry.
+  The paper trade result and broker audit reason preserve the exact route state
+  and evidence ID.
 - The execution-only `executable_sellability` unknown remains unresolved and is
   not conflated with token-risk unknowns. Unknown mandatory token-risk claims
   still veto paper entry.
