@@ -185,13 +185,14 @@ def build_runtime(
                 trusted_wallet_providers=("helius",),
                 max_wallet_age_ms=max_wallet_age_ms,
             )
-            wallet_event_provider = HeliusConsensusWalletEventSource(
+            wallet_source = HeliusConsensusWalletEventSource(
                 helius,
                 adapters,
                 market_store,
                 clock_ms=worker_clock_ms or (lambda: int(time.time() * 1000)),
                 max_age_ms=max_wallet_age_ms,
             )
+            wallet_event_batch_provider = wallet_source.fetch_many
             LOGGER.info(
                 "Helius wallet intelligence enabled for %s explicitly trusted wallets",
                 len(wallets),
