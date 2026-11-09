@@ -30,3 +30,14 @@ def test_unsupported_provider_chain_claim_combination_is_unknown():
     assert capability_for("goplus", "solana", "liquidity_lock").status == "unsupported"
     assert not capability_can_certify("goplus", "solana", "liquidity_lock")
     assert capability_for("unknown", "base", "developer_holdings") is None
+
+
+def test_solana_raydium_inventory_is_partial_not_certifying():
+    item = capability_for(
+        "solana-raydium-v4-cpmm-finalized-pool-inventory",
+        "solana", "liquidity_lock",
+    )
+    assert item is not None
+    assert item.status == "partial"
+    assert not item.can_certify
+    assert "full active-AMM registry" in item.certification_blocker
