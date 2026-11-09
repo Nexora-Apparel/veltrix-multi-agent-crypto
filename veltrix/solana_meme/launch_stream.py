@@ -127,6 +127,26 @@ class LaunchStore:
                 ("feed_outage", timestamp, json.dumps({"reason": str(reason)[:500]})),
             )
 
+    def list_candidates(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        with self._connect() as db:
+            rows = db.execute("""
+                SELECT mint, first_seen_at_ms, latest_seen_at_ms, primary_source, sources_json
+                FROM solana_launch_candidates
+                ORDER BY latest_seen_at_ms DESC, mint ASC LIMIT ?
+            """, (limit,)).fetchall()
+        return [
+            {
+                "mint": row["mint"],
+                "first_seen_at_ms": row["first_seen_at_ms"],
+                "latest_seen_at_ms": row["latest_seen_at_ms"],
+                "primary_source": row["primary_source"],
+                "sources": json.loads(row["sources_json"]),
+            }
+            for row in rows
+        ]
+
     def candidate_count(self) -> int:
         with self._connect() as db:
             return int(db.execute(
