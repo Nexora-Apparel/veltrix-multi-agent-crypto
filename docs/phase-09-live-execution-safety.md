@@ -110,3 +110,26 @@ Implemented in `veltrix/wallet_isolation.py` with focused tests in `tests/test_w
 - The contexts intentionally expose no conversion path between paper and live wallet domains.
 
 This is a type-level isolation boundary. It does not prove operating-system, process, database, or provider isolation; those require deployment-level controls and later integration tests. Phase 09.2 remains in progress until those controls are specified and independently verified.
+
+
+### 09.2 deployment/process isolation controls — templates added
+
+Deployment guidance and hardened systemd templates are in
+`docs/phase-09-process-isolation.md` and `deployment/systemd/`.
+
+- Paper runtime and dashboard use distinct non-login service identities.
+- Paper runtime is restricted to the shared pipeline state directory; its
+  environment file is separated from dashboard credentials.
+- Dashboard is loopback-bound, authenticated, GET-only, and receives a
+  read-only mount of the shared SQLite directory in addition to SQLite
+  `mode=ro` and `PRAGMA query_only=ON`.
+- Paper and dashboard credentials use separate supplementary groups.
+- The future wallet observer is specified as a separate identity with no
+  paper-database access and read-only RPC egress. It is not implemented.
+- Provider egress is explicitly a host/cloud firewall responsibility; systemd
+  address-family restrictions are not treated as destination allowlists.
+
+The unit templates are not installed on a production host. Host-level UID,
+filesystem, SQLite WAL/SHM, provider-egress and restart-isolation verification
+remains mandatory before Phase 09.2 can be marked complete. CI checks the
+presence of the deployment contract; it cannot attest to a real host.
