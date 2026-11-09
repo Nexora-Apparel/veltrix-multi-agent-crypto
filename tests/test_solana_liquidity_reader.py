@@ -20,7 +20,8 @@ LOCK_ID = 17
 
 def reader():
     return SolanaRaydiumV4UncxSnapshotReader(
-        "https://solana-pools.example", "https://solana-locks.example"
+        "https://solana-pools.example", "https://solana-locks.example",
+        expected_raydium_executable_hash="a" * 64,
     )
 
 
