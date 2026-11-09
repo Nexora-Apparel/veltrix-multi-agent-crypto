@@ -136,8 +136,10 @@ class CompositeTokenSafetyValidator:
                     or report.supply_observed_at_ms > now_ms
                     or now_ms - report.supply_observed_at_ms > self.max_age_ms):
                 reasons.append("launch-time supply evidence is stale or invalid")
-            if not report.funder_providers or any(
-                provider not in self.trusted_funding for provider in report.funder_providers
+            if report.accepted_transactions > 0 and (
+                not report.funder_providers or any(
+                    provider not in self.trusted_funding for provider in report.funder_providers
+                )
             ):
                 reasons.append("shared-funder evidence provider is missing or untrusted")
             try:
