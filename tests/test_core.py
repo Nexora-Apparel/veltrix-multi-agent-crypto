@@ -27,6 +27,10 @@ def complete_solana_evidence():
         observed_holder_balance_raw=100, holder_coverage_complete=True,
         top_holder_pct=60.0, top5_holder_pct=100.0, top10_holder_pct=100.0,
         missing_claims=(), errors=(),
+        mint_evidence_id="mint:core", mint_finalized_slot=1,
+        token_program_id="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        mint_authority=None, freeze_authority=None,
+        token_2022_extension_types=(), token_2022_extension_review_complete=True,
     )
 
 def complete_solana_safety():
