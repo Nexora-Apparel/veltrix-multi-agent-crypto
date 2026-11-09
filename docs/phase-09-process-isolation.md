@@ -95,9 +95,11 @@ sudo useradd --system --no-create-home --shell /usr/sbin/nologin veltrix-wallet-
 ```
 
 Create `/etc/veltrix` as root-owned (0750). Put provider credentials only in
-`/etc/veltrix/paper.env` (0640, readable by root and the paper service's
-dedicated credential group) and the dashboard token only in
-`/etc/veltrix/dashboard.env` (0640, readable by root and dashboard service).
+`/etc/veltrix/paper.env` (root-owned, group `veltrix-paper-secrets`, mode 0640)
+and the dashboard token only in `/etc/veltrix/dashboard.env` (root-owned,
+group `veltrix-dashboard-secrets`, mode 0640). The systemd units grant each
+service only its matching supplementary secret group; neither service receives
+the other service's secret group.
 Do not reuse a single broad environment file across services.
 
 Install the unit templates from `deployment/systemd/` after reviewing paths,
