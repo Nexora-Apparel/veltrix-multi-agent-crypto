@@ -66,6 +66,7 @@ class LockerDeployment:
     source_ref: str
     independence_group: str
     chain_id: int | None = None
+    observed_code_hash: str | None = None
     program_executable_hash: str | None = None
     custody_authority: str | None = None
 
@@ -110,6 +111,7 @@ class LiquidityInventoryBatch:
     chain: str
     token_address: str
     provider: str
+    independence_group: str
     observed_at_ms: int
     finalized_ref: str
     pool_set_id: str
@@ -186,6 +188,8 @@ def _id_for(batch: LiquidityInventoryBatch) -> str:
                       p.locker_custody_amount) for p in batch.pools)),
         tuple(sorted((p.position_id, p.locker_address, p.lp_token_address,
                       p.amount, p.unlock_at_ms, p.evidence_ref) for p in batch.positions)),
+        tuple(sorted((d.address, d.expected_code_hash, d.observed_code_hash,
+                      d.abi_profile, d.provider, d.source_ref) for d in batch.deployments)),
     )
     return hashlib.sha256(repr(payload).encode()).hexdigest()
 
@@ -212,7 +216,8 @@ class LiquidityEvidenceAnalyzer:
             return self._report(chain, token_address, None, reasons, now_ms)
         if batch.chain != chain or not _same_address(chain, batch.token_address, token_address):
             reasons.append("liquidity inventory chain or token mismatch")
-        if not batch.provider or not batch.finalized_ref or not batch.pool_set_id:
+        if (not batch.provider or not batch.independence_group
+                or not batch.finalized_ref or not batch.pool_set_id):
             reasons.append("liquidity inventory provenance is incomplete")
         if batch.inventory_complete is not True:
             reasons.append("pool inventory is not certified complete")
@@ -237,10 +242,12 @@ class LiquidityEvidenceAnalyzer:
             if not _valid_address(chain, deployment.address):
                 reasons.append("locker deployment address is malformed")
                 continue
-            if not HEX_HASH.fullmatch(deployment.expected_code_hash or ""):
-                reasons.append("locker deployment runtime hash is not independently pinned")
+            if (not HEX_HASH.fullmatch(deployment.expected_code_hash or "")
+                    or deployment.observed_code_hash != deployment.expected_code_hash):
+                reasons.append("locker deployment runtime hash is not verified against pinned bytecode")
                 continue
-            if not deployment.provider or deployment.provider == batch.provider:
+            if (not deployment.provider or deployment.provider == batch.provider
+                    or deployment.independence_group == batch.independence_group):
                 reasons.append("locker deployment identity must be independently sourced from pool inventory")
             if not deployment.source_ref or not deployment.independence_group:
                 reasons.append("locker deployment provenance or ownership is missing")
@@ -253,6 +260,7 @@ class LiquidityEvidenceAnalyzer:
             if chain == "solana" and (
                 not HEX_HASH.fullmatch(deployment.program_executable_hash or "")
                 or deployment.program_executable_hash != deployment.expected_code_hash
+                or deployment.observed_code_hash != deployment.expected_code_hash
                 or not _valid_address("solana", deployment.custody_authority or "")
             ):
                 reasons.append("Solana locker executable hash or custody authority is not pinned")
@@ -414,6 +422,7 @@ class EvmLiquidityLockerProvider:
         if not any(
             d.address.lower() == self.deployment.address.lower()
             and d.expected_code_hash == self.deployment.expected_code_hash
+            and d.observed_code_hash == self.deployment.expected_code_hash
             and d.abi_profile == self.deployment.abi_profile
             for d in batch.deployments
         ):
@@ -446,6 +455,7 @@ class SolanaLiquidityLockerProvider:
         if not any(
             d.address == self.deployment.address
             and d.program_executable_hash == self.deployment.program_executable_hash
+            and d.observed_code_hash == self.deployment.expected_code_hash
             and d.expected_code_hash == self.deployment.expected_code_hash
             for d in batch.deployments
         ):
