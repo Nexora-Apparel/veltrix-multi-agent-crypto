@@ -71,6 +71,7 @@ class HeliusWalletEventBatchProvider:
         clock_ms: Callable[[], int] | None = None,
         max_wallet_age_ms: int = 300_000,
         price_max_age_ms: int = 120_000,
+        max_tracked_wallets: int = 25,
         provider: HeliusWalletProvider | None = None,
     ) -> None:
         wallets = tuple(dict.fromkeys(wallet for wallet in trusted_wallets if isinstance(wallet, str) and wallet))
@@ -79,12 +80,17 @@ class HeliusWalletEventBatchProvider:
             raise ValueError("HELIUS_API_KEY is required")
         if not wallets:
             raise ValueError("at least one explicitly trusted Solana wallet is required")
+        if isinstance(max_tracked_wallets, bool) or not isinstance(max_tracked_wallets, int) or max_tracked_wallets < 1:
+            raise ValueError("max_tracked_wallets must be a positive integer")
+        if len(wallets) > max_tracked_wallets:
+            raise ValueError("allowlist exceeds the configured Helius scan limit")
         if "helius" not in providers:
             raise ValueError("helius must be explicitly listed in TRUSTED_WALLET_PROVIDERS")
         if isinstance(max_wallet_age_ms, bool) or not isinstance(max_wallet_age_ms, int) or max_wallet_age_ms < 1:
             raise ValueError("max_wallet_age_ms must be a positive integer")
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self.max_wallet_age_ms = max_wallet_age_ms
+        self.max_age_ms = max_wallet_age_ms
         self.provider = provider or HeliusWalletProvider(
             api_key=api_key,
             tracked_wallets=wallets,
@@ -100,11 +106,12 @@ class HeliusWalletEventBatchProvider:
             max_wallet_age_ms=max_wallet_age_ms,
         )
 
-    def __call__(self, token_addresses: Iterable[str], now_ms: int | None = None) -> tuple[WalletBuyEvent, ...]:
+    def __call__(self, token_addresses: Iterable[str] | str, now_ms: int | None = None) -> tuple[WalletBuyEvent, ...]:
         now = self.clock_ms() if now_ms is None else now_ms
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("now_ms must be a positive integer")
-        targets = tuple(dict.fromkeys(token for token in token_addresses if isinstance(token, str) and token))
+        values = (token_addresses,) if isinstance(token_addresses, str) else token_addresses
+        targets = tuple(dict.fromkeys(token for token in values if isinstance(token, str) and token))
         if not targets:
             return ()
         batch = self.adapters.collect_wallet_observations(
