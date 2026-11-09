@@ -81,7 +81,7 @@ class RpcSession:
         if method == "eth_getLogs":
             address = params[0]["address"].lower()
             if address == FACTORY.lower():
-                return Response([pair_created_log()])
+                return Response([pair_created_log()] if params[0]["fromBlock"] == "0x1" else [])
             if address == LOCKER.lower() and params[0]["topics"][0] == NEW_LOCK_TOPIC:
                 return Response([] if self.omit_bsc_event else [new_lock_log()])
             return Response([])
@@ -182,7 +182,8 @@ def test_factory_scan_includes_unlocked_second_pool_in_inventory():
         def post(self, url, json, timeout):
             method, params = json["method"], json["params"]
             if method == "eth_getLogs" and params[0]["address"].lower() == FACTORY.lower():
-                return Response([pair_created_log(PAIR), pair_created_log(second)])
+                return Response([pair_created_log(PAIR), pair_created_log(second)]
+                                if params[0]["fromBlock"] == "0x1" else [])
             if method == "eth_call" and params[0]["to"].lower() == second.lower():
                 selector = params[0]["data"][:10]
                 if selector == "0x" + keccak(b"token0()")[:4].hex():
