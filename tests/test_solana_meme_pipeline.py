@@ -210,3 +210,49 @@ def test_pipeline_rejects_bundle_worker_on_separate_database():
         assert False, "expected mismatched bundle database to be rejected"
     except ValueError as exc:
         assert "share one SQLite database" in str(exc)
+
+
+@dataclass
+class FakeSellSimulationResult:
+    processed: int = 1
+    succeeded: int = 1
+    simulation_failed: int = 0
+    provider_failed: int = 0
+    deferred: int = 1
+
+
+def test_pipeline_runs_explicit_sell_simulations_after_sell_route_evidence():
+    order = []
+
+    class OrderedWorker(FakeWorker):
+        def run_once(self, *, limit):
+            order.append(self.result.__class__.__name__)
+            return super().run_once(limit=limit)
+
+    enrichment = OrderedWorker("shared.sqlite3", FakeEnrichmentResult())
+    refresh = OrderedWorker("shared.sqlite3", FakeRefreshResult())
+    simulation = OrderedWorker("shared.sqlite3", FakeSellSimulationResult())
+    pipeline = SolanaMemePipeline(
+        enrichment, refresh, sell_simulation_worker=simulation,
+        sell_simulation_batch_size=1,
+    )
+    result = pipeline.run_once(limit=5)
+    assert result.sell_simulation.succeeded == 1
+    assert simulation.calls == [1]
+    assert order == [
+        "FakeEnrichmentResult", "FakeSellSimulationResult", "FakeRefreshResult",
+    ]
+
+
+def test_pipeline_rejects_simulation_worker_on_separate_database():
+    try:
+        SolanaMemePipeline(
+            FakeWorker("shared.sqlite3", FakeEnrichmentResult()),
+            FakeWorker("shared.sqlite3", FakeRefreshResult()),
+            sell_simulation_worker=FakeWorker(
+                "simulation.sqlite3", FakeSellSimulationResult(),
+            ),
+        )
+        assert False, "expected mismatched simulation database to be rejected"
+    except ValueError as exc:
+        assert "share one SQLite database" in str(exc)
