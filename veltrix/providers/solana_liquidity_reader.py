@@ -1,0 +1,354 @@
+"""Finalized read-only Solana Raydium AMM V4 + UNCX LP locker reader.
+
+Pool state and locker state are read through separate RPC endpoints. The
+reader requires the same finalized slot across all account queries, verifies
+the upgradeable program's deployed ELF hash, decodes Anchor TokenLock PDAs,
+derives UNCX custody/vault PDAs, and reconciles token-account balances.
+"""
+import base64
+import hashlib
+import struct
+import time
+
+import requests
+from solders.pubkey import Pubkey
+
+from ..liquidity_evidence import (
+    LiquidityInventoryBatch, LockerDeployment, LockerPositionSnapshot,
+    PoolLiquiditySnapshot, SOLANA_UNCX_PROGRAM_CANDIDATES,
+)
+from .base import ProviderError
+
+
+RAYDIUM_AMM_V4_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+UNCX_PROGRAM = "GsSCS3vPWrtJ5Y9aEVVT65fmrex5P5RGHXdZvsdbWgfo"
+TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+BPF_UPGRADEABLE_LOADER = "BPFLoaderUpgradeab1e11111111111111111111111"
+RAYDIUM_V4_STATE_SIZE = 752
+UNCX_TOKEN_LOCK_SIZE = 146
+TOKEN_LOCK_DISCRIMINATOR = hashlib.sha256(b"account:TokenLock").digest()[:8]
+TOKEN_LOCK_LP_MINT_OFFSET = 41
+
+
+def _b58(pubkey_bytes):
+    return str(Pubkey.from_bytes(bytes(pubkey_bytes)))
+
+
+def _decode_account_data(value, label):
+    if not isinstance(value, dict) or not isinstance(value.get("data"), list) or len(value["data"]) < 1:
+        raise ProviderError(f"{label} account data is malformed")
+    try:
+        return base64.b64decode(value["data"][0], validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ProviderError(f"{label} account data is not valid base64") from exc
+
+
+def _account_value(response, label):
+    if not isinstance(response, dict) or not isinstance(response.get("context"), dict):
+        raise ProviderError(f"{label} response omitted context")
+    value = response.get("value")
+    if value is None:
+        raise ProviderError(f"{label} account does not exist")
+    return int(response["context"]["slot"]), value
+
+
+class _SolanaRpc:
+    def __init__(self, url, *, provider_id, session=None, timeout=25):
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise ValueError("Solana liquidity RPC endpoints must use HTTPS")
+        self.url = url
+        self.provider_id = provider_id
+        self.session = session or requests.Session()
+        self.timeout = timeout
+        self.counter = 0
+
+    def call(self, method, params):
+        self.counter += 1
+        try:
+            response = self.session.post(
+                self.url,
+                json={"jsonrpc": "2.0", "id": self.counter,
+                      "method": method, "params": params},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise ProviderError(f"{method} Solana RPC request failed") from exc
+        if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+            raise ProviderError(f"{method} returned a Solana RPC error")
+        return payload["result"]
+
+
+class SolanaRaydiumV4UncxSnapshotReader:
+    """Exhaustive Raydium AMM V4 pool scan and UNCX TokenLock account decoder.
+
+    This profile deliberately supports Raydium AMM V4 only. CP Swap, CLMM,
+    Meteora DLMM and PumpSwap require separate state layouts and are not
+    silently included in the inventory.
+    """
+    def __init__(
+        self, pool_rpc_url, locker_rpc_url, *,
+        expected_uncx_executable_hash=None,
+        pool_independence_group="solana-raydium-indexer",
+        locker_independence_group="solana-uncx-locker-rpc",
+        session=None, max_pools=20_000, max_locks_per_pool=20_000,
+    ):
+        if not pool_rpc_url or not locker_rpc_url or pool_rpc_url == locker_rpc_url:
+            raise ValueError("independent Solana pool and locker RPC endpoints are required")
+        if pool_independence_group == locker_independence_group:
+            raise ValueError("Solana pool and locker independence groups must differ")
+        if not 1 <= max_pools <= 100_000 or not 1 <= max_locks_per_pool <= 100_000:
+            raise ValueError("invalid Solana liquidity reader bounds")
+        candidate = SOLANA_UNCX_PROGRAM_CANDIDATES["raydium-amm-v4"]
+        self.expected_hash = expected_uncx_executable_hash or candidate["published_executable_sha256"]
+        if self.expected_hash != candidate["published_executable_sha256"]:
+            raise ValueError("UNCX executable hash does not match the published candidate")
+        self.pool_rpc = _SolanaRpc(
+            pool_rpc_url, provider_id="solana-raydium-pool-rpc", session=session
+        )
+        self.locker_rpc = _SolanaRpc(
+            locker_rpc_url, provider_id="solana-uncx-locker-rpc", session=session
+        )
+        self.pool_group = pool_independence_group
+        self.locker_group = locker_independence_group
+        self.max_pools = max_pools
+        self.max_locks_per_pool = max_locks_per_pool
+        self.provider_id = "solana-raydium-v4-finalized-pool-inventory"
+        self.amm_program = Pubkey.from_string(RAYDIUM_AMM_V4_PROGRAM)
+        self.uncx_program = Pubkey.from_string(UNCX_PROGRAM)
+        self.token_program = Pubkey.from_string(TOKEN_PROGRAM)
+
+    @staticmethod
+    def _context_slot(response, label, expected=None):
+        if not isinstance(response, dict) or not isinstance(response.get("context"), dict):
+            raise ProviderError(f"{label} omitted RPC context slot")
+        slot = response["context"].get("slot")
+        if not isinstance(slot, int) or slot < 1:
+            raise ProviderError(f"{label} returned an invalid context slot")
+        if expected is not None and slot != expected:
+            raise ProviderError(f"{label} was not read at the same finalized slot")
+        return slot
+
+    def _get_account(self, rpc, address, slot):
+        result = rpc.call("getAccountInfo", [
+            address, {"encoding": "base64", "commitment": "finalized",
+                      "minContextSlot": slot},
+        ])
+        actual_slot, value = _account_value(result, f"account {address}")
+        if actual_slot != slot:
+            raise ProviderError("Solana account reads did not share one finalized slot")
+        return value
+
+    def _verify_uncx_program(self, slot):
+        program_account = self._get_account(self.locker_rpc, UNCX_PROGRAM, slot)
+        if program_account.get("executable") is not True or program_account.get("owner") != BPF_UPGRADEABLE_LOADER:
+            raise ProviderError("UNCX program is not an upgradeable-loader executable")
+        program_data = _decode_account_data(program_account, "UNCX program")
+        if len(program_data) != 36 or struct.unpack_from("<I", program_data, 0)[0] != 2:
+            raise ProviderError("UNCX program account has an unexpected loader state")
+        programdata_address = str(Pubkey.from_bytes(program_data[4:36]))
+        programdata = self._get_account(self.locker_rpc, programdata_address, slot)
+        if programdata.get("owner") != BPF_UPGRADEABLE_LOADER:
+            raise ProviderError("UNCX ProgramData account owner is invalid")
+        data = _decode_account_data(programdata, "UNCX ProgramData")
+        if len(data) < 45 or struct.unpack_from("<I", data, 0)[0] != 3:
+            raise ProviderError("UNCX ProgramData account layout is invalid")
+        executable = data[45:]
+        observed = hashlib.sha256(executable).hexdigest()
+        if observed != self.expected_hash:
+            raise ProviderError("deployed UNCX executable hash does not match verified source")
+        return observed
+
+    def _discover_raydium_pools(self, token_mint, slot):
+        mint_key = str(Pubkey.from_string(token_mint))
+        rows = {}
+        for offset in (400, 432):
+            response = self.pool_rpc.call("getProgramAccounts", [
+                RAYDIUM_AMM_V4_PROGRAM,
+                {"encoding": "base64", "commitment": "finalized",
+                 "withContext": True, "minContextSlot": slot,
+                 "filters": [
+                     {"dataSize": RAYDIUM_V4_STATE_SIZE},
+                     {"memcmp": {"offset": offset, "bytes": mint_key}},
+                 ]},
+            ])
+            actual_slot = self._context_slot(response, "Raydium pool discovery", slot)
+            values = response.get("value")
+            if not isinstance(values, list) or len(values) >= self.max_pools:
+                raise ProviderError("Raydium pool discovery is malformed or at its result cap")
+            for item in values:
+                address = item.get("pubkey")
+                account = item.get("account") or {}
+                if account.get("owner") != RAYDIUM_AMM_V4_PROGRAM:
+                    raise ProviderError("Raydium pool account owner mismatch")
+                data = _decode_account_data(account, "Raydium pool")
+                if len(data) != RAYDIUM_V4_STATE_SIZE:
+                    raise ProviderError("Raydium V4 pool state has an unexpected size")
+                base_mint = str(Pubkey.from_bytes(data[400:432]))
+                quote_mint = str(Pubkey.from_bytes(data[432:464]))
+                lp_mint = str(Pubkey.from_bytes(data[464:496]))
+                if mint_key not in {base_mint, quote_mint}:
+                    raise ProviderError("Raydium memcmp result does not contain requested mint")
+                if address in rows:
+                    if rows[address]["lp_mint"] != lp_mint:
+                        raise ProviderError("Raydium pool appeared with conflicting state")
+                    continue
+                if not lp_mint or lp_mint == "11111111111111111111111111111111":
+                    raise ProviderError("Raydium pool has an invalid LP mint")
+                rows[address] = {
+                    "amm_id": address, "lp_mint": lp_mint,
+                    "base_mint": base_mint, "quote_mint": quote_mint,
+                }
+        if len(rows) > self.max_pools:
+            raise ProviderError("Raydium pool inventory exceeds configured cap")
+        return tuple(rows.values())
+
+    def _decode_token_lock(self, address, account):
+        if account.get("owner") != UNCX_PROGRAM:
+            raise ProviderError("UNCX lock account is not owned by the pinned program")
+        data = _decode_account_data(account, "UNCX TokenLock")
+        if len(data) != UNCX_TOKEN_LOCK_SIZE or data[:8] != TOKEN_LOCK_DISCRIMINATOR:
+            raise ProviderError("UNCX TokenLock account discriminator or size mismatch")
+        bump = data[8]
+        amm_id = Pubkey.from_bytes(data[9:41])
+        lp_mint = str(Pubkey.from_bytes(data[41:73]))
+        lock_id = struct.unpack_from("<Q", data, 73)[0]
+        lock_date = struct.unpack_from("<q", data, 81)[0]
+        unlock_date = struct.unpack_from("<q", data, 89)[0]
+        initial_amount = struct.unpack_from("<Q", data, 98)[0]
+        current_amount = struct.unpack_from("<Q", data, 106)[0]
+        owner = str(Pubkey.from_bytes(data[114:146]))
+        expected, expected_bump = Pubkey.find_program_address(
+            [b"uncx_locker", lock_id.to_bytes(8, "little")], self.uncx_program
+        )
+        if str(expected) != address or bump != expected_bump:
+            raise ProviderError("UNCX lock account PDA or bump does not match its global lock ID")
+        if lock_date <= 0 or unlock_date <= 0 or initial_amount < current_amount:
+            raise ProviderError("UNCX TokenLock contains invalid timestamps or amounts")
+        return {
+            "address": address, "amm_id": str(amm_id), "lp_mint": lp_mint,
+            "lock_id": lock_id, "lock_date": lock_date, "unlock_date": unlock_date,
+            "initial_amount": initial_amount, "amount": current_amount, "owner": owner,
+        }
+
+    def _read_lock_records(self, lp_mint, slot):
+        response = self.locker_rpc.call("getProgramAccounts", [
+            UNCX_PROGRAM,
+            {"encoding": "base64", "commitment": "finalized",
+             "withContext": True, "minContextSlot": slot,
+             "filters": [
+                 {"dataSize": UNCX_TOKEN_LOCK_SIZE},
+                 {"memcmp": {"offset": TOKEN_LOCK_LP_MINT_OFFSET, "bytes": lp_mint}},
+             ]},
+        ])
+        self._context_slot(response, "UNCX lock enumeration", slot)
+        values = response.get("value")
+        if not isinstance(values, list) or len(values) >= self.max_locks_per_pool:
+            raise ProviderError("UNCX lock enumeration is malformed or at its result cap")
+        return tuple(self._decode_token_lock(row.get("pubkey"), row.get("account") or {})
+                     for row in values)
+
+    def _read_lp_supply(self, lp_mint, slot):
+        value = self._get_account(self.locker_rpc, lp_mint, slot)
+        if value.get("owner") != TOKEN_PROGRAM:
+            raise ProviderError("Raydium LP mint is not owned by the classic SPL Token program")
+        data = _decode_account_data(value, "LP mint")
+        if len(data) < 82 or data[45] != 1:
+            raise ProviderError("LP mint layout or initialized flag is invalid")
+        return struct.unpack_from("<Q", data, 36)[0]
+
+    def _read_custody_vault(self, amm_id, lp_mint, slot):
+        authority, _ = Pubkey.find_program_address([b"uncx_authority"], self.uncx_program)
+        vault, _ = Pubkey.find_program_address(
+            [b"uncx_lp_vault", bytes(Pubkey.from_string(amm_id))], self.uncx_program
+        )
+        value = self._get_account(self.locker_rpc, str(vault), slot)
+        if value.get("owner") != TOKEN_PROGRAM:
+            raise ProviderError("UNCX LP vault is not owned by the classic SPL Token program")
+        data = _decode_account_data(value, "UNCX LP vault")
+        if len(data) != 165:
+            raise ProviderError("UNCX LP vault token-account layout is invalid")
+        mint = str(Pubkey.from_bytes(data[0:32]))
+        owner = str(Pubkey.from_bytes(data[32:64]))
+        amount = struct.unpack_from("<Q", data, 64)[0]
+        if mint != lp_mint or owner != str(authority) or data[108] != 1:
+            raise ProviderError("UNCX LP vault mint, authority or initialized state mismatch")
+        return str(vault), str(authority), amount
+
+    def fetch_inventory(self, token_address):
+        token_key = str(Pubkey.from_string(token_address))
+        pool_slot_result = self.pool_rpc.call("getSlot", [{"commitment": "finalized"}])
+        if not isinstance(pool_slot_result, int) or pool_slot_result < 1:
+            raise ProviderError("Solana RPC did not return a finalized slot")
+        slot = pool_slot_result
+        locker_slot_result = self.locker_rpc.call("getSlot", [{"commitment": "finalized"}])
+        if not isinstance(locker_slot_result, int) or locker_slot_result < slot:
+            raise ProviderError("Solana locker RPC is behind the pool RPC finalized slot")
+
+        executable_hash = self._verify_uncx_program(slot)
+        discovered = self._discover_raydium_pools(token_key, slot)
+        if not discovered:
+            raise ProviderError("no Raydium AMM V4 pools were discovered for the token")
+        observed_ms = int(time.time() * 1000)
+        finalized_ref = f"slot:{slot}"
+
+        pools = []
+        positions = []
+        for pool in discovered:
+            lp_mint = pool["lp_mint"]
+            supply = self._read_lp_supply(lp_mint, slot)
+            if supply <= 0:
+                raise ProviderError("Raydium LP mint supply is zero or unavailable")
+            records = self._read_lock_records(lp_mint, slot)
+            if any(record["amm_id"] != pool["amm_id"] for record in records):
+                raise ProviderError("UNCX LP mint lock records reference a different AMM pool")
+            vault, authority, custody_amount = self._read_custody_vault(
+                pool["amm_id"], lp_mint, slot
+            )
+            locked_sum = sum(record["amount"] for record in records)
+            if locked_sum != custody_amount:
+                raise ProviderError("UNCX TokenLock records do not reconcile to LP vault balance")
+            for record in records:
+                if record["amount"] == 0:
+                    continue
+                positions.append(LockerPositionSnapshot(
+                    chain="solana", pool_address=pool["amm_id"],
+                    lp_token_address=lp_mint, locker_address=UNCX_PROGRAM,
+                    position_id=record["address"], amount=record["amount"],
+                    unlock_at_ms=record["unlock_date"] * 1000,
+                    observed_at_ms=observed_ms, owner=record["owner"],
+                    evidence_ref=f"{finalized_ref}:lock:{record['lock_id']}",
+                    account_owner=UNCX_PROGRAM, custody_account=vault,
+                    custody_authority=authority, custody_token_mint=lp_mint,
+                    custody_account_owner=TOKEN_PROGRAM,
+                ))
+            pools.append(PoolLiquiditySnapshot(
+                chain="solana", token_address=token_key, pool_address=pool["amm_id"],
+                lp_token_address=lp_mint, total_lp_supply=supply,
+                observed_at_ms=observed_ms, finalized_ref=finalized_ref,
+                inventory_provider=self.provider_id, inventory_complete=True,
+                pool_set_id="solana:raydium-amm-v4:finalized",
+                locker_custody_amount=custody_amount,
+            ))
+
+        deployment = LockerDeployment(
+            chain="solana", provider=self.locker_rpc.provider_id,
+            address=UNCX_PROGRAM, abi_profile="uncx-anchor-token-lock-v1",
+            expected_code_hash=self.expected_hash,
+            observed_code_hash=executable_hash,
+            source_ref="https://github.com/uncx-network/raydium-amm-lp-locker",
+            independence_group=self.locker_group,
+            program_executable_hash=executable_hash,
+            custody_authority=str(Pubkey.find_program_address(
+                [b"uncx_authority"], self.uncx_program
+            )[0]),
+        )
+        return LiquidityInventoryBatch(
+            chain="solana", token_address=token_key, provider=self.provider_id,
+            independence_group=self.pool_group, observed_at_ms=observed_ms,
+            finalized_ref=finalized_ref, pool_set_id="solana:raydium-amm-v4:finalized",
+            inventory_complete=True, pools=tuple(pools), positions=tuple(positions),
+            deployments=(deployment,),
+        )
