@@ -14,6 +14,7 @@ from .pipeline import SolanaMemePipeline, SolanaPipelineCycleResult
 from .risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
 from .risk_store import SolanaRiskEvidenceStore
 from .safety_store import SolanaSafetyReportStore
+from .agent_context import SolanaAgentContextProvider
 from .decision_runner import SolanaAgentContext, PaperDecisionBatchResult, SolanaPaperDecisionRunner
 from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
 from .developer_store import DeveloperConcentrationStore
@@ -42,7 +43,7 @@ __all__ = [
     "CandidateEnrichmentWorker", "EnrichmentBatchResult",
     "SolanaRiskEvidenceCollector", "SolanaRiskEvidenceReport",
     "SolanaRiskEvidenceStore", "RiskEvidenceBatchResult", "SolanaRiskEvidenceWorker",
-    "SolanaSafetyReportStore", "SolanaAgentContext", "PaperDecisionBatchResult", "SolanaPaperDecisionRunner",
+    "SolanaSafetyReportStore", "SolanaAgentContextProvider", "SolanaAgentContext", "PaperDecisionBatchResult", "SolanaPaperDecisionRunner",
     "DeveloperConcentrationStore", "DeveloperEvidenceBatchResult", "SolanaDeveloperEvidenceWorker",
     "LaunchBundleEvidenceStore", "LaunchBundleBatchResult", "SolanaLaunchBundleWorker",
     "ShieldDecision", "SolanaShieldPolicy",
