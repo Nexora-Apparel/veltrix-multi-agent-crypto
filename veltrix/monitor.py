@@ -7,7 +7,7 @@ from .liquidity_evidence import LiquidityEvidenceAnalyzer
 import time
 
 class MarketMonitor:
-    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000, launch_intelligence=None, launch_origin_resolvers=None, trusted_launch_origin_providers=(), developer_evidence=None, liquidity_evidence_providers=None, liquidity_evidence_analyzer=None):
+    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000, launch_intelligence=None, launch_origin_resolvers=None, trusted_launch_origin_providers=(), developer_evidence=None, liquidity_evidence_providers=None, liquidity_evidence_analyzer=None, position_management_chains=None):
         self.watchlist = watchlist
         self.provider = provider or DexScreenerProvider()
         self.discovery = discovery or DexScreenerDiscovery()
@@ -15,6 +15,11 @@ class MarketMonitor:
         self.allowed_chains = tuple(allowed_chains)
         self.max_discovered_per_chain = max_discovered_per_chain
         self.ledger = broker or PaperBroker(db_path)
+        self.position_management_chains = frozenset(
+            ("solana", "base", "bsc")
+            if position_management_chains is None
+            else position_management_chains
+        )
         self.signal_builder = SignalContextBuilder()
         self.signal_contexts = []
         self.wallet_intelligence = wallet_intelligence
@@ -178,6 +183,7 @@ class MarketMonitor:
                 if context is not None:
                     self.signal_contexts.append(context)
                 self.ledger.record_market_event(event)
-                self.ledger.process_market_price(event.token_address, event.price_usd)
+                if event.chain in self.position_management_chains:
+                    self.ledger.process_market_price(event.token_address, event.price_usd)
                 observations.append(event)
         return observations
