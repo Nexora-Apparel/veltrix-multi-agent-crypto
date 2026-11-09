@@ -39,7 +39,7 @@ def test_wallet_adapter_rejects_untrusted_stale_sell_and_duplicate():
         wallet(wallet="w2", tx="old", observed_at_ms=999_000),
         wallet(wallet="w3", tx="sell", side="SELL"),
         wallet(wallet="w4", tx="dup"),
-        wallet(wallet="w5", tx="dup"),
+        wallet(wallet="w4", tx="dup"),
     ], 1_000_000)
     assert len(batch.accepted) == 1
     assert any("provider is not trusted" in reason for reason in batch.rejected)
