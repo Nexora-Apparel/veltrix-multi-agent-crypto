@@ -10,7 +10,8 @@ def buy(wallet, funder, amount=10, *, tx=None, at=LAUNCH + 1,
         provider=provider, chain=chain, token_address=token,
         wallet_address=wallet, funder_address=funder,
         transaction_id=tx or f"sig-{wallet}", token_amount=amount,
-        observed_at_ms=at,
+        observed_at_ms=at, funder_provider="indexer",
+        funder_evidence_id=f"funding-{wallet}",
     )
 
 
