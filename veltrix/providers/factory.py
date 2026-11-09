@@ -285,3 +285,48 @@ def build_solana_developer_evidence_worker(settings, launch_store, evidence_stor
         max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
         max_ancestry_depth=getattr(settings, "developer_ancestry_max_depth", 8),
     )
+
+
+def build_solana_launch_bundle_worker(settings, launch_store, evidence_store, *, session=None):
+    """Build Pump.fun launch-bundle evidence only with explicit provider trust.
+
+    The report remains heuristic and is not registered as a certified safety claim.
+    """
+    required_launch = "helius-launch-origin"
+    required_bundle = "helius-solana-launch-index"
+    required_funding = "helius-solana-funding-graph"
+    trusted_launch = getattr(settings, "trusted_launch_origin_providers", ())
+    trusted_bundle = getattr(settings, "trusted_bundle_providers", ())
+    trusted_funding = getattr(settings, "trusted_funding_providers", ())
+    if not (
+        getattr(settings, "helius_api_key", "")
+        and getattr(settings, "solana_rpc_url", "")
+        and required_launch in trusted_launch
+        and required_bundle in trusted_bundle
+        and required_funding in trusted_funding
+    ):
+        return None
+
+    from ..launch_bundles import LaunchBundleAnalyzer
+    from ..solana_meme.bundle_worker import SolanaLaunchBundleWorker
+    from .helius_launch_index import HeliusSolanaLaunchIndexProvider
+
+    funding = build_funding_graph_providers(settings, session=session)
+    if "solana" not in funding:
+        return None
+    window = getattr(settings, "launch_window_ms", 120_000)
+    provider = HeliusSolanaLaunchIndexProvider(
+        settings.helius_api_key, settings.solana_rpc_url, funding["solana"],
+        session=session, launch_window_ms=window,
+        max_scan_pages=getattr(settings, "launch_index_max_pages", 20),
+        max_buyers=min(getattr(settings, "funding_graph_max_wallets", 500), 500),
+        max_scanned_transactions=10_000,
+    )
+    analyzer = LaunchBundleAnalyzer(
+        trusted_providers=trusted_bundle,
+        trusted_funder_providers=trusted_funding,
+        launch_window_ms=window,
+    )
+    return SolanaLaunchBundleWorker(
+        launch_store, provider, analyzer, evidence_store,
+    )
