@@ -96,7 +96,7 @@ def test_refresh_worker_respects_schedule_and_deduplicates_provider_observations
 
     worker.clock_ms = lambda: 11_000
     worker.market_data.clock_ms = lambda: 11_000
-    provider.observed = 11_000
+    # Same provider response timestamp: the append-only store must deduplicate it.
     duplicate = worker.run_once()
     assert duplicate.processed == 1
     assert duplicate.unchanged == 1
