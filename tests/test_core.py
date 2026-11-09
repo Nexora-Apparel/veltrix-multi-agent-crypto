@@ -41,3 +41,15 @@ def test_core_persists_decision_audit(tmp_path):
     with sqlite3.connect(path) as db:
         payload=db.execute("SELECT payload FROM events WHERE event='AGENT_DECISION'").fetchone()[0]
     assert '"decision": "REJECT"' in payload
+
+def test_core_rejects_invalid_amount_without_crashing(tmp_path):
+    broker = PaperBroker(str(tmp_path / "bad-amount.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
+    assert core.evaluate({"address": "mint", "price": 1}, amount_usd="not-a-number") is None
+    assert broker.snapshot()["open_positions"] == []
+
+
+def test_core_does_not_count_duplicate_agent_identity_as_consensus(tmp_path):
+    broker = PaperBroker(str(tmp_path / "duplicate-agent.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("scout")])
+    assert core.evaluate({"address": "mint", "price": 1}) is None
