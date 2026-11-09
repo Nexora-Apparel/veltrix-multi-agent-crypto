@@ -1,65 +1,72 @@
-# Solana paper decision runner — next integration boundary
+# Solana paper decision runner
 
-## Current state
+## Implemented component
 
-The read-only runtime collects and persists launch, market, risk, developer,
-bundle and sell-route evidence. It does not currently instantiate Core or a
-PaperBroker. Core can now require a matching sell-route observation and exact
-raw exit size, but a single orchestration component must join the persisted
-evidence before a candidate is evaluated.
+`veltrix/solana_meme/decision_runner.py` now contains
+`SolanaPaperDecisionRunner`. It joins persisted launch, market, risk,
+developer-ancestry, launch-bundle, sell-route and composite-safety evidence,
+reconstructs typed reports, and calls the existing paper-only Core.
 
-## Runner contract
+The runner requires every evidence store and the durable PaperBroker to use
+the same persistent SQLite database. Each candidate/evidence packet is claimed
+with a deterministic key before Core is called. The audit stores source record
+IDs, provider evidence IDs, the decision state, reasons and the Core result.
+A repeated packet is skipped rather than evaluated again.
 
-The proposed `SolanaPaperDecisionRunner` is the only bridge from persisted
-Solana evidence to the existing paper-only Core. It must:
+## Entry requirements
 
-1. Load one canonical mint candidate and the latest market, risk and
-   sellability observations from the shared SQLite database.
-2. Reconstruct typed evidence objects from stored payloads. Never pass raw
-   dictionaries as trusted evidence.
-3. Require finalized mint supply and decimals to reconcile with the holder
-   inventory, and preserve all unknown mandatory token-risk claims as vetoes.
-4. Require the latest market snapshot to be no older than 120 seconds, risk
-   evidence no older than 300 seconds, and the Jupiter route to remain within
-   its quote expiry and Shield freshness limits.
-5. Use the same market USD price that was used to calculate the sell quote.
-   Recalculate the raw sell amount from the configured paper notional and
-   finalized decimals/supply; reject any mismatch.
-6. Call Core only after the evidence packet is complete. Core still requires at
-   least two distinct BUY agents, the composite safety report, Shield approval,
-   available paper cash and position/concurrency limits.
-7. Persist a deterministic decision audit for both approved and rejected
-   candidates, including source evidence IDs, observed timestamps, raw quote
-   amount, route-only state and all veto reasons.
+- Fresh market snapshot (maximum age 120 seconds), positive USD price.
+- Fresh risk, developer, bundle and composite-safety evidence (maximum age
+  300 seconds).
+- Fresh Jupiter sell route (maximum age 15 seconds), unexpired quote, and
+  `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN` state.
+- Finalized mint supply and decimals reconciled against the complete holder
+  inventory.
+- No unknown mandatory token-risk claims. The sole tolerated unknown is
+  `executable_sellability`; it remains in the original report and is never
+  re-labelled as proven.
+- Complete developer ancestry and launch-bundle reports with valid provenance.
+- A typed, passed, composite-verified `SafetyReport` for the same mint.
+- A separately configured agent-context provider whose provider ID is
+  explicitly allowlisted. Context must be typed, fresh and mint-matched.
+- Core must independently produce at least two distinct BUY agents for the
+  same mint. Its Shield recomputes the raw sell amount from the $50 paper
+  notional, current market price, finalized decimals and supply.
+- The PaperBroker enforces the $500 starting balance, $50 maximum position,
+  ten-position cap, duplicate-open-position rule and existing 6% stop profile.
 
-## Failure behaviour
+## Failure and crash behaviour
 
-- Missing, malformed, stale, future-dated or mismatched evidence means HOLD/BLOCK.
-- A quote-only observation never clears `executable_sellability` and never
-  changes its state to execution-proven.
-- No evidence is inferred from a market chart, token symbol or provider's
-  promotional metadata.
-- Duplicate candidate cycles must be idempotent and must not open duplicate
-  positions for the same mint.
-- Worker crashes or unavailable providers must leave candidates retryable,
-  not approved.
+Missing, malformed, stale, future-dated, mismatched or untrusted evidence is
+recorded as BLOCKED/FAILED_CLOSED. The runner does not invent evidence or turn
+provider metadata into a BUY signal.
 
-## Explicit exclusions
+The deterministic claim is persisted before Core is invoked. If the process
+crashes after claiming a packet, that exact packet is not replayed
+automatically; it requires reconciliation. A new evidence packet has a new
+key and can be evaluated independently. This deliberately favours preventing
+duplicate entries over silently retrying an uncertain broker outcome.
 
-The runner has no wallet, private key, signer, Jupiter `/execute`, RPC write
-method or transaction submission capability. It will use the existing
-$500 virtual balance, $50 maximum position, ten-position cap and 6% initial
-stop profile. A 24-hour paper run remains an operational smoke test, not
-evidence of profitability or live sellability.
+## Current activation blockers
 
-## Acceptance tests required before enabling
+The runner is implemented and unit-tested but is **not wired into the live
+read-only runtime**. It has no default safety or agent-context provider.
 
-- Missing/stale risk, market or sell-route data never opens a position.
-- Any unknown token-risk claim vetoes entry.
-- An `executable_sellability` unknown remains recorded while a paper-only
-  route observation can be used.
-- A quote for a different raw amount, token price or notional is rejected.
-- Duplicate processing cannot create duplicate positions or duplicate BUYs.
-- Insufficient paper cash and max-position limits are enforced by the broker.
-- The decision audit records the exact evidence IDs and route-only state.
-- No network call in the runner can sign or submit a transaction.
+- `SolanaSafetyReportStore` only persists typed reports; it does not create
+  certificates. The current capability catalogue marks GoPlus Solana
+  liquidity-lock evidence unsupported and the available developer-cluster
+  evidence partial. No production Solana composite-safety report can currently
+  pass the default capability validator.
+- No production Solana agent-context provider is configured to produce
+  timestamped volume-spike, momentum and independent smart-wallet BUY evidence.
+  The runner requires an explicit provider allowlist and fails closed without it.
+
+These are evidence-provider gaps, not reasons to weaken Shield. Runtime
+activation is withheld until both provider paths are independently verified
+and their acceptance tests pass.
+
+## Safety boundary
+
+The runner has no wallet, private key, signer, RPC-write, Jupiter `/execute`,
+or transaction-submission interface. A paper route quote is not a transfer
+test or proof of live sellability. No live trading is enabled.
