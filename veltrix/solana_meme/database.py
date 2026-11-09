@@ -4,6 +4,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load local runtime configuration before any phase resolves its shared database.
+load_dotenv()
+
 
 DEFAULT_SOLANA_DATABASE = "data/solana_discovery.sqlite3"
 
