@@ -57,7 +57,7 @@ def test_orchestrator_analyzes_and_persists_rejected_evidence(tmp_path):
     )
     roots = DeveloperRootAttestation(
         "base", "0xtoken", "independent-roots", "root-proof-1",
-        NOW - 100, ("0xdev",), True, "attestation://root-proof-1",
+        NOW - 100, ("0xdev",), True, "https://roots.example/root-proof-1",
         signature_verified=True, signing_key_fingerprint="a" * 64,
     )
     result = service.evaluate(
