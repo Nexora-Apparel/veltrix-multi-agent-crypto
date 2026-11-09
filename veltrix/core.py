@@ -119,7 +119,7 @@ class Core:
             reasons.append("Solana Shield approved paper-only entry")
             reasons.append(
                 "Paper exit evidence: ROUTE_OBSERVED_NOT_EXECUTION_PROVEN "
-                f"({route_evidence.evidence_id})"
+                f"({route_evidence.evidence_id}; raw_amount={route_evidence.input_amount_raw})"
             )
         else:
             approved = self.shield.approve(
@@ -144,6 +144,9 @@ class Core:
             ),
             "sellability_evidence_id": (
                 token["sellability_evidence"].evidence_id if chain == "solana" else None
+            ),
+            "sell_amount_raw": (
+                token["sell_amount_raw"] if chain == "solana" else None
             ),
         }
         self.broker.record_agent_decision(
