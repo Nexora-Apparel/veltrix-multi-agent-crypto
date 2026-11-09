@@ -11,16 +11,16 @@ agent.
 - `APPROVE_PAPER_ENTRY`: all required checks pass. This is a paper-only
   decision and is not a live execution authorisation.
 
-The current policy returns BLOCK whenever mandatory risk claims remain unknown.
-The collector deliberately leaves developer-wallet linkage, bundled supply,
-mint/freeze authority, Token-2022 extensions, creator provenance, and executable
-sellability unresolved. Consequently, the real collector currently blocks
-candidate entries.
-
 ## Entry requirements
 
 - A typed risk-evidence report for the exact canonical Solana mint.
 - No provider/validation errors and no unknown mandatory risk claims.
+- A finalized mint-account snapshot with source identity and slot provenance.
+- Mint and freeze authorities must both be explicitly revoked; an active
+  authority vetoes entry.
+- Token-2022 extensions must have a separate policy certification. The current
+  implementation deliberately blocks all mints with extensions because their
+  full payload semantics and extension authorities are not yet decoded.
 - A complete holder inventory whose balances reconcile exactly to total supply.
 - Fresh evidence and a fresh, positively verified composite safety certificate.
 - At least two distinct BUY agents, all targeting the same mint.
