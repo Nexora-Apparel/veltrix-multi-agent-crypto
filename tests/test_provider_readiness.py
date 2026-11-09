@@ -89,7 +89,7 @@ def test_liquidity_readiness_names_missing_chain_specific_snapshot_readers():
     assert all(any("RPC endpoints" in item and "separate" in item
                    for item in row.blockers) for row in rows.values())
     assert any("runtime hash" in item for item in rows["base"].blockers)
-    assert any("UNCX executable" in item for item in rows["solana"].blockers)
+    assert any("deployed program hashes" in item for item in rows["solana"].blockers)
 
 
 def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit_trust():
