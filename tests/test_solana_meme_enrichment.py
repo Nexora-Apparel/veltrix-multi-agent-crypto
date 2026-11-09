@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import pytest
 
 from veltrix.providers.base import MarketEvent
@@ -93,10 +91,10 @@ def test_provider_failure_is_retried_with_backoff(tmp_path):
 def test_worker_rejects_separate_or_ephemeral_databases(tmp_path):
     launch_store = LaunchStore(tmp_path / "launch.sqlite3")
     market_store = MarketSnapshotStore(tmp_path / "market.sqlite3")
-    with pytest.raises(ValueError, match="same persistent"):
+    with pytest.raises(ValueError, match="share one persistent"):
         CandidateEnrichmentWorker(launch_store, SolanaMarketData(FakeMarketProvider()),
                                   market_store)
-    with pytest.raises(ValueError, match="same persistent"):
+    with pytest.raises(ValueError, match="share one persistent"):
         CandidateEnrichmentWorker(LaunchStore(":memory:"), SolanaMarketData(),
                                   MarketSnapshotStore(":memory:"))
 
