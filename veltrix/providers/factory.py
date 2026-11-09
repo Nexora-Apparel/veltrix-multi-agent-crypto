@@ -364,7 +364,7 @@ def build_solana_sellability_worker(settings, launch_store, risk_store, evidence
     )
 
 
-def build_solana_sell_simulation_worker(settings, database_path, evidence_store, *, session=None):
+def build_solana_sell_simulation_worker(settings, database_path, evidence_store, *, preflight_store=None, session=None):
     """Build simulation only for explicit test-wallet mint/amount cases.
 
     No signing key is accepted. The configured taker is a public address only.
@@ -373,6 +373,7 @@ def build_solana_sell_simulation_worker(settings, database_path, evidence_store,
         return None
     import json
     from .solana_sell_simulation import JupiterSolanaSellSimulationProvider
+    from .solana_simulation_preflight import SolanaSimulationWalletPreflightProvider
     from ..solana_meme.sell_simulation_worker import SolanaSellSimulationWorker
 
     rpc_url = getattr(settings, "solana_rpc_url", "")
@@ -393,7 +394,11 @@ def build_solana_sell_simulation_worker(settings, database_path, evidence_store,
             2.0, getattr(settings, "jupiter_quote_min_interval_seconds", 2.1),
         ),
     )
+    if preflight_store is None:
+        return None
+    preflight = SolanaSimulationWalletPreflightProvider(rpc_url, taker, session=session)
     return SolanaSellSimulationWorker(
         database_path, provider, evidence_store, cases,
+        preflight_provider=preflight, preflight_store=preflight_store,
         refresh_interval_ms=300_000,
     )
