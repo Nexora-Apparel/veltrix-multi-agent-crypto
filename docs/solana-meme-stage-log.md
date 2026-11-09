@@ -35,7 +35,7 @@
 
 ## CI
 
-CI for the read-only runtime, finalized mint parser, and initial risk-evidence integration passed
-through commit a64a468c9d6a99139195e8ce826549b8f6015978. The persistent risk worker, factory
-wiring and runtime integration are newer; their full CI result must be checked separately.
+Latest full CI passed at commit e1dfa1fe0472016386a8ded50ba47b7489e2df07:
+373 passed, 5 skipped; compileall and pytest both succeeded. This includes the read-only runtime,
+finalized mint parser, risk evidence factory, persistent risk store/worker, and pipeline wiring.
 Provider-backed production validation has not been performed.
