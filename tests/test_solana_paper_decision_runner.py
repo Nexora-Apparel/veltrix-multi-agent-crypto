@@ -189,3 +189,50 @@ def test_untrusted_agent_context_provider_blocks_entry(tmp_path):
     assert result.blocked == 1
     assert broker.snapshot()["open_positions"] == []
     assert "agent context provenance, mint, or provider trust is invalid" in runner.audit_history(MINT)[0]["reasons"]
+
+
+def test_stale_claim_without_new_broker_position_is_not_replayed(tmp_path):
+    path = str(tmp_path / "stale-claim-no-position.sqlite3")
+    launches, markets, risks, developers, bundles, routes, safety = seed_complete_packet(path)
+    broker = PaperBroker(path, 500, 10, 50)
+    runner = SolanaPaperDecisionRunner(
+        launch_store=launches, market_store=markets, risk_store=risks,
+        developer_store=developers, bundle_store=bundles,
+        sellability_store=routes, safety_store=safety, broker=broker,
+        core=Core(broker), agent_context_provider=None,
+    )
+    old = int(time.time() * 1000) - 600_000
+    key = runner._claim(MINT, {"simulated_crash": True}, old)
+    assert key is not None
+    result = runner.reconcile_stale_claims(max_claim_age_ms=1_000)
+    assert result == {
+        "examined": 1, "reconciled_open_positions": 0,
+        "indeterminate_no_replay": 1,
+    }
+    audit = runner.audit_history(MINT)[0]
+    assert audit["state"] == "INDETERMINATE_NO_REPLAY"
+    assert audit["result"]["automatic_replay"] is False
+
+
+def test_stale_claim_with_matching_new_broker_position_is_reconciled(tmp_path):
+    path = str(tmp_path / "stale-claim-with-position.sqlite3")
+    launches, markets, risks, developers, bundles, routes, safety = seed_complete_packet(path)
+    broker = PaperBroker(path, 500, 10, 50)
+    runner = SolanaPaperDecisionRunner(
+        launch_store=launches, market_store=markets, risk_store=risks,
+        developer_store=developers, bundle_store=bundles,
+        sellability_store=routes, safety_store=safety, broker=broker,
+        core=Core(broker), agent_context_provider=None,
+    )
+    old = int(time.time() * 1000) - 600_000
+    key = runner._claim(MINT, {"simulated_crash": True}, old)
+    assert key is not None
+    broker.open_position(MINT, 1.0, 50.0, "recovery test")
+    result = runner.reconcile_stale_claims(max_claim_age_ms=1_000)
+    assert result == {
+        "examined": 1, "reconciled_open_positions": 1,
+        "indeterminate_no_replay": 0,
+    }
+    audit = runner.audit_history(MINT)[0]
+    assert audit["state"] == "PAPER_ENTRY_OPENED_RECONCILED"
+    assert audit["result"]["automatic_replay"] is False
