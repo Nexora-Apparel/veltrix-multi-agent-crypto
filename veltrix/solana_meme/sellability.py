@@ -70,7 +70,7 @@ class SolanaSellabilityEvaluator:
         provider: SellQuoteProvider,
         *,
         max_age_ms: int = 15_000,
-        min_supply_fraction: float = 0.005,
+        min_supply_fraction: float = 0.000001,
         max_supply_fraction: float = 0.05,
         max_price_impact_bps: float = 300.0,
         clock_ms: Callable[[], int] | None = None,
