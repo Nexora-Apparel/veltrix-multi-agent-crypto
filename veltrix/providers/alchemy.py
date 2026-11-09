@@ -14,6 +14,7 @@ from .intelligence import SmartWalletObservation
 
 class AlchemyWalletProvider:
     provider_id = "alchemy"
+    supported_chains = frozenset({"base", "bsc"})
     NETWORKS = {"base": "base-mainnet", "bsc": "bnb-mainnet"}
 
     def __init__(self, api_key, tracked_wallets=(), quote_token_addresses=None,
