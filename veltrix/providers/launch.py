@@ -129,8 +129,7 @@ class HeliusNativeFundingResolver:
             for raw_tx in payload["data"]:
                 tx = unwrap_parsed_transaction(raw_tx)
                 if tx is None:
-                    reached_end = False
-                    continue
+                    return None
                 ts = tx.get("blockTime", tx.get("timestamp"))
                 if not isinstance(ts, (int, float)):
                     continue
