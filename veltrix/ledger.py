@@ -117,9 +117,12 @@ class PaperBroker:
                 return actions
             multiple = price / pos["entry_price"]
             if multiple >= 3 and not state["hit_3x"]:
+                # If the feed jumps over 2x between observations, do not fabricate
+                # a historical 2x fill. Mark that milestone as passed and execute
+                # the currently observable 3x partial only.
                 result = self._sell_in_transaction(db, pos, price, 0.5, "take_profit_3x", now)
                 actions.append(result)
-                db.execute("UPDATE position_state SET hit_3x=1 WHERE token=?", (token,))
+                db.execute("UPDATE position_state SET hit_2x=1, hit_3x=1 WHERE token=?", (token,))
             elif multiple >= 2 and not state["hit_2x"]:
                 result = self._sell_in_transaction(db, pos, price, 0.5, "take_profit_2x", now)
                 actions.append(result)
