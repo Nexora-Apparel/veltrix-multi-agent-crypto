@@ -61,9 +61,12 @@ read-only runtime**. It has no default safety or agent-context provider.
   liquidity-lock evidence unsupported and the available developer-cluster
   evidence partial. No production Solana composite-safety report can currently
   pass the default capability validator.
-- No production Solana agent-context provider is configured to produce
-  timestamped volume-spike, momentum and independent smart-wallet BUY evidence.
-  The runner requires an explicit provider allowlist and fails closed without it.
+- Added SolanaMarketAgentContextProvider, which derives a Scout volume-spike
+  flag from at least five prior observations of the same selected pool and
+  attaches a content-addressed evidence ID. It never invents smart-wallet BUYs;
+  the Whale agent remains inactive unless a separate wallet-evidence source is
+  supplied. The market-context provider still requires explicit allowlisting
+  and has not been wired into runtime settings.
 
 These are evidence-provider gaps, not reasons to weaken Shield. Runtime
 activation is withheld until both provider paths are independently verified
@@ -82,3 +85,18 @@ test or proof of live sellability. No live trading is enabled.
 - A stale claim with a matching newly opened position is annotated as reconciled.
 - A stale claim without a matching new position is marked indeterminate and remains non-replayable.
 - Both outcomes are audit-only; no automatic retry or second position is created.
+
+
+## Market-derived agent context
+
+SolanaMarketAgentContextProvider derives momentum from the latest persisted
+market snapshot and compares hourly volume with the median of five prior
+observations for the same selected pool. A pool change, stale snapshot,
+insufficient baseline or zero baseline volume cannot produce a volume-spike
+signal. Smart-wallet BUY evidence is always empty in this adapter; it does not
+claim to replace an independent wallet-intelligence provider.
+
+The provider is suitable for the Scout signal only. The second BUY agent must
+still be independently satisfied (for example, Sniper after a separately
+certified composite safety report). The provider ID must be explicitly
+allowlisted by the runner.
