@@ -9,6 +9,7 @@ from veltrix.signer_boundary import (
     SignerBoundaryError,
     SignedTransactionEnvelope,
     UnsignedTransactionEnvelope,
+    validate_signed_response,
 )
 
 
@@ -25,6 +26,21 @@ def request(**overrides):
     }
     values.update(overrides)
     return UnsignedTransactionEnvelope(**values)
+
+
+def signed_response(**overrides):
+    values = {
+        "intent_id": "intent-001",
+        "signer_public_key": "PublicKeyExample",
+        "chain": "solana",
+        "network": "devnet",
+        "policy_hash": "a" * 64,
+        "message_sha256": hashlib.sha256(b"serialized-solana-message").hexdigest(),
+        "signed_transaction": b"opaque-signed-transaction",
+        "transaction_signature": "signature-reference",
+    }
+    values.update(overrides)
+    return SignedTransactionEnvelope(**values)
 
 
 def test_unsigned_envelope_is_immutable_and_contains_exact_message():
@@ -54,16 +70,7 @@ def test_unsigned_envelope_rejects_malformed_fields(field, value):
 
 
 def test_signed_envelope_is_opaque_immutable_output():
-    result = SignedTransactionEnvelope(
-        intent_id="intent-001",
-        signer_public_key="PublicKeyExample",
-        chain="solana",
-        network="devnet",
-        policy_hash="a" * 64,
-        message_sha256="b" * 64,
-        signed_transaction=b"opaque-signed-transaction",
-        transaction_signature="signature-reference",
-    )
+    result = signed_response()
     assert result.signed_transaction == b"opaque-signed-transaction"
     with pytest.raises(FrozenInstanceError):
         result.intent_id = "other"
@@ -84,19 +91,41 @@ def test_signed_envelope_is_opaque_immutable_output():
     ],
 )
 def test_signed_envelope_rejects_malformed_fields(field, value):
-    values = {
-        "intent_id": "intent-001",
-        "signer_public_key": "PublicKeyExample",
-        "chain": "solana",
-        "network": "devnet",
-        "policy_hash": "a" * 64,
-        "message_sha256": "b" * 64,
-        "signed_transaction": b"opaque-signed-transaction",
-        "transaction_signature": "signature-reference",
-    }
-    values[field] = value
     with pytest.raises(SignerBoundaryError):
-        SignedTransactionEnvelope(**values)
+        signed_response(**{field: value})
+
+
+def test_signed_response_must_match_every_approved_request_binding():
+    approved = request()
+    validate_signed_response(approved, signed_response())
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("intent_id", "other-intent"),
+        ("signer_public_key", "OtherPublicKey"),
+        ("chain", "base"),
+        ("network", "mainnet"),
+        ("policy_hash", "b" * 64),
+        ("message_sha256", "c" * 64),
+    ],
+)
+def test_signed_response_rejects_binding_mismatch(field, value):
+    with pytest.raises(SignerBoundaryError, match=field):
+        validate_signed_response(request(), signed_response(**{field: value}))
+
+
+@pytest.mark.parametrize(
+    "approved,response",
+    [
+        (object(), signed_response()),
+        (request(), object()),
+    ],
+)
+def test_signed_response_rejects_wrong_envelope_types(approved, response):
+    with pytest.raises(SignerBoundaryError):
+        validate_signed_response(approved, response)
 
 
 def test_protocol_defines_sign_contract_without_providing_implementation():
