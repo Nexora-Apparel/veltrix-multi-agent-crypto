@@ -18,6 +18,23 @@ class SolanaCandidate:
     discovered_at_ms: int
     sources: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        # Keep the public constructor fail-closed too; callers must not be able
+        # to bypass normalize_candidate() and inject malformed records.
+        canonical_mint(self.mint)
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise CandidateRejected("source identity is required")
+        if (
+            isinstance(self.discovered_at_ms, bool)
+            or not isinstance(self.discovered_at_ms, int)
+            or self.discovered_at_ms <= 0
+        ):
+            raise CandidateRejected("discovered_at_ms must be a positive integer")
+        if not isinstance(self.sources, tuple) or any(
+            not isinstance(item, str) or not item.strip() for item in self.sources
+        ):
+            raise CandidateRejected("sources must be a tuple of non-empty strings")
+
     @property
     def chain(self) -> str:
         return "solana"
