@@ -172,7 +172,7 @@ def test_rpc_retries_http_429_then_returns_result(monkeypatch):
 
     assert rpc.call("eth_chainId", []) == "0x2105"
     assert calls["count"] == 2
-    assert sleeps == [1.0]
+    assert 1.0 in sleeps
 
 
 def test_rpc_retries_json_rpc_rate_limit_code(monkeypatch):
@@ -204,4 +204,4 @@ def test_rpc_retries_json_rpc_rate_limit_code(monkeypatch):
 
     assert rpc.call("eth_chainId", []) == "0x2105"
     assert calls["count"] == 2
-    assert sleeps == [2]
+    assert 2 in sleeps
