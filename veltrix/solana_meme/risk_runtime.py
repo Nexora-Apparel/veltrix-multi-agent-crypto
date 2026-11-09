@@ -79,7 +79,7 @@ def build_runtime(
     config = settings_obj or load_settings()
     db_path = database_path or os.getenv(
         "VELTRIX_SOLANA_DISCOVERY_DB",
-        "data/solana_discovery.sqlite3",
+        os.getenv("DB_PATH", "data/solana_discovery.sqlite3"),
     )
     try:
         poll = float(
