@@ -106,7 +106,7 @@ def seed_complete_packet(path):
 def context_provider(mint, evidence):
     return SolanaAgentContext(
         mint=mint, provider="independent-agent-context",
-        evidence_id="agent-context:1", observed_at_ms=int(time.time() * 1000),
+        evidence_id="agent-context:1", observed_at_ms=evidence["market"]["retrieved_at_ms"],
         volume_spike=True, price_change_5m_pct=2.0,
         smart_wallet_buys=("wallet-a", "wallet-b"),
     )
