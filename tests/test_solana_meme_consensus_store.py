@@ -61,3 +61,13 @@ def test_consensus_store_history_is_newest_first_and_validates_limit(tmp_path):
 def test_consensus_store_requires_persistent_database():
     with pytest.raises(ValueError):
         ConsensusStore(":memory:")
+
+def test_consensus_store_refuses_execution_authorization_and_inconsistent_eligibility(tmp_path):
+    from dataclasses import replace
+
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    report = decision(1000)
+    with pytest.raises(ValueError, match="cannot authorize execution"):
+        store.record(replace(report, execution_authorized=True))
+    with pytest.raises(ValueError, match="eligibility"):
+        store.record(replace(report, paper_review_eligible=True))
