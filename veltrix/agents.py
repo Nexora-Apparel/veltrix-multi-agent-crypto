@@ -25,9 +25,9 @@ class Sniper:
     def evaluate(self, token):
         address = token.get("address")
         report = token.get("safety_report")
-        if not address or not isinstance(report, SafetyReport) or not report.passed or report.token_address != address:
+        if not address or not isinstance(report, SafetyReport) or not report.passed or not report.composite_verified or report.token_address != address:
             return None
-        return Signal("sniper", address, "BUY", "independent token safety evidence passed")
+        return Signal("sniper", address, "BUY", "three-source composite token safety gate passed")
 
 class Shield:
     def approve(self, signals, open_positions, amount, max_positions, max_amount):
