@@ -48,9 +48,13 @@ reported P&L. No profitability claim is made from synthetic tests.
 
 ## Database
 
-All Phase 03–07 stores must share the same persistent SQLite database. The
-default path is `data/solana_discovery.sqlite3`, configurable through
-`VELTRIX_SOLANA_DISCOVERY_DB`. Do not use `:memory:` for this runtime.
+All Phase 03–07 stores and the existing PaperBroker must share the same
+persistent SQLite database. Path selection is `VELTRIX_SOLANA_DISCOVERY_DB`,
+then the legacy `DB_PATH`, then `data/solana_discovery.sqlite3`. If both
+environment variables are set, they must resolve to the same file; the paper
+runtime refuses to create a second ledger silently. Set both to the existing
+paper-ledger path to preserve the current account and history. Do not use
+`:memory:` for this runtime.
 
 ## Run
 
@@ -61,7 +65,9 @@ risk-evidence workers separately. Then start the paper worker:
 python -m veltrix.solana_meme.paper_runtime
 ```
 
-Stop with SIGINT or SIGTERM. The runtime logs each cycle and stops cleanly.
+Keep `LIVE_TRADING=false`; the runtime refuses to start if live trading is
+enabled. Stop with SIGINT or SIGTERM. The runtime logs each cycle and stops
+cleanly.
 
 ## Configuration
 
