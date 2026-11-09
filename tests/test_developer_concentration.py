@@ -78,7 +78,8 @@ def test_common_funder_does_not_make_wallets_developer_linked():
         root_provider="launch-origin", root_evidence_id="origin-e1", now_ms=NOW,
     )
     assert report.coverage_complete
-    assert report.linked_wallets == ()
+    assert report.linked_wallets == ("dev",)
+    assert report.linked_supply_raw == 100
 
 
 def test_incomplete_holder_or_funding_coverage_withholds_percentage():
