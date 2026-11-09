@@ -146,12 +146,9 @@ class SolanaRiskEvidenceCollector:
     def _valid_optional_pct(value: object) -> bool:
         if value is None:
             return True
-        if isinstance(value, bool):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return False
+        number = float(value)
         return math.isfinite(number) and 0 <= number <= 100
 
     def _fresh(self, observed: object, now: int) -> bool:
