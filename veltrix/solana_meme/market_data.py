@@ -77,6 +77,18 @@ class SolanaMarketData:
             raise MarketDataUnavailable(f"invalid {field}")
         return number
 
+    @staticmethod
+    def _finite_signed(value: object, field: str) -> float:
+        if isinstance(value, bool):
+            raise MarketDataUnavailable(f"invalid {field}")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise MarketDataUnavailable(f"invalid {field}") from exc
+        if not math.isfinite(number):
+            raise MarketDataUnavailable(f"invalid {field}")
+        return number
+
     def fetch(self, mint: str, *, now_ms: int | None = None) -> SolanaMarketSnapshot:
         canonical = canonical_mint(mint)
         retrieved = now_ms if now_ms is not None else int(time.time() * 1000)
@@ -100,7 +112,7 @@ class SolanaMarketData:
                 continue
             self._finite_nonnegative(event.liquidity_usd, "liquidity_usd")
             self._finite_nonnegative(event.volume_h1_usd, "volume_h1_usd")
-            self._finite_nonnegative(abs(event.price_change_m5_pct), "price_change_m5_pct")
+            self._finite_signed(event.price_change_m5_pct, "price_change_m5_pct")
             eligible.append(event)
 
         if not eligible:
@@ -130,10 +142,10 @@ class SolanaMarketData:
             mint=canonical,
             selected_pair_address=selected.pair_address,
             symbol=selected.symbol,
-            price_usd=selected.price_usd,
-            selected_pool_liquidity_usd=selected.liquidity_usd,
-            selected_pool_volume_h1_usd=selected.volume_h1_usd,
-            price_change_m5_pct=selected.price_change_m5_pct,
+            price_usd=float(selected.price_usd),
+            selected_pool_liquidity_usd=float(selected.liquidity_usd),
+            selected_pool_volume_h1_usd=float(selected.volume_h1_usd),
+            price_change_m5_pct=float(selected.price_change_m5_pct),
             pair_count=len(eligible),
             retrieved_at_ms=retrieved,
             provider_observed_at_ms=selected.observed_at_ms,
