@@ -78,7 +78,7 @@ def test_normalized_logs_sorts_and_normalizes_log_fields():
 
 def test_normalized_logs_rejects_malformed_rows():
     rpc = FakeRpc({
-        ("eth_getLogs", str([{
+        ("eth_getLogs", json.dumps([{
             "address": "0x0000000000000000000000000000000000000001",
             "fromBlock": "0x10",
             "toBlock": "0x10",
