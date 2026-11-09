@@ -14,8 +14,15 @@ def evidence(provider, **overrides):
         token_address=TOKEN, provider=provider, evidence_id=f"id-{provider}",
         observed_at_ms=NOW - 100, liquidity_locked=None,
         dev_hold_pct=None, bundled_supply_pct=None,
+        claim=None, chain="solana", coverage_complete=True,
+        source_ref=f"https://evidence.invalid/{provider}", method="complete_onchain_index",
+        independence_group=provider,
     )
     values.update(overrides)
+    if values.get("liquidity_locked") is True:
+        values["claim"] = "liquidity_lock"
+    elif values.get("dev_hold_pct") is not None:
+        values["claim"] = "developer_holdings"
     return SafetyEvidence(**values)
 
 
