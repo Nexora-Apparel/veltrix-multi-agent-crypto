@@ -24,6 +24,7 @@ class MarketMonitor:
         self.trusted_launch_origin_providers = frozenset(trusted_launch_origin_providers)
         self.last_launch_results = {}
         self._launch_checked = set()
+        self._launch_retry_after = {}
 
     def _evaluate_launch_candidate(self, candidate):
         if self.launch_intelligence is None:
@@ -31,6 +32,9 @@ class MarketMonitor:
         key = (candidate.chain, candidate.token_address.lower()
                if candidate.chain in {"base", "bsc"} else candidate.token_address)
         if key in self._launch_checked:
+            return
+        now_ms = int(time.time() * 1000)
+        if now_ms < self._launch_retry_after.get(key, 0):
             return
         resolver = self.launch_origin_resolvers.get(candidate.chain)
         if resolver is None or getattr(resolver, "provider_id", None) not in self.trusted_launch_origin_providers:
@@ -80,6 +84,10 @@ class MarketMonitor:
             self.last_launch_results[key] = {
                 "status": "blocked", "reason": f"{type(exc).__name__}: {exc}"
             }
+            self.ledger.record_launch_intelligence(candidate.chain, candidate.token_address,
+                                                   self.last_launch_results[key])
+            self._launch_retry_after[key] = int(time.time() * 1000) + 300_000
+            return
         self.ledger.record_launch_intelligence(candidate.chain, candidate.token_address,
                                                self.last_launch_results[key])
         self._launch_checked.add(key)
