@@ -86,6 +86,9 @@ def test_complete_single_pool_snapshot_passes_and_emits_scoped_evidence():
     assert report.pool_count == report.verified_pool_count == 1
     assert report.active_locked_pool_count == 1
     assert report.active_locked_pct == 100.0
+    assert report.total_lp_supply is None
+    assert report.active_locked_lp is None
+    assert report.per_pool_locked_pct == ((POOL, 100.0),)
     evidence = report.to_safety_evidence(independence_group="independent-lock-auditor")
     assert evidence.claim == "liquidity_lock"
     assert evidence.liquidity_inventory_complete is True
@@ -99,6 +102,8 @@ def test_one_locked_pool_does_not_certify_a_second_unlocked_pool():
     assert not report.passed
     assert report.pool_count == 2
     assert report.active_locked_pool_count == 1
+    assert report.active_locked_pct == 0.0
+    assert dict(report.per_pool_locked_pct) == {POOL: 100.0, "0x6666666666666666666666666666666666666666": 0.0}
     assert any("at least one discovered pool" in reason for reason in report.reasons)
 
 
