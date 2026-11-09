@@ -130,7 +130,7 @@ def test_rejects_invalid_sell_amount_before_network_calls(monkeypatch):
 
 def test_rejects_transaction_that_does_not_require_configured_taker_signature(monkeypatch):
     session = FakeSession()
-    FakeVersionedTransaction.signer = "11111111111111111111111111111111"
+    FakeVersionedTransaction.signer = WSOL
     with pytest.raises(Exception, match="not a required transaction signer"):
         provider(session, monkeypatch).simulate_sell(MINT, 1000)
     assert [call[0] for call in session.calls] == ["GET"]
