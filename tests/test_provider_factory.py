@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+from types import SimpleNamespace\n\nimport pytest
 
 from veltrix.providers.alchemy import AlchemyWalletProvider
 from veltrix.providers.factory import build_wallet_providers
@@ -40,3 +40,69 @@ def test_wallet_provider_factory_builds_both_without_enabling_provider_trust():
         alchemy_api_key="alchemy-secret", tracked_evm_wallets=("0xwallet",),
     ))
     assert {provider.provider_id for provider in providers} == {"helius", "alchemy"}
+
+
+
+def test_base_liquidity_factory_builder_injects_pinned_identity_without_completeness(monkeypatch):
+    import json
+    from veltrix.providers import evm_liquidity_reader
+    from veltrix.providers.factory import build_liquidity_snapshot_providers
+    from veltrix.base_factory_registry import BASE_UNISWAP_V2_FACTORY
+
+    captured = {}
+
+    class ReaderStub:
+        def __init__(self, chain, pool_url, locker_url, factories, lockers, **kwargs):
+            captured.update(chain=chain, factories=factories, kwargs=kwargs)
+
+    monkeypatch.setattr(
+        evm_liquidity_reader, "EvmV2LiquiditySnapshotReader", ReaderStub
+    )
+    configured = settings(
+        base_liquidity_pool_rpc_url="https://pool.example",
+        base_liquidity_locker_rpc_url="https://locker.example",
+        base_liquidity_factories_json="",
+        base_liquidity_lockers_json=json.dumps([{
+            "amm_id": "uniswap-v2", "address": "0x" + "55" * 20,
+            "deployment_block": 1, "expected_code_hash": "11" * 32,
+            "abi_profile": "uncx-v2.1-locks-nonce",
+        }]),
+        base_liquidity_registry_complete=True,
+    )
+    build_liquidity_snapshot_providers(configured, chains=("base",))
+    factory = captured["factories"][0]
+    assert factory.amm_id == BASE_UNISWAP_V2_FACTORY.amm_id
+    assert factory.chain_id == BASE_UNISWAP_V2_FACTORY.chain_id
+    assert factory.creation_tx == BASE_UNISWAP_V2_FACTORY.creation_tx
+    assert factory.source_ref == BASE_UNISWAP_V2_FACTORY.source_ref
+    assert captured["kwargs"]["registry_complete"] is False
+
+
+def test_base_liquidity_factory_builder_rejects_conflicting_pinned_identity(monkeypatch):
+    import json
+    from veltrix.providers import evm_liquidity_reader
+    from veltrix.providers.factory import build_liquidity_snapshot_providers
+
+    class ReaderStub:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("reader must not be constructed for conflicting identity")
+
+    monkeypatch.setattr(
+        evm_liquidity_reader, "EvmV2LiquiditySnapshotReader", ReaderStub
+    )
+    configured = settings(
+        base_liquidity_pool_rpc_url="https://pool.example",
+        base_liquidity_locker_rpc_url="https://locker.example",
+        base_liquidity_factories_json=json.dumps([{
+            "amm_id": "uniswap-v2", "address": "0x" + "44" * 20,
+            "deployment_block": 1, "expected_code_hash": "11" * 32,
+        }]),
+        base_liquidity_lockers_json=json.dumps([{
+            "amm_id": "uniswap-v2", "address": "0x" + "55" * 20,
+            "deployment_block": 1, "expected_code_hash": "11" * 32,
+            "abi_profile": "uncx-v2.1-locks-nonce",
+        }]),
+        base_liquidity_registry_complete=True,
+    )
+    with pytest.raises(ValueError, match="conflicts with pinned registry identity"):
+        build_liquidity_snapshot_providers(configured, chains=("base",))
