@@ -101,7 +101,7 @@ def test_no_route_is_distinct_from_provider_failure():
 def test_quote_size_and_price_impact_are_bounded():
     result = evaluator().evaluate(
         MINT, total_supply_raw=1_000_000_000,
-        input_amount_raw=1_000_000,
+        input_amount_raw=500,
     )
     assert result.state == "UNVERIFIED"
     assert "supply-fraction" in result.errors[0]
