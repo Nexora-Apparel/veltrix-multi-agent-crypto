@@ -116,6 +116,7 @@ class LockerPositionSnapshot:
     custody_authority: str | None = None
     custody_token_mint: str | None = None
     custody_account_owner: str | None = None
+    finalized_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -200,7 +201,7 @@ def _id_for(batch: LiquidityInventoryBatch) -> str:
         tuple(sorted((p.pool_address, p.lp_token_address, p.total_lp_supply,
                       p.locker_custody_amount) for p in batch.pools)),
         tuple(sorted((p.position_id, p.locker_address, p.lp_token_address,
-                      p.amount, p.unlock_at_ms, p.evidence_ref) for p in batch.positions)),
+                      p.amount, p.unlock_at_ms, p.evidence_ref, p.finalized_ref) for p in batch.positions)),
         tuple(sorted((d.address, d.expected_code_hash, d.observed_code_hash,
                       d.abi_profile, d.provider, d.source_ref) for d in batch.deployments)),
     )
@@ -262,7 +263,8 @@ class LiquidityEvidenceAnalyzer:
             if (not deployment.provider or deployment.provider == batch.provider
                     or deployment.independence_group == batch.independence_group):
                 reasons.append("locker deployment identity must be independently sourced from pool inventory")
-            if not deployment.source_ref or not deployment.independence_group:
+            if (not deployment.source_ref.startswith("https://")
+                    or not deployment.independence_group):
                 reasons.append("locker deployment provenance or ownership is missing")
                 continue
             if chain in {"base", "bsc"}:
@@ -278,7 +280,11 @@ class LiquidityEvidenceAnalyzer:
             ):
                 reasons.append("Solana locker executable hash or custody authority is not pinned")
                 continue
-            deployment_map[deployment.address.lower() if chain in {"base", "bsc"} else deployment.address] = deployment
+            deployment_key = deployment.address.lower() if chain in {"base", "bsc"} else deployment.address
+            if deployment_key in deployment_map:
+                reasons.append("duplicate locker deployment identity")
+                continue
+            deployment_map[deployment_key] = deployment
 
         pools = {}
         total_supply = 0
@@ -302,6 +308,8 @@ class LiquidityEvidenceAnalyzer:
                 reasons.append("pool or LP token address is malformed")
             if pool.inventory_provider != batch.provider or pool.pool_set_id != batch.pool_set_id:
                 reasons.append("pool inventory provider or set identity mismatch")
+            if pool.finalized_ref != batch.finalized_ref or pool.observed_at_ms != batch.observed_at_ms:
+                reasons.append("pool snapshots do not share the batch finalized state")
             if pool.inventory_complete is not True:
                 reasons.append("pool-level inventory coverage is incomplete")
             if (not isinstance(pool.total_lp_supply, int) or isinstance(pool.total_lp_supply, bool)
@@ -322,6 +330,8 @@ class LiquidityEvidenceAnalyzer:
                 continue
             if position.chain != chain:
                 reasons.append("locker position chain mismatch")
+            if position.finalized_ref != batch.finalized_ref or position.observed_at_ms != batch.observed_at_ms:
+                reasons.append("locker positions do not share the batch finalized state")
             pool_key = position.pool_address.lower() if chain in {"base", "bsc"} else position.pool_address
             pool = pools.get(pool_key)
             if pool is None:
@@ -399,7 +409,8 @@ class LiquidityEvidenceAnalyzer:
         return LiquidityEvidenceReport(
             chain, token_address, passed, len(batch.pools), len(pools),
             active_locked_pool_count, total_supply, total_active_locked, locked_pct,
-            earliest_unlock, _id_for(batch), batch.provider,
+            earliest_unlock, _id_for(batch),
+            batch.provider + "+" + ",".join(sorted({d.provider for d in deployment_map.values()})),
             "+".join(sorted({d.independence_group for d in deployment_map.values()})),
             batch.observed_at_ms, batch.finalized_ref, tuple(dict.fromkeys(reasons)),
         )
