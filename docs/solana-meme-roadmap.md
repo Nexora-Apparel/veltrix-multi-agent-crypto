@@ -93,3 +93,17 @@ disabled unless the configured signed-root endpoint/public key and all
 three provider trust lists are present. Its output remains uncertified and
 cannot become a safety approval. Coordinated token-purchase/bundled-supply
 detection is still a separate unfinished evidence requirement.
+
+
+## Launch-window bundle evidence update — 2026-11-09
+
+A bounded Helius Parsed Events Scan adapter now indexes Pump.fun buy activity
+within the verified launch window, validates buyer token transfers, reads
+finalized mint supply, and joins buyers to Helius first-funder ancestry. Its
+append-only worker withholds percentages unless launch origin, scan pagination,
+buyer funding, and supply evidence all pass.
+
+This is a shared-funder cohort heuristic only. It is not proof of common
+ownership, developer control, or insider trading; it is not safety-certified.
+The adapter is opt-in and requires explicit launch-origin, bundle-index and
+funding provider trust lists. Other launchpads are not covered yet.
