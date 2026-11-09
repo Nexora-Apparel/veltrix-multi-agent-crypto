@@ -167,6 +167,8 @@ class SolanaShieldPolicy:
                 reasons.append("fresh sell-side route was not observed")
             if sellability.execution_proven is not False:
                 reasons.append("sell-route evidence must not claim execution proof")
+            if sellability.errors:
+                reasons.append("sell-route evidence contains provider or validation errors")
             if (isinstance(sellability.observed_at_ms, bool)
                     or not isinstance(sellability.observed_at_ms, int)):
                 reasons.append("sell-route evidence timestamp is invalid")
@@ -181,6 +183,10 @@ class SolanaShieldPolicy:
                     or not isinstance(sellability.quote_expires_at_ms, int)
                     or sellability.quote_expires_at_ms <= evaluation_time):
                 reasons.append("sell-route quote is expired or has invalid expiry")
+            elif (isinstance(sellability.observed_at_ms, int)
+                    and sellability.quote_expires_at_ms
+                    > sellability.observed_at_ms + self.max_evidence_age_ms):
+                reasons.append("sell-route quote expiry exceeds the permitted evidence lifetime")
             if (isinstance(sell_amount_raw, bool)
                     or not isinstance(sell_amount_raw, int)
                     or sell_amount_raw <= 0
@@ -193,6 +199,8 @@ class SolanaShieldPolicy:
                     or not isinstance(sellability.minimum_output_raw, int)
                     or sellability.minimum_output_raw <= 0):
                 reasons.append("sell-route quote output is invalid")
+            elif sellability.minimum_output_raw > sellability.quoted_output_raw:
+                reasons.append("sell-route minimum output exceeds quoted output")
             if (isinstance(sellability.route_plan_count, bool)
                     or not isinstance(sellability.route_plan_count, int)
                     or sellability.route_plan_count <= 0):
