@@ -24,6 +24,7 @@ from .sellability_store import SolanaSellabilityEvidenceStore
 from .sellability_worker import SellabilityBatchResult, SolanaSellabilityWorker
 from .sell_simulation_store import SolanaSellSimulationStore
 from .sell_simulation_worker import SellSimulationBatchResult, SolanaSellSimulationWorker
+from .sell_simulation_diagnostics import SolanaSellSimulationDiagnostic, diagnose_sell_simulation
 
 __all__ = [
     "CandidateRejected", "SolanaCandidate", "canonical_mint",
@@ -43,4 +44,5 @@ __all__ = [
     "SolanaSellQuoteObservation", "SellQuoteProvider", "SolanaSellabilityEvidence", "SolanaSellabilityEvaluator",
     "SolanaSellabilityEvidenceStore", "SellabilityBatchResult", "SolanaSellabilityWorker",
     "SolanaSellSimulationStore", "SellSimulationBatchResult", "SolanaSellSimulationWorker",
+    "SolanaSellSimulationDiagnostic", "diagnose_sell_simulation",
 ]
