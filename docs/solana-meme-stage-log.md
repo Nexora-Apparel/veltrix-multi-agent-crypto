@@ -149,3 +149,15 @@ executable_sellability claim.
 - This provider is not enabled by default or connected to the runtime. It requires a dedicated test wallet holding the candidate token balance; no Phantom address or private key is used.
 - CI was triggered for the new commits; final status is pending verification.
 - No live signing, transaction submission, paper-entry approval or production-main change.
+
+
+## 2026-11-09 — Explicit-case sell simulation worker and runtime integration
+
+- Added append-only `SolanaSellSimulationStore` and bounded `SolanaSellSimulationWorker`.
+- The worker processes only explicit mint/raw-amount pairs supplied by operator configuration; it never loops across all discovered candidates or assumes a token balance.
+- Added disabled-by-default settings: `SOLANA_SELL_SIMULATION_ENABLED`, `SOLANA_SELL_SIMULATION_TAKER`, and `SOLANA_SELL_SIMULATION_CASES_JSON`. The taker is a public key only; no private key setting exists.
+- Added provider-factory construction, pipeline orchestration, runtime reporting and package exports.
+- Hardened Jupiter transaction validation: decode the returned Solana transaction, require the configured taker among required signers, and reject any non-zero signature slot before simulation. Jupiter V2 docs do not define a taker response field, so identity is verified from the transaction itself.
+- Added worker persistence/retry tests, factory opt-in tests, pipeline ordering/database isolation tests, and signer/signature validation tests.
+- CI verification is pending for current head. The runtime remains disabled unless the operator explicitly configures a dedicated test wallet and exact token amounts.
+- No signer, sendTransaction, Jupiter /execute, paper-entry approval or production-main change.
