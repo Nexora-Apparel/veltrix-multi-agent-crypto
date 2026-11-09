@@ -113,10 +113,19 @@ class CandidateEnrichmentWorker:
             db.execute("BEGIN IMMEDIATE")
             db.execute("""
                 UPDATE solana_enrichment_jobs
+                SET status = 'dead', lease_until_ms = NULL,
+                    last_error = COALESCE(last_error, 'processing lease expired at attempt limit'),
+                    updated_at_ms = ?
+                WHERE status = 'processing' AND lease_until_ms <= ?
+                  AND attempts >= ?
+            """, (now, now, self.max_attempts))
+            db.execute("""
+                UPDATE solana_enrichment_jobs
                 SET status = 'retry', lease_until_ms = NULL,
                     next_attempt_at_ms = ?, updated_at_ms = ?
                 WHERE status = 'processing' AND lease_until_ms <= ?
-            """, (now, now, now))
+                  AND attempts < ?
+            """, (now, now, now, self.max_attempts))
             rows = db.execute("""
                 SELECT mint FROM solana_enrichment_jobs
                 WHERE status IN ('pending', 'retry')
@@ -151,7 +160,7 @@ class CandidateEnrichmentWorker:
                 (mint,),
             ).fetchone()
             attempts = int(row["attempts"]) if row else self.max_attempts
-            delay = min(self.retry_base_ms * (2 ** max(0, attempts - 1)), self.retry_max_ms)
+            delay = min(self.retry_base_ms * (2 ** min(max(0, attempts - 1), 30)), self.retry_max_ms)
             status = "dead" if attempts >= self.max_attempts else "retry"
             db.execute("""
                 UPDATE solana_enrichment_jobs
