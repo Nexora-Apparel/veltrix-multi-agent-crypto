@@ -22,7 +22,7 @@ from .base import ProviderError
 
 
 ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
-HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")
+HASH = re.compile(r"^[0-9a-fA-F]{64}$")
 ZERO = "0x" + "00" * 20
 PAIR_CREATED_TOPIC = "0x" + keccak(b"PairCreated(address,address,address,uint256)").hex()
 NEW_LOCK_TOPIC = "0x" + keccak(
@@ -75,7 +75,7 @@ def _code_hash(code):
         raw = bytes.fromhex(code[2:])
     except ValueError as exc:
         raise ProviderError("contract code is malformed") from exc
-    return "0x" + keccak(raw).hex()
+    return keccak(raw).hex()
 
 
 def _call_data(signature, *words):
@@ -228,7 +228,7 @@ class EvmV2LiquiditySnapshotReader:
     def _code(self, rpc, address, block_hex, expected_hash):
         code = rpc.call("eth_getCode", [address, block_hex])
         actual = _code_hash(code)
-        if actual.lower() != expected_hash.lower():
+        if actual.lower() != expected_hash.lower().removeprefix("0x"):
             raise ProviderError(f"runtime code hash mismatch for {address}")
         return actual
 
