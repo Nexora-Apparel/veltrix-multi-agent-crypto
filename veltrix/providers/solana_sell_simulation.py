@@ -15,6 +15,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 import requests
+from solders.transaction import VersionedTransaction
 
 from .base import ProviderError
 from ..solana_meme.candidates import canonical_mint
@@ -121,8 +122,6 @@ class JupiterSolanaSellSimulationProvider:
             raise ProviderError("Jupiter returned an error while assembling simulation order")
         if order.get("inputMint") != canonical or order.get("outputMint") != WRAPPED_SOL_MINT:
             raise ProviderError("Jupiter simulation order token pair mismatch")
-        if order.get("taker") != self.taker:
-            raise ProviderError("Jupiter simulation order taker mismatch")
         try:
             amount = int(order.get("inAmount"))
         except (TypeError, ValueError) as exc:
@@ -141,6 +140,28 @@ class JupiterSolanaSellSimulationProvider:
             raise ProviderError("Jupiter transaction is not valid base64") from exc
         if not raw_transaction:
             raise ProviderError("Jupiter returned an empty transaction")
+        try:
+            decoded_transaction = VersionedTransaction.from_bytes(raw_transaction)
+        except Exception as exc:
+            raise ProviderError("Jupiter returned a malformed Solana transaction") from exc
+        message = decoded_transaction.message
+        header = getattr(message, "header", None)
+        account_keys = getattr(message, "account_keys", None)
+        required_signatures = getattr(header, "num_required_signatures", None)
+        if (not isinstance(account_keys, (list, tuple))
+                or isinstance(required_signatures, bool)
+                or not isinstance(required_signatures, int)
+                or required_signatures < 1
+                or required_signatures > len(account_keys)):
+            raise ProviderError("Jupiter transaction signer metadata is invalid")
+        required_signers = {str(key) for key in account_keys[:required_signatures]}
+        if self.taker not in required_signers:
+            raise ProviderError("configured test wallet is not a required transaction signer")
+        signatures = getattr(decoded_transaction, "signatures", None)
+        if not isinstance(signatures, (list, tuple)) or any(
+            bytes(signature) != bytes(64) for signature in signatures
+        ):
+            raise ProviderError("Jupiter transaction is not fully unsigned")
 
         rpc_payload = {
             "jsonrpc": "2.0",
