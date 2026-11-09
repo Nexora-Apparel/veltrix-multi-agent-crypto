@@ -398,3 +398,34 @@ def test_helius_historical_supply_requires_verified_launch_slot():
     )
     with pytest.raises(ProviderError, match="launch slot is required"):
         resolver("MintABC", LAUNCH)
+
+
+def test_helius_launch_indexer_does_not_count_decoded_sell_as_buy():
+    sell = {
+        "signature": "sol-sell-1", "parserStatus": "OK",
+        "parsed": {
+            "blockTime": LAUNCH // 1000 + 30,
+            "summary": {"type": "swap", "parsedData": {
+                "kind": "sell", "output_mint": "So11111111111111111111111111111111111111111",
+            }},
+            "tokenTransfers": [{
+                "mint": "MintABC", "fromUserAccount": "seller-wallet",
+                "toUserAccount": "pool-wallet",
+                "rawTokenAmount": 1_250_000, "decimals": 5,
+            }],
+        },
+    }
+    session = HeliusSession([{
+        "data": [sell],
+        "scan": {"stoppedOn": "windowEnd",
+                 "scannedThrough": {"blockTime": END // 1000}},
+    }])
+    indexer = HeliusLaunchIndexer(
+        "secret", FundingResolver(),
+        lambda token, launch: (1_000_000, "helius-launch", "slot:123"),
+        session=session, clock_ms=lambda: NOW,
+    )
+    batch = indexer.index_launch("MintABC", LAUNCH, END, launch_slot=10)
+    assert batch.coverage_complete
+    assert batch.observations == ()
+    assert batch.rejected == ()
