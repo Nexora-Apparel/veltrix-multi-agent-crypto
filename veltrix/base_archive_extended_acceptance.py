@@ -58,6 +58,7 @@ def normalized_logs(rpc, factory, from_block, to_block):
             raise PreflightError(f"{rpc.label}: malformed log row")
         normalized.append({
             "blockHash": str(row.get("blockHash", "")).lower(),
+            "blockNumber": quantity(row.get("blockNumber"), f"{rpc.label} log block number"),
             "transactionHash": str(row.get("transactionHash", "")).lower(),
             "logIndex": quantity(row.get("logIndex"), f"{rpc.label} log index"),
             "topics": [str(x).lower() for x in row.get("topics", [])],
