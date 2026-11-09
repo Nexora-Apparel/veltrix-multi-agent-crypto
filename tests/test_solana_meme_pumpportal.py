@@ -55,10 +55,13 @@ def test_pumpportal_connection_errors_are_wrapped():
         list(adapter.stream_new_tokens(max_messages=1))
 
 
-def test_pumpportal_does_not_emit_non_create_events():
-    ws = FakeWebSocket([json.dumps({"txType": "sell", "mint": MINT})])
+def test_pumpportal_does_not_emit_non_create_or_untyped_events():
+    ws = FakeWebSocket([
+        json.dumps({"txType": "sell", "mint": MINT}),
+        json.dumps({"mint": MINT}),
+    ])
     adapter = PumpPortalDiscovery(websocket_factory=lambda *a, **k: ws)
-    assert list(adapter.stream_new_tokens(max_messages=1)) == []
+    assert list(adapter.stream_new_tokens(max_messages=2)) == []
 
 
 def test_pumpportal_zero_message_probe_does_not_connect():
