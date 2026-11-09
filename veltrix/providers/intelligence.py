@@ -92,6 +92,16 @@ class VerifiedIntelligenceAdapters:
             self.trusted_safety_providers, max_age_ms=max_safety_age_ms
         )
 
+    @classmethod
+    def from_settings(cls, settings):
+        """Build the trust boundary from validated application settings."""
+        return cls(
+            trusted_wallet_providers=settings.trusted_wallet_providers,
+            trusted_safety_providers=settings.trusted_safety_providers,
+            max_wallet_age_ms=settings.wallet_evidence_max_age_ms,
+            max_safety_age_ms=settings.safety_evidence_max_age_ms,
+        )
+
     def collect_wallet_observations(
         self, provider: SmartWalletProvider, chain: str,
         token_addresses: Iterable[str], since_ms: int, now_ms: int,
@@ -109,9 +119,10 @@ class VerifiedIntelligenceAdapters:
         mismatched = [
             f"whale: provider identity mismatch on observation {index}"
             for index, item in enumerate(normalized)
-            if getattr(item, "provider", None) != provider_id
+            if not isinstance(item, SmartWalletObservation) or item.provider != provider_id
         ]
-        matching = [item for item in normalized if getattr(item, "provider", None) == provider_id]
+        matching = [item for item in normalized
+                    if isinstance(item, SmartWalletObservation) and item.provider == provider_id]
         batch = self.adapt_wallet_observations(matching, now_ms)
         return AdapterBatch(batch.accepted, tuple(mismatched) + batch.rejected)
 
@@ -126,15 +137,17 @@ class VerifiedIntelligenceAdapters:
             observation = provider.fetch_safety_observation(chain, token_address)
         except Exception:
             observation = None
-        if observation is not None and observation.provider != provider_id:
+        if observation is not None and (
+            not isinstance(observation, TokenSafetyObservation) or observation.provider != provider_id
+        ):
             observation = TokenSafetyObservation(
                 provider="provider-identity-mismatch",
-                token_address=observation.token_address,
-                evidence_id=observation.evidence_id,
-                observed_at_ms=observation.observed_at_ms,
-                liquidity_locked=observation.liquidity_locked,
-                dev_hold_pct=observation.dev_hold_pct,
-                bundled_supply_pct=observation.bundled_supply_pct,
+                token_address=getattr(observation, "token_address", ""),
+                evidence_id=getattr(observation, "evidence_id", ""),
+                observed_at_ms=getattr(observation, "observed_at_ms", now_ms),
+                liquidity_locked=getattr(observation, "liquidity_locked", None),
+                dev_hold_pct=getattr(observation, "dev_hold_pct", None),
+                bundled_supply_pct=getattr(observation, "bundled_supply_pct", None),
             )
         return self.validate_safety_observation(token_address, observation, now_ms)
 
