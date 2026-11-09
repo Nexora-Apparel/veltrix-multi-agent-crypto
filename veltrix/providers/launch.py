@@ -239,6 +239,163 @@ class EvmQuoteFundingResolver:
         )
 
 
+
+class HeliusHistoricalSupplyResolver:
+    """Reconstruct launch-slot supply from finalized current supply and complete mint/burn history.
+
+    This is deliberately conservative: it requires raw integer token amounts,
+    a complete Parsed Events scan from launch through the current finalized slot,
+    and a known launch slot. Unknown mint/burn shapes withhold the denominator.
+    """
+
+    provider_id = "helius-historical-supply"
+    source_provider = "helius-launch"
+
+    def __init__(self, api_key, *, base_url="https://mainnet.helius-rpc.com",
+                 session=None, timeout=25, page_size=100, max_pages=500):
+        if not api_key or not 1 <= page_size <= 100 or max_pages < 1:
+            raise ValueError("Helius historical supply resolver requires bounded scan settings")
+        self.api_key, self.base_url = api_key, base_url.rstrip("/")
+        self.session, self.timeout = session or requests.Session(), timeout
+        self.page_size, self.max_pages = page_size, max_pages
+        self._request_id = 0
+
+    def _rpc(self, method, params):
+        self._request_id += 1
+        try:
+            response = self.session.post(
+                f"{self.base_url}/", params={"api-key": self.api_key},
+                json={"jsonrpc": "2.0", "id": self._request_id,
+                      "method": method, "params": params},
+                headers={"Content-Type": "application/json"}, timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise ProviderError(f"Helius historical supply RPC failed: {method}") from exc
+        if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+            raise ProviderError(f"Helius historical supply RPC returned invalid {method}")
+        return payload["result"]
+
+    def __call__(self, mint, launch_at_ms, *, launch_slot=None):
+        if not isinstance(launch_slot, int) or isinstance(launch_slot, bool) or launch_slot < 0:
+            raise ProviderError("Solana launch slot is required for historical supply reconstruction")
+        current = self._rpc("getTokenSupply", [mint, {"commitment": "finalized"}])
+        try:
+            current_slot = int(current["context"]["slot"])
+            current_raw = int(current["value"]["amount"])
+            decimals = int(current["value"]["decimals"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderError("Helius current token-supply response is malformed") from exc
+        if current_slot < launch_slot or current_raw < 0 or not 0 <= decimals <= 36:
+            raise ProviderError("Helius current supply is inconsistent with launch slot")
+        end_block_time = self._rpc("getBlockTime", [current_slot])
+        if not isinstance(end_block_time, int) or end_block_time < launch_at_ms // 1000:
+            raise ProviderError("Helius finalized slot has no usable block time")
+
+        cursor, pages, scanned_through, complete = None, 0, 0, False
+        minted_after_launch, burned_after_launch = 0, 0
+        rejected = []
+        while pages < self.max_pages:
+            body = {
+                "address": mint,
+                "match": {"mints": [{"mint": mint, "scope": "transaction"}]},
+                "time": {"gte": launch_at_ms // 1000, "lte": end_block_time},
+                "limit": self.page_size, "returnShape": "transactions",
+            }
+            if cursor:
+                body["paginationToken"] = cursor
+            try:
+                response = self.session.post(
+                    f"{self.base_url}/v1/parsed-events/scan",
+                    params={"api-key": self.api_key}, json=body,
+                    headers={"Content-Type": "application/json"}, timeout=self.timeout,
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                raise ProviderError("Helius historical mint/burn scan failed") from exc
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise ProviderError("Helius historical mint/burn scan response malformed")
+            scan = payload.get("scan") or {}
+            through = (scan.get("scannedThrough") or {}).get("blockTime")
+            if isinstance(through, (int, float)) and not isinstance(through, bool):
+                scanned_through = max(scanned_through, int(through))
+            for tx in payload["data"]:
+                if not isinstance(tx, dict):
+                    rejected.append("malformed transaction in historical supply scan")
+                    continue
+                slot = tx.get("slot")
+                if not isinstance(slot, int) or isinstance(slot, bool):
+                    rejected.append("historical supply transaction omitted slot")
+                    continue
+                if slot <= launch_slot or slot > current_slot:
+                    continue
+                summary = tx.get("summary") or {}
+                tx_type = str(summary.get("type", "")).upper() if isinstance(summary, dict) else ""
+                transfers = tx.get("tokenTransfers")
+                if tx_type not in {"TOKEN_MINT", "MINT", "BURN", "TOKEN_BURN"}:
+                    if isinstance(transfers, list) and any(
+                        isinstance(item, dict) and item.get("mint") == mint
+                        and (not item.get("fromUserAccount") or not item.get("toUserAccount"))
+                        for item in transfers
+                    ):
+                        rejected.append("unclassified mint/burn-like transfer in historical supply scan")
+                    continue
+                if not isinstance(transfers, list):
+                    rejected.append("mint/burn transaction omitted token transfer details")
+                    continue
+                matching = [item for item in transfers
+                            if isinstance(item, dict) and item.get("mint") == mint]
+                if not matching:
+                    rejected.append("mint/burn transaction omitted target-mint transfer")
+                    continue
+                for transfer in matching:
+                    raw = transfer.get("rawTokenAmount")
+                    if not isinstance(raw, dict):
+                        rejected.append("mint/burn transfer omitted raw integer amount")
+                        continue
+                    try:
+                        amount = int(raw["tokenAmount"])
+                        amount_decimals = int(raw["decimals"])
+                    except (KeyError, TypeError, ValueError):
+                        rejected.append("mint/burn transfer raw amount is malformed")
+                        continue
+                    if amount <= 0 or amount_decimals != decimals:
+                        rejected.append("mint/burn transfer amount or decimals are inconsistent")
+                        continue
+                    source, destination = transfer.get("fromUserAccount"), transfer.get("toUserAccount")
+                    if tx_type in {"TOKEN_MINT", "MINT"} and not source and isinstance(destination, str):
+                        minted_after_launch += amount
+                    elif tx_type in {"BURN", "TOKEN_BURN"} and not destination and isinstance(source, str):
+                        burned_after_launch += amount
+                    else:
+                        rejected.append("mint/burn transfer direction is ambiguous")
+            pages += 1
+            cursor = payload.get("paginationToken")
+            if not cursor:
+                complete = (
+                    scan.get("stoppedOn") == "windowEnd"
+                    and scanned_through >= end_block_time
+                )
+                break
+        if cursor:
+            rejected.append("historical supply pagination limit reached")
+        if not complete:
+            rejected.append("historical supply scan did not prove complete coverage")
+        if rejected:
+            raise ProviderError("Helius historical supply evidence incomplete: " + "; ".join(rejected[:3]))
+        launch_raw = current_raw - minted_after_launch + burned_after_launch
+        if launch_raw <= 0:
+            raise ProviderError("reconstructed launch-slot supply is not positive")
+        supply = launch_raw / (10 ** decimals)
+        block_ref = (
+            f"launch-slot:{launch_slot};finalized-slot:{current_slot};"
+            f"pages:{pages};minted-after:{minted_after_launch};burned-after:{burned_after_launch}"
+        )
+        return supply, self.source_provider, block_ref
+
+
 class HeliusLaunchIndexer:
     """Helius Parsed Events Scan adapter for Solana launch-window swaps."""
 
@@ -338,9 +495,14 @@ class HeliusLaunchIndexer:
         total_supply = supply_source = supply_ref = supply_observed = None
         if self.supply_resolver is not None:
             try:
-                total_supply, supply_source, supply_ref = self.supply_resolver(
-                    token_address, launch_at_ms
-                )
+                if kwargs.get("launch_slot") is not None:
+                    total_supply, supply_source, supply_ref = self.supply_resolver(
+                        token_address, launch_at_ms, launch_slot=kwargs["launch_slot"]
+                    )
+                else:
+                    total_supply, supply_source, supply_ref = self.supply_resolver(
+                        token_address, launch_at_ms
+                    )
                 supply_observed = self.clock_ms()
                 if not math.isfinite(float(total_supply)) or float(total_supply) <= 0:
                     raise ValueError("invalid historical supply")
@@ -783,8 +945,11 @@ def build_launch_intelligence_service(
         sol_funder = funding_resolvers.get("solana") or HeliusNativeFundingResolver(
             settings.helius_api_key,
         )
+        supply_resolver = solana_supply_resolver or HeliusHistoricalSupplyResolver(
+            settings.helius_api_key,
+        )
         indexers.append(HeliusLaunchIndexer(
-            settings.helius_api_key, sol_funder, solana_supply_resolver,
+            settings.helius_api_key, sol_funder, supply_resolver,
             max_pages=settings.launch_index_max_pages,
         ))
 
