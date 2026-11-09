@@ -255,3 +255,34 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
             "decision-2", MINT, 1.0, 25, "approved",
             created_at_ms=NOW, fee_bps=float("nan"),
         )
+
+def test_newer_nonapproved_decision_prevents_execution_of_older_approval(tmp_path):
+    _, _, consensus, broker, worker, approved = build_pipeline(tmp_path)
+    newer = replace(
+        approved,
+        decision_id="f" * 64,
+        created_at_ms=NOW + 1,
+        status="ABSTAIN",
+        paper_review_eligible=False,
+    )
+    assert consensus.record(newer)
+
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.skipped_decisions == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert broker.paper_decisions(limit=1)[0]["decision_id"] == newer.decision_id
+
+
+def test_security_evidence_change_after_approval_blocks_paper_entry(tmp_path):
+    _, risks, _, broker, worker, _ = build_pipeline(tmp_path)
+    assert risks.record(complete_risk_report(NOW + 1))
+    worker.clock_ms = lambda: NOW + 1
+
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert broker.paper_decisions(limit=1)[0]["execution_status"] == "BLOCKED"
