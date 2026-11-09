@@ -191,5 +191,5 @@ executable_sellability claim.
 - Added Core integration. Solana paper entries now fail closed when route evidence or the intended raw-token exit size is absent.
 - The paper trade result and broker audit reason preserve the exact state `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN` and the route evidence ID.
 - Added tests for absent, stale, expired, wrong-size, unreconciled, high-impact and malformed route evidence; unknown token-risk claims still veto.
-- GitHub Actions run [42684511802](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42684511802) passed on commit `c67d3be194136bf6d9f7f966d570ffee87c004d6`: 440 passed, 5 skipped.
+- GitHub Actions run [42684690748](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42684690748) passed on code/test commit `4bc3b2e6c4fc4abd06d0ae371736cbf320ac8c0e`: 441 passed, 5 skipped. Earlier Core integration run [42684511802](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42684511802) passed 440 tests.
 - PR #1 remains draft and unmerged. The `main` branch remains unchanged. No wallet signing, transaction submission or live trading was added.
