@@ -53,3 +53,11 @@ Before any execution claim, a separate controlled simulation must verify the
 unsigned transaction with an isolated test payer, and token-specific transfer
 semantics must be reviewed. This stage intentionally does not add a Jupiter
 network adapter, API key, signer, or live execution path.
+
+
+## Persistence and scheduling
+
+An append-only SQLite store and bounded worker persist route observations for
+candidates with finalized mint supply evidence. The worker defaults to a 1%
+supply quote and only accepts 0.5%–5%. It is deliberately not wired into runtime
+until a production quote adapter is independently validated.
