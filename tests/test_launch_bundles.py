@@ -78,7 +78,7 @@ def test_wrong_token_chain_and_duplicate_transactions_are_rejected():
         ], coverage_complete=True, now_ms=LAUNCH + 10_000,
     )
     assert report.accepted_transactions == 1
-    assert report.bundled_supply_pct == 0
+    assert report.bundled_supply_pct is None
     assert len(report.rejected) == 3
 
 
@@ -92,7 +92,7 @@ def test_stale_future_and_invalid_amounts_are_rejected():
         ], coverage_complete=True, now_ms=LAUNCH + 10_000,
     )
     assert report.accepted_transactions == 0
-    assert report.bundled_supply_pct == 0
+    assert report.bundled_supply_pct is None
     assert len(report.rejected) == 3
 
 
