@@ -178,3 +178,24 @@ def test_direct_snapshot_construction_rejects_invalid_price():
 def test_rejects_invalid_market_data_configuration(kwargs):
     with pytest.raises(ValueError):
         SolanaMarketData(**kwargs)
+
+def test_preserves_quote_side_and_does_not_mislabel_base_price_change():
+    quote_event = replace(
+        event(),
+        price_usd=100.0,
+        price_change_m5_pct=None,
+        price_change_h1_pct=None,
+        price_change_h24_pct=None,
+        fdv_usd=None,
+        market_cap_usd=None,
+        pool_token_side="quote",
+    )
+    snapshot = SolanaMarketData(
+        FakeMarketProvider([quote_event])
+    ).fetch(MINT_A, now_ms=10_500)
+
+    assert snapshot.pool_token_side == "quote"
+    assert snapshot.price_usd == 100.0
+    assert snapshot.price_change_m5_pct is None
+    assert "price_change_m5_missing" in snapshot.quality_flags
+    assert "market_cap_missing" in snapshot.quality_flags
