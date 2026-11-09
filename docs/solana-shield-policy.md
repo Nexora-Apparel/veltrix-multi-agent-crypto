@@ -1,45 +1,40 @@
 # Solana Shield Decision Gate
 
-The Solana Shield is a final evidence veto before the paper broker. It is not
+The Solana Shield policy is the final veto before the paper broker. It is not
 an agent vote and cannot be overridden by Scout, Whale, Sniper, or another
-agent. The current implementation exposes a claim-aware evidence decision
-method; the broker integration remains a separate task.
+agent.
 
-## Decision states
+## Current decision contract
 
-- `BLOCK`: the evidence object is absent/untyped or an explicit adverse
-  condition is present, including a provider-confirmed liquidity-lock failure.
-- `HOLD`: mandatory claims are unknown, evidence is stale or incomplete,
-  holder balances do not reconcile, or provider/validation errors exist.
-- `READY_FOR_AGENT_CONSENSUS`: the evidence packet is structurally complete.
-  This is not a BUY signal and does not authorize a paper or live entry.
+- `BLOCK`: any required evidence, safety, freshness, consensus, or sizing
+  condition fails. Unknown and missing evidence are blocked, not scored.
+- `APPROVE_PAPER_ENTRY`: all required checks pass. This is a paper-only
+  decision and is not a live execution authorisation.
 
-## Evidence requirements
+The current policy returns BLOCK whenever mandatory risk claims remain unknown.
+The collector deliberately leaves developer-wallet linkage, bundled supply,
+mint/freeze authority, Token-2022 extensions, creator provenance, and executable
+sellability unresolved. Consequently, the real collector currently blocks
+candidate entries.
 
-- Evidence must be typed and tied to the exact canonical Solana mint.
-- GoPlus and holder inventory must carry independent provenance and timestamps.
-- Holder concentration is usable only when inventory is marked complete and
-  observed balances reconcile exactly to total supply.
-- Developer-wallet linkage, bundled-supply analysis, mint/freeze authority,
-  Token-2022 extension review, creator provenance, and executable sellability
-  must each be separately evidenced. Unknown is never treated as safe.
-- Explicit liquidity-lock failure causes BLOCK.
+## Entry requirements
 
-## Paper and execution boundary
+- A typed risk-evidence report for the exact canonical Solana mint.
+- No provider/validation errors and no unknown mandatory risk claims.
+- A complete holder inventory whose balances reconcile exactly to total supply.
+- Fresh evidence and a fresh, positively verified composite safety certificate.
+- At least two distinct BUY agents, all targeting the same mint.
+- Position count below 10 and paper notional in (0, $50].
 
-The existing generic Shield consensus/position-limit method is retained for
-legacy compatibility. The new Solana evidence decision is an additional veto
-and must be composed with consensus, paper sizing, concurrent-position limits,
-and emergency-stop checks before a paper broker can accept an order.
+There is no confidence-score averaging, fallback prior, or agent override.
 
-This stage does not authorize live execution. Wallet custody, transaction
-simulation, swap routing, and signing remain outside this module. A paper
-approval, when implemented downstream, is not evidence of profitability.
+## Execution boundary
 
-## Current operational implication
+The only positive decision is `APPROVE_PAPER_ENTRY`. The module has no
+wallet, key, signer, swap, transaction-submission, or live-trading interface.
+The existing live-trading guard remains authoritative. A paper approval is not
+evidence of expected profitability.
 
-The current collector deliberately reports several mandatory claims as
-unknown. Therefore the expected decision for real candidates is HOLD until
-separate collectors provide complete, fresh, source-provenanced evidence.
-Synthetic complete reports in unit tests verify control flow only; they do not
-certify providers or prove real-world token safety.
+Synthetic complete reports in unit tests verify control flow only. They do not
+certify provider coverage or prove real-world token safety. Provider-backed
+validation and paper-broker integration remain separate acceptance gates.
