@@ -10,7 +10,7 @@ Paper-only research and monitoring system for Solana, Base and BSC. It has no wa
 - Optional candidate discovery: consumes DexScreener's latest token-profile feed, filters to configured chains, deduplicates and caps candidate counts. This is profile/promotional discovery, not an exhaustive new-pair feed or organic trend ranking.
 - WhaleFlowAggregator: clusters buys only from operator-allowlisted wallets, within a freshness window and minimum-notional threshold. A real transaction/indexer feed and vetted wallet list are still required.
 - TokenSafetyValidator: fail-closed evidence contract requiring a trusted provider, matching token address, fresh evidence, confirmed liquidity lock, developer holdings below 5%, and zero bundled supply. No provider is trusted by default.
-- SQLite paper ledger: persists market observations, paper fills, positions and realized PnL.
+- SQLite paper ledger: persists market observations, paper fills, positions, one-time 2x/3x exit milestones and peak prices. Fresh observed prices trigger the initial 6% stop, one-time partial profit-taking at 2x and 3x, then a 6% trailing stop on the remainder. Snapshot supports unrealized PnL/equity; session report summarizes realized PnL, closed-position win rate, best/worst trade and open positions.
 - GitHub Actions: Python 3.11 compile and pytest checks.
 
 ## Setup
