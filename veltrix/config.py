@@ -29,6 +29,7 @@ class Settings:
     trusted_safety_providers: tuple[str, ...] = _provider_names("TRUSTED_SAFETY_PROVIDERS")
     trusted_liquidity_providers: tuple[str, ...] = _provider_names("TRUSTED_LIQUIDITY_PROVIDERS")
     trusted_developer_providers: tuple[str, ...] = _provider_names("TRUSTED_DEVELOPER_PROVIDERS")
+    trusted_developer_root_providers: tuple[str, ...] = _provider_names("TRUSTED_DEVELOPER_ROOT_PROVIDERS")
     trusted_bundle_providers: tuple[str, ...] = _provider_names("TRUSTED_BUNDLE_PROVIDERS")
     trusted_funding_providers: tuple[str, ...] = _provider_names("TRUSTED_FUNDING_PROVIDERS")
     trusted_launch_origin_providers: tuple[str, ...] = _provider_names("TRUSTED_LAUNCH_ORIGIN_PROVIDERS")
