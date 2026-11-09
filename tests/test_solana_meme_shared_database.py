@@ -20,7 +20,7 @@ class FakeMarketProvider:
 def test_all_solana_workers_resolve_to_one_legacy_db_path(tmp_path, monkeypatch):
     database = tmp_path / "shared-pipeline.sqlite3"
     monkeypatch.setenv("DB_PATH", str(database))
-    monkeypatch.delenv("VELTRIX_SOLANA_DISCOVERY_DB", raising=False)
+    monkeypatch.setenv("VELTRIX_SOLANA_DISCOVERY_DB", "")
     monkeypatch.delenv("HELIUS_API_KEY", raising=False)
     monkeypatch.delenv("VELTRIX_TRUSTED_SOLANA_WALLETS", raising=False)
     monkeypatch.delenv("TRACKED_SMART_WALLETS", raising=False)
