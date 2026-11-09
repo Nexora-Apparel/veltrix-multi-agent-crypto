@@ -7,6 +7,7 @@ from .providers.factory import build_intelligence_coordinator
 from .providers.intelligence import VerifiedIntelligenceAdapters
 from .providers.launch import build_launch_intelligence_service
 from .launch_origin import build_launch_origin_resolvers
+from .provider_readiness import build_provider_readiness
 
 def main():
     parser = argparse.ArgumentParser(description="VELTRIX multi-chain paper monitor")
@@ -32,6 +33,10 @@ def main():
         launch_intelligence=launch_service,
         launch_origin_resolvers=origin_resolvers,
         trusted_launch_origin_providers=cfg.trusted_launch_origin_providers)
+    readiness = build_provider_readiness(cfg)
+    print(f"Provider readiness: {len(readiness.blocked_claims)}/{len(readiness.claims)} chain/claim checks blocked; fully ready: {readiness.fully_ready}")
+    for item in readiness.blocked_claims:
+        print(f"  [{item.chain}] {item.claim}: {'; '.join(item.blockers)}")
     count = sum(len(v) for v in watchlist.values())
     print(f"VELTRIX PAPER MONITOR: virtual balance {cfg.balance:.2f} USD; duration {args.hours:g}h; watchlist tokens {count}")
     print(f"Profile discovery enabled: {cfg.discovery_enabled}; chains: {','.join(cfg.discovery_chains)}")
