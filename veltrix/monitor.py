@@ -6,7 +6,7 @@ from .signal_intelligence import SignalContextBuilder
 import time
 
 class MarketMonitor:
-    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None):
+    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000):
         self.watchlist = watchlist
         self.provider = provider or DexScreenerProvider()
         self.discovery = discovery or DexScreenerDiscovery()
@@ -16,6 +16,9 @@ class MarketMonitor:
         self.ledger = broker or PaperBroker(db_path)
         self.signal_builder = SignalContextBuilder()
         self.signal_contexts = []
+        self.wallet_intelligence = wallet_intelligence
+        self.wallet_max_age_ms = wallet_max_age_ms
+        self.last_wallet_intelligence = {}
 
     def poll_once(self):
         observations = []
@@ -30,6 +33,12 @@ class MarketMonitor:
         for chain, addresses in addresses_by_chain.items():
             if not addresses:
                 continue
+            if self.wallet_intelligence is not None:
+                now_ms = int(time.time() * 1000)
+                since_ms = max(0, now_ms - self.wallet_max_age_ms)
+                self.last_wallet_intelligence[chain] = self.wallet_intelligence.collect(
+                    chain, addresses, since_ms, now_ms
+                )
             events = self.provider.fetch_token_pairs(chain, addresses)
             for event in events:
                 history = self.ledger.recent_market_observations(event.token_address, limit=20)
