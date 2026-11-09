@@ -7,6 +7,7 @@ Wants=veltrix-paper.service
 Type=simple
 User=veltrix-dashboard
 Group=veltrix-db
+SupplementaryGroups=veltrix-dashboard-secrets
 WorkingDirectory=/opt/veltrix/app
 EnvironmentFile=/etc/veltrix/dashboard.env
 Environment=VELTRIX_DASHBOARD_HOST=127.0.0.1
