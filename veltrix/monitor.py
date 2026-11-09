@@ -6,7 +6,7 @@ from .signal_intelligence import SignalContextBuilder
 import time
 
 class MarketMonitor:
-    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000, launch_intelligence=None, launch_origin_resolvers=None, trusted_launch_origin_providers=()):
+    def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None, wallet_intelligence=None, wallet_max_age_ms=300_000, launch_intelligence=None, launch_origin_resolvers=None, trusted_launch_origin_providers=(), developer_evidence=None):
         self.watchlist = watchlist
         self.provider = provider or DexScreenerProvider()
         self.discovery = discovery or DexScreenerDiscovery()
@@ -23,6 +23,8 @@ class MarketMonitor:
         self.launch_origin_resolvers = launch_origin_resolvers or {}
         self.trusted_launch_origin_providers = frozenset(trusted_launch_origin_providers)
         self.last_launch_results = {}
+        self.developer_evidence = developer_evidence
+        self.last_developer_results = {}
         self._launch_checked = set()
         self._launch_retry_after = {}
 
@@ -80,6 +82,24 @@ class MarketMonitor:
                 "bundled_supply_pct": report.bundled_supply_pct,
                 "safety_reasons": safety.reasons,
             }
+            if self.developer_evidence is not None:
+                developer_result = self.developer_evidence.evaluate(
+                    chain=candidate.chain,
+                    token_address=candidate.token_address,
+                    root_attestation=None,
+                    liquidity_evidence=None,
+                    launch_bundle=report,
+                    now_ms=int(time.time() * 1000),
+                )
+                self.last_developer_results[key] = {
+                    "status": "analyzed" if developer_result.report.coverage_complete else "blocked",
+                    "coverage_complete": developer_result.report.coverage_complete,
+                    "developer_hold_pct": developer_result.report.dev_hold_pct,
+                    "evidence_id": developer_result.report.evidence_id,
+                    "root_provider": developer_result.report.root_provider,
+                    "safety_passed": developer_result.safety_report.passed,
+                    "reasons": developer_result.audit.get("reasons", ()),
+                }
         except Exception as exc:
             self.last_launch_results[key] = {
                 "status": "blocked", "reason": f"{type(exc).__name__}: {exc}"
