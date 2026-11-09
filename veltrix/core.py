@@ -85,15 +85,21 @@ class Core:
             except (TypeError, ValueError):
                 pass
         if chain == "solana":
-            decision = self.solana_shield.evaluate(
-                address,
-                token.get("risk_evidence_report"),
-                token.get("safety_report"),
-                signals,
-                open_positions=open_count,
-                amount=amount,
-                now_ms=int(time.time() * 1000),
-            )
+            try:
+                decision = self.solana_shield.evaluate(
+                    address,
+                    token.get("risk_evidence_report"),
+                    token.get("safety_report"),
+                    signals,
+                    open_positions=open_count,
+                    amount=amount,
+                    now_ms=int(time.time() * 1000),
+                )
+            except (TypeError, ValueError) as exc:
+                self.broker.record_agent_decision(
+                    address, "REJECT", reasons, f"Solana Shield rejected malformed candidate: {exc}"
+                )
+                return None
             if not decision.approved_for_paper:
                 reason = "; ".join(decision.reasons) or "Solana Shield veto"
                 self.broker.record_agent_decision(
