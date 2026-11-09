@@ -141,3 +141,49 @@ def test_malformed_launch_provenance_fails_closed_without_crashing():
     assert not result.passed
     assert "launch transaction count is invalid" in result.reasons
     assert "launch indexer did not prove coverage through window end" in result.reasons
+
+
+def test_composite_rejects_claim_without_auditable_complete_provenance():
+    base = valid_bundle()
+    weak = SafetyEvidenceBundle(
+        liquidity=evidence(
+            "lock-a", liquidity_locked=True, coverage_complete=False,
+            source_ref=None, method=None,
+        ),
+        developer_holdings=base.developer_holdings,
+        launch_bundle=base.launch_bundle,
+    )
+    report = validator().validate(TOKEN, weak, NOW, chain="solana")
+    assert not report.passed
+    assert "liquidity: evidence coverage is not certified complete" in report.reasons
+    assert "liquidity: independently auditable source reference is missing" in report.reasons
+    assert "liquidity: evidence method is not declared" in report.reasons
+
+
+def test_composite_rejects_two_provider_ids_from_same_ownership_group():
+    base = valid_bundle()
+    same_owner = SafetyEvidenceBundle(
+        liquidity=evidence(
+            "lock-a", liquidity_locked=True, independence_group="same-company"
+        ),
+        developer_holdings=evidence(
+            "dev-b", dev_hold_pct=4.0, independence_group="same-company"
+        ),
+        launch_bundle=base.launch_bundle,
+    )
+    report = validator().validate(TOKEN, same_owner, NOW, chain="solana")
+    assert not report.passed
+    assert "liquidity and developer evidence must have independent provider ownership" in report.reasons
+
+
+def test_composite_rejects_wrong_claim_label_and_chain():
+    base = valid_bundle()
+    spoofed = SafetyEvidenceBundle(
+        liquidity=evidence("lock-a", liquidity_locked=True, claim="developer_holdings", chain="base"),
+        developer_holdings=base.developer_holdings,
+        launch_bundle=base.launch_bundle,
+    )
+    report = validator().validate(TOKEN, spoofed, NOW, chain="solana")
+    assert not report.passed
+    assert "liquidity: unsupported or mismatched evidence claim" in report.reasons
+    assert "liquidity: evidence chain is missing or mismatched" in report.reasons
