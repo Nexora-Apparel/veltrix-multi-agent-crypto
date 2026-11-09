@@ -553,10 +553,14 @@ class HeliusLaunchIndexer:
             rejected.append(f"Helius launch transaction type is unsupported: {tx_type}")
             return
         parsed_data = summary.get("parsedData")
-        if (not isinstance(parsed_data, dict)
-                or str(parsed_data.get("kind", "")).lower() != "buy"
-                or parsed_data.get("output_mint") != token):
-            rejected.append("Helius swap is not explicitly classified as a buy of the target mint")
+        if not isinstance(parsed_data, dict):
+            rejected.append("Helius swap direction is not parsed")
+            return
+        swap_kind = str(parsed_data.get("kind", "")).lower()
+        if swap_kind == "sell":
+            return
+        if swap_kind != "buy" or parsed_data.get("output_mint") != token:
+            rejected.append("Helius swap is not an explicit buy of the target mint")
             return
         signature = tx.get("signature")
         timestamp = tx.get("blockTime", tx.get("timestamp"))
