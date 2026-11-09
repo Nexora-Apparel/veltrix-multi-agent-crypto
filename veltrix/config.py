@@ -30,11 +30,18 @@ class Settings:
     trusted_liquidity_providers: tuple[str, ...] = _provider_names("TRUSTED_LIQUIDITY_PROVIDERS")
     trusted_developer_providers: tuple[str, ...] = _provider_names("TRUSTED_DEVELOPER_PROVIDERS")
     trusted_bundle_providers: tuple[str, ...] = _provider_names("TRUSTED_BUNDLE_PROVIDERS")
+    trusted_funding_providers: tuple[str, ...] = _provider_names("TRUSTED_FUNDING_PROVIDERS")
     wallet_evidence_max_age_ms: int = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
     safety_evidence_max_age_ms: int = int(os.getenv("SAFETY_EVIDENCE_MAX_AGE_MS", "300000"))
     goplus_access_token: str = os.getenv("GOPLUS_ACCESS_TOKEN", "")
     helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
     alchemy_api_key: str = os.getenv("ALCHEMY_API_KEY", "")
+    base_rpc_url: str = os.getenv("BASE_RPC_URL", "")
+    bsc_rpc_url: str = os.getenv("BSC_RPC_URL", "")
+    launch_window_ms: int = int(os.getenv("LAUNCH_WINDOW_MS", "120000"))
+    launch_index_max_pages: int = int(os.getenv("LAUNCH_INDEX_MAX_PAGES", "20"))
+    launch_block_chunk_size: int = int(os.getenv("LAUNCH_BLOCK_CHUNK_SIZE", "2000"))
+    funding_lookback_blocks: int = int(os.getenv("FUNDING_LOOKBACK_BLOCKS", "20000"))
     tracked_smart_wallets: tuple[str, ...] = _addresses("TRACKED_SMART_WALLETS")
     tracked_evm_wallets: tuple[str, ...] = _addresses("TRACKED_EVM_WALLETS")
     alchemy_quote_tokens_base: tuple[str, ...] = _addresses("ALCHEMY_QUOTE_TOKENS_BASE")
@@ -49,6 +56,8 @@ def settings() -> Settings:
     s = Settings()
     if (s.balance <= 0 or s.max_position <= 0 or s.max_open < 1 or not 0 < s.stop_loss < 1
             or s.poll_seconds < 15 or s.max_discovered_per_chain < 1
-            or s.wallet_evidence_max_age_ms <= 0 or s.safety_evidence_max_age_ms <= 0):
+            or s.wallet_evidence_max_age_ms <= 0 or s.safety_evidence_max_age_ms <= 0
+            or s.launch_window_ms <= 0 or s.launch_index_max_pages < 1
+            or s.launch_block_chunk_size < 1 or s.funding_lookback_blocks < 1):
         raise ValueError("Invalid risk, discovery or polling configuration")
     return s
