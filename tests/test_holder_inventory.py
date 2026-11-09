@@ -108,11 +108,12 @@ def test_evm_holder_adapter_reconstructs_and_reconciles_transfer_history():
         if method == "eth_call":
             data = params[0]["data"]
             if data == "0x313ce567":
-                return {"result": hex(6)}
+                return {"result": "0x" + hex(6)[2:].rjust(64, "0")}
             if data == "0x18160ddd":
-                return {"result": hex(100)}
+                return {"result": "0x" + hex(100)[2:].rjust(64, "0")}
             target = "0x" + data[-40:]
-            return {"result": hex(60 if target == alice else 40 if target == bob else 0)}
+            amount = 60 if target == alice else 40 if target == bob else 0
+            return {"result": "0x" + hex(amount)[2:].rjust(64, "0")}
         raise AssertionError(method)
     provider = EvmHolderInventoryProvider(
         "base", "https://rpc.invalid", session=Session(handler),
@@ -137,8 +138,8 @@ def test_evm_holder_adapter_rejects_unreconciled_supply():
         if body["method"] == "eth_call":
             data = body["params"][0]["data"]
             if data == "0x313ce567":
-                return {"result": hex(18)}
-            return {"result": hex(100)}
+                return {"result": "0x" + hex(18)[2:].rjust(64, "0")}
+            return {"result": "0x" + hex(100)[2:].rjust(64, "0")}
         raise AssertionError(body)
     provider = EvmHolderInventoryProvider(
         "bsc", "https://rpc.invalid", session=Session(handler)
@@ -157,8 +158,17 @@ def test_evm_holder_adapter_rejects_log_cap_and_non_finalized_rpc():
                 {"topics": [TRANSFER_TOPIC, _topic(EVM_ZERO_ADDRESS), _topic("0x" + "a" * 40)]}
             ]}
         raise AssertionError(body)
+    def handler_with_two_logs(body):
+        if body["method"] == "eth_getBlockByNumber":
+            return {"result": {"number": "0x2"}}
+        if body["method"] == "eth_getLogs":
+            topic = _topic(EVM_ZERO_ADDRESS)
+            other = _topic("0x" + "b" * 40)
+            row = {"topics": [TRANSFER_TOPIC, topic, other]}
+            return {"result": [row, row]}
+        raise AssertionError(body)
     provider = EvmHolderInventoryProvider(
-        "base", "https://rpc.invalid", session=Session(handler), max_logs=0
+        "base", "https://rpc.invalid", session=Session(handler_with_two_logs), max_logs=1
     )
     with pytest.raises(ProviderError, match="log cap"):
         provider.fetch_snapshot(token, 1)
