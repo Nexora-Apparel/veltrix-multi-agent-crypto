@@ -57,6 +57,7 @@ class SolanaPaperDecisionRunner:
         broker,
         core,
         agent_context_provider: Callable[[str, dict], SolanaAgentContext] | None = None,
+        trusted_agent_context_providers: tuple[str, ...] = (),
         max_market_age_ms: int = 120_000,
         max_evidence_age_ms: int = 300_000,
         max_route_age_ms: int = 15_000,
@@ -96,6 +97,10 @@ class SolanaPaperDecisionRunner:
         self.broker = broker
         self.core = core
         self.agent_context_provider = agent_context_provider
+        self.trusted_agent_context_providers = frozenset(
+            provider for provider in trusted_agent_context_providers
+            if isinstance(provider, str) and provider.strip()
+        )
         self.max_market_age_ms = max_market_age_ms
         self.max_evidence_age_ms = max_evidence_age_ms
         self.max_route_age_ms = max_route_age_ms
@@ -241,13 +246,23 @@ class SolanaPaperDecisionRunner:
                         reasons.append("mandatory token-risk claims remain unknown")
                     if risk_report.mint != mint:
                         reasons.append("risk report mint mismatch")
+                    if (risk_report.mint_supply_reconciled is not True
+                            or risk_report.mint_supply_raw != risk_report.total_supply_raw
+                            or isinstance(risk_report.mint_decimals, bool)
+                            or not isinstance(risk_report.mint_decimals, int)
+                            or not 0 <= risk_report.mint_decimals <= 38):
+                        reasons.append("finalized mint supply and decimals are not reconciled")
 
                 if developer:
                     report = developer["report"]
                     age = now - developer["observed_at_ms"]
                     if age < 0 or age > self.max_evidence_age_ms:
                         reasons.append("developer evidence is stale or future-dated")
-                    if report.get("coverage_complete") is not True or not report.get("provider") or not report.get("evidence_id"):
+                    if (report.get("coverage_complete") is not True
+                            or report.get("chain") != "solana"
+                            or report.get("token_address") != mint
+                            or not report.get("provider") or not report.get("evidence_id")
+                            or not report.get("source_ref") or not report.get("independence_group")):
                         reasons.append("developer ancestry evidence is incomplete or uncertified")
                     dev_pct = report.get("dev_hold_pct")
                     if (isinstance(dev_pct, bool) or not isinstance(dev_pct, (int, float))
@@ -259,7 +274,10 @@ class SolanaPaperDecisionRunner:
                     age = now - bundle["observed_at_ms"]
                     if age < 0 or age > self.max_evidence_age_ms:
                         reasons.append("launch-bundle evidence is stale or future-dated")
-                    if report.get("coverage_complete") is not True or not report.get("evidence_id"):
+                    if (report.get("coverage_complete") is not True
+                            or report.get("chain") != "solana"
+                            or report.get("token_address") != mint
+                            or not report.get("provider") or not report.get("evidence_id")):
                         reasons.append("launch-bundle coverage is incomplete")
                     if report.get("rejected"):
                         reasons.append("launch-bundle report contains rejected evidence")
@@ -298,8 +316,9 @@ class SolanaPaperDecisionRunner:
                     if not isinstance(context, SolanaAgentContext):
                         reasons.append("agent context is missing or untyped")
                     else:
-                        if context.mint != mint or not context.provider or not context.evidence_id:
-                            reasons.append("agent context provenance or mint is invalid")
+                        if (context.mint != mint or not context.provider or not context.evidence_id
+                                or context.provider not in self.trusted_agent_context_providers):
+                            reasons.append("agent context provenance, mint, or provider trust is invalid")
                         age = now - context.observed_at_ms
                         if age < 0 or age > self.max_evidence_age_ms:
                             reasons.append("agent context is stale or future-dated")
