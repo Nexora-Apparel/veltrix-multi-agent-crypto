@@ -10,6 +10,7 @@ from veltrix.base_archive_extended_acceptance import (
     block_by_tag,
     common_finalized_checkpoint,
     normalized_logs,
+    inspect_provider,
     pair_created_index,
     validate_pair_created_sequence,
     quantity,
@@ -293,3 +294,44 @@ def test_rpc_retries_json_rpc_rate_limit_code(monkeypatch):
     assert rpc.call("eth_chainId", []) == "0x2105"
     assert calls["count"] == 2
     assert 2 in sleeps
+
+
+
+def test_inspect_provider_reuses_captured_finalized_observation(monkeypatch):
+    import veltrix.base_archive_extended_acceptance as acceptance
+
+    class Provider(FakeRpc):
+        label = "test-provider"
+
+        def call(self, method, params):
+            if method == "eth_chainId":
+                return "0x2105"
+            if method == "eth_getTransactionReceipt":
+                return {"status": "0x1", "contractAddress": "0x" + "11" * 20,
+                        "blockNumber": "0xa"}
+            if method == "eth_getCode":
+                return "0x6000"
+            if method == "eth_call":
+                return "0x0" if params[1] == "0xa" else "0x1"
+            raise AssertionError(f"unexpected RPC call {method}")
+
+    monkeypatch.setattr(
+        acceptance, "block_by_tag",
+        lambda *_: (_ for _ in ()).throw(AssertionError("finalized tag reread")),
+    )
+    monkeypatch.setattr(acceptance, "block_by_number", lambda _rpc, n: "0x" + f"{n:064x}")
+    monkeypatch.setattr(
+        acceptance, "normalized_logs",
+        lambda *_args, **_kwargs: [{
+            "blockNumber": 20, "transactionHash": "0x" + "22" * 32,
+            "logIndex": 0, "data": "0x" + "00" * 64,
+        }],
+    )
+    monkeypatch.setattr(acceptance, "validate_pair_created_sequence", lambda *_: None)
+
+    captured = {"number": 20, "hash": "0x" + "33" * 32}
+    report = inspect_provider(
+        Provider({}), "0x" + "11" * 20, "0x" + "44" * 32, 10,
+        [10, 20], captured,
+    )
+    assert report["finalized"] == captured
