@@ -43,6 +43,32 @@ class PaperBroker:
                     token TEXT PRIMARY KEY, hit_2x INTEGER NOT NULL DEFAULT 0,
                     hit_3x INTEGER NOT NULL DEFAULT 0, peak_price REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS paper_consensus_decisions (
+                    decision_id TEXT PRIMARY KEY,
+                    token TEXT NOT NULL,
+                    consensus_status TEXT NOT NULL,
+                    execution_status TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL,
+                    processed_at_ms INTEGER NOT NULL,
+                    trade_id TEXT,
+                    notional_usd REAL,
+                    mark_price REAL,
+                    fill_price REAL,
+                    fee_usd REAL NOT NULL DEFAULT 0,
+                    slippage_cost_usd REAL NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_paper_decisions_token_time
+                    ON paper_consensus_decisions(token, processed_at_ms DESC);
+                CREATE TABLE IF NOT EXISTS paper_execution_costs (
+                    trade_id TEXT PRIMARY KEY,
+                    decision_id TEXT,
+                    side TEXT NOT NULL,
+                    mark_price REAL NOT NULL,
+                    fill_price REAL NOT NULL,
+                    fee_usd REAL NOT NULL,
+                    slippage_cost_usd REAL NOT NULL
+                );
             """)
             db.execute("INSERT OR IGNORE INTO account(id,starting_balance,cash) VALUES(1,?,?)", (starting_balance, starting_balance))
 
