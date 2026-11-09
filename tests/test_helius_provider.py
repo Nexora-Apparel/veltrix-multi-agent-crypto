@@ -12,27 +12,28 @@ class Response:
 
 
 class Session:
-    def __init__(self, payload):
-        self.payload = payload
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
         self.calls = []
-    def get(self, url, **kwargs):
+    def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
-        return Response(self.payload)
+        return Response(self.payloads.pop(0))
 
 
-def test_helius_normalizes_only_inbound_target_mint_swaps():
-    tx = {
-        "type": "SWAP", "signature": "sig-1", "timestamp": 1_000,
+def parsed_swap(signature, mint="mint-a", wallet="wallet-a", block_time=1000):
+    return {
+        "signature": signature,
+        "blockTime": block_time,
+        "summary": {"type": "swap", "parsedData": {"output_mint": mint}},
         "tokenTransfers": [
-            {"mint": "mint-a", "toUserAccount": "wallet-a",
-             "fromUserAccount": "pool", "tokenAmount": 25.0},
-            {"mint": "other-mint", "toUserAccount": "wallet-a",
-             "fromUserAccount": "pool", "tokenAmount": 100.0},
-            {"mint": "mint-a", "toUserAccount": "pool",
-             "fromUserAccount": "wallet-a", "tokenAmount": 5.0},
+            {"mint": mint, "toUserAccount": wallet,
+             "fromUserAccount": "pool", "tokenAmount": "25"},
         ],
     }
-    session = Session([tx])
+
+
+def test_helius_parsed_events_normalizes_inbound_target_swap():
+    session = Session([{"data": [parsed_swap("sig-1")]}])
     provider = HeliusWalletProvider(
         "test-key", ["wallet-a"], lambda mint: 2.0,
         session=session, clock_ms=lambda: 1_001_000,
@@ -42,27 +43,48 @@ def test_helius_normalizes_only_inbound_target_mint_swaps():
     assert rows[0].notional_usd == 50.0
     assert rows[0].side == "BUY"
     assert rows[0].transaction_id == "sig-1"
-    assert session.calls[0][1]["params"]["api-key"] == "test-key"
+    url, call = session.calls[0]
+    assert url.endswith("/v1/parsed-events/scan")
+    assert call["params"]["api-key"] == "test-key"
+    assert call["json"]["match"]["mints"] == [{"mint": "mint-a"}]
+    assert call["json"]["tokenAccounts"] == "balanceChanged"
 
 
-def test_helius_rejects_failed_old_and_non_swap_transactions():
-    payload = [
-        {"type": "SWAP", "signature": "failed", "timestamp": 1000,
-         "transactionError": {"InstructionError": [0, "x"]},
+def test_helius_rejects_non_swap_outbound_old_and_bad_amount():
+    data = [
+        {"signature": "transfer", "blockTime": 1000,
+         "summary": {"type": "transfer"},
          "tokenTransfers": [{"mint": "mint-a", "toUserAccount": "wallet-a",
                              "fromUserAccount": "pool", "tokenAmount": 1}]},
-        {"type": "TRANSFER", "signature": "transfer", "timestamp": 1000,
+        {"signature": "outbound", "blockTime": 1000,
+         "summary": {"type": "swap"},
+         "tokenTransfers": [{"mint": "mint-a", "toUserAccount": "pool",
+                             "fromUserAccount": "wallet-a", "tokenAmount": 1}]},
+        parsed_swap("old", block_time=10),
+        {"signature": "bad-amount", "blockTime": 1000,
+         "summary": {"type": "swap"},
          "tokenTransfers": [{"mint": "mint-a", "toUserAccount": "wallet-a",
-                             "fromUserAccount": "pool", "tokenAmount": 1}]},
-        {"type": "SWAP", "signature": "old", "timestamp": 10,
-         "tokenTransfers": [{"mint": "mint-a", "toUserAccount": "wallet-a",
-                             "fromUserAccount": "pool", "tokenAmount": 1}]},
+                             "fromUserAccount": "pool", "tokenAmount": "not-number"}]},
     ]
     provider = HeliusWalletProvider(
         "key", ["wallet-a"], lambda mint: 1,
-        session=Session(payload), clock_ms=lambda: 2_000_000,
+        session=Session([{"data": data}]), clock_ms=lambda: 2_000_000,
     )
     assert provider.fetch_wallet_observations("solana", ["mint-a"], 900_000) == ()
+
+
+def test_helius_parsed_events_paginates_with_cursor():
+    session = Session([
+        {"data": [parsed_swap("page-1")], "paginationToken": "cursor-2"},
+        {"data": [parsed_swap("page-2")], "paginationToken": None},
+    ])
+    provider = HeliusWalletProvider(
+        "key", ["wallet-a"], lambda mint: 1,
+        session=session, clock_ms=lambda: 2_000_000, max_pages=2,
+    )
+    rows = provider.fetch_wallet_observations("solana", ["mint-a"], 0)
+    assert [row.transaction_id for row in rows] == ["page-1", "page-2"]
+    assert session.calls[1][1]["json"]["paginationToken"] == "cursor-2"
 
 
 def test_helius_requires_price_resolver_and_solana_chain():
@@ -79,3 +101,15 @@ def test_helius_requires_price_resolver_and_solana_chain():
         assert "Solana only" in str(exc)
     else:
         raise AssertionError("Unsupported chain must fail")
+
+
+def test_helius_rejects_malformed_api_response():
+    provider = HeliusWalletProvider(
+        "key", ["wallet-a"], lambda mint: 1, session=Session([{"bad": []}])
+    )
+    try:
+        provider.fetch_wallet_observations("solana", ["mint-a"], 0)
+    except ProviderError as exc:
+        assert "unexpected Parsed Events" in str(exc)
+    else:
+        raise AssertionError("Malformed response must fail closed")
