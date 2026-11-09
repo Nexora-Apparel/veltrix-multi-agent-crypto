@@ -92,6 +92,19 @@ def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_blo
     return sorted(normalized, key=lambda x: (x["transactionHash"], x["logIndex"]))
 
 
+def common_finalized_checkpoint(primary, candidate, primary_head, candidate_head):
+    """Return the highest finalized checkpoint both providers can verify."""
+    number = min(primary_head["number"], candidate_head["number"])
+    primary_hash = block_by_number(primary, number)
+    candidate_hash = block_by_number(candidate, number)
+    if primary_hash != candidate_hash:
+        raise PreflightError(
+            "providers disagree on block hash at common finalized height "
+            f"{number}"
+        )
+    return {"number": number, "hash": primary_hash}
+
+
 def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
     chain_id = quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID")
     if chain_id != CHAIN_ID:
@@ -212,21 +225,10 @@ def main():
     second_finalized = block_by_tag(candidate, "finalized")
     # Providers can report different finalized heights while still agreeing
     # on the common finalized history. Compare both at the lower height.
-    common_finalized_number = min(
-        first_finalized["number"], second_finalized["number"]
+    common_finalized = common_finalized_checkpoint(
+        primary, candidate, first_finalized, second_finalized
     )
-    first_common_hash = block_by_number(primary, common_finalized_number)
-    second_common_hash = block_by_number(candidate, common_finalized_number)
-    if first_common_hash != second_common_hash:
-        raise PreflightError(
-            "providers disagree on block hash at common finalized height "
-            f"{common_finalized_number}"
-        )
-    common_finalized = {
-        "number": common_finalized_number,
-        "hash": first_common_hash,
-    }
-    finalized_number = common_finalized_number
+    finalized_number = common_finalized["number"]
     if finalized_number <= deployment_block + 1000:
         raise PreflightError("finalized head is too close to deployment for extended anchors")
 
