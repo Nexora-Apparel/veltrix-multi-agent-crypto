@@ -305,8 +305,12 @@ def inspect_candidate(rpc, candidate, finalized, finalized_hash, events, coverag
             rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(candidate["deployment_block"])]),
             f"{rpc.label} allPairsLength at deployment",
         )
-        if initial_count != 0:
-            raise PreflightError(f"{rpc.label}: factory inventory was non-empty at its deployment block")
+        deployment_block_events = sum(1 for event in events if event["block_number"] == candidate["deployment_block"])
+        if initial_count != deployment_block_events:
+            raise PreflightError(
+                f"{rpc.label}: deployment-block allPairsLength does not reconcile with "
+                "PairCreated events emitted in the deployment block"
+            )
     length = quantity(
         rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(finalized)]),
         f"{rpc.label} allPairsLength",
