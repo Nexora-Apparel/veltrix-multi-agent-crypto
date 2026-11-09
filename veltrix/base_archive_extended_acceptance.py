@@ -43,7 +43,7 @@ def block_by_number(rpc, number):
     return block["hash"].lower()
 
 
-def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_block_span=10, coverage=None):
+def normalized_logs(rpc, factory, from_block, to_block, max_block_span=10, coverage=None):
     """Fetch every block in the requested historical interval in bounded chunks.
 
     Alchemy Free permits at most a 10-block eth_getLogs range. Never stop after
