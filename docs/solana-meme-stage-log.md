@@ -204,3 +204,13 @@ executable_sellability claim.
 - Core passes the current token USD price into Shield and preserves the exact raw exit amount, quote evidence ID and `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN` state in the paper trade result/audit.
 - GitHub Actions run [42685456844](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42685456844) passed on code/test commit `f6b89ce60cfb973a0a5adcd3fb7fafaae2aa35e2`: 453 passed, 5 skipped.
 - No live transaction signing, submission or wallet use was added.
+
+
+## 2026-11-09 — Runtime sell quotes use exact paper position size
+
+- Connected `SolanaSellabilityWorker` to the shared market snapshot store in the read-only runtime.
+- With sellability enabled, it derives the configured $50 paper-position raw-token amount from the latest USD market price, finalized mint decimals and reconciled raw supply. It no longer relies on a generic 1%-of-supply quote for this runtime path.
+- The worker rejects missing or stale market snapshots (maximum age 120 seconds), stale risk evidence (maximum age 300 seconds), unreconciled supply/decimals, and out-of-band sizes. Failures are retried; they do not produce a route approval.
+- The generic supply-fraction mode remains available only when no market store is supplied, for diagnostics and isolated tests.
+- GitHub Actions run [42685911725](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42685911725) passed on commit `77877bd930d7162ed9459ec1f136c2c9d200704a`: 455 passed, 5 skipped.
+- Runtime flag remains `SOLANA_SELLABILITY_ENABLED=false` by default. Quote requests remain read-only and do not require a taker, signer, or transaction submission.
