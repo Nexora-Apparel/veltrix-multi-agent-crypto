@@ -11,8 +11,10 @@ adds a simulation observation for a configured, dedicated test-wallet public key
 1. Request Jupiter Swap API V2 `GET /order` for the exact candidate-mint to
    wrapped-SOL sell amount, supplying the configured test-wallet public key as
    `taker`.
-2. Validate the returned mint pair, raw input amount, request ID, taker identity
-   and base64 transaction.
+2. Validate the returned mint pair, raw input amount, request ID and base64
+   transaction. Decode the Solana versioned transaction, require the configured
+   test wallet to appear in the required signer set, and reject any non-zero
+   signature bytes before simulation.
 3. Pass the unsigned transaction to the configured Solana RPC
    `simulateTransaction` method with `encoding=base64`,
    `sigVerify=false`, `replaceRecentBlockhash=true`, and
@@ -47,3 +49,10 @@ classifying the cause.
 
 A simulation observation is not yet certified safety evidence and cannot
 satisfy the `executable_sellability` claim or authorise a paper/live entry.
+
+
+The Jupiter response does not expose a documented `taker` response field. The
+provider therefore binds the requested taker by inspecting the returned
+transaction's required signer set and verifies that every signature slot is
+zero before calling RPC simulation. This avoids trusting an undocumented
+response attribute.
