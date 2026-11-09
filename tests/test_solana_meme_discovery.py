@@ -83,7 +83,7 @@ def test_poll_once_records_unexpected_secondary_source_failure(tmp_path):
     assert store.active_outage_count(source="dexscreener") == 1
 
 
-@pytest.mark.parametrize("interval", [0, 4, 3601, True, "30"])
+@pytest.mark.parametrize("interval", [0, 4, 3601, True, "30", float("nan"), float("inf")])
 def test_engine_rejects_invalid_poll_intervals(tmp_path, interval):
     with pytest.raises(ValueError):
         SolanaDiscoveryEngine(
