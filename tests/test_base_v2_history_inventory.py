@@ -1,5 +1,7 @@
 import pytest
 
+import veltrix.base_v2_history_inventory as history
+
 from veltrix.base_archive_preflight import PreflightError
 from veltrix.base_v2_history_inventory import (
     PAIR_CREATED_TOPIC,
@@ -122,3 +124,72 @@ def test_scan_event_history_covers_every_block_in_bounded_chunks():
         (int(params[0]["fromBlock"], 16), int(params[0]["toBlock"], 16))
         for _, params in rpc.calls
     ] == [(100, 109), (110, 119), (120, 125)]
+
+
+
+def test_verify_full_inventory_checks_pair_factory_and_factory_get_pair(monkeypatch):
+    factory = "0x" + "aa" * 20
+    pair = "0x" + "11" * 20
+    token0 = "0x" + "22" * 20
+    token1 = "0x" + "33" * 20
+    event = {
+        "pair_index": 1,
+        "pair": pair,
+        "token0": token0,
+        "token1": token1,
+    }
+    captured = []
+
+    def fake_batch_rpc(rpc, requests, label):
+        captured.extend(requests)
+        return [
+            "0x" + word_address(pair),
+            "0x" + word_address(token0),
+            "0x" + word_address(token1),
+            "0x" + word_address(factory),
+            "0x" + word_address(pair),
+        ]
+
+    monkeypatch.setattr(history, "batch_rpc", fake_batch_rpc)
+    result = history.verify_full_inventory(object(), factory, [event], 100, "test")
+
+    assert len(captured) == 5
+    assert all(method == "eth_call" for method, _ in captured)
+    assert captured[3][1][0]["to"] == pair
+    assert captured[3][1][0]["data"] == history.selector("factory()")
+    assert captured[4][1][0]["to"] == factory
+    assert captured[4][1][0]["data"] == (
+        history.selector("getPair(address,address)")
+        + word_address(token0)
+        + word_address(token1)
+    )
+    assert result["pair_count"] == 1
+    assert result["relationship_checks_per_pair"] == [
+        "allPairs(index)", "token0()", "token1()", "factory()", "getPair(token0, token1)"
+    ]
+
+
+def test_verify_full_inventory_rejects_wrong_pair_factory(monkeypatch):
+    factory = "0x" + "aa" * 20
+    pair = "0x" + "11" * 20
+    token0 = "0x" + "22" * 20
+    token1 = "0x" + "33" * 20
+    event = {
+        "pair_index": 1,
+        "pair": pair,
+        "token0": token0,
+        "token1": token1,
+    }
+
+    def fake_batch_rpc(rpc, requests, label):
+        return [
+            "0x" + word_address(pair),
+            "0x" + word_address(token0),
+            "0x" + word_address(token1),
+            "0x" + word_address("0x" + "bb" * 20),
+            "0x" + word_address(pair),
+        ]
+
+    monkeypatch.setattr(history, "batch_rpc", fake_batch_rpc)
+    with pytest.raises(PreflightError, match=r"pair factory\(\)"):
+        history.verify_full_inventory(object(), factory, [event], 100, "test")
