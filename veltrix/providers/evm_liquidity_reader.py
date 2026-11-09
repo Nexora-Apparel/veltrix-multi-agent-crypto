@@ -108,6 +108,9 @@ class EvmFactorySpec:
     address: str
     deployment_block: int
     expected_code_hash: str
+    chain_id: int | None = None
+    creation_tx: str | None = None
+    source_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -202,7 +205,12 @@ class EvmV2LiquiditySnapshotReader:
             if (not isinstance(factory, EvmFactorySpec) or not factory.amm_id
                     or not ADDRESS.fullmatch(factory.address)
                     or not HASH.fullmatch(factory.expected_code_hash)
-                    or factory.deployment_block < 0):
+                    or factory.deployment_block < 0
+                    or (factory.chain_id is not None and factory.chain_id != self.CHAIN_IDS[chain])
+                    or (factory.creation_tx is not None
+                        and not HASH.fullmatch(factory.creation_tx.removeprefix("0x")))
+                    or (factory.source_ref is not None
+                        and not factory.source_ref.startswith("https://"))):
                 raise ValueError("malformed EVM AMM factory registry entry")
         for locker in self.lockers:
             if (not isinstance(locker, EvmLockerSpec) or not locker.amm_id
@@ -236,9 +244,22 @@ class EvmV2LiquiditySnapshotReader:
             raise ProviderError(f"runtime code hash mismatch for {address}")
         return actual
 
+    def _verify_factory_creation(self, factory):
+        if factory.creation_tx is None:
+            return
+        receipt = self.pool_rpc.call("eth_getTransactionReceipt", [factory.creation_tx])
+        if not isinstance(receipt, dict):
+            raise ProviderError("pinned factory creation transaction receipt is unavailable")
+        if (receipt.get("transactionHash", "").lower() != factory.creation_tx.lower()
+                or receipt.get("contractAddress", "").lower() != factory.address.lower()
+                or _hex_int(receipt.get("blockNumber"), "factory creation receipt block") != factory.deployment_block
+                or _hex_int(receipt.get("status"), "factory creation receipt status") != 1):
+            raise ProviderError("pinned factory creation receipt does not match registry identity")
+
     def _scan_factory(self, factory, final_block):
         if factory.deployment_block > final_block:
             raise ProviderError("configured factory deployment block is after finalized head")
+        self._verify_factory_creation(factory)
         self._code(self.pool_rpc, factory.address, hex(final_block), factory.expected_code_hash)
         found = []
         count = 0
