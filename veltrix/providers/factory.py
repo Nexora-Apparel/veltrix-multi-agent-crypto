@@ -215,3 +215,52 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
             max_locks_per_pool=getattr(settings, "liquidity_reader_max_locks", 20_000),
         )
     return providers
+
+
+def build_solana_risk_evidence_collector(settings, *, session=None, clock_ms=None):
+    """Build read-only Solana mint/holder evidence collection from configured RPC.
+
+    GoPlus is optional supplemental evidence. Its liquidity/holder fields are
+    never treated as certified complete coverage by this factory.
+    """
+    from .goplus import GoPlusTokenSafetyProvider
+    from .holder_inventory import SolanaHolderInventoryProvider
+    from .solana_mint import SolanaMintAuthorityProvider
+    from ..solana_meme.risk_evidence import SolanaRiskEvidenceCollector
+
+    rpc_url = getattr(settings, "solana_rpc_url", "") or ""
+    if not rpc_url and getattr(settings, "helius_api_key", ""):
+        rpc_url = (
+            "https://mainnet.helius-rpc.com/?api-key="
+            + settings.helius_api_key
+        )
+    if not rpc_url:
+        return None
+
+    holder_provider = SolanaHolderInventoryProvider(
+        rpc_url,
+        session=session,
+        max_accounts=getattr(settings, "holder_inventory_max_accounts", 50_000),
+        clock_ms=clock_ms,
+    )
+    mint_provider = SolanaMintAuthorityProvider(
+        rpc_url,
+        session=session,
+        clock_ms=clock_ms,
+    )
+    access_token = getattr(settings, "goplus_access_token", "")
+    goplus_provider = (
+        GoPlusTokenSafetyProvider(
+            access_token=access_token,
+            session=session,
+            clock_ms=clock_ms,
+        )
+        if access_token else None
+    )
+    return SolanaRiskEvidenceCollector(
+        goplus_provider,
+        holder_provider,
+        mint_provider=mint_provider,
+        max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
+        clock_ms=clock_ms,
+    )
