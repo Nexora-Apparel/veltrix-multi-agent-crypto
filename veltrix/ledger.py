@@ -159,6 +159,7 @@ class PaperBroker:
         self, decision_id, token, mark_price, amount_usd, reason, *,
         consensus_status="CONSENSUS_APPROVED", created_at_ms,
         fee_bps=100, slippage_bps=50, processed_at_ms=None,
+        expected_market_snapshot_id=None, expected_risk_evidence_hash=None,
     ):
         """Atomically open a paper position and consume one approved consensus ID."""
         import math
@@ -197,11 +198,41 @@ class PaperBroker:
             count = int(db.execute("SELECT COUNT(*) FROM positions").fetchone()[0])
             cash = float(db.execute("SELECT cash FROM account WHERE id=1").fetchone()[0])
             blocked_reason = None
-            if count >= self.max_positions:
+            if expected_market_snapshot_id is not None or expected_risk_evidence_hash is not None:
+                if (
+                    isinstance(expected_market_snapshot_id, bool)
+                    or not isinstance(expected_market_snapshot_id, int)
+                    or expected_market_snapshot_id < 1
+                    or not isinstance(expected_risk_evidence_hash, str)
+                    or not expected_risk_evidence_hash
+                ):
+                    raise ValueError("expected market snapshot ID and risk evidence hash are required together")
+                latest_decision = db.execute(
+                    """SELECT decision_id FROM solana_consensus_decisions
+                    WHERE mint=? ORDER BY created_at_ms DESC, id DESC LIMIT 1""",
+                    (token,),
+                ).fetchone()
+                latest_market = db.execute(
+                    """SELECT id FROM solana_market_snapshots
+                    WHERE mint=? ORDER BY retrieved_at_ms DESC, id DESC LIMIT 1""",
+                    (token,),
+                ).fetchone()
+                latest_risk = db.execute(
+                    """SELECT evidence_hash FROM solana_risk_evidence_reports
+                    WHERE mint=? ORDER BY observed_at_ms DESC, id DESC LIMIT 1""",
+                    (token,),
+                ).fetchone()
+                if latest_decision is None or latest_decision["decision_id"] != decision_id:
+                    blocked_reason = "a newer consensus decision superseded this approval"
+                elif latest_market is None or latest_market["id"] != expected_market_snapshot_id:
+                    blocked_reason = "market snapshot changed during paper-entry validation"
+                elif latest_risk is None or latest_risk["evidence_hash"] != expected_risk_evidence_hash:
+                    blocked_reason = "security evidence changed during paper-entry validation"
+            if blocked_reason is None and count >= self.max_positions:
                 blocked_reason = "maximum open paper positions reached"
-            elif db.execute("SELECT 1 FROM positions WHERE token=?", (token,)).fetchone():
+            elif blocked_reason is None and db.execute("SELECT 1 FROM positions WHERE token=?", (token,)).fetchone():
                 blocked_reason = "token already has an open paper position"
-            elif cash < total_debit:
+            elif blocked_reason is None and cash < total_debit:
                 blocked_reason = "insufficient paper cash after entry fee"
             if blocked_reason:
                 db.execute(
