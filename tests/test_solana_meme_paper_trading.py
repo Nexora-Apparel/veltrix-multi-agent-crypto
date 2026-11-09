@@ -244,8 +244,8 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
     )
     duplicate = broker.open_position_from_consensus(
         "decision-1", MINT, 1.0, 25, "approved",
-        created_at_ms=NOW, fee_bps=100, slippage_bps=50,
-        processed_at_ms=NOW,
+        created_at_ms=NOW, paper_review_eligible=True, execution_authorized=False,
+        fee_bps=100, slippage_bps=50, processed_at_ms=NOW,
     )
     assert opened["status"] == "OPENED"
     assert duplicate["status"] == "DUPLICATE"
@@ -253,7 +253,8 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
     with pytest.raises(ValueError):
         broker.open_position_from_consensus(
             "decision-2", MINT, 1.0, 25, "approved",
-            created_at_ms=NOW, fee_bps=float("nan"),
+            created_at_ms=NOW, paper_review_eligible=True,
+            execution_authorized=False, fee_bps=float("nan"),
         )
 
 def test_newer_nonapproved_decision_prevents_execution_of_older_approval(tmp_path):
