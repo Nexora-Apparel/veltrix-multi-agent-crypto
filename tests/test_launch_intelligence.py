@@ -81,6 +81,7 @@ def service(indexer):
         trusted_bundle_providers=["launch-indexer"],
         trusted_funding_providers=["funder-indexer"],
         max_age_ms=300_000,
+        capability_certifier=lambda provider, chain, claim: True,
     )
     return LaunchIntelligenceService(
         provider=indexer,
