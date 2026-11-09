@@ -112,6 +112,18 @@ class ConsensusStore:
             ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 
+    def recent(self, *, limit: int = 100) -> list[dict]:
+        """Return recent persisted decisions across all mints, newest first."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000")
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT payload_json FROM solana_consensus_decisions
+                ORDER BY created_at_ms DESC, id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
     def count(self, mint: str | None = None) -> int:
         with self._connect() as db:
             if mint is None:
