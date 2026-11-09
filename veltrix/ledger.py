@@ -71,6 +71,11 @@ class PaperBroker:
             db.execute("INSERT INTO events(event,payload,created_at) VALUES(?,?,?)", ("POSITION_PARTIALLY_CLOSED" if remaining_qty > 1e-12 else "POSITION_CLOSED", json.dumps({"token":token,"price":price,"quantity":qty,"realized_pnl":pnl,"reason":reason}), now))
         return {"token":token,"quantity_sold":qty,"proceeds":proceeds,"realized_pnl":pnl,"remaining_quantity":remaining_qty}
 
+    def record_market_event(self, event):
+        payload = {"chain": event.chain, "token": event.token_address, "pair": event.pair_address, "symbol": event.symbol, "price_usd": event.price_usd, "liquidity_usd": event.liquidity_usd, "volume_h1_usd": event.volume_h1_usd, "price_change_m5_pct": event.price_change_m5_pct, "observed_at_ms": event.observed_at_ms, "source": event.source}
+        with self._connect() as db:
+            db.execute("INSERT INTO events(event,payload,created_at) VALUES(?,?,?)", ("MARKET_OBSERVATION", json.dumps(payload), time.time()))
+
     def totals(self):
         with self._connect() as db:
             row = db.execute("SELECT COALESCE(SUM(realized_pnl),0) AS pnl, COUNT(*) AS n FROM trades WHERE side='SELL'").fetchone()
