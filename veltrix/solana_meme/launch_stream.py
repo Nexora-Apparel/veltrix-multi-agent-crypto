@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 import threading
@@ -12,6 +13,8 @@ from typing import Any, Callable, Iterator
 
 from .candidates import SolanaCandidate
 from .pumpportal import PumpPortalDiscovery
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LaunchStore:
@@ -324,6 +327,7 @@ class LaunchStreamManager:
                     source=self.adapter.name,
                     occurred_at_ms=self.clock_ms(),
                 )
+                LOGGER.warning("discovery stream ended unexpectedly: %s", self.adapter.name)
             except Exception as exc:
                 if stop_event.is_set():
                     break
@@ -332,6 +336,7 @@ class LaunchStreamManager:
                     source=self.adapter.name,
                     occurred_at_ms=self.clock_ms(),
                 )
+                LOGGER.warning("discovery stream failed for %s: %s", self.adapter.name, exc)
             delay = self.initial_backoff_seconds if saw_candidate else backoff
             if stop_event.wait(delay):
                 break
