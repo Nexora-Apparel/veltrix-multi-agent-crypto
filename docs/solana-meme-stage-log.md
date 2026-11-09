@@ -170,3 +170,14 @@ executable_sellability claim.
 - Every diagnostic has `honeypot_verdict=false`; the classifier cannot certify token safety or sellability.
 - Added tests for all primary diagnostic categories and exported the diagnostic API.
 - GitHub Actions run [42682023137](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42682023137) passed on code commit `fa4cab28ea91e0eddc2c589cbbc37cde71b6d703`: 430 passed, 5 skipped.
+
+
+## 2026-11-09 — Finalized simulation-wallet balance preflight
+
+- Added `SolanaSimulationWalletPreflightProvider` to read finalized SPL Token and Token-2022 accounts for the configured public test wallet and exact candidate mint.
+- Sums raw token balances across matching accounts, validates wallet/mint ownership and supported token program IDs, records native SOL balance and conservative finalized slot.
+- Added append-only `SolanaSimulationPreflightStore` and integrated the preflight gate into the simulation worker. Jupiter order assembly is skipped when the test wallet lacks the exact configured token amount.
+- Added runtime reporting, factory integration and tests for multiple token accounts, insufficient balance, missing accounts, ownership mismatch and worker gating.
+- Native SOL balance is recorded but not assigned an arbitrary universal threshold; route fee/rent requirements vary.
+- Simulation remains opt-in and requires a dedicated funded test wallet; no seed phrase or signing key is accepted.
+- CI pending for the latest preflight integration.
