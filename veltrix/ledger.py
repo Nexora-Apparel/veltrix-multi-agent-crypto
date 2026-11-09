@@ -172,6 +172,19 @@ class PaperBroker:
                 ("LAUNCH_INTELLIGENCE", json.dumps(payload, default=str), time.time()),
             )
 
+    def record_developer_evidence(self, chain, token_address, audit):
+        """Persist accepted and rejected developer-evidence decisions."""
+        payload = {
+            "chain": chain,
+            "token": token_address,
+            "audit": audit,
+        }
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
+                ("DEVELOPER_EVIDENCE_AUDIT", json.dumps(payload, default=str), time.time()),
+            )
+
     def record_market_event(self, event):
         payload = {"chain": event.chain, "token": event.token_address, "pair": event.pair_address, "symbol": event.symbol, "price_usd": event.price_usd, "liquidity_usd": event.liquidity_usd, "volume_h1_usd": event.volume_h1_usd, "price_change_m5_pct": event.price_change_m5_pct, "observed_at_ms": event.observed_at_ms, "source": event.source}
         with self._connect() as db:
