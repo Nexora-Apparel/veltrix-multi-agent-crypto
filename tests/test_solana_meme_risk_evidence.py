@@ -219,6 +219,7 @@ def test_stale_or_future_evidence_is_rejected_and_reported():
         FakeHolderProvider(stale),
         mint_provider=FakeMintProvider(future),
         clock_ms=lambda: NOW,
+        max_age_ms=100,
     ).collect(MINT)
 
     assert any("holder snapshot is stale" in error for error in report.errors)
