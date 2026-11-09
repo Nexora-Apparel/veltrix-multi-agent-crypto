@@ -35,7 +35,7 @@ class SolanaMarketSnapshot:
     selected_pool_volume_m5_usd: float | None
     selected_pool_volume_h1_usd: float
     selected_pool_volume_h24_usd: float | None
-    price_change_m5_pct: float
+    price_change_m5_pct: float | None
     price_change_h1_pct: float | None
     price_change_h24_pct: float | None
     txns_m5_buys: int | None
@@ -48,6 +48,7 @@ class SolanaMarketSnapshot:
     market_cap_usd: float | None
     dex_id: str | None
     quote_token_symbol: str | None
+    pool_token_side: str | None
     pair_count: int
     retrieved_at_ms: int
     response_received_at_ms: int
@@ -242,7 +243,9 @@ class SolanaMarketData:
                     "volume_h24": self._nonnegative(
                         event.volume_h24_usd, "volume_h24_usd", optional=True
                     ),
-                    "change_m5": self._signed(event.price_change_m5_pct, "price_change_m5_pct"),
+                    "change_m5": self._signed(
+                        event.price_change_m5_pct, "price_change_m5_pct", optional=True
+                    ),
                     "change_h1": self._signed(
                         event.price_change_h1_pct, "price_change_h1_pct", optional=True
                     ),
@@ -290,6 +293,8 @@ class SolanaMarketData:
             flags.append("volume_m5_missing")
         if values["volume_h24"] is None:
             flags.append("volume_h24_missing")
+        if values["change_m5"] is None:
+            flags.append("price_change_m5_missing")
         if values["change_h1"] is None:
             flags.append("price_change_h1_missing")
         if values["change_h24"] is None:
@@ -315,7 +320,7 @@ class SolanaMarketData:
             selected_pool_volume_m5_usd=values["volume_m5"],
             selected_pool_volume_h1_usd=float(values["volume_h1"]),
             selected_pool_volume_h24_usd=values["volume_h24"],
-            price_change_m5_pct=float(values["change_m5"]),
+            price_change_m5_pct=values["change_m5"],
             price_change_h1_pct=values["change_h1"],
             price_change_h24_pct=values["change_h24"],
             txns_m5_buys=values["txns_m5_buys"],
@@ -328,6 +333,7 @@ class SolanaMarketData:
             market_cap_usd=values["market_cap"],
             dex_id=selected.dex_id,
             quote_token_symbol=selected.quote_token_symbol,
+            pool_token_side=selected.pool_token_side,
             pair_count=len(eligible),
             retrieved_at_ms=retrieved_at_ms,
             response_received_at_ms=selected.observed_at_ms,
