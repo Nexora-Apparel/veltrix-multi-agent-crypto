@@ -76,3 +76,14 @@ def test_host_verification_script_checks_actual_systemd_mount_namespace():
     assert "observer belongs to a paper/dashboard data or secret group" in script
     assert "veltrix-wallet-observer" in script
     assert "MANUAL REQUIRED" in script
+
+
+def test_host_preflight_is_read_only_and_checks_systemd_prerequisites():
+    script = (ROOT / "deployment" / "phase09_host_preflight.sh").read_text(encoding="utf-8")
+    assert "command -v systemctl" in script
+    assert "veltrix-wallet-observer" in script
+    assert "VELTRIX_DB_PATH" in script
+    assert "environment-file contents are never read" in script
+    assert "preflight is read-only" in script
+    for forbidden in ("useradd ", "groupadd ", "chown ", "chmod ", "systemctl enable", "systemctl start"):
+        assert forbidden not in script
