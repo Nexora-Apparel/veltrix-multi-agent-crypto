@@ -66,3 +66,11 @@ DexScreener pair snapshots do not prove liquidity is locked, developer holdings 
 - `EvmHolderInventoryProvider` supports Base and BSC. It scans ERC-20 `Transfer` logs from the verified deployment block through the RPC's finalized block in bounded ranges, validates log contract/block/transaction provenance, queries every discovered holder's `balanceOf` at that exact block, and requires the balances to reconcile exactly to `totalSupply`. It rejects RPCs without a finalized block tag, malformed or duplicate logs, caps, and reconciliation gaps.
 - Factory: `build_holder_inventory_providers(settings)`; configuration: `SOLANA_RPC_URL`, `BASE_RPC_URL`, `BSC_RPC_URL`, `HOLDER_INVENTORY_MAX_ACCOUNTS`, `HOLDER_INVENTORY_MAX_LOGS`, `HOLDER_INVENTORY_MAX_HOLDERS`.
 - These adapters are read-only and currently **not capability-certified**. They do not establish developer identity or funding ancestry; they provide the exhaustive holder snapshot input for the separate developer graph analyzer. No live chain response was executed in CI.
+
+
+## First-funder ancestry provider
+
+- `AlchemyBaseFundingGraphProvider` builds a bounded first-inbound-funder graph for Base using Alchemy's `alchemy_getAssetTransfers` API, including external, internal and ERC-20 transfer categories, ascending order and page-key exhaustion. It recursively queries intermediary funders, records transaction hashes, and rejects duplicate/malformed rows, incomplete pagination and ancestry wallet caps.
+- Base only is enabled by the factory. Alchemy's published transfer API documents internal-transfer coverage for Base, but not BNB Smart Chain; BSC is intentionally withheld rather than certifying a graph with missing internal contract transfers. Solana funding ancestry remains unimplemented.
+- Factory: `build_funding_graph_providers(settings)`; bounds: `FUNDING_GRAPH_MAX_PAGES`, `FUNDING_GRAPH_MAX_WALLETS`.
+- This adapter is not yet in the composite capability catalogue. A successful indexer response alone is not production certification; independently attested developer roots and live-provider acceptance are still required.
