@@ -304,3 +304,83 @@ def test_bsc_uses_same_bounded_historical_rpc_indexer():
     assert batch.chain == "bsc"
     assert batch.provider == "bsc-rpc-launch"
     assert batch.coverage_complete
+
+
+class HistoricalSupplySession:
+    def __init__(self, pages):
+        self.pages = list(pages)
+    def post(self, url, json, **kwargs):
+        method = json.get("method")
+        if method == "getTokenSupply":
+            return Response({"result": {
+                "context": {"slot": 100},
+                "value": {"amount": "1000000", "decimals": 2},
+            }})
+        if method == "getBlockTime":
+            return Response({"result": 1_700_000_200})
+        if "/parsed-events/scan" in url:
+            return Response(self.pages.pop(0))
+        raise AssertionError((url, method))
+
+
+def test_helius_historical_supply_reverses_post_launch_mints_and_burns():
+    from veltrix.providers.launch import HeliusHistoricalSupplyResolver
+    page = {
+        "data": [
+            {
+                "slot": 101, "summary": {"type": "TOKEN_MINT"},
+                "tokenTransfers": [{
+                    "mint": "MintABC", "fromUserAccount": None,
+                    "toUserAccount": "wallet-a",
+                    "rawTokenAmount": {"tokenAmount": "50000", "decimals": 2},
+                }],
+            },
+            {
+                "slot": 102, "summary": {"type": "BURN"},
+                "tokenTransfers": [{
+                    "mint": "MintABC", "fromUserAccount": "wallet-a",
+                    "toUserAccount": None,
+                    "rawTokenAmount": {"tokenAmount": "10000", "decimals": 2},
+                }],
+            },
+        ],
+        "scan": {"stoppedOn": "windowEnd",
+                 "scannedThrough": {"blockTime": 1_700_000_200}},
+    }
+    resolver = HeliusHistoricalSupplyResolver(
+        "secret", session=HistoricalSupplySession([page]), max_pages=2,
+    )
+    supply, source, ref = resolver("MintABC", LAUNCH, launch_slot=10)
+    assert supply == 9_600
+    assert source == "helius-launch"
+    assert "launch-slot:10" in ref
+    assert "minted-after:50000" in ref
+    assert "burned-after:10000" in ref
+
+
+def test_helius_historical_supply_withholds_on_incomplete_pagination():
+    from veltrix.providers.launch import HeliusHistoricalSupplyResolver
+    resolver = HeliusHistoricalSupplyResolver(
+        "secret",
+        session=HistoricalSupplySession([{
+            "data": [], "paginationToken": "more",
+            "scan": {"stoppedOn": "budget",
+                     "scannedThrough": {"blockTime": 1_700_000_200}},
+        }]),
+        max_pages=1,
+    )
+    import pytest
+    from veltrix.providers.base import ProviderError
+    with pytest.raises(ProviderError, match="pagination limit"):
+        resolver("MintABC", LAUNCH, launch_slot=10)
+
+
+def test_helius_historical_supply_requires_verified_launch_slot():
+    from veltrix.providers.launch import HeliusHistoricalSupplyResolver
+    import pytest
+    from veltrix.providers.base import ProviderError
+    resolver = HeliusHistoricalSupplyResolver(
+        "secret", session=HistoricalSupplySession([]),
+    )
+    with pytest.raises(ProviderError, match="launch slot is required"):
+        resolver("MintABC", LAUNCH)
