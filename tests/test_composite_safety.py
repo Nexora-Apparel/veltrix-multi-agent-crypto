@@ -55,6 +55,7 @@ def validator():
         trusted_bundle_providers=["bundle-indexer"],
         trusted_funding_providers=["funder-indexer"],
         max_age_ms=300_000,
+        capability_certifier=lambda provider, chain, claim: True,
     )
 
 
@@ -188,3 +189,17 @@ def test_composite_rejects_wrong_claim_label_and_chain():
     assert not report.passed
     assert "liquidity: unsupported or mismatched evidence claim" in report.reasons
     assert "liquidity: evidence chain is missing or mismatched" in report.reasons
+
+
+def test_default_gate_rejects_provider_without_audited_capability_even_if_trusted():
+    evidence_bundle = valid_bundle()
+    strict = CompositeTokenSafetyValidator(
+        trusted_liquidity_providers=["lock-a"],
+        trusted_developer_providers=["dev-b"],
+        trusted_bundle_providers=["bundle-indexer"],
+        trusted_funding_providers=["funder-indexer"],
+    )
+    report = strict.validate(TOKEN, evidence_bundle, NOW, chain="solana")
+    assert not report.passed
+    assert "liquidity: provider capability is not certified for this chain and claim" in report.reasons
+    assert "developer holdings: provider capability is not certified for this chain and claim" in report.reasons
