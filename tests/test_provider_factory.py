@@ -108,3 +108,46 @@ def test_base_liquidity_factory_builder_rejects_conflicting_pinned_identity(monk
     )
     with pytest.raises(ValueError, match="conflicts with pinned registry identity"):
         build_liquidity_snapshot_providers(configured, chains=("base",))
+
+def test_sell_simulation_factory_is_disabled_by_default_and_requires_explicit_test_cases(tmp_path):
+    from veltrix.providers.factory import build_solana_sell_simulation_worker
+    from veltrix.solana_meme.sell_simulation_store import SolanaSellSimulationStore
+
+    store = SolanaSellSimulationStore(str(tmp_path / "factory.sqlite"))
+    assert build_solana_sell_simulation_worker(
+        settings(), str(tmp_path / "factory.sqlite"), store,
+    ) is None
+    enabled_but_incomplete = settings(
+        solana_sell_simulation_enabled=True,
+        solana_sell_simulation_taker="",
+        solana_sell_simulation_cases_json="{}",
+        solana_rpc_url="https://rpc.example",
+    )
+    assert build_solana_sell_simulation_worker(
+        enabled_but_incomplete, str(tmp_path / "factory.sqlite"), store,
+    ) is None
+
+
+def test_sell_simulation_factory_builds_only_from_public_taker_and_explicit_amounts(tmp_path):
+    import json
+    from veltrix.providers.factory import build_solana_sell_simulation_worker
+    from veltrix.solana_meme.sell_simulation_store import SolanaSellSimulationStore
+    from veltrix.solana_meme.sell_simulation_worker import SolanaSellSimulationWorker
+
+    db = str(tmp_path / "factory.sqlite")
+    store = SolanaSellSimulationStore(db)
+    configured = settings(
+        solana_sell_simulation_enabled=True,
+        solana_sell_simulation_taker="11111111111111111111111111111111",
+        solana_sell_simulation_cases_json=json.dumps({
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 1000,
+        }),
+        solana_rpc_url="https://rpc.example",
+        jupiter_api_key="",
+        jupiter_quote_min_interval_seconds=2.1,
+    )
+    worker = build_solana_sell_simulation_worker(configured, db, store)
+    assert isinstance(worker, SolanaSellSimulationWorker)
+    assert worker.test_cases == {
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 1000,
+    }
