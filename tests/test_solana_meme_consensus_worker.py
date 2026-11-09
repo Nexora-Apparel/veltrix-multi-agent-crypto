@@ -85,8 +85,9 @@ def test_consensus_worker_respects_refresh_interval(tmp_path):
 
     clock.value = 70_000
     third = worker.run_once()
-    assert third.recorded == 1
-    assert store.count(MINT) == 2
+    assert third.recorded == 0
+    assert third.unchanged == 1
+    assert store.count(MINT) == 1
 
 
 def test_consensus_worker_retries_wallet_event_provider_errors(tmp_path):
