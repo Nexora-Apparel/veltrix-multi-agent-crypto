@@ -278,3 +278,13 @@ executable_sellability claim.
 - Added `acknowledge_indeterminate_claim` for an operator to release a mint only after ledger reconciliation and a recorded operator note. No automatic replay is allowed.
 - GitHub Actions run [42688293786](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42688293786) passed on commit `6ead1000f5b0996f078312c4c7fcdff1237efdda`: 474 passed, 5 skipped.
 - Runtime activation remains withheld. The default capability catalogue still lacks certifying Solana liquidity-lock and developer-holdings providers, so no production composite-safety report can pass. The runner is not wired to the runtime and live trading remains disabled.
+
+
+## 2026-11-09 — Solana UNCX liquidity-lock coverage audit
+
+- Expanded the source-backed UNCX Solana locker candidate registry to include Raydium AMM V4, AMM V4 Smart Lockers, CP Swap, CLMM, Meteora DLMM and PumpSwap program IDs and documented LP-storage accounts.
+- Only the Raydium AMM V4 locker currently has public source, Anchor IDL, deployed binary and a published verifiable executable hash pinned in this project. The other program IDs remain candidates; no decoder or certification is inferred from their names.
+- Added a provider capability entry for the existing Raydium V4/CPMM inventory reader as **partial/non-certifying**. The composite safety validator continues to reject it as complete Solana liquidity-lock proof.
+- Added `docs/solana-liquidity-coverage.md` with the program coverage matrix, source links, required account/upgrade checks and next implementation sequence.
+- GitHub Actions run [42688687527](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42688687527) passed on commit `5e4bcdd9e12b15caf442532370abfbd7f898a9d1`: 475 passed, 5 skipped.
+- No capability was promoted to complete. No live trading or transaction signing was enabled.
