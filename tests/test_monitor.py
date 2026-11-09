@@ -227,7 +227,7 @@ def test_monitor_submits_only_verified_all_pool_liquidity_evidence(tmp_path):
             locker_address=locker, position_id="lock-100", amount=100,
             unlock_at_ms=now + 86_400_000, observed_at_ms=now - 100,
             owner="0x5555555555555555555555555555555555555555",
-            evidence_ref="tx:lock-100",
+            evidence_ref="tx:lock-100", finalized_ref="block:100",
         ),),
         deployments=(deployment,),
     )
