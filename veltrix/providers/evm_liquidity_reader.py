@@ -25,11 +25,10 @@ ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 HASH = re.compile(r"^[0-9a-fA-F]{64}$")
 ZERO = "0x" + "00" * 20
 PAIR_CREATED_TOPIC = "0x" + keccak(b"PairCreated(address,address,address,uint256)").hex()
-NEW_LOCK_TOPIC = "0x" + keccak(
-    b"onNewLock(uint256,address,address,uint256,uint256,uint256,uint16)"
+BSC_DEPOSIT_TOPIC = "0x" + keccak(
+    b"onDeposit(address,address,uint256,uint256,uint256)"
 ).hex()
-BSC_DEPOSIT_TOPIC = "0x830357565da6ecfc26d8d9f69df488ed6f70361af9a07e570544aeb5c5e765e5"
-BSC_WITHDRAW_TOPIC = "0xccad973dcd043c7d680389db4378bd6b9775db7124092e9e0422c9e46d7985dc"
+BSC_WITHDRAW_TOPIC = "0x" + keccak(b"onWithdraw(address,uint256)").hex()
 
 
 def _word(value):
