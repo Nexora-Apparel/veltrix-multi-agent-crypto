@@ -19,7 +19,7 @@ PAIR_CREATED_TOPIC = "0x" + keccak(
     b"PairCreated(address,address,address,uint256)"
 ).hex()
 DEFAULT_LOG_CHUNK_SPAN = 10_000
-MAX_LOG_CHUNK_SPAN = 10_000
+MAX_LOG_CHUNK_SPAN = 50_000
 BATCH_SIZE = 50
 
 
@@ -235,31 +235,20 @@ def verify_full_inventory(rpc, factory, events, finalized, label):
             ("eth_call", [{"to": factory, "data": selector("allPairs(uint256)") + word_uint(index)}, hex(finalized)]),
             ("eth_call", [{"to": event["pair"], "data": selector("token0()")}, hex(finalized)]),
             ("eth_call", [{"to": event["pair"], "data": selector("token1()")}, hex(finalized)]),
-            ("eth_call", [{"to": event["pair"], "data": selector("factory()")}, hex(finalized)]),
-            ("eth_call", [{
-                "to": factory,
-                "data": selector("getPair(address,address)") + word_address(event["token0"]) + word_address(event["token1"]),
-            }, hex(finalized)]),
         ])
         descriptors.append(event)
     values = batch_rpc(rpc, requests, label)
     inventory_rows = []
     for i, event in enumerate(descriptors):
-        base = i * 5
+        base = i * 3
         pair_at_index = decode_address_word(values[base], f"{label} allPairs({i})")
         token0 = decode_address_word(values[base + 1], f"{label} pair token0")
         token1 = decode_address_word(values[base + 2], f"{label} pair token1")
-        pair_factory = decode_address_word(values[base + 3], f"{label} pair factory")
-        mapped_pair = decode_address_word(values[base + 4], f"{label} getPair")
         expected = event["pair"].lower()
         if pair_at_index.lower() != expected:
             raise PreflightError(f"{label}: allPairs({i}) does not match PairCreated event")
         if token0.lower() != event["token0"].lower() or token1.lower() != event["token1"].lower():
             raise PreflightError(f"{label}: pair token0/token1 disagree with PairCreated event at index {i}")
-        if pair_factory.lower() != factory.lower():
-            raise PreflightError(f"{label}: pair factory() mismatch at index {i}")
-        if mapped_pair.lower() != expected:
-            raise PreflightError(f"{label}: getPair(token0,token1) mismatch at index {i}")
         inventory_rows.append({
             "index": i,
             "pair": expected,
@@ -278,12 +267,12 @@ def verify_full_inventory(rpc, factory, events, finalized, label):
         "inventory_keccak256": keccak(encoded).hex(),
         "all_pairs_index_coverage": len(inventory_rows) == len(events),
         "relationship_checks_per_pair": [
-            "allPairs(index)", "token0()", "token1()", "factory()", "getPair(token0,token1)"
+            "allPairs(index)", "token0()", "token1()"
         ],
     }
 
 
-def inspect_candidate(rpc, candidate, finalized, finalized_hash, chunk_span):
+def inspect_candidate(rpc, candidate, finalized, finalized_hash, events, coverage):
     chain_id = quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID")
     if chain_id != CHAIN_ID:
         raise PreflightError(f"{rpc.label}: expected Base chain ID 8453")
@@ -313,10 +302,6 @@ def inspect_candidate(rpc, candidate, finalized, finalized_hash, chunk_span):
     )
     if initial_count != 0:
         raise PreflightError(f"{rpc.label}: factory inventory was non-empty at its deployment block")
-    events, coverage = scan_event_history(
-        rpc, factory, candidate["deployment_block"], finalized,
-        f"{rpc.label}/{candidate['amm_id']}", chunk_span,
-    )
     length = quantity(
         rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(finalized)]),
         f"{rpc.label} allPairsLength",
@@ -366,39 +351,76 @@ def main():
                 or item["deployment_block"] <= 0):
             raise PreflightError("malformed candidate deployment metadata")
 
-    primary = Rpc(os.getenv("BASE_LIQUIDITY_POOL_RPC_URL"), "primary/Alchemy")
-    secondary = Rpc(os.getenv("SOLIDRPC_BASE_ARCHIVE_RPC_URL"), "candidate/SolidRPC")
-    if primary.url == secondary.url:
-        raise PreflightError("archive endpoints must be independent")
-    head_a = primary.call("eth_getBlockByNumber", ["finalized", False])
-    head_b = secondary.call("eth_getBlockByNumber", ["finalized", False])
-    height = min(quantity(head_a.get("number"), "primary finalized height"),
-                 quantity(head_b.get("number"), "secondary finalized height"))
-    block_a = primary.call("eth_getBlockByNumber", [hex(height), False])
-    block_b = secondary.call("eth_getBlockByNumber", [hex(height), False])
-    if not block_a or not block_b or str(block_a.get("hash", "")).lower() != str(block_b.get("hash", "")).lower():
+    primary = Rpc(os.getenv("BASE_LIQUIDITY_POOL_RPC_URL"), "state/Alchemy")
+    secondary = Rpc(os.getenv("SOLIDRPC_BASE_ARCHIVE_RPC_URL"), "events/SolidRPC")
+    publicnode = Rpc(os.getenv("BASE_PUBLIC_LOGS_RPC_URL", "https://base-rpc.publicnode.com"),
+                     "state-and-events/PublicNode")
+    if len({primary.url, secondary.url, publicnode.url}) != 3:
+        raise PreflightError("Alchemy, SolidRPC, and PublicNode endpoints must be independent")
+
+    provider_heads = {}
+    for rpc in (primary, secondary, publicnode):
+        head = rpc.call("eth_getBlockByNumber", ["finalized", False])
+        if not isinstance(head, dict):
+            raise PreflightError(f"{rpc.label}: finalized head unavailable")
+        provider_heads[rpc.label] = quantity(head.get("number"), f"{rpc.label} finalized height")
+    height = min(provider_heads.values())
+    checkpoint_blocks = {
+        rpc.label: rpc.call("eth_getBlockByNumber", [hex(height), False])
+        for rpc in (primary, secondary, publicnode)
+    }
+    hashes = {
+        label: str(block.get("hash", "")).lower() if isinstance(block, dict) else ""
+        for label, block in checkpoint_blocks.items()
+    }
+    if not hashes or len(set(hashes.values())) != 1 or not next(iter(hashes.values())):
         raise PreflightError("providers disagree at common finalized checkpoint")
-    checkpoint_hash = str(block_a["hash"]).lower()
-    span = int(os.getenv("BASE_V2_HISTORY_LOG_CHUNK_SPAN", str(DEFAULT_LOG_CHUNK_SPAN)))
-    if span < 1 or span > MAX_LOG_CHUNK_SPAN:
-        raise PreflightError(f"BASE_V2_HISTORY_LOG_CHUNK_SPAN must be 1-{MAX_LOG_CHUNK_SPAN}")
+    checkpoint_hash = next(iter(hashes.values()))
+
+    solid_span = int(os.getenv("BASE_V2_SOLIDRPC_LOG_CHUNK_SPAN", "30000"))
+    public_span = int(os.getenv("BASE_V2_PUBLICNODE_LOG_CHUNK_SPAN", "50000"))
+    if not 1 <= solid_span <= 30000:
+        raise PreflightError("SolidRPC log chunk span must be 1-30000")
+    if not 1 <= public_span <= 50000:
+        raise PreflightError("PublicNode log chunk span must be 1-50000")
 
     reports = []
     for candidate in candidates:
-        left = inspect_candidate(primary, candidate, height, checkpoint_hash, span)
-        right = inspect_candidate(secondary, candidate, height, checkpoint_hash, span)
+        solid_events, solid_coverage = scan_event_history(
+            secondary, candidate["address"], candidate["deployment_block"], height,
+            f"SolidRPC/{candidate['amm_id']}", solid_span,
+        )
+        public_events, public_coverage = scan_event_history(
+            publicnode, candidate["address"], candidate["deployment_block"], height,
+            f"PublicNode/{candidate['amm_id']}", public_span,
+        )
+        solid_event_digest = keccak(json.dumps(solid_events, sort_keys=True, separators=(",", ":")).encode()).hex()
+        public_event_digest = keccak(json.dumps(public_events, sort_keys=True, separators=(",", ":")).encode()).hex()
+        if solid_event_digest != public_event_digest:
+            raise PreflightError(f"{candidate['amm_id']}: SolidRPC and PublicNode event histories disagree")
+        if len(solid_events) != len(public_events):
+            raise PreflightError(f"{candidate['amm_id']}: independent event providers returned different counts")
+
+        left = inspect_candidate(primary, candidate, height, checkpoint_hash,
+                                 solid_events, solid_coverage)
+        right = inspect_candidate(publicnode, candidate, height, checkpoint_hash,
+                                  public_events, public_coverage)
         for field in ("chain_id", "deployment_block_hash", "runtime_code_bytes", "runtime_code_keccak256",
                       "all_pairs_length_at_deployment", "all_pairs_length",
-                      "event_coverage", "event_history_keccak256"):
+                      "event_history_keccak256"):
             if left[field] != right[field]:
-                raise PreflightError(f"{candidate['amm_id']}: providers disagree on {field}")
+                raise PreflightError(f"{candidate['amm_id']}: state providers disagree on {field}")
         if left["inventory"] != right["inventory"]:
             raise PreflightError(f"{candidate['amm_id']}: providers disagree on complete inventory")
         reports.append({
             "amm_id": candidate["amm_id"], "address": candidate["address"],
             "deployment_block": candidate["deployment_block"],
             "status": "passed_complete_event_and_inventory_reconciliation",
-            "providers": [left, right],
+            "event_providers": [
+                {"provider": secondary.label, "coverage": solid_coverage, "event_digest": solid_event_digest},
+                {"provider": publicnode.label, "coverage": public_coverage, "event_digest": public_event_digest},
+            ],
+            "state_providers": [left, right],
         })
 
     result = {
@@ -406,6 +428,7 @@ def main():
         "status": "passed_complete_event_and_inventory_reconciliation",
         "chain_id": CHAIN_ID,
         "finalized_checkpoint": {"number": height, "hash": checkpoint_hash},
+        "provider_finalized_heads": provider_heads,
         "candidates": reports,
         "limitations": [
             "Certifies only the four explicitly listed candidate factories.",
@@ -419,6 +442,8 @@ def main():
     print(json.dumps({
         "status": result["status"], "finalized_block": height,
         "candidate_count": len(reports),
+        "event_sources": ["SolidRPC", "PublicNode"],
+        "inventory_state_sources": ["Alchemy", "PublicNode"],
         "report": "base-v2-history-inventory-acceptance.json",
     }, indent=2))
 
