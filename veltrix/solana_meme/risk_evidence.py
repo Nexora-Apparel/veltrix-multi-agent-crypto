@@ -50,6 +50,9 @@ class SolanaRiskEvidenceReport:
     freeze_authority: str | None = None
     token_2022_extension_types: tuple[str, ...] = ()
     token_2022_extension_review_complete: bool = False
+    mint_supply_raw: int | None = None
+    mint_decimals: int | None = None
+    mint_supply_reconciled: bool = False
 
     @property
     def risk_state(self) -> str:
@@ -196,6 +199,14 @@ class SolanaRiskEvidenceCollector:
             except Exception as exc:
                 errors.append(f"mint_account: {type(exc).__name__}: {str(exc)[:240]}")
 
+        mint_supply_reconciled = bool(
+            mint_snapshot is not None and holder_snapshot is not None
+            and mint_snapshot.supply_raw == holder_snapshot.total_supply_raw
+            and mint_snapshot.decimals == holder_snapshot.decimals
+        )
+        if mint_snapshot is not None and holder_snapshot is not None and not mint_supply_reconciled:
+            errors.append("mint_account: finalized supply or decimals disagree with holder inventory")
+
         holder_count = total_supply = balance_sum = None
         coverage_complete = False
         top1 = top5 = top10 = None
@@ -264,4 +275,7 @@ class SolanaRiskEvidenceCollector:
             token_2022_extension_review_complete=(
                 mint_snapshot is not None and not mint_snapshot.extension_types
             ),
+            mint_supply_raw=(mint_snapshot.supply_raw if mint_snapshot else None),
+            mint_decimals=(mint_snapshot.decimals if mint_snapshot else None),
+            mint_supply_reconciled=mint_supply_reconciled,
         )
