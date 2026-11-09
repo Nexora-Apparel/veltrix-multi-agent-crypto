@@ -1,6 +1,7 @@
 """Scheduled consensus analysis over Phase 04 market and Phase 05 risk evidence."""
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -13,6 +14,8 @@ from .consensus_store import ConsensusStore
 from .launch_stream import LaunchStore
 from .market_store import MarketSnapshotStore
 from .risk_store import SolanaRiskEvidenceStore
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,7 @@ class ConsensusWorker:
         retry_max_ms: int = 300_000,
         clock_ms: Callable[[], int] | None = None,
         wallet_event_provider: Callable[[str], Iterable[WalletBuyEvent]] | None = None,
+        wallet_event_batch_provider: Callable[[Iterable[str], int], Iterable[WalletBuyEvent]] | None = None,
     ) -> None:
         paths = {
             launch_store.database_path,
@@ -73,6 +77,7 @@ class ConsensusWorker:
         self.retry_max_ms = retry_max_ms
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self.wallet_event_provider = wallet_event_provider
+        self.wallet_event_batch_provider = wallet_event_batch_provider
         self._initialize()
 
     @contextmanager
@@ -180,6 +185,21 @@ class ConsensusWorker:
             return ()
         return tuple(event for event in events if isinstance(event, WalletBuyEvent))
 
+    def _wallet_events_by_mint(self, mints: Iterable[str], now_ms: int) -> dict[str, tuple[WalletBuyEvent, ...]]:
+        if self.wallet_event_batch_provider is None:
+            return {}
+        try:
+            events = tuple(self.wallet_event_batch_provider(tuple(mints), now_ms))
+        except Exception as exc:
+            LOGGER.warning("Solana wallet evidence batch unavailable; Whale will abstain: %s", exc)
+            return {}
+        grouped: dict[str, list[WalletBuyEvent]] = {}
+        for event in events:
+            if not isinstance(event, WalletBuyEvent) or event.chain != "solana":
+                continue
+            grouped.setdefault(event.token_address, []).append(event)
+        return {mint: tuple(rows) for mint, rows in grouped.items()}
+
     def run_once(self, *, limit: int = 10) -> ConsensusBatchResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
             raise ValueError("limit must be between 1 and 25")
@@ -189,6 +209,7 @@ class ConsensusWorker:
         discovered = self._discover_jobs(now)
         claimed = self._claim(now, limit)
         recorded = unchanged = failed = 0
+        wallet_events_by_mint = self._wallet_events_by_mint(claimed, now)
 
         for mint in claimed:
             try:
@@ -209,7 +230,7 @@ class ConsensusWorker:
                     market,
                     risk,
                     history=prior_history,
-                    wallet_events=self._wallet_events(mint),
+                    wallet_events=(wallet_events_by_mint[mint] if mint in wallet_events_by_mint else self._wallet_events(mint)),
                     now_ms=self.clock_ms(),
                 )
                 if self.consensus_store.record(decision):
