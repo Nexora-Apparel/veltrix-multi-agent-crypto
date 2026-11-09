@@ -133,7 +133,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             )
         if chain == "base":
             liquidity_blockers.append(
-                "Base UNCX V2.1 deployment metadata conflicts with the official source repository; direct deployment and factory confirmation is required"
+                "Base UNCX V2.1 candidate is 0xc4E637D37113192F4F1F060DaEbD7758De7F4131; its live bytecode hash and constructor factory still require acceptance"
             )
         if chain == "solana":
             liquidity_blockers.append(
