@@ -3,6 +3,7 @@ from veltrix.core import Core
 from veltrix.ledger import PaperBroker
 from veltrix.safety import SafetyReport
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
+from veltrix.solana_meme.sellability import SolanaSellabilityEvidence
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -38,6 +39,17 @@ def complete_solana_safety():
     return SafetyReport(
         token_address=MINT, passed=True, checks=("composite",), reasons=(),
         observed_at_ms=now, composite_verified=True,
+    )
+
+def complete_solana_sellability():
+    now = int(__import__("time").time() * 1000)
+    return SolanaSellabilityEvidence(
+        mint=MINT, observed_at_ms=now, provider="jupiter-v2", evidence_id="route:core",
+        input_amount_raw=10_000_000, input_supply_fraction=0.01,
+        quoted_output_raw=50_000_000, minimum_output_raw=49_000_000,
+        route_plan_count=2, price_impact_bps=75.0,
+        quote_expires_at_ms=now + 15_000,
+        state="ROUTE_OBSERVED_NOT_EXECUTION_PROVEN", errors=(), execution_proven=False,
     )
 
 def test_core_opens_only_after_two_agent_same_token_consensus(tmp_path):
@@ -98,6 +110,8 @@ def test_core_routes_solana_entries_through_claim_aware_paper_shield(tmp_path):
         "address": MINT, "chain": "solana", "price": 1.0,
         "risk_evidence_report": complete_solana_evidence(),
         "safety_report": complete_solana_safety(),
+        "sellability_evidence": complete_solana_sellability(),
+        "sell_amount_raw": 10_000_000,
     }
     result = core.evaluate(token)
     assert result is not None
