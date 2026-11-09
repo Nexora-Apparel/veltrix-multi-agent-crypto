@@ -43,27 +43,49 @@ def block_by_number(rpc, number):
     return block["hash"].lower()
 
 
-def normalized_logs(rpc, factory, from_block, to_block):
-    rows = rpc.call("eth_getLogs", [{
-        "address": factory,
-        "fromBlock": hex(from_block),
-        "toBlock": hex(to_block),
-        "topics": [PAIR_CREATED_TOPIC],
-    }])
-    if not isinstance(rows, list):
-        raise PreflightError(f"{rpc.label}: eth_getLogs returned malformed data")
+def normalized_logs(rpc, factory, from_block, to_block, stop_after=None, max_block_span=10):
+    """Fetch historical logs in provider-compatible chunks.
+
+    Alchemy Free permits at most a 10-block eth_getLogs range. Scan backward
+    and stop once the known allPairsLength delta is reached: because each
+    PairCreated event increments that counter exactly once, this proves the
+    complete event set for the interval without making unnecessary requests.
+    """
+    if from_block > to_block:
+        raise PreflightError(f"{rpc.label}: invalid historical log range")
+    if max_block_span < 1 or max_block_span > 10:
+        raise PreflightError(f"{rpc.label}: eth_getLogs chunk size must be 1-10 blocks")
+
     normalized = []
-    for row in rows:
-        if not isinstance(row, dict):
-            raise PreflightError(f"{rpc.label}: malformed log row")
-        normalized.append({
-            "blockHash": str(row.get("blockHash", "")).lower(),
-            "blockNumber": quantity(row.get("blockNumber"), f"{rpc.label} log block number"),
-            "transactionHash": str(row.get("transactionHash", "")).lower(),
-            "logIndex": quantity(row.get("logIndex"), f"{rpc.label} log index"),
-            "topics": [str(x).lower() for x in row.get("topics", [])],
-            "data": str(row.get("data", "")).lower(),
-        })
+    chunk_to = to_block
+    while chunk_to >= from_block:
+        chunk_from = max(from_block, chunk_to - max_block_span + 1)
+        rows = rpc.call("eth_getLogs", [{
+            "address": factory,
+            "fromBlock": hex(chunk_from),
+            "toBlock": hex(chunk_to),
+            "topics": [PAIR_CREATED_TOPIC],
+        }])
+        if not isinstance(rows, list):
+            raise PreflightError(f"{rpc.label}: eth_getLogs returned malformed data")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise PreflightError(f"{rpc.label}: malformed log row")
+            topics = row.get("topics", [])
+            if not isinstance(topics, list) or not topics or str(topics[0]).lower() != PAIR_CREATED_TOPIC:
+                raise PreflightError(f"{rpc.label}: eth_getLogs returned a non-PairCreated event")
+            normalized.append({
+                "blockHash": str(row.get("blockHash", "")).lower(),
+                "blockNumber": quantity(row.get("blockNumber"), f"{rpc.label} log block number"),
+                "transactionHash": str(row.get("transactionHash", "")).lower(),
+                "logIndex": quantity(row.get("logIndex"), f"{rpc.label} log index"),
+                "topics": [str(x).lower() for x in topics],
+                "data": str(row.get("data", "")).lower(),
+            })
+        if stop_after is not None and len(normalized) >= stop_after:
+            break
+        chunk_to = chunk_from - 1
+
     return sorted(normalized, key=lambda x: (x["transactionHash"], x["logIndex"]))
 
 
@@ -115,7 +137,7 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors):
     # historical anchors show allPairsLength increasing. This tests actual
     # historical log retrieval rather than only empty single-block queries.
     log_from, log_to = anchors[-2], anchors[-1]
-    logs = normalized_logs(rpc, factory, log_from + 1, log_to)
+    logs = normalized_logs(rpc, factory, log_from + 1, log_to, stop_after=expected_delta)
     expected_delta = (
         results[str(log_to)]["all_pairs_length"]
         - results[str(log_from)]["all_pairs_length"]
