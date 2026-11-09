@@ -321,7 +321,7 @@ class HistoricalSupplySession:
         method = json.get("method")
         if method == "getTokenSupply":
             return Response({"result": {
-                "context": {"slot": 100},
+                "context": {"slot": 200},
                 "value": {"amount": "1000000", "decimals": 2},
             }})
         if method == "getBlockTime":
