@@ -85,6 +85,17 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
         liquidity_blockers.append(
             "GoPlus response coverage does not prove every LP position is locked"
         )
+        liquidity_blockers.append(
+            "no production chain-specific locker RPC snapshot reader and exhaustive pool inventory source is configured or capability-certified"
+        )
+        if chain in {"base", "bsc"}:
+            liquidity_blockers.append(
+                f"{chain} UNCX candidate still requires pinned runtime bytecode hash, chain-specific ABI enumeration and finalized LP custody reconciliation"
+            )
+        else:
+            liquidity_blockers.append(
+                "Solana UNCX Raydium AMM V4 is only a candidate; deployed executable, lock PDA decoding and custody-authority derivation require live verification"
+            )
         rows.append(ClaimReadiness(
             chain, "liquidity_lock", liquidity_configured, "goplus" in liquidity_trust,
             False, ("goplus",) if liquidity_configured else (), tuple(liquidity_blockers),
