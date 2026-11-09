@@ -24,6 +24,8 @@ from .bundle_store import LaunchBundleEvidenceStore
 from .sellability_store import SolanaSellabilityEvidenceStore
 from .sell_simulation_store import SolanaSellSimulationStore
 from .simulation_preflight_store import SolanaSimulationPreflightStore
+from .liquidity_store import SolanaLiquidityEvidenceStore
+from .liquidity_worker import SolanaLiquidityEvidenceWorker
 from ..config import settings as load_settings
 from ..providers.factory import (
     build_solana_risk_evidence_collector,
@@ -31,6 +33,7 @@ from ..providers.factory import (
     build_solana_launch_bundle_worker,
     build_solana_sellability_worker,
     build_solana_sell_simulation_worker,
+    build_liquidity_snapshot_providers,
 )
 
 
@@ -82,10 +85,18 @@ def run_service(
         configured, database, sell_simulation_store,
         preflight_store=simulation_preflight_store,
     )
+    liquidity_store = SolanaLiquidityEvidenceStore(database)
+    liquidity_providers = build_liquidity_snapshot_providers(configured, chains=("solana",))
+    liquidity_provider = liquidity_providers.get("solana")
+    liquidity_worker = (
+        SolanaLiquidityEvidenceWorker(launches, liquidity_provider, liquidity_store)
+        if liquidity_provider is not None else None
+    )
     pipeline = SolanaMemePipeline(
         enrichment, refresh, risk_worker, developer_worker, bundle_worker,
         sellability_worker=sellability_worker,
         sell_simulation_worker=sell_simulation_worker,
+        liquidity_worker=liquidity_worker,
     )
 
     stop_event = threading.Event()
