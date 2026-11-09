@@ -89,3 +89,34 @@ def test_goplus_rejects_api_error_response():
         pass
     else:
         raise AssertionError("Expected provider error")
+
+
+def test_goplus_bsc_maps_creator_fraction_to_percentage_points():
+    token = "0xabc"
+    provider = GoPlusTokenSafetyProvider(
+        session=Session(payload(token, {"creator_percent": "0.049"})),
+        clock_ms=lambda: 1234,
+    )
+    result = provider.fetch_safety_observation("bsc", token)
+    assert result.dev_hold_pct == 4.9
+    assert result.bundled_supply_pct is None
+
+
+def test_goplus_bsc_rejects_invalid_creator_fraction_as_unknown():
+    token = "0xabc"
+    for value in ("5", "-0.1", "nan", "inf", None, "unknown"):
+        provider = GoPlusTokenSafetyProvider(
+            session=Session(payload(token, {"creator_percent": value}))
+        )
+        result = provider.fetch_safety_observation("bsc", token)
+        assert result.dev_hold_pct is None
+
+
+def test_goplus_sol_creator_percentage_remains_unknown_without_documented_field():
+    token = "MintAddress"
+    provider = GoPlusTokenSafetyProvider(
+        access_token="secret",
+        session=Session(payload(token, {"creator_percent": "0.01"})),
+    )
+    result = provider.fetch_safety_observation("solana", token)
+    assert result.dev_hold_pct is None
