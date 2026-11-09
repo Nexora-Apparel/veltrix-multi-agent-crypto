@@ -89,3 +89,51 @@ def test_normalized_logs_rejects_malformed_rows():
     })
     with pytest.raises(Exception, match="malformed log row"):
         normalized_logs(rpc, "0x0000000000000000000000000000000000000001", 16, 16)
+
+
+
+def test_normalized_logs_chunks_ranges_to_ten_blocks_and_stops_at_target():
+    factory = "0x0000000000000000000000000000000000000001"
+    first_log = {
+        "blockHash": "0xAA", "blockNumber": "0x1a",
+        "transactionHash": "0xBB", "logIndex": "0x0",
+        "topics": [PAIR_CREATED_TOPIC], "data": "0x",
+    }
+    second_log = {
+        "blockHash": "0xCC", "blockNumber": "0x19",
+        "transactionHash": "0xDD", "logIndex": "0x0",
+        "topics": [PAIR_CREATED_TOPIC], "data": "0x",
+    }
+    rpc = FakeRpc({
+        ("eth_getLogs", json.dumps([{
+            "address": factory, "fromBlock": "0x15",
+            "toBlock": "0x1e", "topics": [PAIR_CREATED_TOPIC],
+        }], sort_keys=True)): [first_log],
+        ("eth_getLogs", json.dumps([{
+            "address": factory, "fromBlock": "0xb",
+            "toBlock": "0x14", "topics": [PAIR_CREATED_TOPIC],
+        }], sort_keys=True)): [second_log],
+    })
+    rows = normalized_logs(rpc, factory, 11, 30, stop_after=2)
+    assert len(rows) == 2
+    assert [call[1][0]["fromBlock"] for call in rpc.calls] == ["0x15", "0xb"]
+    assert all(
+        int(call[1][0]["toBlock"], 16) - int(call[1][0]["fromBlock"], 16) + 1 <= 10
+        for call in rpc.calls
+    )
+
+
+def test_normalized_logs_rejects_non_pair_created_topic():
+    factory = "0x0000000000000000000000000000000000000001"
+    rpc = FakeRpc({
+        ("eth_getLogs", json.dumps([{
+            "address": factory, "fromBlock": "0x10",
+            "toBlock": "0x10", "topics": [PAIR_CREATED_TOPIC],
+        }], sort_keys=True)): [{
+            "blockHash": "0xAA", "blockNumber": "0x10",
+            "transactionHash": "0xBB", "logIndex": "0x0",
+            "topics": ["0x" + "00" * 32], "data": "0x",
+        }]
+    })
+    with pytest.raises(Exception, match="non-PairCreated"):
+        normalized_logs(rpc, factory, 16, 16)
