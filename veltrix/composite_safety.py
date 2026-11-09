@@ -134,6 +134,12 @@ class CompositeTokenSafetyValidator:
                 reasons.append("launch indexer did not prove coverage through window end")
             if report.supply_source != report.provider or not report.supply_block_ref:
                 reasons.append("historical launch-time supply provenance is missing")
+            if (not isinstance(report.pages_scanned, int)
+                    or isinstance(report.pages_scanned, bool) or report.pages_scanned < 1):
+                reasons.append("launch indexing page coverage is missing")
+            if (not isinstance(report.provenance, (tuple, list)) or not report.provenance
+                    or any(not isinstance(item, str) or not item for item in report.provenance)):
+                reasons.append("launch indexing provenance records are missing")
             if (not isinstance(report.supply_observed_at_ms, int)
                     or isinstance(report.supply_observed_at_ms, bool)
                     or report.supply_observed_at_ms > now_ms
