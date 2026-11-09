@@ -2,3 +2,5 @@ pytest>=8.0,<9
 requests>=2.32,<3
 python-dotenv>=1.0,<2
 cryptography>=42,<47
+eth-hash[pycryptodome]>=0.7,<1
+solders>=0.21,<1
