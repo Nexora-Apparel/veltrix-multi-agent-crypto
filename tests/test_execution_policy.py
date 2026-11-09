@@ -361,3 +361,35 @@ def test_sqlite_authorization_store_rejects_memory_database():
 
     with pytest.raises(ValueError):
         SQLiteAuthorizationConsumer(":memory:")
+
+
+def test_authorization_verification_uses_durable_store_for_replay_protection(tmp_path):
+    from veltrix.authorization_store import SQLiteAuthorizationConsumer
+
+    policy = live_policy()
+    key = b"durable-store-test-key-32-bytes!!"
+    authorization = OperatorAuthorization.issue(
+        signing_key=key,
+        wallet_public_key="wallet",
+        policy=policy,
+        intent_id="durable-intent",
+        now=10_000,
+    )
+    database = tmp_path / "authorization.sqlite3"
+    authorization.verify_and_consume(
+        signing_key=key,
+        policy=policy,
+        wallet_public_key="wallet",
+        intent_id="durable-intent",
+        consumer=SQLiteAuthorizationConsumer(database),
+        now=10_001,
+    )
+    with pytest.raises(AuthorizationError, match="consumed"):
+        authorization.verify_and_consume(
+            signing_key=key,
+            policy=policy,
+            wallet_public_key="wallet",
+            intent_id="durable-intent",
+            consumer=SQLiteAuthorizationConsumer(database),
+            now=10_002,
+        )
