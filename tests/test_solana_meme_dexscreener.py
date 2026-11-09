@@ -1,3 +1,5 @@
+import pytest
+
 from veltrix.solana_meme.dexscreener import DexScreenerDiscovery
 
 MINT_A = "So11111111111111111111111111111111111111112"
@@ -122,8 +124,6 @@ def test_invalid_response_shape_is_reported_as_source_error():
 
 @pytest.mark.parametrize("timeout", [0, -1, True, "10", float("nan"), float("inf")])
 def test_rejects_invalid_timeout(timeout):
-    import pytest
-
     with pytest.raises(ValueError):
         DexScreenerDiscovery(timeout_seconds=timeout)
 
