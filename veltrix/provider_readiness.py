@@ -5,8 +5,6 @@ capabilities. A configured provider is not proof that a particular token has
 complete, fresh evidence.
 """
 from dataclasses import dataclass
-from typing import Iterable
-
 
 CHAINS = ("solana", "base", "bsc")
 CLAIMS = ("liquidity_lock", "developer_holdings", "launch_bundle")
@@ -58,7 +56,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
     bundle_trust = _trusted(settings, "trusted_bundle_providers")
     funding_trust = _trusted(settings, "trusted_funding_providers")
     origin_trust = _trusted(settings, "trusted_launch_origin_providers")
-    goplus_configured = bool(getattr(settings, "goplus_access_token", "")) or True
+    goplus_configured = True  # Public EVM endpoint; Solana beta is authenticated.
     helius = bool(getattr(settings, "helius_api_key", ""))
     base_rpc = bool(getattr(settings, "base_rpc_url", ""))
     bsc_rpc = bool(getattr(settings, "bsc_rpc_url", ""))
