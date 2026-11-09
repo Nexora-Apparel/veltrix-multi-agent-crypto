@@ -296,3 +296,58 @@ def test_paper_worker_rejects_split_phase_databases(tmp_path):
 
     with pytest.raises(ValueError, match="must share one persistent SQLite"):
         PaperTradingWorker(consensus, markets, risks, broker)
+
+def test_broker_rechecks_latest_market_snapshot_inside_entry_transaction(tmp_path):
+    markets, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    original = broker.open_position_from_consensus
+
+    def race_market_update(*args, **kwargs):
+        markets.record(market_snapshot(NOW + 1, price=0.0012))
+        return original(*args, **kwargs)
+
+    broker.open_position_from_consensus = race_market_update
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "market snapshot changed" in broker.paper_decisions(limit=1)[0]["reason"]
+
+
+def test_broker_rechecks_latest_consensus_inside_entry_transaction(tmp_path):
+    markets, _, consensus, broker, worker, decision = build_pipeline(tmp_path)
+    original = broker.open_position_from_consensus
+
+    def race_newer_abstention(*args, **kwargs):
+        newer = replace(
+            decision,
+            decision_id=decision.decision_id + "-newer",
+            created_at_ms=NOW + 1,
+            status="ABSTAIN",
+            paper_review_eligible=False,
+        )
+        consensus.record(newer)
+        return original(*args, **kwargs)
+
+    broker.open_position_from_consensus = race_newer_abstention
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "newer consensus decision" in broker.paper_decisions(limit=1)[0]["reason"]
+
+
+def test_status_marks_open_positions_to_latest_fresh_market_price(tmp_path):
+    markets, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    assert worker.run_once().opened_positions == 1
+    markets.record(market_snapshot(NOW + 1, price=0.0015))
+    worker.clock_ms = lambda: NOW + 1
+
+    status = worker.status()
+
+    assert status["unmarked_positions"] == []
+    position = status["account"]["open_positions"][0]
+    assert position["mark_price"] == pytest.approx(0.0015)
+    assert status["account"]["unrealized_pnl"] > 0
+    assert status["account"]["equity"] > status["account"]["cash"]
