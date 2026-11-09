@@ -947,6 +947,7 @@ def build_launch_intelligence_service(
         )
         supply_resolver = solana_supply_resolver or HeliusHistoricalSupplyResolver(
             settings.helius_api_key,
+            max_pages=settings.launch_index_max_pages,
         )
         indexers.append(HeliusLaunchIndexer(
             settings.helius_api_key, sol_funder, supply_resolver,
