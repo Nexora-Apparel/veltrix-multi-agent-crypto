@@ -164,6 +164,9 @@ def test_finalized_mint_snapshot_resolves_authority_claims_for_classic_spl_token
     assert report.mint_authority is None
     assert report.freeze_authority is None
     assert report.token_2022_extension_review_complete is True
+    assert report.mint_supply_raw == 1000
+    assert report.mint_decimals == 6
+    assert report.mint_supply_reconciled is True
     for claim in ("mint_account_state", "mint_authority", "freeze_authority",
                   "token_2022_extension_review"):
         assert claim not in report.missing_claims
@@ -197,3 +200,12 @@ def test_stale_mint_snapshot_is_ignored_and_keeps_authority_claims_unknown():
     assert report.mint_evidence_id is None
     assert "mint_authority" in report.missing_claims
     assert any("mint_account" in item for item in report.errors)
+
+
+def test_mint_supply_or_decimals_mismatch_is_not_reconciled():
+    report = collector(
+        holder=FakeHolders(holders(total=999)),
+        mint_provider=FakeMint(mint_snapshot()),
+    ).collect(MINT)
+    assert report.mint_supply_reconciled is False
+    assert any("supply or decimals disagree" in item for item in report.errors)
