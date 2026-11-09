@@ -408,14 +408,16 @@ def build_solana_sell_simulation_worker(settings, database_path, evidence_store,
 
 
 
-def build_solana_agent_context_provider(settings, market_store, *, session=None):
-    """Build read-only market + Helius wallet context only with explicit trust."""
+def build_solana_agent_context_provider(settings, market_store):
+    """Build market context, adding Helius wallet flow only with explicit trust."""
+    from ..solana_meme.market_agent_context import SolanaMarketAgentContextProvider
+
     if (not getattr(settings, "helius_api_key", "")
             or len(getattr(settings, "tracked_smart_wallets", ())) < 2
             or "helius" not in getattr(settings, "trusted_wallet_providers", ())):
-        return None
+        return SolanaMarketAgentContextProvider(market_store)
     from ..solana_meme.agent_context import SolanaAgentContextProvider
     coordinator = build_intelligence_coordinator(settings)
     if not coordinator.providers:
-        return None
+        return SolanaMarketAgentContextProvider(market_store)
     return SolanaAgentContextProvider(coordinator, market_store)
