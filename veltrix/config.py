@@ -30,6 +30,8 @@ class Settings:
     wallet_evidence_max_age_ms: int = int(os.getenv("WALLET_EVIDENCE_MAX_AGE_MS", "300000"))
     safety_evidence_max_age_ms: int = int(os.getenv("SAFETY_EVIDENCE_MAX_AGE_MS", "300000"))
     goplus_access_token: str = os.getenv("GOPLUS_ACCESS_TOKEN", "")
+    helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
+    tracked_smart_wallets: tuple[str, ...] = _addresses("TRACKED_SMART_WALLETS")
     solana_tokens: tuple[str, ...] = _addresses("WATCHLIST_SOLANA")
     base_tokens: tuple[str, ...] = _addresses("WATCHLIST_BASE")
     bsc_tokens: tuple[str, ...] = _addresses("WATCHLIST_BSC")
