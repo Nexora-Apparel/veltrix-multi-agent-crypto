@@ -44,6 +44,8 @@ class MarketEvidence:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
                 raise ValueError(f"market snapshot {key} is invalid")
             numeric[key] = float(value)
+        if numeric["price_usd"] <= 0 or numeric["liquidity_usd"] < 0 or numeric["volume_h1_usd"] < 0:
+            raise ValueError("market snapshot core market values are outside valid bounds")
         change = row.get("price_change_m5_pct")
         if change is not None and (
             isinstance(change, bool)
@@ -116,8 +118,8 @@ class RiskEvidence:
         if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
             raise ValueError("risk evidence timestamp is invalid")
         risk_state = payload.get("risk_state")
-        if not isinstance(risk_state, str) or not risk_state:
-            raise ValueError("risk evidence state is missing")
+        if risk_state not in {"REQUIRES_MORE_EVIDENCE", "EVIDENCE_COLLECTED_REVIEW_REQUIRED"}:
+            raise ValueError("risk evidence state is missing or unsupported")
         missing = payload.get("missing_claims")
         errors = payload.get("errors")
         raw_flags = payload.get("risk_flags")
@@ -132,12 +134,10 @@ class RiskEvidence:
             if not isinstance(raw, Mapping):
                 raise ValueError("risk flag row is malformed")
             try:
-                flag = RiskFlag(
-                    code=str(raw["code"]),
-                    severity=str(raw["severity"]),
-                    description=str(raw["description"]),
-                    evidence_source=str(raw["evidence_source"]),
-                )
+                values = {key: raw[key] for key in ("code", "severity", "description", "evidence_source")}
+                if any(not isinstance(value, str) or not value.strip() for value in values.values()):
+                    raise ValueError("risk flag text fields must be non-empty strings")
+                flag = RiskFlag(**values)
             except (KeyError, TypeError) as exc:
                 raise ValueError("risk flag row is incomplete") from exc
             if flag.severity not in {"critical", "high", "medium", "low", "info"}:
@@ -277,8 +277,12 @@ class ConsensusEngine:
         now = now_ms
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("now_ms must be a positive integer")
+        if canonical_mint(market.mint) != market.mint or market.chain != "solana" or market.source != "dexscreener":
+            raise ValueError("consensus accepts only canonical Solana DEX Screener market evidence")
         if market.mint != risk.mint:
             raise ValueError("market and risk evidence mint mismatch")
+        if any(flag.severity not in {"critical", "high", "medium", "low", "info"} for flag in risk.risk_flags):
+            raise ValueError("risk evidence contains an unsupported severity")
 
         market_fresh = market.is_fresh(now, self.max_market_age_ms)
         risk_fresh = risk.is_fresh(now, self.max_risk_age_ms)
@@ -388,7 +392,7 @@ class ConsensusEngine:
                 "Critical/high deterministic security flags require rejection or manual resolution",
                 tuple(f"risk_flag:{flag.code}" for flag in severe_flags), now,
             )
-        elif risk.errors or risk.missing_claims:
+        elif risk.errors or risk.missing_claims or risk.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED":
             shield_vote = self._vote(
                 "shield", "ABSTAIN",
                 "Required security claims remain missing or provider evidence contains errors",
@@ -421,6 +425,12 @@ class ConsensusEngine:
             reasons = (shield_vote.reason,) + tuple(
                 vote.reason for vote in votes if vote.stance == "SUPPORT"
             )
+        elif not market_fresh:
+            status = "ABSTAIN"
+            reasons = ("Market snapshot is stale; consensus approval is prohibited",)
+        elif market.quality_flags:
+            status = "WATCH" if support_count else "ABSTAIN"
+            reasons = ("Market snapshot contains unresolved data-quality flags",)
         elif support_count >= 2:
             status = "CONSENSUS_APPROVED"
             reasons = (
