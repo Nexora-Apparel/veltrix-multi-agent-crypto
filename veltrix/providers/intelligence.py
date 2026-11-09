@@ -6,7 +6,7 @@ must be configured by the operator and backed by an external due-diligence proce
 """
 from dataclasses import dataclass
 import math
-from typing import Iterable
+from typing import Iterable, Protocol
 
 from ..safety import SafetyEvidence, SafetyReport, TokenSafetyValidator
 from ..whales import WalletBuyEvent
@@ -36,6 +36,28 @@ class TokenSafetyObservation:
     liquidity_locked: bool | None
     dev_hold_pct: float | None
     bundled_supply_pct: float | None
+
+
+class SmartWalletProvider(Protocol):
+    """Contract for an external indexed transaction source."""
+
+    @property
+    def provider_id(self) -> str: ...
+
+    def fetch_wallet_observations(
+        self, chain: str, token_addresses: tuple[str, ...], since_ms: int
+    ) -> Iterable[SmartWalletObservation]: ...
+
+
+class TokenSafetyProvider(Protocol):
+    """Contract for an external liquidity/holder evidence source."""
+
+    @property
+    def provider_id(self) -> str: ...
+
+    def fetch_safety_observation(
+        self, chain: str, token_address: str
+    ) -> TokenSafetyObservation | None: ...
 
 
 @dataclass(frozen=True)
@@ -69,6 +91,52 @@ class VerifiedIntelligenceAdapters:
         self.safety_validator = TokenSafetyValidator(
             self.trusted_safety_providers, max_age_ms=max_safety_age_ms
         )
+
+    def collect_wallet_observations(
+        self, provider: SmartWalletProvider, chain: str,
+        token_addresses: Iterable[str], since_ms: int, now_ms: int,
+    ) -> AdapterBatch:
+        provider_id = getattr(provider, "provider_id", None)
+        if not isinstance(provider_id, str) or provider_id not in self.trusted_wallet_providers:
+            return AdapterBatch((), ("whale: provider identity is not trusted",))
+        try:
+            observations = provider.fetch_wallet_observations(
+                chain, tuple(token_addresses), since_ms
+            )
+            normalized = tuple(observations)
+        except Exception:
+            return AdapterBatch((), ("whale: trusted provider request failed",))
+        mismatched = [
+            f"whale: provider identity mismatch on observation {index}"
+            for index, item in enumerate(normalized)
+            if getattr(item, "provider", None) != provider_id
+        ]
+        matching = [item for item in normalized if getattr(item, "provider", None) == provider_id]
+        batch = self.adapt_wallet_observations(matching, now_ms)
+        return AdapterBatch(batch.accepted, tuple(mismatched) + batch.rejected)
+
+    def collect_safety_observation(
+        self, provider: TokenSafetyProvider, chain: str,
+        token_address: str, now_ms: int,
+    ) -> SafetyReport:
+        provider_id = getattr(provider, "provider_id", None)
+        if not isinstance(provider_id, str) or provider_id not in self.trusted_safety_providers:
+            return self.safety_validator.validate(token_address, None, now_ms)
+        try:
+            observation = provider.fetch_safety_observation(chain, token_address)
+        except Exception:
+            observation = None
+        if observation is not None and observation.provider != provider_id:
+            observation = TokenSafetyObservation(
+                provider="provider-identity-mismatch",
+                token_address=observation.token_address,
+                evidence_id=observation.evidence_id,
+                observed_at_ms=observation.observed_at_ms,
+                liquidity_locked=observation.liquidity_locked,
+                dev_hold_pct=observation.dev_hold_pct,
+                bundled_supply_pct=observation.bundled_supply_pct,
+            )
+        return self.validate_safety_observation(token_address, observation, now_ms)
 
     def adapt_wallet_observations(
         self, observations: Iterable[SmartWalletObservation], now_ms: int
