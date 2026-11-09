@@ -284,6 +284,9 @@ def verify_full_inventory(rpc, factory, events, finalized, label):
 
 
 def inspect_candidate(rpc, candidate, finalized, finalized_hash, chunk_span):
+    chain_id = quantity(rpc.call("eth_chainId", []), f"{rpc.label} chain ID")
+    if chain_id != CHAIN_ID:
+        raise PreflightError(f"{rpc.label}: expected Base chain ID 8453")
     factory = candidate["address"]
     receipt = rpc.call("eth_getTransactionReceipt", [candidate["creation_tx"]])
     if not isinstance(receipt, dict) or quantity(receipt.get("status"), "receipt status") != 1:
@@ -304,6 +307,12 @@ def inspect_candidate(rpc, candidate, finalized, finalized_hash, chunk_span):
     if not isinstance(code, str) or not code.startswith("0x") or len(code) <= 2:
         raise PreflightError(f"{rpc.label}: factory runtime code missing")
     code_hash = keccak(bytes.fromhex(code[2:])).hex()
+    initial_count = quantity(
+        rpc.call("eth_call", [{"to": factory, "data": selector("allPairsLength()")}, hex(candidate["deployment_block"])]),
+        f"{rpc.label} allPairsLength at deployment",
+    )
+    if initial_count != 0:
+        raise PreflightError(f"{rpc.label}: factory inventory was non-empty at its deployment block")
     events, coverage = scan_event_history(
         rpc, factory, candidate["deployment_block"], finalized,
         f"{rpc.label}/{candidate['amm_id']}", chunk_span,
@@ -330,6 +339,7 @@ def inspect_candidate(rpc, candidate, finalized, finalized_hash, chunk_span):
         "deployment_block_hash": deployment["hash"].lower(),
         "runtime_code_bytes": len(bytes.fromhex(code[2:])),
         "runtime_code_keccak256": code_hash,
+        "all_pairs_length_at_deployment": initial_count,
         "all_pairs_length": length,
         "event_coverage": coverage,
         "event_history_keccak256": keccak(event_bytes).hex(),
@@ -348,7 +358,11 @@ def main():
     if {item.get("amm_id") for item in candidates if isinstance(item, dict)} != required:
         raise PreflightError("manifest does not contain the four expected candidate IDs")
     for item in candidates:
-        if (not isinstance(item, dict) or not isinstance(item.get("deployment_block"), int)
+        if (not isinstance(item, dict) or not isinstance(item.get("address"), str)
+                or len(item["address"]) != 42 or not item["address"].startswith("0x")
+                or not isinstance(item.get("creation_tx"), str) or len(item["creation_tx"]) != 66
+                or not item["creation_tx"].startswith("0x")
+                or not isinstance(item.get("deployment_block"), int)
                 or item["deployment_block"] <= 0):
             raise PreflightError("malformed candidate deployment metadata")
 
@@ -373,8 +387,9 @@ def main():
     for candidate in candidates:
         left = inspect_candidate(primary, candidate, height, checkpoint_hash, span)
         right = inspect_candidate(secondary, candidate, height, checkpoint_hash, span)
-        for field in ("deployment_block_hash", "runtime_code_bytes", "runtime_code_keccak256",
-                      "all_pairs_length", "event_coverage", "event_history_keccak256"):
+        for field in ("chain_id", "deployment_block_hash", "runtime_code_bytes", "runtime_code_keccak256",
+                      "all_pairs_length_at_deployment", "all_pairs_length",
+                      "event_coverage", "event_history_keccak256"):
             if left[field] != right[field]:
                 raise PreflightError(f"{candidate['amm_id']}: providers disagree on {field}")
         if left["inventory"] != right["inventory"]:
