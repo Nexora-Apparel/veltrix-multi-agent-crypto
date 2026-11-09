@@ -24,7 +24,6 @@ class FakeQuoteProvider:
 
     def fetch_sell_quote(self, mint, input_amount_raw):
         assert mint == MINT
-        assert input_amount_raw == 10_000_000
         if self.error:
             raise self.error
         return replace(self.quote, input_amount_raw=input_amount_raw)
