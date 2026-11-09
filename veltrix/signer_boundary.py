@@ -50,12 +50,15 @@ class SignedTransactionEnvelope:
 
     intent_id: str
     signer_public_key: str
+    chain: str
+    network: str
+    policy_hash: str
     message_sha256: str
     signed_transaction: bytes
     transaction_signature: str
 
     def __post_init__(self) -> None:
-        for name in ("intent_id", "signer_public_key", "transaction_signature"):
+        for name in ("intent_id", "signer_public_key", "chain", "network", "policy_hash", "transaction_signature"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value or value.strip() != value:
                 raise SignerBoundaryError(f"{name} must be a non-empty canonical string")
