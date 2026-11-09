@@ -67,8 +67,10 @@ python -m veltrix.solana_meme.paper_runtime
 ```
 
 Keep `LIVE_TRADING=false`; the runtime refuses to start if live trading is
-enabled. Stop with SIGINT or SIGTERM. The runtime logs each cycle and stops
-cleanly.
+enabled. When `PAPER_TRADING_ENABLED=true`, the legacy multi-chain monitor
+automatically defers Solana position exits to this worker, preventing duplicate
+exit management; it continues managing Base/BSC positions. Stop with SIGINT or
+SIGTERM. The runtime logs each cycle and stops cleanly.
 
 ## Configuration
 
