@@ -79,3 +79,20 @@ Phase 09 is not complete until:
 7. a separate operator-facing checklist documents manual wallet isolation and emergency-stop verification without requiring the user to expose secrets.
 
 Passing CI is not proof of safe live trading. No real-money transaction is part of this phase.
+
+
+## Implementation progress
+
+### 09.1 — Execution policy and operator authorization
+
+Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/test_execution_policy.py`.
+
+- Frozen policy snapshots use integer base-unit limits and a deterministic SHA-256 policy hash.
+- Environment loading defaults to PAPER and rejects every truthy `LIVE_TRADING` value; unknown values fail closed.
+- Authorization claims bind a one-use authorization ID to wallet public key, chain, policy hash, intent ID, issuance time and expiry.
+- HMAC-SHA256 verification uses an injected key of at least 32 bytes; no key is loaded from disk or environment by this module.
+- Authorization lifetime is capped at 300 seconds; scope, expiry, signature and replay checks are enforced before consumption.
+- A durable atomic consumer is an interface requirement, not yet implemented. Until 09.2/09.7 provide independently reviewed storage and state transitions, this authorization primitive is not a production execution path.
+- LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
+
+This is an initial 09.1 implementation, not a release approval. CI and integration verification remain pending.
