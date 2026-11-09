@@ -290,9 +290,30 @@ class SolanaRaydiumV4CpmmSnapshotReader:
                 if (len(data) != RAYDIUM_CPMM_STATE_SIZE
                         or data[:8] != RAYDIUM_CPMM_POOL_DISCRIMINATOR):
                     raise ProviderError("Raydium CPMM PoolState discriminator or size mismatch")
+                vault0 = str(Pubkey.from_bytes(data[72:104]))
+                vault1 = str(Pubkey.from_bytes(data[104:136]))
                 lp_mint = str(Pubkey.from_bytes(data[136:168]))
-                token0 = str(Pubkey.from_bytes(data[168:200]))
-                token1 = str(Pubkey.from_bytes(data[200:232]))
+                token0_key = Pubkey.from_bytes(data[168:200])
+                token1_key = Pubkey.from_bytes(data[200:232])
+                token0 = str(token0_key)
+                token1 = str(token1_key)
+                if bytes(token0_key) >= bytes(token1_key):
+                    raise ProviderError("Raydium CPMM token mint ordering is invalid")
+                expected_lp, _ = Pubkey.find_program_address(
+                    [b"pool_lp_mint", bytes(Pubkey.from_string(address))],
+                    self.cpmm_program,
+                )
+                expected_vault0, _ = Pubkey.find_program_address(
+                    [b"pool_vault", bytes(Pubkey.from_string(address)), bytes(token0_key)],
+                    self.cpmm_program,
+                )
+                expected_vault1, _ = Pubkey.find_program_address(
+                    [b"pool_vault", bytes(Pubkey.from_string(address)), bytes(token1_key)],
+                    self.cpmm_program,
+                )
+                if (str(expected_lp) != lp_mint or str(expected_vault0) != vault0
+                        or str(expected_vault1) != vault1):
+                    raise ProviderError("Raydium CPMM LP mint or vault PDA derivation mismatch")
                 if mint_key not in {token0, token1}:
                     raise ProviderError("Raydium CPMM memcmp result does not contain requested mint")
                 if address in rows:
@@ -370,8 +391,8 @@ class SolanaRaydiumV4CpmmSnapshotReader:
 
     def _read_lp_supply(self, lp_mint, slot):
         value = self._get_account_crosschecked(lp_mint, slot)
-        if value.get("owner") not in {TOKEN_PROGRAM, TOKEN_2022_PROGRAM}:
-            raise ProviderError("Raydium LP mint is not owned by a supported SPL Token program")
+        if value.get("owner") != TOKEN_PROGRAM:
+            raise ProviderError("Raydium LP mint is not owned by the classic SPL Token program")
         data = _decode_account_data(value, "LP mint")
         if len(data) < 82 or data[45] != 1:
             raise ProviderError("LP mint layout or initialized flag is invalid")
