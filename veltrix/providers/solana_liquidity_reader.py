@@ -261,6 +261,56 @@ class SolanaRaydiumV4UncxSnapshotReader:
             raise ProviderError("independent Solana RPCs disagree on complete Raydium pool inventory")
         return tuple(pool_rows.values())
 
+    def _scan_cpmm_pools(self, rpc, token_mint, slot):
+        mint_key = str(Pubkey.from_string(token_mint))
+        rows = {}
+        for offset in (168, 200):
+            response = rpc.call("getProgramAccounts", [
+                RAYDIUM_CPMM_PROGRAM,
+                {"encoding": "base64", "commitment": "finalized",
+                 "withContext": True, "minContextSlot": slot,
+                 "filters": [
+                     {"dataSize": RAYDIUM_CPMM_STATE_SIZE},
+                     {"memcmp": {"offset": offset, "bytes": mint_key}},
+                 ]},
+            ])
+            self._context_slot(response, "Raydium CPMM pool discovery", slot)
+            values = response.get("value")
+            if not isinstance(values, list) or len(values) >= self.max_pools:
+                raise ProviderError("Raydium CPMM pool discovery is malformed or at its result cap")
+            for item in values:
+                address = item.get("pubkey")
+                account = item.get("account") or {}
+                if account.get("owner") != RAYDIUM_CPMM_PROGRAM:
+                    raise ProviderError("Raydium CPMM pool account owner mismatch")
+                data = _decode_account_data(account, "Raydium CPMM pool")
+                if len(data) != RAYDIUM_CPMM_STATE_SIZE:
+                    raise ProviderError("Raydium CPMM PoolState has an unexpected size")
+                lp_mint = str(Pubkey.from_bytes(data[136:168]))
+                token0 = str(Pubkey.from_bytes(data[168:200]))
+                token1 = str(Pubkey.from_bytes(data[200:232]))
+                if mint_key not in {token0, token1}:
+                    raise ProviderError("Raydium CPMM memcmp result does not contain requested mint")
+                if address in rows:
+                    if rows[address]["lp_mint"] != lp_mint:
+                        raise ProviderError("Raydium CPMM pool appeared with conflicting state")
+                    continue
+                rows[address] = {
+                    "amm_id": address, "lp_mint": lp_mint,
+                    "base_mint": token0, "quote_mint": token1,
+                    "pool_type": "raydium-cpmm",
+                }
+        if len(rows) >= self.max_pools:
+            raise ProviderError("Raydium CPMM pool inventory reached configured cap")
+        return rows
+
+    def _discover_cpmm_pools(self, token_mint, slot):
+        pool_rows = self._scan_cpmm_pools(self.pool_rpc, token_mint, slot)
+        locker_rows = self._scan_cpmm_pools(self.locker_rpc, token_mint, slot)
+        if pool_rows != locker_rows:
+            raise ProviderError("independent Solana RPCs disagree on complete Raydium CPMM pool inventory")
+        return tuple(pool_rows.values())
+
     def _decode_token_lock(self, address, account):
         if account.get("owner") != UNCX_PROGRAM:
             raise ProviderError("UNCX lock account is not owned by the pinned program")
@@ -316,8 +366,8 @@ class SolanaRaydiumV4UncxSnapshotReader:
 
     def _read_lp_supply(self, lp_mint, slot):
         value = self._get_account_crosschecked(lp_mint, slot)
-        if value.get("owner") != TOKEN_PROGRAM:
-            raise ProviderError("Raydium LP mint is not owned by the classic SPL Token program")
+        if value.get("owner") not in {TOKEN_PROGRAM, TOKEN_2022_PROGRAM}:
+            raise ProviderError("Raydium LP mint is not owned by a supported SPL Token program")
         data = _decode_account_data(value, "LP mint")
         if len(data) < 82 or data[45] != 1:
             raise ProviderError("LP mint layout or initialized flag is invalid")
@@ -353,9 +403,15 @@ class SolanaRaydiumV4UncxSnapshotReader:
 
         executable_hash = self._verify_uncx_program(slot)
         self._verify_raydium_program(slot)
-        discovered = self._discover_raydium_pools(token_key, slot)
+        self._verify_raydium_cpmm_program(slot)
+        v4_pools = self._discover_raydium_pools(token_key, slot)
+        cpmm_pools = self._discover_cpmm_pools(token_key, slot)
+        discovered = tuple(
+            dict(pool, pool_type="raydium-amm-v4") for pool in v4_pools
+        ) + cpmm_pools
         if not discovered:
-            raise ProviderError("no Raydium AMM V4 pools were discovered for the token")
+            raise ProviderError("no pools were discovered in the configured Raydium AMM V4 and CPMM scope")
+
         block_time = self.pool_rpc.call("getBlockTime", [slot])
         locker_block_time = self.locker_rpc.call("getBlockTime", [slot])
         if (not isinstance(block_time, int) or block_time <= 0
@@ -371,6 +427,21 @@ class SolanaRaydiumV4UncxSnapshotReader:
             supply = self._read_lp_supply(lp_mint, slot)
             if supply <= 0:
                 raise ProviderError("Raydium LP mint supply is zero or unavailable")
+
+            if pool["pool_type"] == "raydium-cpmm":
+                # No independently verified UNCX CPMM locker implementation is
+                # available. Keep every CPMM pool in the inventory with zero
+                # verified custody so it blocks the all-pool safety claim.
+                pools.append(PoolLiquiditySnapshot(
+                    chain="solana", token_address=token_key, pool_address=pool["amm_id"],
+                    lp_token_address=lp_mint, total_lp_supply=supply,
+                    observed_at_ms=observed_ms, finalized_ref=finalized_ref,
+                    inventory_provider=self.provider_id, inventory_complete=True,
+                    pool_set_id="solana:raydium-amm-v4+cpmm:finalized",
+                    locker_custody_amount=0,
+                ))
+                continue
+
             records = self._read_lock_records(lp_mint, slot)
             if any(record["amm_id"] != pool["amm_id"] for record in records):
                 raise ProviderError("UNCX LP mint lock records reference a different AMM pool")
@@ -400,7 +471,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
                 lp_token_address=lp_mint, total_lp_supply=supply,
                 observed_at_ms=observed_ms, finalized_ref=finalized_ref,
                 inventory_provider=self.provider_id, inventory_complete=True,
-                pool_set_id="solana:raydium-amm-v4:finalized",
+                pool_set_id="solana:raydium-amm-v4+cpmm:finalized",
                 locker_custody_amount=custody_amount,
             ))
 
@@ -419,7 +490,8 @@ class SolanaRaydiumV4UncxSnapshotReader:
         return LiquidityInventoryBatch(
             chain="solana", token_address=token_key, provider=self.provider_id,
             independence_group=self.pool_group, observed_at_ms=observed_ms,
-            finalized_ref=finalized_ref, pool_set_id="solana:raydium-amm-v4:finalized",
+            finalized_ref=finalized_ref,
+            pool_set_id="solana:raydium-amm-v4+cpmm:finalized",
             inventory_complete=True, pools=tuple(pools), positions=tuple(positions),
             deployments=(deployment,),
         )
