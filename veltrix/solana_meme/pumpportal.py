@@ -62,7 +62,8 @@ class PumpPortalDiscovery:
 
     @staticmethod
     def _candidate(payload: dict[str, Any], received_at_ms: int) -> SolanaCandidate | None:
-        if payload.get("txType") not in (None, "create"):
+        # Fail closed: only explicitly identified token-creation events qualify.
+        if payload.get("txType") != "create":
             return None
         mint = payload.get("mint")
         if not isinstance(mint, str):
