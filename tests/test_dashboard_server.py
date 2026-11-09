@@ -122,7 +122,7 @@ def test_dashboard_remote_binding_requires_at_least_32_token_characters(tmp_path
 
 def test_dashboard_api_token_environment_variable_is_used(tmp_path, monkeypatch):
     database = make_database(tmp_path)
-    monkeypatch.setenv("VELTRIX_DASHBOARD_API_TOKEN", "e" * 32)
+    monkeypatch.setenv("VELTRIX_DASHBOARD_TOKEN", "e" * 32)
     server = build_server(
         database_path=database,
         host="0.0.0.0",
