@@ -6,7 +6,7 @@ from eth_hash.auto import keccak
 from veltrix.liquidity_evidence import LiquidityEvidenceAnalyzer
 from veltrix.providers.evm_liquidity_reader import (
     EvmFactorySpec, EvmLockerSpec, EvmV2LiquiditySnapshotReader,
-    BSC_DEPOSIT_TOPIC, BSC_WITHDRAW_TOPIC, NEW_LOCK_TOPIC, PAIR_CREATED_TOPIC,
+    BSC_DEPOSIT_TOPIC, BSC_WITHDRAW_TOPIC, PAIR_CREATED_TOPIC,
 )
 
 
