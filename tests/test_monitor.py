@@ -33,15 +33,17 @@ def test_monitor_builds_scout_context_only_after_minimum_history(tmp_path):
     from veltrix.providers.base import MarketEvent
     db = str(tmp_path / "signals.db")
     monitor = MarketMonitor({"base": ["token-address"]}, db, FakeProvider())
+    import time
+    now_ms = int(time.time() * 1000)
     for i in range(5):
         monitor.ledger.record_market_event(MarketEvent(
             "base", "token-address", f"old-{i}", "TST", 1.0, 5000,
-            1000, 0.5, 1000 + i, None, "fake"
+            1000, 0.5, now_ms - (5 - i) * 60_000, None, "fake"
         ))
     monitor.provider = type("SpikeProvider", (), {
         "fetch_token_pairs": lambda self, chain, addresses: [
             MarketEvent(chain, addresses[0], "new", "TST", 1.1, 6000,
-                        3000, 2.0, 2000, None, "fake")
+                        3000, 2.0, int(time.time() * 1000), None, "fake")
         ]
     })()
     monitor.poll_once()
