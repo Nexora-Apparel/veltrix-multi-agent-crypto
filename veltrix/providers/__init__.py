@@ -10,10 +10,6 @@ from .launch import (
     EvmRpcLaunchIndexer, EvmQuoteFundingResolver, LaunchIntelligenceService,
     build_launch_intelligence_service,
 )
-from ..launch_origin import (
-    LaunchOrigin, SolanaLaunchOriginResolver, EvmLaunchOriginResolver,
-    build_launch_origin_resolvers,
-)
 
 __all__ = [
     "MarketEvent", "ProviderError", "DexScreenerProvider",
@@ -22,7 +18,5 @@ __all__ = [
     "CrossChainIntelligenceResult", "FundingTrace", "LaunchIndexBatch",
     "HeliusLaunchIndexer", "HeliusNativeFundingResolver", "EvmRpcLaunchIndexer",
     "EvmQuoteFundingResolver", "LaunchIntelligenceService",
-    "build_launch_intelligence_service", "LaunchOrigin",
-    "SolanaLaunchOriginResolver", "EvmLaunchOriginResolver",
-    "build_launch_origin_resolvers",
+    "build_launch_intelligence_service",
 ]
