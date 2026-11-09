@@ -12,6 +12,8 @@ from .market_refresh import MarketRefreshBatchResult, MarketRefreshWorker
 from .pumpportal import PumpPortalDiscovery, PumpPortalError
 from .pipeline import SolanaMemePipeline, SolanaPipelineCycleResult
 from .risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
+from .risk_store import SolanaRiskEvidenceStore
+from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
 from .shield import ShieldDecision, SolanaShieldPolicy
 
 __all__ = [
@@ -25,5 +27,6 @@ __all__ = [
     "MarketRefreshBatchResult", "MarketRefreshWorker",
     "CandidateEnrichmentWorker", "EnrichmentBatchResult",
     "SolanaRiskEvidenceCollector", "SolanaRiskEvidenceReport",
+    "SolanaRiskEvidenceStore", "RiskEvidenceBatchResult", "SolanaRiskEvidenceWorker",
     "ShieldDecision", "SolanaShieldPolicy",
 ]
