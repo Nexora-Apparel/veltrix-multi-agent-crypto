@@ -54,3 +54,32 @@ The existing repository already contains a multi-agent Core, Scout/Whale/Sniper/
 - Do not call an API integration complete until a real read-only provider check succeeds.
 - Do not call a strategy profitable without out-of-sample, net-of-cost evidence.
 - Never enable live trading as a side effect of configuration or deployment.
+
+## Progress snapshot — 2026-11-09
+
+The following components are implemented and covered by repository CI, but their
+roadmap stages remain partial until the full exit evidence is achieved:
+
+- **Discovery:** PumpPortal new-token stream, canonical mint validation,
+  persistence, reconnect/outage tracking and source provenance. No historical
+  backfill or exhaustive launch coverage.
+- **Market intelligence:** DexScreener normalization, append-only snapshots,
+  initial enrichment, scheduled refresh, durable leases and retry handling.
+  Trade-flow reconstruction, executable sell-route checks and quote-impact
+  validation remain open.
+- **Risk evidence:** GoPlus, finalized holder inventory and finalized mint
+  authority evidence can be collected, persisted and refreshed. Unknown creator
+  linkage, bundled supply, full Token-2022 extension semantics and sellability
+  remain explicit blockers.
+- **Decision/risk:** Solana Shield enforces fail-closed evidence, same-mint
+  two-agent consensus and paper position limits. The complete strategy,
+  exit/stop-loss integration, emergency-stop lifecycle and market-impact policy
+  still require end-to-end validation.
+- **Runtime:** `python -m veltrix.solana_meme.runtime` runs the read-only launch,
+  market and optional risk-evidence pipeline. Risk collection uses existing
+  `GOPLUS_ACCESS_TOKEN` and `SOLANA_RPC_URL`; if either is absent, that stage
+  remains disabled rather than inventing credentials.
+
+Latest CI at commit `e1dfa1fe0472016386a8ded50ba47b7489e2df07`:
+**373 passed, 5 skipped**. These are automated tests with synthetic provider
+fixtures, not live-provider certification or profitability evidence.
