@@ -156,6 +156,7 @@ class PaperTradingWorker:
             vote.get("agent")
             for vote in votes
             if isinstance(vote, dict)
+            and isinstance(vote.get("agent"), str)
             and vote.get("agent") in {"scout", "whale", "sniper"}
             and vote.get("stance") == "SUPPORT"
         }
@@ -163,7 +164,12 @@ class PaperTradingWorker:
             return None, "Shield approval is missing or ambiguous"
         if len(supporters) < 2 or decision.get("support_count") != len(supporters):
             return None, "two distinct specialist-agent support votes are required"
-        if set(decision.get("supporting_agents") or ()) != supporters:
+        supporting_summary = decision.get("supporting_agents")
+        if (
+            not isinstance(supporting_summary, list)
+            or any(not isinstance(agent, str) for agent in supporting_summary)
+            or set(supporting_summary) != supporters
+        ):
             return None, "persisted supporting-agent summary does not match its votes"
 
         if decision.get("risk_state") != "EVIDENCE_COLLECTED_REVIEW_REQUIRED":
