@@ -53,7 +53,17 @@ the primary stream's outage is closed by a subsequent valid event.
 ## Runtime
 
 `SolanaDiscoveryEngine.run(stop_event)` polls the secondary lists and can
-supervise the primary PumpPortal stream in a dedicated daemon thread. Run it as
+supervise the primary PumpPortal stream in a dedicated daemon thread. Before starting the long-running worker, run the one-shot provider connectivity check:
+
+```bash
+python -m veltrix.solana_meme.smoke
+```
+
+It checks the PumpPortal websocket handshake/subscription and verifies that at
+least one DEX Screener discovery endpoint responds. It does not trade or leave a
+socket open.
+
+Run the continuous engine as
 a long-lived worker process, not inside a web request:
 
 ```bash
