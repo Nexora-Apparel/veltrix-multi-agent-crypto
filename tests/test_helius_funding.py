@@ -139,3 +139,21 @@ def test_solana_graph_enforces_intermediary_wallet_cap():
     )
     with pytest.raises(ProviderError, match="wallet cap"):
         provider.fetch_snapshot("mint", ["holder"])
+
+
+
+def test_solana_graph_enforces_global_scan_page_budget_across_wallets():
+    def handler(body):
+        return {
+            "data": [],
+            "paginationToken": None,
+            "scan": {"stoppedOn": "windowEnd", "scannedThrough": {"blockTime": 100}},
+        }
+    provider = HeliusSolanaFundingGraphProvider(
+        "key", session=Session(handler), clock_ms=lambda: 100_000,
+        max_total_pages=1,
+    )
+    # Two initial holders need two independent history pages; the graph cannot
+    # silently exceed its aggregate request budget.
+    with pytest.raises(ProviderError, match="total scan-page budget"):
+        provider.fetch_snapshot("mint", ["holder-a", "holder-b"])
