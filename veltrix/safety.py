@@ -16,6 +16,13 @@ class SafetyEvidence:
     dev_hold_pct: float | None
     bundled_supply_pct: float | None
     creator_hold_pct: float | None = None
+    # Claim-scoped provenance. Missing metadata is deliberately uncertifiable.
+    claim: str | None = None
+    chain: str | None = None
+    coverage_complete: bool = False
+    source_ref: str | None = None
+    method: str | None = None
+    independence_group: str | None = None
 
 @dataclass(frozen=True)
 class SafetyReport:
