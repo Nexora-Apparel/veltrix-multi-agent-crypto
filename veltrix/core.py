@@ -114,7 +114,12 @@ class Core:
                     address, "REJECT", reasons, f"Solana Shield: {reason}"
                 )
                 return None
+            route_evidence = token.get("sellability_evidence")
             reasons.append("Solana Shield approved paper-only entry")
+            reasons.append(
+                "Paper exit evidence: ROUTE_OBSERVED_NOT_EXECUTION_PROVEN "
+                f"({route_evidence.evidence_id})"
+            )
         else:
             approved = self.shield.approve(
                 signals, open_count, amount, self.max_positions, self.max_position_usd
@@ -133,6 +138,12 @@ class Core:
         result = {
             "token": address, "side": "BUY", "price": price, "amount_usd": amount,
             "quantity": position["quantity"], "signals": reasons,
+            "sellability_state": (
+                token["sellability_evidence"].state if chain == "solana" else None
+            ),
+            "sellability_evidence_id": (
+                token["sellability_evidence"].evidence_id if chain == "solana" else None
+            ),
         }
         self.broker.record_agent_decision(
             address, "BUY", reasons, "same-token paper Shield and multi-agent consensus approved"
