@@ -74,6 +74,21 @@ response timestamp while retaining later observations.
 Both workers require the same persistent SQLite file as the Phase 03 launch
 store. In-memory or split databases are rejected.
 
+The supervised runtime is started with:
+
+```bash
+python -m veltrix.solana_meme.intelligence_worker
+```
+
+Configuration:
+- `VELTRIX_SOLANA_DISCOVERY_DB`: same SQLite path used by Phase 03.
+- `VELTRIX_MARKET_INTELLIGENCE_POLL_SECONDS`: worker loop interval (default 15).
+- `VELTRIX_MARKET_REFRESH_INTERVAL_MS`: snapshot refresh cadence (default 60000).
+- `VELTRIX_MARKET_BATCH_SIZE`: candidates per batch (default 25, maximum 30).
+
+The default batch and loop settings remain far below the documented DEX
+Screener token-pairs request ceiling.
+
 ## Safety boundary
 
 This stage reports market facts and data-quality gaps only. It does not inspect
