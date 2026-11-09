@@ -121,4 +121,6 @@ class HeliusWalletEventBatchProvider:
             max(0, now - self.max_wallet_age_ms),
             now,
         )
+        if any("trusted provider request failed" in reason for reason in batch.rejected):
+            raise ProviderError("Helius wallet evidence request failed; retry on the next consensus cycle")
         return batch.accepted
