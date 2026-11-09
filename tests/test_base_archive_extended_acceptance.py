@@ -8,6 +8,7 @@ from veltrix.base_archive_preflight import Rpc
 from veltrix.base_archive_extended_acceptance import (
     PAIR_CREATED_TOPIC,
     block_by_tag,
+    common_finalized_checkpoint,
     normalized_logs,
     quantity,
 )
@@ -28,6 +29,44 @@ class FakeRpc:
             return value() if callable(value) else value
         raise AssertionError(f"Unexpected RPC call: {method} {params}")
 
+
+
+def test_common_finalized_checkpoint_accepts_different_provider_heads():
+    primary = FakeRpc({
+        ("eth_getBlockByNumber", json.dumps(["0x64", False], sort_keys=True)): {
+            "number": "0x64", "hash": "0xABC"
+        }
+    })
+    candidate = FakeRpc({
+        ("eth_getBlockByNumber", json.dumps(["0x64", False], sort_keys=True)): {
+            "number": "0x64", "hash": "0xabc"
+        }
+    })
+    result = common_finalized_checkpoint(
+        primary, candidate,
+        {"number": 100, "hash": "0xprimary-head"},
+        {"number": 120, "hash": "0xcandidate-head"},
+    )
+    assert result == {"number": 100, "hash": "0xabc"}
+
+
+def test_common_finalized_checkpoint_rejects_common_height_hash_mismatch():
+    primary = FakeRpc({
+        ("eth_getBlockByNumber", json.dumps(["0x64", False], sort_keys=True)): {
+            "number": "0x64", "hash": "0xaaa"
+        }
+    })
+    candidate = FakeRpc({
+        ("eth_getBlockByNumber", json.dumps(["0x64", False], sort_keys=True)): {
+            "number": "0x64", "hash": "0xbbb"
+        }
+    })
+    with pytest.raises(Exception, match="common finalized height"):
+        common_finalized_checkpoint(
+            primary, candidate,
+            {"number": 100, "hash": "0xaaa"},
+            {"number": 120, "hash": "0xccc"},
+        )
 
 def test_quantity_accepts_hex_quantity():
     assert quantity("0x349eb47", "block") == 0x349EB47
