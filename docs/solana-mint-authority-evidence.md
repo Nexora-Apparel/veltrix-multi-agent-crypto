@@ -13,12 +13,12 @@ supply, decimals, slot provenance, and account-data digest.
   provider validates the mint padding, Mint account-type discriminator, and
   TLV structure beginning at byte 166.
 - Known mint extension IDs are named. Unknown IDs are preserved as
-  `unknown_<id>` and set `extension_parse_complete=false`; they are never
+  `unknown_<id>` and set `extension_tlv_structure_valid=false`; they are never
   silently discarded.
 - Account-only extension types, duplicate TLV types, truncated headers or
   payloads, malformed terminators, non-zero mint padding and incorrect account
   type fail closed.
-- The snapshot records active mint and freeze authorities as addresses or
+- The snapshot records whether the TLV structure was parsed without malformed bounds; it does not decode or validate each extension's payload semantics. The snapshot records active mint and freeze authorities as addresses or
   explicit `None`. An active authority is evidence, not an automatic safety
   approval.
 
