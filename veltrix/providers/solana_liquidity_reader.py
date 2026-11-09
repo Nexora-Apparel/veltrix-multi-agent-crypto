@@ -83,7 +83,7 @@ class _SolanaRpc:
         return payload["result"]
 
 
-class SolanaRaydiumV4UncxSnapshotReader:
+class SolanaRaydiumV4CpmmSnapshotReader:
     """Exhaustive Raydium AMM V4 pool scan and UNCX TokenLock account decoder.
 
     This profile deliberately supports Raydium AMM V4 only. CP Swap, CLMM,
@@ -411,6 +411,8 @@ class SolanaRaydiumV4UncxSnapshotReader:
         ) + cpmm_pools
         if not discovered:
             raise ProviderError("no pools were discovered in the configured Raydium AMM V4 and CPMM scope")
+        if len(discovered) >= self.max_pools:
+            raise ProviderError("combined Raydium V4 and CPMM inventory reached configured cap")
 
         block_time = self.pool_rpc.call("getBlockTime", [slot])
         locker_block_time = self.locker_rpc.call("getBlockTime", [slot])
