@@ -138,3 +138,29 @@ presence of the deployment contract; it cannot attest to a real host.
 ## Post-retarget validation rule
 
 A successful workflow run from before a pull request is retargeted does not count as validation against the new base. Require a fresh full CI run on the exact PR head after retargeting, and re-check merge-base and changed-file scope before considering integration. This repository-side CI gate does not replace the separate host-level process, database/WAL/SHM permission, and provider-egress verification described above.
+
+
+### 09.3 — Signer boundary contract
+
+Contract-only interface added in `veltrix/signer_boundary.py`, with tests in
+`tests/test_signer_boundary.py`.
+
+- Defines immutable unsigned and signed transaction envelopes.
+- The unsigned envelope binds an intent, chain, network, signer public key,
+  exact serialized message digest, and policy hash.
+- The protocol accepts one exact unsigned envelope and returns an opaque signed
+  envelope carrying the same intent, signer identity, chain, network, policy
+  hash and message digest. Its contract explicitly forbids broadcasting.
+- No concrete signer, key loading, key storage, signing algorithm, wallet
+  provider, transaction submission, or broadcast implementation is included.
+- `validate_signed_response` rejects any response whose intent, signer public key,
+  chain, network, policy hash, or exact-message digest differs from the approved
+  request. Regression tests cover each binding mismatch and wrong envelope types.
+- Tests validate immutability, malformed envelopes, and response binding without
+  invoking a signer or contacting a network.
+
+This is an interface milestone only. It does not establish signer isolation,
+transaction validity, cryptographic correctness, or production readiness.
+A future implementation must run in a separately isolated service, independently
+verify the approved message and policy, and undergo security review. Live
+execution remains disabled.
