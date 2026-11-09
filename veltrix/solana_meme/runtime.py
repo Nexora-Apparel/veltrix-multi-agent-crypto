@@ -21,11 +21,13 @@ from .risk_worker import SolanaRiskEvidenceWorker
 from .developer_store import DeveloperConcentrationStore
 from .developer_worker import SolanaDeveloperEvidenceWorker
 from .bundle_store import LaunchBundleEvidenceStore
+from .sellability_store import SolanaSellabilityEvidenceStore
 from ..config import settings as load_settings
 from ..providers.factory import (
     build_solana_risk_evidence_collector,
     build_solana_developer_evidence_worker,
     build_solana_launch_bundle_worker,
+    build_solana_sellability_worker,
 )
 
 
@@ -67,8 +69,13 @@ def run_service(
     bundle_worker = build_solana_launch_bundle_worker(
         configured, launches, bundle_store,
     )
+    sellability_store = SolanaSellabilityEvidenceStore(database)
+    sellability_worker = build_solana_sellability_worker(
+        configured, launches, risk_store, sellability_store,
+    )
     pipeline = SolanaMemePipeline(
         enrichment, refresh, risk_worker, developer_worker, bundle_worker,
+        sellability_worker=sellability_worker,
     )
 
     stop_event = threading.Event()
@@ -87,6 +94,8 @@ def run_service(
         print("Developer ancestry collection is disabled until signed-root endpoint/key and all three provider trust lists are configured.")
     if bundle_worker is None:
         print("Launch-bundle analysis is disabled until Helius/Solana RPC and launch, bundle, and funding provider trust lists are configured.")
+    if sellability_worker is None:
+        print("Sell-route evidence is disabled: set SOLANA_SELLABILITY_ENABLED=true and configure GoPlus plus Solana RPC evidence. Jupiter keyless quotes require no new secret.")
     try:
         while not stop_event.is_set():
             if deadline is not None and time.monotonic() >= deadline:
@@ -113,6 +122,10 @@ def run_service(
                     + (
                         f", bundle reports stored={result.bundle.stored}, complete={result.bundle.complete}, incomplete={result.bundle.incomplete}, failures={result.bundle.failed}"
                         if result.bundle is not None else ", bundle analysis disabled"
+                    )
+                    + (
+                        f", sell routes observed={result.sellability.route_observed}, no routes={result.sellability.no_route}, unverified={result.sellability.unverified}, failures={result.sellability.failed}"
+                        if result.sellability is not None else ", sell-route evidence disabled"
                     )
                 )
             except Exception as exc:
