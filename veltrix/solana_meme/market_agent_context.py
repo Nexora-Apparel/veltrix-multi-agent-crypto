@@ -51,12 +51,20 @@ class SolanaMarketAgentContextProvider:
         now = self.clock_ms()
         if isinstance(now, bool) or not isinstance(now, int) or now < 0:
             raise ValueError("clock must return a non-negative integer timestamp")
+        supplied_market = evidence.get("market") if isinstance(evidence, dict) else None
+        if not isinstance(supplied_market, dict):
+            raise ValueError("decision packet must include its persisted market snapshot")
+        if supplied_market.get("mint") != canonical:
+            raise ValueError("decision packet market mint mismatch")
         history = self.market_store.history(
             canonical, limit=self.baseline_observations + 1,
         )
         if not history:
             raise ValueError("no persisted market history is available")
         latest = history[0]
+        if (latest.get("id") != supplied_market.get("id")
+                or latest.get("retrieved_at_ms") != supplied_market.get("retrieved_at_ms")):
+            raise ValueError("decision packet market snapshot is no longer the persisted history head")
         if latest.get("mint") != canonical:
             raise ValueError("latest market snapshot mint mismatch")
         latest_at = latest.get("retrieved_at_ms")
