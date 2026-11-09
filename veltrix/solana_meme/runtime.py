@@ -5,6 +5,7 @@ Usage: python -m veltrix.solana_meme.runtime --database veltrix_solana.sqlite3
 from __future__ import annotations
 
 import argparse
+import math
 import threading
 import time
 
@@ -24,12 +25,16 @@ def run_service(
     batch_size: int = 25,
     duration_seconds: float = 0,
 ) -> None:
-    if poll_seconds < 5 or poll_seconds > 300:
-        raise ValueError("poll_seconds must be between 5 and 300")
+    if (not isinstance(poll_seconds, (int, float)) or isinstance(poll_seconds, bool)
+            or not math.isfinite(poll_seconds) or poll_seconds < 5 or poll_seconds > 300):
+        raise ValueError("poll_seconds must be finite and between 5 and 300")
     if isinstance(batch_size, bool) or not 1 <= batch_size <= 500:
         raise ValueError("batch_size must be between 1 and 500")
-    if duration_seconds < 0:
-        raise ValueError("duration_seconds cannot be negative")
+    if (not isinstance(duration_seconds, (int, float)) or isinstance(duration_seconds, bool)
+            or not math.isfinite(duration_seconds) or duration_seconds < 0):
+        raise ValueError("duration_seconds must be finite and non-negative")
+    if not isinstance(database, str) or not database.strip():
+        raise ValueError("database path is required")
 
     launches = LaunchStore(database)
     markets = MarketSnapshotStore(database)
