@@ -41,11 +41,11 @@ def _selector(signature):
 def _address_word(address):
     if not ADDRESS.fullmatch(address or ""):
         raise ProviderError("EVM address is malformed")
-    return bytes.fromhex(address[2:]).rjust(32, b"\\x00")
+    return bytes.fromhex(address[2:]).rjust(32, b"\x00")
 
 
 def _decode_address(word):
-    if len(word) != 32 or word[:12] != b"\\x00" * 12:
+    if len(word) != 32 or word[:12] != b"\x00" * 12:
         raise ProviderError("ABI address word is malformed")
     return "0x" + word[12:].hex()
 
@@ -259,8 +259,8 @@ class EvmV2LiquiditySnapshotReader:
                     raise ProviderError("factory PairCreated log has unexpected topics")
                 if not isinstance(data, str) or not data.startswith("0x") or len(data) < 66:
                     raise ProviderError("factory PairCreated log data is malformed")
-                token0 = _decode_address(bytes.fromhex(topics[1][2:]).rjust(32, b"\\x00"))
-                token1 = _decode_address(bytes.fromhex(topics[2][2:]).rjust(32, b"\\x00"))
+                token0 = _decode_address(bytes.fromhex(topics[1][2:]).rjust(32, b"\x00"))
+                token1 = _decode_address(bytes.fromhex(topics[2][2:]).rjust(32, b"\x00"))
                 pair = _decode_address(bytes.fromhex(data[2:66]))
                 if not ADDRESS.fullmatch(pair):
                     raise ProviderError("factory emitted malformed pair address")
@@ -275,13 +275,13 @@ class EvmV2LiquiditySnapshotReader:
             raise ProviderError("factory-created pair has no runtime code")
         token0 = _decode_address(bytes.fromhex(self._call(
             self.pool_rpc, pair, "0x" + _selector("token0()").hex(), block_hex
-        )[2:]).rjust(32, b"\\x00"))
+        )[2:]).rjust(32, b"\x00"))
         token1 = _decode_address(bytes.fromhex(self._call(
             self.pool_rpc, pair, "0x" + _selector("token1()").hex(), block_hex
-        )[2:]).rjust(32, b"\\x00"))
+        )[2:]).rjust(32, b"\x00"))
         pair_factory = _decode_address(bytes.fromhex(self._call(
             self.pool_rpc, pair, "0x" + _selector("factory()").hex(), block_hex
-        )[2:]).rjust(32, b"\\x00"))
+        )[2:]).rjust(32, b"\x00"))
         if (token0.lower(), token1.lower()) != (token0_event.lower(), token1_event.lower()):
             raise ProviderError("pair token state does not match factory creation event")
         if pair_factory.lower() != factory.address.lower():
@@ -295,7 +295,7 @@ class EvmV2LiquiditySnapshotReader:
         factory_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("uniswapFactory()").hex(), block_hex
         )
-        factory_address = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\\x00"))
+        factory_address = _decode_address(bytes.fromhex(factory_data[2:]).rjust(32, b"\x00"))
         matching_factory = next(
             (f for f in self.factories if f.address.lower() == factory_address.lower()
              and f.amm_id == locker.amm_id), None
@@ -305,7 +305,7 @@ class EvmV2LiquiditySnapshotReader:
         nonce_data = self._call(
             self.locker_rpc, locker.address, "0x" + _selector("NONCE()").hex(), block_hex
         )
-        nonce = _decode_uint(bytes.fromhex(nonce_data[2:]).rjust(32, b"\\x00"))
+        nonce = _decode_uint(bytes.fromhex(nonce_data[2:]).rjust(32, b"\x00"))
         if nonce > self.max_locks:
             raise ProviderError("locker nonce exceeds configured exhaustive scan limit")
 
@@ -402,7 +402,7 @@ class EvmV2LiquiditySnapshotReader:
             supply_data = self._call(
                 self.locker_rpc, pair, "0x" + _selector("totalSupply()").hex(), block_hex
             )
-            supply = _decode_uint(bytes.fromhex(supply_data[2:]).rjust(32, b"\\x00"))
+            supply = _decode_uint(bytes.fromhex(supply_data[2:]).rjust(32, b"\x00"))
             if supply <= 0:
                 raise ProviderError("discovered pool LP total supply is zero or unavailable")
             pool_rows.append((pair, token0, token1, factory, supply))
@@ -424,7 +424,7 @@ class EvmV2LiquiditySnapshotReader:
                     block_hex,
                 )
                 locker_balances[pair.lower()] += _decode_uint(
-                    bytes.fromhex(result[2:]).rjust(32, b"\\x00")
+                    bytes.fromhex(result[2:]).rjust(32, b"\x00")
                 )
 
         pools = tuple(PoolLiquiditySnapshot(
