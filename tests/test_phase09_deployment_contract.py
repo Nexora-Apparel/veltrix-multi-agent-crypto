@@ -43,3 +43,20 @@ def test_process_isolation_document_keeps_observer_and_signer_unimplemented():
     assert "not implemented" in document
     assert "No provider-to-signer bridge" in document
     assert "Phase 09.2 is not complete" in document
+
+
+
+def test_dashboard_code_has_no_provider_or_execution_adapter_imports():
+    source = (ROOT / "veltrix" / "dashboard_server.py").read_text(encoding="utf-8")
+    assert "from .providers" not in source
+    assert "from ..providers" not in source
+    assert "SignerBoundary" not in source
+    assert "submit_transaction" not in source
+    assert "LIVE_TRADING" not in source
+
+
+def test_service_templates_do_not_embed_wallet_key_material():
+    for name in ("veltrix-paper.service", "veltrix-dashboard.service"):
+        unit = _unit(name).lower()
+        for forbidden in ("private_key=", "seed_phrase=", "mnemonic=", "keypair_json="):
+            assert forbidden not in unit
