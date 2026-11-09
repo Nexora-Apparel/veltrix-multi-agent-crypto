@@ -6,6 +6,8 @@ from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
 
 MINT = "So11111111111111111111111111111111111111112"
 
+MINT = "So11111111111111111111111111111111111111112"
+
 class FixedAgent:
     def __init__(self, name, side="BUY", token_override=None):
         self.name, self.side, self.token_override = name, side, token_override
@@ -102,3 +104,9 @@ def test_core_rejects_non_finite_price(tmp_path):
     broker = PaperBroker(str(tmp_path / "nan-price.db"), 500, 10, 50)
     core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
     assert core.evaluate({"address": "mint", "price": float("nan")}) is None
+
+def test_core_cannot_bypass_solana_shield_by_omitting_chain_label(tmp_path):
+    broker = PaperBroker(str(tmp_path / "solana-unlabeled.db"), 500, 10, 50)
+    core = Core(broker, agents=[FixedAgent("scout"), FixedAgent("whale")])
+    assert core.evaluate({"address": MINT, "price": 1.0}) is None
+    assert broker.snapshot()["open_positions"] == []
