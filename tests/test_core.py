@@ -30,6 +30,7 @@ def complete_solana_evidence():
         missing_claims=(), errors=(),
         mint_evidence_id="mint:core", mint_finalized_slot=1,
         token_program_id="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        mint_supply_raw=1_000_000_000, mint_decimals=6, mint_supply_reconciled=True,
         mint_authority=None, freeze_authority=None,
         token_2022_extension_types=(), token_2022_extension_review_complete=True,
     )
