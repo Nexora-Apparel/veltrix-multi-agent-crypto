@@ -104,3 +104,16 @@ Unit fixtures are synthetic and do not constitute provider-backed sellability
 validation. A later stage must add controlled unsigned-transaction simulation,
 token transfer-semantics review, and chain-confirmed test results before any
 execution claim.
+
+
+## Sellability evidence persistence and worker — 2026-11-09
+
+Added an append-only sellability evidence store and a bounded SQLite worker. The
+worker only schedules candidates with finalized mint-account evidence and a
+positive raw supply, tests a bounded 1% supply fraction by default, and persists
+route/no-route/unverified observations with retry-safe leases.
+
+The worker remains standalone and is not wired into the production runtime
+because no independently reviewed Jupiter quote adapter or dedicated public
+taker address is configured. It never modifies the risk report's missing
+executable_sellability claim. Synthetic tests do not certify real sellability.
