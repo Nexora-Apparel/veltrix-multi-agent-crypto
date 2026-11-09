@@ -83,3 +83,13 @@ roadmap stages remain partial until the full exit evidence is achieved:
 Latest CI at commit `e1dfa1fe0472016386a8ded50ba47b7489e2df07`:
 **373 passed, 5 skipped**. These are automated tests with synthetic provider
 fixtures, not live-provider certification or profitability evidence.
+
+
+## Developer ancestry implementation update — 2026-11-09
+
+An optional signed-root ancestry worker now connects the existing Helius
+funding-graph and native holder inventory providers. It is deliberately
+disabled unless the configured signed-root endpoint/public key and all
+three provider trust lists are present. Its output remains uncertified and
+cannot become a safety approval. Coordinated token-purchase/bundled-supply
+detection is still a separate unfinished evidence requirement.
