@@ -10,6 +10,7 @@ from .market_data import MarketDataUnavailable, SolanaMarketData, SolanaMarketSn
 from .market_store import MarketSnapshotStore
 from .market_refresh import MarketRefreshBatchResult, MarketRefreshWorker
 from .pumpportal import PumpPortalDiscovery, PumpPortalError
+from .pipeline import SolanaMemePipeline, SolanaPipelineCycleResult
 from .risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
 from .shield import ShieldDecision, SolanaShieldPolicy
 
@@ -17,6 +18,7 @@ __all__ = [
     "CandidateRejected", "SolanaCandidate", "canonical_mint",
     "deduplicate_candidates", "normalize_candidate",
     "PumpPortalDiscovery", "PumpPortalError",
+    "SolanaMemePipeline", "SolanaPipelineCycleResult",
     "LaunchStore", "LaunchStreamManager",
     "MarketDataUnavailable", "SolanaMarketData", "SolanaMarketSnapshot",
     "MarketSnapshotStore",
