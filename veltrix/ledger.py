@@ -161,6 +161,7 @@ class PaperBroker:
         execution_authorized=None, created_at_ms,
         fee_bps=100, slippage_bps=50, processed_at_ms=None,
         expected_market_snapshot_id=None, expected_risk_evidence_hash=None,
+        max_portfolio_exposure_pct=1.0,
     ):
         """Atomically open a paper position and consume one approved consensus ID."""
         import math
@@ -181,6 +182,11 @@ class PaperBroker:
         mark = self._finite_number(mark_price, "mark_price", positive=True)
         amount = self._finite_number(amount_usd, "amount_usd", positive=True)
         fee_rate, slippage_rate = self._validate_execution_costs(fee_bps, slippage_bps)
+        exposure_limit_pct = self._finite_number(
+            max_portfolio_exposure_pct, "max_portfolio_exposure_pct", positive=True
+        )
+        if exposure_limit_pct > 1:
+            raise ValueError("max_portfolio_exposure_pct must not exceed 1.0")
         processed = int(time.time() * 1000) if processed_at_ms is None else processed_at_ms
         if isinstance(processed, bool) or not isinstance(processed, int) or processed <= 0:
             raise ValueError("processed_at_ms must be a positive integer")
@@ -201,7 +207,12 @@ class PaperBroker:
             if existing is not None:
                 return {"status": "DUPLICATE", "decision_id": decision_id}
             count = int(db.execute("SELECT COUNT(*) FROM positions").fetchone()[0])
-            cash = float(db.execute("SELECT cash FROM account WHERE id=1").fetchone()[0])
+            account = db.execute("SELECT starting_balance,cash FROM account WHERE id=1").fetchone()
+            cash = float(account["cash"])
+            starting_balance = float(account["starting_balance"])
+            current_exposure = float(db.execute(
+                "SELECT COALESCE(SUM(cost_basis),0) FROM positions"
+            ).fetchone()[0])
             blocked_reason = None
             if expected_market_snapshot_id is not None or expected_risk_evidence_hash is not None:
                 if (
@@ -233,7 +244,9 @@ class PaperBroker:
                     blocked_reason = "market snapshot changed during paper-entry validation"
                 elif latest_risk is None or latest_risk["evidence_hash"] != expected_risk_evidence_hash:
                     blocked_reason = "security evidence changed during paper-entry validation"
-            if blocked_reason is None and count >= self.max_positions:
+            if blocked_reason is None and current_exposure + total_debit > starting_balance * exposure_limit_pct + 1e-9:
+                blocked_reason = "paper portfolio exposure cap would be exceeded"
+            elif blocked_reason is None and count >= self.max_positions:
                 blocked_reason = "maximum open paper positions reached"
             elif blocked_reason is None and db.execute("SELECT 1 FROM positions WHERE token=?", (token,)).fetchone():
                 blocked_reason = "token already has an open paper position"
@@ -334,8 +347,12 @@ class PaperBroker:
                 p["market_value"] = p["quantity"] * mark
                 p["unrealized_pnl"] = p["market_value"] - p["cost_basis"]
                 unrealized += p["unrealized_pnl"]
+            exposure = sum(float(p["cost_basis"]) for p in positions)
+            exposure_pct = exposure / float(account["starting_balance"]) * 100 if account["starting_balance"] else 0.0
             return {"starting_balance": account["starting_balance"], "cash": account["cash"],
                 "open_positions": positions, "unrealized_pnl": unrealized,
+                "portfolio_exposure_usd": exposure,
+                "portfolio_exposure_pct": exposure_pct,
                 "equity": account["cash"] + sum(p["market_value"] for p in positions)}
 
     def open_position(self, token: str, price: float, amount_usd: float, reason: str):
