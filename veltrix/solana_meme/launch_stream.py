@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 from contextlib import contextmanager
 import threading
@@ -289,12 +290,14 @@ class LaunchStreamManager:
         if (
             isinstance(initial_backoff_seconds, bool)
             or not isinstance(initial_backoff_seconds, (int, float))
+            or not math.isfinite(initial_backoff_seconds)
             or initial_backoff_seconds <= 0
         ):
             raise ValueError("initial_backoff_seconds must be positive")
         if (
             isinstance(max_backoff_seconds, bool)
             or not isinstance(max_backoff_seconds, (int, float))
+            or not math.isfinite(max_backoff_seconds)
             or max_backoff_seconds < initial_backoff_seconds
         ):
             raise ValueError("max_backoff_seconds must be >= initial_backoff_seconds")
