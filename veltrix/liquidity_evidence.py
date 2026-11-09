@@ -33,8 +33,8 @@ EVM_LOCKER_CANDIDATES = {
         },
         "uncx-sushiswap-v2": {
             "address": "0xBeddF48499788607B4c2e704e9099561ab38Aae8",
-            "abi_profile": "uncx-v2.1-locks-nonce",
-            "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
+            "abi_profile": "uncx-v2.0-locks-nonce",
+            "source_ref": "https://github.com/uncx-network/liquidity-locker-univ2-contracts",
         },
     },
     "bsc": {
