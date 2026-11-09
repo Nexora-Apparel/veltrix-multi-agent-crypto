@@ -87,6 +87,8 @@ tools. The intended identities are:
 
 ```sh
 sudo groupadd --system veltrix-db
+sudo groupadd --system veltrix-paper-secrets
+sudo groupadd --system veltrix-dashboard-secrets
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid veltrix-db veltrix-paper
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid veltrix-db veltrix-dashboard
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin veltrix-wallet-observer
