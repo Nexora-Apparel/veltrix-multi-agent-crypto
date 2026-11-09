@@ -125,58 +125,57 @@ def test_only_upgradeable_program_data_layout_is_supported():
         instance._verify_uncx_program(99)
 
 
-def test_cpmm_pool_state_is_discovered_by_token_mint_and_lp_offsets():
-    instance = reader()
-    target = str(LP_MINT)
-    quote = str(OWNER)
-    lp_mint = str(Pubkey.from_bytes(bytes([7]) * 32))
-    pool_address = str(Pubkey.from_string("Vote111111111111111111111111111111111111111"))
+def cpmm_pool_row():
+    instance_program = Pubkey.from_string(RAYDIUM_CPMM_PROGRAM)
+    pool_key = Pubkey.from_bytes(bytes([8]) * 32)
+    token0_key, token1_key = sorted((LP_MINT, OWNER), key=bytes)
+    lp_mint_key, _ = Pubkey.find_program_address(
+        [b"pool_lp_mint", bytes(pool_key)], instance_program
+    )
+    vault0, _ = Pubkey.find_program_address(
+        [b"pool_vault", bytes(pool_key), bytes(token0_key)], instance_program
+    )
+    vault1, _ = Pubkey.find_program_address(
+        [b"pool_vault", bytes(pool_key), bytes(token1_key)], instance_program
+    )
     data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
     data[:8] = RAYDIUM_CPMM_POOL_DISCRIMINATOR
-    data[136:168] = bytes(Pubkey.from_string(lp_mint))
-    data[168:200] = bytes(LP_MINT)
-    data[200:232] = bytes(OWNER)
+    data[72:104] = bytes(vault0)
+    data[104:136] = bytes(vault1)
+    data[136:168] = bytes(lp_mint_key)
+    data[168:200] = bytes(token0_key)
+    data[200:232] = bytes(token1_key)
     encoded = base64.b64encode(bytes(data)).decode()
+    return {
+        "pubkey": str(pool_key),
+        "account": {"owner": RAYDIUM_CPMM_PROGRAM, "data": [encoded, "base64"]},
+    }, str(lp_mint_key), str(token0_key), str(token1_key)
+
+
+def test_cpmm_pool_state_is_discovered_by_token_mint_and_lp_offsets():
+    instance = reader()
+    row, lp_mint, token0, token1 = cpmm_pool_row()
+    target = str(LP_MINT)
 
     class Rpc:
         provider_id = "rpc"
         def call(self, method, params):
             if method == "getProgramAccounts":
-                return {
-                    "context": {"slot": 900},
-                    "value": [{
-                        "pubkey": pool_address,
-                        "account": {
-                            "owner": RAYDIUM_CPMM_PROGRAM,
-                            "data": [encoded, "base64"],
-                        },
-                    }],
-                }
+                return {"context": {"slot": 900}, "value": [row]}
             raise AssertionError(method)
 
     rows = instance._scan_cpmm_pools(Rpc(), target, 900)
     assert len(rows) == 1
-    pool = rows[pool_address]
+    pool = rows[row["pubkey"]]
     assert pool["lp_mint"] == lp_mint
-    assert pool["base_mint"] == target
-    assert pool["quote_mint"] == quote
+    assert {pool["base_mint"], pool["quote_mint"]} == {token0, token1}
+    assert target in {token0, token1}
     assert pool["pool_type"] == "raydium-cpmm"
 
 
 def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
     instance = reader()
-    target = str(LP_MINT)
-
-    data = bytearray(RAYDIUM_CPMM_STATE_SIZE)
-    data[:8] = RAYDIUM_CPMM_POOL_DISCRIMINATOR
-    data[136:168] = bytes(Pubkey.from_bytes(bytes([7]) * 32))
-    data[168:200] = bytes(LP_MINT)
-    data[200:232] = bytes(OWNER)
-    encoded = base64.b64encode(bytes(data)).decode()
-    valid_row = {
-        "pubkey": str(Pubkey.from_bytes(bytes([8]) * 32)),
-        "account": {"owner": RAYDIUM_CPMM_PROGRAM, "data": [encoded, "base64"]},
-    }
+    row, _lp_mint, _token0, _token1 = cpmm_pool_row()
 
     class Rpc:
         def __init__(self, values):
@@ -185,9 +184,9 @@ def test_cpmm_pool_discovery_rejects_rpc_inventory_disagreement():
             return {"context": {"slot": 900}, "value": self.values}
 
     instance.pool_rpc = Rpc([])
-    instance.locker_rpc = Rpc([valid_row])
+    instance.locker_rpc = Rpc([row])
     with pytest.raises(Exception, match="independent Solana RPCs disagree"):
-        instance._discover_cpmm_pools(target, 900)
+        instance._discover_cpmm_pools(str(LP_MINT), 900)
 
 
 def test_solana_reader_requires_both_rayidium_hashes_and_complete_scope():
