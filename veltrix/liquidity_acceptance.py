@@ -42,6 +42,10 @@ def run(chain, token_address):
         "verified_pool_count": report.verified_pool_count,
         "actively_locked_pool_count": report.active_locked_pool_count,
         "minimum_per_pool_locked_pct": report.active_locked_pct,
+        "per_pool_locked_pct": [
+            {"pool": address, "active_locked_pct": pct}
+            for address, pct in report.per_pool_locked_pct
+        ],
         "earliest_unlock_at_ms": report.earliest_unlock_at_ms,
         "evidence_id": report.evidence_id,
         "structural_blockers": structural_reasons,
