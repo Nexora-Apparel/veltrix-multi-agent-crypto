@@ -9,6 +9,7 @@ from typing import Callable, Mapping
 from .candidates import canonical_mint
 from .sellability_store import SolanaSellabilityEvidenceStore
 from .sell_simulation_store import SolanaSellSimulationStore
+from .simulation_preflight_store import SolanaSimulationPreflightStore
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class SellSimulationBatchResult:
     succeeded: int
     simulation_failed: int
     provider_failed: int
+    preflight_blocked: int
     deferred: int
 
 
@@ -26,6 +28,8 @@ class SolanaSellSimulationWorker:
     def __init__(
         self, database_path: str, provider, evidence_store: SolanaSellSimulationStore,
         test_cases: Mapping[str, int], *,
+        preflight_provider=None,
+        preflight_store: SolanaSimulationPreflightStore | None = None,
         refresh_interval_ms: int = 300_000,
         retry_base_ms: int = 30_000,
         retry_max_ms: int = 900_000,
@@ -35,6 +39,10 @@ class SolanaSellSimulationWorker:
             raise ValueError("simulation worker requires a persistent SQLite database")
         if evidence_store.database_path != database_path:
             raise ValueError("simulation worker and evidence store must share one database")
+        if (preflight_provider is None) != (preflight_store is None):
+            raise ValueError("preflight provider and store must be configured together")
+        if preflight_store is not None and preflight_store.database_path != database_path:
+            raise ValueError("simulation preflight store must share the worker database")
         if not isinstance(test_cases, Mapping) or not test_cases:
             raise ValueError("explicit simulation test cases are required")
         normalized = {}
@@ -50,6 +58,8 @@ class SolanaSellSimulationWorker:
         self.database_path = database_path
         self.provider = provider
         self.evidence_store = evidence_store
+        self.preflight_provider = preflight_provider
+        self.preflight_store = preflight_store
         self.test_cases = normalized
         self.refresh_interval_ms = refresh_interval_ms
         self.retry_base_ms = retry_base_ms
@@ -86,10 +96,23 @@ class SolanaSellSimulationWorker:
                 SELECT mint, input_amount_raw FROM solana_sell_simulation_jobs
                 WHERE next_run_at_ms <= ? ORDER BY next_run_at_ms, mint LIMIT ?
             """, (now, limit)).fetchall()
-        succeeded = simulation_failed = provider_failed = 0
+        succeeded = simulation_failed = provider_failed = preflight_blocked = 0
         for row in rows:
             mint, amount = row["mint"], int(row["input_amount_raw"])
             try:
+                if self.preflight_provider is not None:
+                    preflight = self.preflight_provider.fetch(mint, amount)
+                    if preflight.mint != mint or preflight.wallet != self.provider.taker:
+                        raise ValueError("preflight returned mismatched mint or test wallet")
+                    self.preflight_store.record(preflight)
+                    if preflight.state != "BALANCE_READY":
+                        preflight_blocked += 1
+                        with self._connect() as db:
+                            db.execute("""
+                                UPDATE solana_sell_simulation_jobs
+                                SET failures=0, next_run_at_ms=?, updated_at_ms=? WHERE mint=?
+                            """, (now + self.refresh_interval_ms, now, mint))
+                        continue
                 observation = self.provider.simulate_sell(mint, amount)
                 if observation.mint != mint or observation.taker != self.provider.taker:
                     raise ValueError("simulation provider returned mismatched mint or taker")
@@ -120,5 +143,5 @@ class SolanaSellSimulationWorker:
                 SELECT COUNT(*) FROM solana_sell_simulation_jobs WHERE next_run_at_ms > ?
             """, (now,)).fetchone()[0])
         return SellSimulationBatchResult(
-            len(rows), succeeded, simulation_failed, provider_failed, deferred,
+            len(rows), succeeded, simulation_failed, provider_failed, preflight_blocked, deferred,
         )
