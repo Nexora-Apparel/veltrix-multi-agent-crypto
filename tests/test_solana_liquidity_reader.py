@@ -117,5 +117,5 @@ def test_only_upgradeable_program_data_layout_is_supported():
     instance._get_account = lambda rpc, address, slot: account(
         data, BPF_UPGRADEABLE_LOADER, executable=True
     )
-    with pytest.raises(Exception, match="ProgramData account does not exist"):
+    with pytest.raises(Exception, match="ProgramData account layout is invalid"):
         instance._verify_uncx_program(99)
