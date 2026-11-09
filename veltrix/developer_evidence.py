@@ -36,7 +36,7 @@ class DeveloperEvidenceOrchestrator:
     def __init__(self, *, holder_providers, funding_providers, analyzer,
                  intelligence_adapters, trusted_root_providers=(),
                  trusted_holder_providers=(), trusted_funding_providers=(),
-                 certified_provider_id=None, independence_group=None,
+                 root_attestation_provider=None, certified_provider_id=None, independence_group=None,
                  audit_sink=None):
         self.holder_providers = dict(holder_providers)
         self.funding_providers = dict(funding_providers)
@@ -45,6 +45,7 @@ class DeveloperEvidenceOrchestrator:
         self.trusted_roots = frozenset(trusted_root_providers)
         self.trusted_holders = frozenset(trusted_holder_providers)
         self.trusted_funding = frozenset(trusted_funding_providers)
+        self.root_attestation_provider = root_attestation_provider
         self.certified_provider_id = certified_provider_id
         self.independence_group = independence_group
         self.audit_sink = audit_sink
@@ -66,6 +67,10 @@ class DeveloperEvidenceOrchestrator:
         chain = str(chain).lower()
         holder = funding = None
         try:
+            if root_attestation is None:
+                if self.root_attestation_provider is None:
+                    raise ValueError("no signed developer-root attestation provider is configured")
+                root_attestation = self.root_attestation_provider.fetch_attestation(chain, token_address)
             holder_provider = self.holder_providers.get(chain)
             funding_provider = self.funding_providers.get(chain)
             if holder_provider is None or funding_provider is None:
