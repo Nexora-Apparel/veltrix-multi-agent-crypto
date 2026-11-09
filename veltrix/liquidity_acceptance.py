@@ -1,6 +1,7 @@
 """Manual, read-only acceptance probe for a configured chain liquidity reader."""
 import argparse
 import json
+from pathlib import Path
 
 from .config import settings
 from .liquidity_evidence import LiquidityEvidenceAnalyzer
@@ -50,6 +51,21 @@ def run(chain, token_address):
         "evidence_id": report.evidence_id,
         "structural_blockers": structural_reasons,
         "safety_blockers": list(report.reasons),
+        "locker_deployments": [
+            {
+                "address": item.address,
+                "abi_profile": item.abi_profile,
+                "expected_code_hash": item.expected_code_hash,
+                "observed_code_hash": item.observed_code_hash,
+                "provider": item.provider,
+                "independence_group": item.independence_group,
+                "source_ref": item.source_ref,
+                "chain_id": item.chain_id,
+                "program_executable_hash": item.program_executable_hash,
+                "custody_authority": item.custody_authority,
+            }
+            for item in batch.deployments
+        ],
         "pools": [
             {
                 "pool": pool.pool_address,
@@ -61,9 +77,6 @@ def run(chain, token_address):
             for pool in batch.pools
         ],
     }
-    print(json.dumps(result, indent=2, sort_keys=True))
-    if not accepted:
-        raise RuntimeError("read-only liquidity reader acceptance failed")
     return result
 
 
@@ -71,8 +84,15 @@ def main():
     parser = argparse.ArgumentParser(description="VELTRIX read-only liquidity acceptance")
     parser.add_argument("--chain", required=True, choices=("base", "bsc", "solana"))
     parser.add_argument("--token-address", required=True)
+    parser.add_argument("--output", help="Optional path for a machine-readable acceptance report")
     args = parser.parse_args()
-    run(args.chain, args.token_address)
+    result = run(args.chain, args.token_address)
+    rendered = json.dumps(result, indent=2, sort_keys=True)
+    print(rendered)
+    if args.output:
+        Path(args.output).write_text(rendered + "\\n", encoding="utf-8")
+    if result["reader_acceptance"] != "PASS":
+        raise RuntimeError("read-only liquidity reader acceptance failed")
 
 
 if __name__ == "__main__":
