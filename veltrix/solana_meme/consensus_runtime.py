@@ -147,7 +147,6 @@ def build_runtime(
                 max_wallet_age_ms=max_wallet_age,
                 max_tracked_wallets=max_tracked_wallets,
             )
-            wallet_event_provider = wallet_event_batch_provider
             LOGGER.info("Helius wallet evidence feed enabled for %s explicitly allowlisted wallets", len(wallets))
         else:
             LOGGER.info(
