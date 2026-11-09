@@ -92,7 +92,7 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - Authorization claims bind a one-use authorization ID to wallet public key, chain, policy hash, intent ID, issuance time and expiry.
 - HMAC-SHA256 verification uses an injected key of at least 32 bytes; no key is loaded from disk or environment by this module.
 - Authorization lifetime is capped at 300 seconds; scope, expiry, signature and replay checks are enforced before consumption.
-- A durable atomic consumer is an interface requirement, not yet implemented. Until 09.2/09.7 provide independently reviewed storage and state transitions, this authorization primitive is not a production execution path.
+- `veltrix/authorization_store.py` now provides a SQLite-backed atomic consumer. A unique primary key plus `BEGIN IMMEDIATE` prevents concurrent/restart replay; consumed IDs are retained rather than expired/deleted. The store persists authorization IDs and timestamps only, never signing keys or wallet secrets. This is a safety primitive, not a live execution path.
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
-This is an initial 09.1 implementation, not a release approval. CI and integration verification remain pending.
+This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
