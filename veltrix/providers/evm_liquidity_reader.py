@@ -352,6 +352,7 @@ class EvmV2LiquiditySnapshotReader:
                 amount=record["amount"], unlock_at_ms=record["unlock_date"] * 1000,
                 observed_at_ms=self._observed_ms, owner=record["owner"],
                 evidence_ref=f"{self._finalized_ref}:lock:{lock_id}",
+                finalized_ref=self._finalized_ref,
             ))
         deployment = LockerDeployment(
             chain=self.chain, provider=self.locker_rpc.provider_id,
