@@ -71,14 +71,16 @@ def test_goplus_solana_requires_bearer_access_token():
         raise AssertionError("Expected missing GoPlus token to fail closed")
 
 
-def test_goplus_rejects_unsupported_base_until_documented():
-    provider = GoPlusTokenSafetyProvider(session=Session({}))
-    try:
-        provider.fetch_safety_observation("base", "0xabc")
-    except ProviderError as exc:
-        assert "does not support" in str(exc)
-    else:
-        raise AssertionError("Undocumented chain support must not be assumed")
+def test_goplus_base_uses_documented_chain_id_and_creator_percent():
+    token = "0xabc"
+    provider = GoPlusTokenSafetyProvider(
+        session=Session(payload(token, {"creator_percent": "0.03"})),
+        clock_ms=lambda: 1234,
+    )
+    result = provider.fetch_safety_observation("base", token)
+    assert result.dev_hold_pct == 3.0
+    assert result.bundled_supply_pct is None
+    assert provider.session.calls[0][0].endswith("/token_security/8453")
 
 
 def test_goplus_rejects_api_error_response():
