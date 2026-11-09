@@ -73,7 +73,7 @@ def test_monitor_collects_verified_wallet_clusters_without_opening_positions(tmp
             return tuple(SmartWalletObservation(
                 provider="alchemy", chain=chain, token_address="token-address",
                 wallet_address=wallet, side="BUY", notional_usd=25,
-                transaction_id=tx, observed_at_ms=now,
+                transaction_id=tx, observed_at_ms=now - 1_000,
             ) for wallet, tx in [("0xwallet-a", "tx-a"), ("0xwallet-b", "tx-b")])
 
     adapters = VerifiedIntelligenceAdapters(trusted_wallet_providers=["alchemy"])
