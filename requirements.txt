@@ -4,3 +4,4 @@ python-dotenv>=1.0,<2
 cryptography>=42,<47
 eth-hash[pycryptodome]>=0.7,<1
 solders>=0.21,<1
+websocket-client>=1.8,<2
