@@ -43,7 +43,10 @@ def main():
         launch_origin_resolvers=origin_resolvers,
         trusted_launch_origin_providers=cfg.trusted_launch_origin_providers,
         developer_evidence=developer_evidence,
-        liquidity_evidence_providers=liquidity_evidence_providers)
+        liquidity_evidence_providers=liquidity_evidence_providers,
+        position_management_chains=(
+            ("base", "bsc") if cfg.paper_trading_enabled else ("solana", "base", "bsc")
+        ))
     readiness = build_provider_readiness(cfg)
     print(f"Provider readiness: {len(readiness.blocked_claims)}/{len(readiness.claims)} chain/claim checks blocked; fully ready: {readiness.fully_ready}")
     for item in readiness.blocked_claims:
@@ -51,7 +54,9 @@ def main():
     count = sum(len(v) for v in watchlist.values())
     print(f"VELTRIX PAPER MONITOR: virtual balance {cfg.balance:.2f} USD; duration {args.hours:g}h; watchlist tokens {count}")
     print(f"Profile discovery enabled: {cfg.discovery_enabled}; chains: {','.join(cfg.discovery_chains)}")
-    print("Discovery candidates are untrusted leads only. No paper or live orders are generated.")
+    print("Discovery candidates are untrusted leads only. No new paper or live orders are generated.")
+    if cfg.paper_trading_enabled:
+        print("Solana paper-position exits are delegated to the Phase 07 consensus paper runtime.")
     print(f"Wallet intelligence connectors configured: {len(intelligence.providers)}; trusted: {len(cfg.trusted_wallet_providers)}")
     print(f"Launch intelligence enabled: {cfg.launch_intelligence_enabled}; indexers: {len(getattr(launch_service, 'indexers', {}))}; origin resolvers: {len(origin_resolvers)}; liquidity readers: {len(liquidity_evidence_providers)}")
     if cfg.launch_intelligence_enabled:
