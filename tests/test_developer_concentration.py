@@ -59,7 +59,7 @@ def test_common_funder_does_not_make_wallets_developer_linked():
         FundingRelationship("wallet-linked", "shared-exchange", "tx-1", NOW - 200, "e1"),
         FundingRelationship("wallet-clean", "shared-exchange", "tx-2", NOW - 200, "e2"),
     ), covered=("dev", "wallet-linked", "wallet-clean"))
-    # Root is not in the graph's ancestry, so shared exchange funding is not enough.
+    # The attested root itself counts; shared exchange funding adds no other linked wallets.
     holder = HolderSnapshot(
         holder.provider, holder.chain, holder.token_address, holder.observed_at_ms,
         holder.evidence_id, holder.block_ref, holder.decimals, holder.total_supply_raw,
