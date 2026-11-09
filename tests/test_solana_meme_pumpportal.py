@@ -101,7 +101,7 @@ def test_stop_event_prevents_reading_messages():
     assert list(adapter.stream_new_tokens(stop_event=stop)) == []
     assert ws.closed
 
-@pytest.mark.parametrize("timeout", [0, -1, True, "30"])
+@pytest.mark.parametrize("timeout", [0, -1, True, "30", float("nan"), float("inf")])
 def test_rejects_invalid_timeout_configuration(timeout):
     with pytest.raises(ValueError):
         PumpPortalDiscovery(timeout_seconds=timeout)
