@@ -157,6 +157,9 @@ def main() -> None:
         level=os.getenv("VELTRIX_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    if os.getenv("PAPER_TRADING_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        LOGGER.warning("paper runtime is disabled; set PAPER_TRADING_ENABLED=true to start simulation")
+        return
     stop_event = threading.Event()
 
     def request_shutdown(signum: int, _frame: Any) -> None:
