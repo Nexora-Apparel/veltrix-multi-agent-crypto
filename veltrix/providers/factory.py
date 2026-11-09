@@ -35,3 +35,30 @@ def build_intelligence_coordinator(settings, providers=None):
     return CrossChainIntelligenceCoordinator(
         connectors, adapters, trusted_wallets=trusted_wallets,
     )
+
+
+def build_holder_inventory_providers(settings, *, session=None):
+    """Construct optional native holder inventory adapters.
+
+    Returned adapters are read-only and deliberately are not added to the
+    composite capability catalogue until production response certification.
+    """
+    from .holder_inventory import EvmHolderInventoryProvider, SolanaHolderInventoryProvider
+
+    providers = {}
+    solana_rpc = getattr(settings, "solana_rpc_url", "")
+    if solana_rpc:
+        providers["solana"] = SolanaHolderInventoryProvider(
+            solana_rpc, session=session,
+            max_accounts=getattr(settings, "holder_inventory_max_accounts", 50_000),
+        )
+    for chain, attr in (("base", "base_rpc_url"), ("bsc", "bsc_rpc_url")):
+        rpc_url = getattr(settings, attr, "")
+        if rpc_url:
+            providers[chain] = EvmHolderInventoryProvider(
+                chain, rpc_url, session=session,
+                block_chunk_size=getattr(settings, "launch_block_chunk_size", 2_000),
+                max_logs=getattr(settings, "holder_inventory_max_logs", 200_000),
+                max_holders=getattr(settings, "holder_inventory_max_holders", 50_000),
+            )
+    return providers
