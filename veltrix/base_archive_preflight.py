@@ -12,6 +12,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from eth_hash.auto import keccak
+
 CHAIN_ID = 8453
 FACTORY_DEFAULT = "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
 TX_DEFAULT = "0x3c94031f81d9afe3beeb8fbcf4dcf1bd5b5688b86081d94e3d0231514dc00d31"
@@ -129,7 +131,7 @@ def run_provider(rpc, factory, creation_tx, deployment_block):
         "deployment_block": deployment_block,
         "deployment_block_hash": block["hash"],
         "runtime_code_bytes": len(code_bytes),
-        "runtime_code_keccak256": __import__("hashlib").sha3_256(code_bytes).hexdigest(),
+        "runtime_code_keccak256": keccak(code_bytes).hex(),
         "all_pairs_length_at_deployment": pair_count,
         "checks": {
             "chain_id": "passed",
@@ -158,11 +160,6 @@ def main():
     if first["all_pairs_length_at_deployment"] != second["all_pairs_length_at_deployment"]:
         raise PreflightError("providers disagree on historical allPairsLength")
 
-    # Compare the actual bytecode hash using Keccak-256 (Ethereum), not NIST SHA3.
-    from eth_hash.auto import keccak
-    for report, rpc in ((first, primary), (second, candidate)):
-        code = rpc.call("eth_getCode", [factory, hex(deployment_block)])
-        report["runtime_code_keccak256"] = keccak(bytes.fromhex(code[2:])).hex()
     if first["runtime_code_keccak256"] != second["runtime_code_keccak256"]:
         raise PreflightError("providers disagree on historical runtime bytecode hash")
 
