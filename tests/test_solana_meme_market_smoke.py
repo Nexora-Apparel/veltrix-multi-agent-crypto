@@ -4,7 +4,7 @@ import pytest
 
 from veltrix.providers.base import MarketEvent
 from veltrix.solana_meme.market_data import MarketDataUnavailable
-from veltrix.solana_meme.market_smoke import WRAPPED_SOL_MINT, run_market_smoke
+from veltrix.solana_meme.market_smoke import BONK_MINT, run_market_smoke
 
 
 class FakeProvider:
