@@ -41,6 +41,27 @@ def canonical_mint(value: Any) -> str:
     return canonical
 
 
+def _validated_chain(payload: dict[str, Any]) -> None:
+    """Require explicit, consistent Solana chain metadata."""
+    has_chain_id = "chainId" in payload
+    has_chain = "chain" in payload
+    if not has_chain_id and not has_chain:
+        raise CandidateRejected("explicit Solana chain metadata is required")
+
+    values = []
+    if has_chain_id:
+        values.append(payload["chainId"])
+    if has_chain:
+        values.append(payload["chain"])
+
+    if any(not isinstance(value, str) or not value.strip() for value in values):
+        raise CandidateRejected("chain metadata must contain non-empty strings")
+
+    normalized = {value.strip().lower() for value in values}
+    if normalized != {"solana"}:
+        raise CandidateRejected("only consistent Solana chain metadata is accepted")
+
+
 def normalize_candidate(
     payload: dict[str, Any],
     *,
@@ -50,20 +71,19 @@ def normalize_candidate(
     """Normalize supported feed shapes without trusting their chain labels."""
     if not isinstance(payload, dict):
         raise CandidateRejected("candidate payload must be an object")
-    chain = payload.get("chainId", payload.get("chain", "solana"))
-    if not isinstance(chain, str) or chain.lower() != "solana":
-        raise CandidateRejected("only Solana candidates are accepted")
+    _validated_chain(payload)
     mint = payload.get("tokenAddress", payload.get("token_address", payload.get("mint")))
     mint = canonical_mint(mint)
     if not isinstance(source, str) or not source.strip():
         raise CandidateRejected("source identity is required")
     if isinstance(observed_at_ms, bool) or not isinstance(observed_at_ms, int) or observed_at_ms <= 0:
         raise CandidateRejected("observed_at_ms must be a positive integer")
+    normalized_source = source.strip()
     return SolanaCandidate(
         mint=mint,
-        source=source.strip(),
+        source=normalized_source,
         discovered_at_ms=observed_at_ms,
-        sources=(source.strip(),),
+        sources=(normalized_source,),
     )
 
 
