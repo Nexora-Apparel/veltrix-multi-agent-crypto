@@ -13,7 +13,9 @@ import secrets
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -55,14 +57,18 @@ class DashboardRepository:
             raise ValueError("max_market_age_ms must be a positive integer")
         self.max_market_age_ms = max_market_age_ms
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         if not self.database_path.is_file():
             raise FileNotFoundError("shared VELTRIX SQLite database does not exist")
         uri = self.database_path.as_uri() + "?mode=ro"
         db = sqlite3.connect(uri, uri=True, timeout=3)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA query_only=ON")
-        return db
+        try:
+            yield db
+        finally:
+            db.close()
 
     @staticmethod
     def _has_table(db: sqlite3.Connection, table: str) -> bool:
