@@ -11,6 +11,29 @@ class Core:
         self.max_positions = max_positions
         self.max_position_usd = max_position_usd
 
+    def evaluate_with_intelligence(self, token, intelligence_result, amount_usd=None):
+        """Evaluate using only matching coordinator evidence for Whale signals."""
+        from .providers.coordinator import (
+            CrossChainIntelligenceCoordinator, CrossChainIntelligenceResult,
+        )
+
+        clean = dict(token)
+        clean.pop("smart_wallet_buys", None)
+        clean.pop("whale_cluster_count", None)
+        clean.pop("whale_cluster_notional_usd", None)
+        chain = str(clean.get("chain", "")).lower()
+        address = clean.get("address")
+        if (isinstance(intelligence_result, CrossChainIntelligenceResult)
+                and chain == intelligence_result.chain and isinstance(address, str)):
+            clean = CrossChainIntelligenceCoordinator.enrich_token(
+                clean, intelligence_result
+            )
+        else:
+            clean["smart_wallet_buys"] = []
+            clean["whale_cluster_count"] = 0
+            clean["whale_cluster_notional_usd"] = 0.0
+        return self.evaluate(clean, amount_usd)
+
     def evaluate(self, token, amount_usd=None):
         """Evaluate one normalized token snapshot and open only on same-token consensus."""
         address = token.get("address")
