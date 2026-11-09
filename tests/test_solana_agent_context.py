@@ -44,10 +44,10 @@ class FakeCoordinator:
         )
 
 
-def market_store(tmp_path, *, baseline_count=5):
+def market_store(tmp_path, *, baseline_count=5, baseline_step_ms=1_000):
     store = MarketSnapshotStore(str(tmp_path / "market.sqlite3"))
     for index in range(baseline_count, 0, -1):
-        observed = NOW - index * 1_000
+        observed = NOW - index * baseline_step_ms
         store.record(SolanaMarketSnapshot(
             mint=MINT, selected_pair_address="pair-1", symbol="TEST",
             price_usd=1.0, selected_pool_liquidity_usd=100_000,
@@ -126,3 +126,14 @@ def test_untrusted_helius_provider_cannot_build_agent_context(tmp_path):
     coordinator.adapters.trusted_wallet_providers = frozenset()
     with pytest.raises(ValueError, match="allowlisted"):
         SolanaAgentContextProvider(coordinator, markets)
+
+
+def test_stale_baseline_does_not_emit_volume_spike(tmp_path):
+    markets = market_store(tmp_path, baseline_count=5, baseline_step_ms=250_000)
+    provider = SolanaAgentContextProvider(
+        FakeCoordinator(), markets, clock_ms=lambda: NOW,
+    )
+    context = provider(MINT, {
+        "market": markets.latest(MINT), "evaluation_now_ms": NOW,
+    })
+    assert context.volume_spike is False
