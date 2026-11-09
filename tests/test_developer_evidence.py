@@ -159,3 +159,35 @@ def test_unverified_root_object_cannot_enter_concentration_analysis(tmp_path):
     )
     assert result.report.coverage_complete is False
     assert any("evidence collection rejected" in x for x in result.report.reasons)
+
+
+def test_factory_builds_signed_root_provider_from_public_configuration():
+    import base64
+    from types import SimpleNamespace
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from veltrix.providers.factory import build_developer_evidence_orchestrator
+
+    private = Ed25519PrivateKey.generate()
+    public = private.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    settings = SimpleNamespace(
+        solana_rpc_url="", base_rpc_url="", bsc_rpc_url="",
+        helius_api_key="", alchemy_api_key="",
+        holder_inventory_max_accounts=100, holder_inventory_max_logs=100,
+        holder_inventory_max_holders=100, launch_block_chunk_size=100,
+        funding_graph_max_pages=2, funding_graph_max_wallets=2,
+        funding_graph_max_total_pages=4, safety_evidence_max_age_ms=300_000,
+        trusted_developer_root_providers=("signed-root-registry",),
+        trusted_holder_inventory_providers=(),
+        trusted_developer_funding_providers=(),
+        developer_root_attestation_url="https://roots.example/api/attest",
+        developer_root_attestation_public_key=base64.b64encode(public).decode(),
+        developer_root_attestation_provider_id="signed-root-registry",
+    )
+    service = build_developer_evidence_orchestrator(settings, Adapter())
+    assert service.root_attestation_provider.provider_id == "signed-root-registry"
+    assert service.root_attestation_provider.signing_key_fingerprint
+    assert service.trusted_roots == frozenset({"signed-root-registry"})
