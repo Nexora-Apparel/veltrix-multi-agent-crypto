@@ -1,0 +1,58 @@
+name: Liquidity live read-only acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: Chain to probe
+        required: true
+        type: choice
+        options:
+          - base
+          - bsc
+          - solana
+      token_address:
+        description: Token contract or mint address
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_LIQUIDITY_POOL_RPC_URL: ${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
+      BASE_LIQUIDITY_LOCKER_RPC_URL: ${{ secrets.BASE_LIQUIDITY_LOCKER_RPC_URL }}
+      BASE_LIQUIDITY_AMM_FACTORIES_JSON: ${{ secrets.BASE_LIQUIDITY_AMM_FACTORIES_JSON }}
+      BASE_UNCX_LOCKERS_JSON: ${{ secrets.BASE_UNCX_LOCKERS_JSON }}
+      BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE: ${{ secrets.BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE }}
+      BSC_LIQUIDITY_POOL_RPC_URL: ${{ secrets.BSC_LIQUIDITY_POOL_RPC_URL }}
+      BSC_LIQUIDITY_LOCKER_RPC_URL: ${{ secrets.BSC_LIQUIDITY_LOCKER_RPC_URL }}
+      BSC_LIQUIDITY_AMM_FACTORIES_JSON: ${{ secrets.BSC_LIQUIDITY_AMM_FACTORIES_JSON }}
+      BSC_UNCX_LOCKERS_JSON: ${{ secrets.BSC_UNCX_LOCKERS_JSON }}
+      BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE: ${{ secrets.BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE }}
+      SOLANA_LIQUIDITY_POOL_RPC_URL: ${{ secrets.SOLANA_LIQUIDITY_POOL_RPC_URL }}
+      SOLANA_LIQUIDITY_LOCKER_RPC_URL: ${{ secrets.SOLANA_LIQUIDITY_LOCKER_RPC_URL }}
+      SAFETY_EVIDENCE_MAX_AGE_MS: "900000"
+      LIQUIDITY_READER_MAX_LOGS: "200000"
+      LIQUIDITY_READER_MAX_POOLS: "50000"
+      LIQUIDITY_READER_MAX_LOCKS: "100000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Execute read-only finalized-state acceptance
+        env:
+          TARGET_CHAIN: ${{ inputs.chain }}
+          TARGET_TOKEN: ${{ inputs.token_address }}
+        run: |
+          python -m veltrix.liquidity_acceptance --chain "$TARGET_CHAIN" --token-address "$TARGET_TOKEN"
