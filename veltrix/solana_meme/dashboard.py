@@ -414,8 +414,8 @@ def build_server(
     database_path: str | Path | None = None,
     access_token: str | None = None,
 ) -> PaperDashboardHTTPServer:
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
-        raise ValueError("dashboard port must be between 1 and 65535")
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
+        raise ValueError("dashboard port must be between 0 and 65535")
     token = os.getenv("VELTRIX_DASHBOARD_TOKEN", "") if access_token is None else access_token
     token = token.strip()
     loopback_hosts = {"localhost", "127.0.0.1", "::1"}
@@ -438,7 +438,7 @@ def main() -> None:
     except ValueError as exc:
         raise ValueError("VELTRIX_DASHBOARD_PORT must be an integer") from exc
     server = build_server(host=host, port=port)
-    LOGGER.info("read-only paper analytics dashboard listening at http://%s:%s", host, port)
+    LOGGER.info("read-only paper analytics dashboard listening at http://%s:%s", host, server.server_address[1])
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
