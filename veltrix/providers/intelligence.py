@@ -188,7 +188,9 @@ class VerifiedIntelligenceAdapters:
             if not math.isfinite(notional) or notional <= 0:
                 rejected.append(f"{prefix}: notional must be finite and positive")
                 continue
-            tx_key = (chain, item.transaction_id)
+            # Namespace transaction IDs by chain, wallet and token. This prevents
+            # false collisions across chains and preserves distinct token legs.
+            tx_key = (chain, item.wallet_address.lower(), item.transaction_id.lower(), item.token_address.lower())
             if tx_key in seen_transactions:
                 rejected.append(f"{prefix}: duplicate transaction")
                 continue
