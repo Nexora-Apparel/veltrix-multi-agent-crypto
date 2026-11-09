@@ -137,7 +137,7 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
     from .evm_liquidity_reader import (
         EvmFactorySpec, EvmLockerSpec, EvmV2LiquiditySnapshotReader,
     )
-    from .solana_liquidity_reader import SolanaRaydiumV4UncxSnapshotReader
+    from .solana_liquidity_reader import SolanaRaydiumV4CpmmSnapshotReader
 
     allowed = {"base", "bsc", "solana"}
     if not set(chains).issubset(allowed):
@@ -186,7 +186,7 @@ def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base"
     sol_pool = getattr(settings, "solana_liquidity_pool_rpc_url", "")
     sol_locker = getattr(settings, "solana_liquidity_locker_rpc_url", "")
     if "solana" in chains and (sol_pool or sol_locker):
-        providers["solana"] = SolanaRaydiumV4UncxSnapshotReader(
+        providers["solana"] = SolanaRaydiumV4CpmmSnapshotReader(
             sol_pool, sol_locker, session=session,
             expected_raydium_executable_hash=getattr(settings, "solana_raydium_amm_v4_executable_hash", ""),
             expected_raydium_cpmm_executable_hash=getattr(settings, "solana_raydium_cpmm_executable_hash", ""),
