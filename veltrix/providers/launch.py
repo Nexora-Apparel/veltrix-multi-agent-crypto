@@ -559,6 +559,9 @@ class EvmRpcLaunchIndexer:
             if not isinstance(receipt, dict) or not isinstance(tx, dict):
                 rejected.append(f"transaction details unavailable for {tx_hash}")
                 continue
+            if str(receipt.get("status", "")).lower() not in {"0x1", "1"}:
+                rejected.append(f"transaction {tx_hash} was not confirmed successful")
+                continue
             if not self._is_paid_buy(receipt, tx, buyer):
                 continue
             key = tx_hash.lower()
