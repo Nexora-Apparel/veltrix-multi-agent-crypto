@@ -18,11 +18,17 @@ class Core:
             price = float(token.get("price", 0))
         except (TypeError, ValueError):
             price = 0
-        amount = self.max_position_usd if amount_usd is None else float(amount_usd)
+        try:
+            amount = self.max_position_usd if amount_usd is None else float(amount_usd)
+        except (TypeError, ValueError):
+            amount = 0
         if not address or price <= 0:
             self.broker.record_agent_decision(address or "", "REJECT", [], "missing token address or valid price")
             return None
         signals = [signal for agent in self.agents if (signal := agent.evaluate(token))]
+        # Multiple instances or malformed agents must not manufacture consensus.
+        signals = [s for s in signals if getattr(s, "agent", None) and
+                   getattr(s, "token", None) and getattr(s, "side", None) in {"BUY", "SELL"}]
         snapshot = self.broker.snapshot()
         open_count = len(snapshot["open_positions"])
         approved = self.shield.approve(
