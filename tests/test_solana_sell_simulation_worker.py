@@ -2,6 +2,8 @@ import pytest
 
 from veltrix.providers.solana_sell_simulation import SolanaSellSimulationObservation
 from veltrix.solana_meme.sell_simulation_store import SolanaSellSimulationStore
+from veltrix.solana_meme.simulation_preflight_store import SolanaSimulationPreflightStore
+from veltrix.providers.solana_simulation_preflight import SolanaSimulationWalletPreflight
 from veltrix.solana_meme.sell_simulation_worker import SolanaSellSimulationWorker
 
 MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -83,3 +85,57 @@ def test_rejects_unbounded_or_invalid_test_cases(tmp_path):
         SolanaSellSimulationWorker(db, FakeProvider(), store, {})
     with pytest.raises(ValueError):
         SolanaSellSimulationWorker(db, FakeProvider(), store, {MINT: 0})
+
+
+
+class FakePreflightProvider:
+    def __init__(self, state):
+        self.state = state
+        self.calls = []
+
+    def fetch(self, mint, amount):
+        self.calls.append((mint, amount))
+        return SolanaSimulationWalletPreflight(
+            mint=mint, wallet=TAKER, required_amount_raw=amount,
+            token_balance_raw=0 if self.state != "BALANCE_READY" else amount,
+            token_account_count=0 if self.state != "BALANCE_READY" else 1,
+            sol_balance_lamports=100_000_000, finalized_slot=123,
+            observed_at_ms=10_000, state=self.state,
+            token_program_ids=(),
+        )
+
+
+def test_worker_blocks_jupiter_order_when_finalized_token_balance_is_insufficient(tmp_path):
+    db = str(tmp_path / "sim.sqlite")
+    evidence = SolanaSellSimulationStore(db)
+    preflight_store = SolanaSimulationPreflightStore(db)
+    provider = FakeProvider()
+    preflight = FakePreflightProvider("INSUFFICIENT_TOKEN_BALANCE")
+    worker = SolanaSellSimulationWorker(
+        db, provider, evidence, {MINT: 500},
+        preflight_provider=preflight, preflight_store=preflight_store,
+        clock_ms=lambda: 10_000,
+    )
+    result = worker.run_once()
+    assert result.preflight_blocked == 1
+    assert result.processed == 1
+    assert provider.calls == []
+    assert preflight_store.count(MINT) == 1
+
+
+def test_worker_runs_simulation_only_after_finalized_balance_preflight_passes(tmp_path):
+    db = str(tmp_path / "sim.sqlite")
+    evidence = SolanaSellSimulationStore(db)
+    preflight_store = SolanaSimulationPreflightStore(db)
+    provider = FakeProvider()
+    preflight = FakePreflightProvider("BALANCE_READY")
+    worker = SolanaSellSimulationWorker(
+        db, provider, evidence, {MINT: 500},
+        preflight_provider=preflight, preflight_store=preflight_store,
+        clock_ms=lambda: 10_000,
+    )
+    result = worker.run_once()
+    assert result.preflight_blocked == 0
+    assert result.succeeded == 1
+    assert provider.calls == [(MINT, 500)]
+    assert preflight_store.count(MINT) == 1
