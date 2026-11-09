@@ -23,7 +23,8 @@ def evidence():
         top5_holder_pct=100.0, top10_holder_pct=100.0,
         missing_claims=(), errors=(),
         mint_evidence_id="mint:1", mint_finalized_slot=10,
-        token_program_id=TOKEN_PROGRAM_ID, mint_authority=None, freeze_authority=None,
+        token_program_id=TOKEN_PROGRAM_ID, mint_supply_raw=supply, mint_decimals=6,
+        mint_supply_reconciled=True, mint_authority=None, freeze_authority=None,
         token_2022_extension_types=(), token_2022_extension_review_complete=True,
     )
 
