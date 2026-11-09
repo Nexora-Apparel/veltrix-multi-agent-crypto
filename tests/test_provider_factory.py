@@ -132,10 +132,12 @@ def test_sell_simulation_factory_builds_only_from_public_taker_and_explicit_amou
     import json
     from veltrix.providers.factory import build_solana_sell_simulation_worker
     from veltrix.solana_meme.sell_simulation_store import SolanaSellSimulationStore
+    from veltrix.solana_meme.simulation_preflight_store import SolanaSimulationPreflightStore
     from veltrix.solana_meme.sell_simulation_worker import SolanaSellSimulationWorker
 
     db = str(tmp_path / "factory.sqlite")
     store = SolanaSellSimulationStore(db)
+    preflight_store = SolanaSimulationPreflightStore(db)
     configured = settings(
         solana_sell_simulation_enabled=True,
         solana_sell_simulation_taker="11111111111111111111111111111111",
@@ -146,7 +148,7 @@ def test_sell_simulation_factory_builds_only_from_public_taker_and_explicit_amou
         jupiter_api_key="",
         jupiter_quote_min_interval_seconds=2.1,
     )
-    worker = build_solana_sell_simulation_worker(configured, db, store)
+    worker = build_solana_sell_simulation_worker(configured, db, store, preflight_store=preflight_store)
     assert isinstance(worker, SolanaSellSimulationWorker)
     assert worker.test_cases == {
         "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 1000,
