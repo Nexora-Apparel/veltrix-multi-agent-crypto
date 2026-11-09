@@ -49,6 +49,24 @@ def address_word(address):
     return address[2:].lower().rjust(64, "0")
 
 
+def canonical_log_digest(logs):
+    """Hash the complete normalized log set, not merely its count."""
+    if not isinstance(logs, list):
+        raise PreflightError("PairCreated query returned malformed result")
+    normalized = []
+    for item in logs:
+        if not isinstance(item, dict):
+            raise PreflightError("PairCreated query contains a malformed log")
+        normalized.append({
+            key: str(item.get(key, "")).lower()
+            for key in ("address", "blockHash", "blockNumber", "transactionHash",
+                        "transactionIndex", "logIndex", "data")
+        } | {"topics": [str(topic).lower() for topic in item.get("topics", [])]})
+    normalized.sort(key=lambda item: (item["blockNumber"], item["transactionIndex"],
+                                      item["logIndex"], item["transactionHash"]))
+    encoded = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+    return keccak(encoded).hex()
+
 def inspect(rpc, candidate, finalized):
     address = candidate["address"]
     tx = candidate["creation_tx"]
@@ -73,6 +91,8 @@ def inspect(rpc, candidate, finalized):
         raise PreflightError(f"{rpc.label}: deployment block unavailable")
     if not isinstance(final_block, dict) or not final_block.get("hash"):
         raise PreflightError(f"{rpc.label}: finalized block unavailable")
+    if str(receipt.get("blockHash", "")).lower() != str(dep_block["hash"]).lower():
+        raise PreflightError(f"{rpc.label}: receipt block hash does not match deployment block")
 
     code = rpc.call("eth_getCode", [address, hex(finalized)])
     if not isinstance(code, str) or not code.startswith("0x") or len(code) <= 2:
@@ -112,8 +132,7 @@ def inspect(rpc, candidate, finalized):
         "address": address, "fromBlock": hex(max(deployment, finalized - 9)),
         "toBlock": hex(finalized), "topics": [topic],
     }])
-    if not isinstance(logs, list):
-        raise PreflightError(f"{rpc.label}: PairCreated query returned malformed result")
+    log_digest = canonical_log_digest(logs)
 
     return {
         "provider": rpc.label,
@@ -129,6 +148,7 @@ def inspect(rpc, candidate, finalized):
         "sample_pair_factory": pair_factory.lower(),
         "get_pair_matches_all_pairs": True,
         "pair_created_events_returned": len(logs),
+        "pair_created_event_set_keccak256": log_digest,
     }
 
 
@@ -173,7 +193,8 @@ def main():
         for key in ("deployment_block_hash", "finalized_block_hash",
                     "runtime_code_bytes", "runtime_code_keccak256",
                     "all_pairs_length", "sample_pair", "sample_token0",
-                    "sample_token1", "sample_pair_factory"):
+                    "sample_token1", "sample_pair_factory",
+                    "pair_created_events_returned", "pair_created_event_set_keccak256"):
             if left[key] != right[key]:
                 raise PreflightError(f"{item['amm_id']}: providers disagree on {key}")
         reports.append({
