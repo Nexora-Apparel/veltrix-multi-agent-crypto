@@ -155,10 +155,14 @@ class SolanaLiquidityEvidenceWorker:
         for mint in claimed:
             try:
                 batch = self.provider.fetch_inventory(mint)
+                if batch.chain != "solana" or batch.token_address != mint:
+                    raise ValueError("liquidity provider returned a mismatched chain or mint")
                 report = self.analyzer.evaluate(
                     batch, chain="solana", token_address=mint, now_ms=self.clock_ms(),
                 )
-                self.evidence_store.record(report)
+                # Retain the exact source pool/locker inventory, not only its
+                # aggregate percentages, for later independent audit.
+                self.evidence_store.record(report, batch)
                 stored += 1
                 passed += int(report.passed)
                 self._succeed(mint, self.clock_ms())
