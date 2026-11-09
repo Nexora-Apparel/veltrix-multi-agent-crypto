@@ -51,6 +51,7 @@ class Settings:
     funding_lookback_blocks: int = int(os.getenv("FUNDING_LOOKBACK_BLOCKS", "20000"))
     funding_graph_max_pages: int = int(os.getenv("FUNDING_GRAPH_MAX_PAGES", "100"))
     funding_graph_max_wallets: int = int(os.getenv("FUNDING_GRAPH_MAX_WALLETS", "2000"))
+    funding_graph_max_total_pages: int = int(os.getenv("FUNDING_GRAPH_MAX_TOTAL_PAGES", "1000"))
     tracked_smart_wallets: tuple[str, ...] = _addresses("TRACKED_SMART_WALLETS")
     tracked_evm_wallets: tuple[str, ...] = _addresses("TRACKED_EVM_WALLETS")
     alchemy_quote_tokens_base: tuple[str, ...] = _addresses("ALCHEMY_QUOTE_TOKENS_BASE")
@@ -70,6 +71,9 @@ def settings() -> Settings:
             or s.launch_index_max_pages > 100
             or s.launch_block_chunk_size < 1 or s.launch_block_chunk_size > 10_000
             or s.funding_lookback_blocks < 1
+            or not 1 <= s.funding_graph_max_pages <= 1_000
+            or not 1 <= s.funding_graph_max_wallets <= 10_000
+            or not 1 <= s.funding_graph_max_total_pages <= 10_000
             or not 1 <= s.holder_inventory_max_accounts <= 100_000
             or s.holder_inventory_max_logs < 1
             or s.holder_inventory_max_holders < 1):
