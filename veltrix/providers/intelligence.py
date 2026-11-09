@@ -229,8 +229,6 @@ class VerifiedIntelligenceAdapters:
         if cluster_count < 1:
             reasons.append("whale: no qualifying multi-wallet cluster")
         accepted = bool(batch.accepted) and cluster_count >= 1
-        if not accepted and cluster_count < 1:
-            reasons.append("whale: no qualifying multi-wallet cluster")
         return AgentEvidenceDecision("whale", accepted, tuple(reasons))
 
     @staticmethod
