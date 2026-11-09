@@ -38,6 +38,10 @@ class Settings:
     goplus_access_token: str = os.getenv("GOPLUS_ACCESS_TOKEN", "")
     helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
     alchemy_api_key: str = os.getenv("ALCHEMY_API_KEY", "")
+    solana_rpc_url: str = os.getenv("SOLANA_RPC_URL", "")
+    holder_inventory_max_accounts: int = int(os.getenv("HOLDER_INVENTORY_MAX_ACCOUNTS", "50000"))
+    holder_inventory_max_logs: int = int(os.getenv("HOLDER_INVENTORY_MAX_LOGS", "200000"))
+    holder_inventory_max_holders: int = int(os.getenv("HOLDER_INVENTORY_MAX_HOLDERS", "50000"))
     base_rpc_url: str = os.getenv("BASE_RPC_URL", "")
     bsc_rpc_url: str = os.getenv("BSC_RPC_URL", "")
     launch_window_ms: int = int(os.getenv("LAUNCH_WINDOW_MS", "120000"))
@@ -62,6 +66,9 @@ def settings() -> Settings:
             or s.launch_window_ms <= 0 or s.launch_index_max_pages < 1
             or s.launch_index_max_pages > 100
             or s.launch_block_chunk_size < 1 or s.launch_block_chunk_size > 10_000
-            or s.funding_lookback_blocks < 1):
+            or s.funding_lookback_blocks < 1
+            or not 1 <= s.holder_inventory_max_accounts <= 100_000
+            or s.holder_inventory_max_logs < 1
+            or s.holder_inventory_max_holders < 1):
         raise ValueError("Invalid risk, discovery or polling configuration")
     return s
