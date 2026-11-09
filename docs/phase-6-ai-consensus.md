@@ -85,6 +85,24 @@ Configuration:
 No wallet allowlist or wallet-buy feed is fabricated. Without both, Whale
 abstains.
 
+When explicitly configured, the runtime connects the existing Helius Parsed
+Events provider to the Whale agent. Required settings are:
+- `HELIUS_API_KEY`: provider credential.
+- `TRUSTED_WALLET_PROVIDERS=helius`: explicit provider trust decision.
+- `VELTRIX_TRUSTED_SOLANA_WALLETS`: comma-separated operator-approved wallet
+  public keys.
+- `VELTRIX_HELIUS_WALLET_SCAN_LIMIT`: maximum allowlisted wallets scanned per
+  candidate (default 10, permitted 2–25).
+
+The runtime refuses to enable Helius if the provider identity is not trusted,
+the API key is missing, the wallet allowlist is empty, or the allowlist exceeds
+the configured scan bound. Helius observations are normalized through the
+existing verified-intelligence adapter before reaching Whale. USD buy notional
+is estimated using the latest persisted spot price, not historical execution
+price; this approximation is not treated as proof of trade profitability.
+Provider request failures enter the worker retry path. Missing credentials or
+trust configuration leave Whale in abstention mode.
+
 ## Phase boundary
 
 Phase 06 ends at a persisted consensus decision. Paper-trading execution,
