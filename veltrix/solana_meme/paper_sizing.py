@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
+import math
 
 from .candidates import canonical_mint
 
@@ -30,7 +31,11 @@ def _positive_decimal(value: object, field: str) -> Decimal:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValueError(f"{field} must be a positive finite number") from exc
-    if not parsed.is_finite() or parsed <= 0:
+    try:
+        finite_float = math.isfinite(float(parsed))
+    except (OverflowError, ValueError):
+        finite_float = False
+    if not parsed.is_finite() or not finite_float or parsed <= 0:
         raise ValueError(f"{field} must be a positive finite number")
     return parsed
 
