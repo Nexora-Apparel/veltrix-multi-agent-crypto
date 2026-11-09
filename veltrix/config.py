@@ -48,6 +48,8 @@ class Settings:
     launch_index_max_pages: int = int(os.getenv("LAUNCH_INDEX_MAX_PAGES", "20"))
     launch_block_chunk_size: int = int(os.getenv("LAUNCH_BLOCK_CHUNK_SIZE", "2000"))
     funding_lookback_blocks: int = int(os.getenv("FUNDING_LOOKBACK_BLOCKS", "20000"))
+    funding_graph_max_pages: int = int(os.getenv("FUNDING_GRAPH_MAX_PAGES", "100"))
+    funding_graph_max_wallets: int = int(os.getenv("FUNDING_GRAPH_MAX_WALLETS", "2000"))
     tracked_smart_wallets: tuple[str, ...] = _addresses("TRACKED_SMART_WALLETS")
     tracked_evm_wallets: tuple[str, ...] = _addresses("TRACKED_EVM_WALLETS")
     alchemy_quote_tokens_base: tuple[str, ...] = _addresses("ALCHEMY_QUOTE_TOKENS_BASE")
