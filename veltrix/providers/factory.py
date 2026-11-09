@@ -122,3 +122,68 @@ def build_developer_evidence_orchestrator(settings, intelligence_adapters, *,
         # No production capability is currently certified for this composite graph.
         certified_provider_id=None, audit_sink=audit_sink,
     )
+
+
+
+def build_liquidity_snapshot_providers(settings, *, session=None):
+    """Construct optional read-only chain snapshot readers.
+
+    These readers are deliberately not registered as certified capabilities.
+    EVM factories and locker bytecode hashes must be operator-pinned; registry
+    completeness is an explicit opt-in attestation. Solana is limited to the
+    published UNCX Raydium AMM V4 program profile.
+    """
+    import json
+    from .evm_liquidity_reader import (
+        EvmFactorySpec, EvmLockerSpec, EvmV2LiquiditySnapshotReader,
+    )
+    from .solana_liquidity_reader import SolanaRaydiumV4UncxSnapshotReader
+
+    providers = {}
+
+    def parse_registry(raw, model, label):
+        if not raw:
+            return ()
+        try:
+            rows = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label} must be valid JSON") from exc
+        if not isinstance(rows, list) or not rows:
+            raise ValueError(f"{label} must be a non-empty JSON array")
+        try:
+            return tuple(model(**row) for row in rows if isinstance(row, dict))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label} contains an invalid entry") from exc
+
+    for chain in ("base", "bsc"):
+        pool_url = getattr(settings, f"{chain}_liquidity_pool_rpc_url", "")
+        locker_url = getattr(settings, f"{chain}_liquidity_locker_rpc_url", "")
+        factories_raw = getattr(settings, f"{chain}_liquidity_factories_json", "")
+        lockers_raw = getattr(settings, f"{chain}_liquidity_lockers_json", "")
+        complete = getattr(settings, f"{chain}_liquidity_registry_complete", False)
+        if not any((pool_url, locker_url, factories_raw, lockers_raw, complete)):
+            continue
+        factories = parse_registry(
+            factories_raw, EvmFactorySpec, f"{chain.upper()}_LIQUIDITY_AMM_FACTORIES_JSON"
+        )
+        lockers = parse_registry(
+            lockers_raw, EvmLockerSpec, f"{chain.upper()}_UNCX_LOCKERS_JSON"
+        )
+        providers[chain] = EvmV2LiquiditySnapshotReader(
+            chain, pool_url, locker_url, factories, lockers,
+            registry_complete=complete, session=session,
+            block_chunk_size=getattr(settings, "launch_block_chunk_size", 2_000),
+            max_logs=getattr(settings, "liquidity_reader_max_logs", 200_000),
+            max_pools=getattr(settings, "liquidity_reader_max_pools", 50_000),
+            max_locks=getattr(settings, "liquidity_reader_max_locks", 100_000),
+        )
+
+    sol_pool = getattr(settings, "solana_liquidity_pool_rpc_url", "")
+    sol_locker = getattr(settings, "solana_liquidity_locker_rpc_url", "")
+    if sol_pool or sol_locker:
+        providers["solana"] = SolanaRaydiumV4UncxSnapshotReader(
+            sol_pool, sol_locker, session=session,
+            max_pools=getattr(settings, "liquidity_reader_max_pools", 20_000),
+            max_locks_per_pool=getattr(settings, "liquidity_reader_max_locks", 20_000),
+        )
+    return providers
