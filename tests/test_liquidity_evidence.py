@@ -74,7 +74,7 @@ def base_batch(*, second_pool=False, incomplete=False, expired=False,
 
 def test_official_deployment_candidates_are_chain_specific():
     assert EVM_LOCKER_CANDIDATES["base"]["uncx-univ2-v2"]["abi_profile"] == "uncx-v2.1-locks-nonce"
-    assert EVM_LOCKER_CANDIDATES["bsc"]["uncx-pancakeswap-v2"]["abi_profile"] == "uncx-v1-user-lock-index"
+    assert EVM_LOCKER_CANDIDATES["bsc"]["uncx-pancakeswap-v2"]["abi_profile"] == "uncx-v1-token-lock-index-events"
     assert "raydium-amm-v4" in SOLANA_UNCX_PROGRAM_CANDIDATES
 
 
