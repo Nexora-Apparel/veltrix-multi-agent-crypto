@@ -159,5 +159,5 @@ executable_sellability claim.
 - Added provider-factory construction, pipeline orchestration, runtime reporting and package exports.
 - Hardened Jupiter transaction validation: decode the returned Solana transaction, require the configured taker among required signers, and reject any non-zero signature slot before simulation. Jupiter V2 docs do not define a taker response field, so identity is verified from the transaction itself.
 - Added worker persistence/retry tests, factory opt-in tests, pipeline ordering/database isolation tests, and signer/signature validation tests.
-- CI verification is pending for current head. The runtime remains disabled unless the operator explicitly configures a dedicated test wallet and exact token amounts.
+- GitHub Actions run [42681836081](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42681836081) passed on code commit `d13194db9f683e17c0eee5a2eaed93c7622ade42`: 424 passed, 5 skipped. The runtime remains disabled unless the operator explicitly configures a dedicated test wallet and exact token amounts.
 - No signer, sendTransaction, Jupiter /execute, paper-entry approval or production-main change.
