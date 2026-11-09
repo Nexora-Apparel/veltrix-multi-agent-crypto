@@ -109,10 +109,19 @@ class CompositeTokenSafetyValidator:
             reasons.append("launch bundle claim must use a provider distinct from other safety claims")
 
         passed = not reasons and len(checks) == 3
-        creator = bundle.developer_holdings.creator_hold_pct
+        timestamps = [
+            item.observed_at_ms for item in (bundle.liquidity, bundle.developer_holdings)
+            if isinstance(item, SafetyEvidence)
+            and isinstance(item.observed_at_ms, int) and not isinstance(item.observed_at_ms, bool)
+        ]
+        if isinstance(report, LaunchBundleReport) and isinstance(report.window_end_ms, int):
+            timestamps.append(report.window_end_ms)
+        creator = (
+            bundle.developer_holdings.creator_hold_pct
+            if isinstance(bundle.developer_holdings, SafetyEvidence) else None
+        )
         return SafetyReport(
             token_address, passed, tuple(checks), tuple(reasons),
-            min(bundle.liquidity.observed_at_ms, bundle.developer_holdings.observed_at_ms,
-                report.window_end_ms if isinstance(report, LaunchBundleReport) else now_ms),
+            min(timestamps) if timestamps else now_ms,
             creator_hold_pct=creator,
         )
