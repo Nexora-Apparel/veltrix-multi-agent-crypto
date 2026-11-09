@@ -148,6 +148,7 @@ class LiquidityEvidenceReport:
     earliest_unlock_at_ms: int | None
     evidence_id: str
     provider: str
+    independence_group: str
     observed_at_ms: int
     source_ref: str
     reasons: tuple[str, ...]
@@ -166,7 +167,7 @@ class LiquidityEvidenceReport:
             coverage_complete=self.passed,
             source_ref=self.source_ref,
             method="chain_specific_all_pool_locker_ownership_and_supply_reconciliation",
-            independence_group=independence_group,
+            independence_group=f"{independence_group}+{self.independence_group}",
             liquidity_inventory_complete=self.passed,
             liquidity_pool_count=self.pool_count,
             liquidity_locked_pool_count=self.active_locked_pool_count,
@@ -398,8 +399,9 @@ class LiquidityEvidenceAnalyzer:
         return LiquidityEvidenceReport(
             chain, token_address, passed, len(batch.pools), len(pools),
             active_locked_pool_count, total_supply, total_active_locked, locked_pct,
-            earliest_unlock, _id_for(batch), batch.provider, batch.observed_at_ms,
-            batch.finalized_ref, tuple(dict.fromkeys(reasons)),
+            earliest_unlock, _id_for(batch), batch.provider,
+            "+".join(sorted({d.independence_group for d in deployment_map.values()})),
+            batch.observed_at_ms, batch.finalized_ref, tuple(dict.fromkeys(reasons)),
         )
 
     @staticmethod
@@ -407,7 +409,8 @@ class LiquidityEvidenceAnalyzer:
         return LiquidityEvidenceReport(
             chain, token, False, 0, 0, 0, 0, 0, None, None,
             hashlib.sha256(f"{chain}:{token}:{now_ms}".encode()).hexdigest(),
-            getattr(batch, "provider", "missing"), now_ms,
+            getattr(batch, "provider", "missing"), "unverified-locker",
+            now_ms,
             getattr(batch, "finalized_ref", ""), tuple(reasons),
         )
 
