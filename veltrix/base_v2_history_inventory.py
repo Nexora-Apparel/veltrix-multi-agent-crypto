@@ -185,7 +185,7 @@ def batch_rpc(rpc, requests, label):
                 if elapsed < 0.25:
                     time.sleep(0.25 - elapsed)
             request = urllib.request.Request(
-                rpc.url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+                rpc.url, data=body, headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VELTRIX-Base-Archive-Acceptance/1.0 (+https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto)"}, method="POST"
             )
             rpc._last_request_at = time.monotonic()
             try:
