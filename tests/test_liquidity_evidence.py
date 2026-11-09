@@ -75,7 +75,13 @@ def base_batch(*, second_pool=False, incomplete=False, expired=False,
 def test_official_deployment_candidates_are_chain_specific():
     assert EVM_LOCKER_CANDIDATES["base"]["uncx-univ2-v2"]["abi_profile"] == "uncx-v2.1-locks-nonce"
     assert EVM_LOCKER_CANDIDATES["bsc"]["uncx-pancakeswap-v2"]["abi_profile"] == "uncx-v1-token-lock-index-events"
-    assert "raydium-amm-v4" in SOLANA_UNCX_PROGRAM_CANDIDATES
+    assert set(SOLANA_UNCX_PROGRAM_CANDIDATES) == {
+        "raydium-amm-v4", "raydium-amm-v4-smart-lockers",
+        "raydium-cp-swap", "raydium-clmm", "meteora-dlmm", "pumpswap",
+    }
+    assert SOLANA_UNCX_PROGRAM_CANDIDATES["raydium-amm-v4"]["published_executable_sha256"]
+    for key in set(SOLANA_UNCX_PROGRAM_CANDIDATES) - {"raydium-amm-v4"}:
+        assert SOLANA_UNCX_PROGRAM_CANDIDATES[key]["published_executable_sha256"] is None
 
 
 def test_complete_single_pool_snapshot_passes_and_emits_scoped_evidence():
