@@ -118,14 +118,40 @@ def test_discovered_launch_is_resolved_and_submitted_to_composite_gate(tmp_path)
             )
 
     service = LaunchService()
+
+    class DeveloperEvidence:
+        def __init__(self):
+            self.calls = []
+        def evaluate(self, **kwargs):
+            self.calls.append(kwargs)
+            report = SimpleNamespace(
+                coverage_complete=False, dev_hold_pct=None, evidence_id=None,
+                root_provider=None,
+            )
+            safety = SimpleNamespace(passed=False)
+            return SimpleNamespace(
+                report=report, safety_report=safety,
+                audit={"reasons": ["signed root provider not configured"]},
+            )
+
+    developer_evidence = DeveloperEvidence()
     monitor = MarketMonitor(
         {}, str(tmp_path / "launch-runtime.db"), FakeProvider(), FakeDiscovery(),
         True, ("base",), 5, launch_intelligence=service,
         launch_origin_resolvers={"base": OriginResolver()},
         trusted_launch_origin_providers=["base-rpc-launch-origin"],
+        developer_evidence=developer_evidence,
     )
     monitor.poll_once()
     assert len(service.calls) == 1
+    assert len(developer_evidence.calls) == 1
+    developer_call = developer_evidence.calls[0]
+    assert developer_call["chain"] == "base"
+    assert developer_call["token_address"] == "discovered-token"
+    assert developer_call["root_attestation"] is None
+    assert developer_call["liquidity_evidence"] is None
+    assert developer_call["launch_bundle"] is not None
+    assert monitor.last_developer_results[("base", "discovered-token")]["status"] == "blocked"
     call = service.calls[0]
     assert call["chain"] == "base"
     assert call["indexer_kwargs"] == {"launch_block": 100, "window_end_block": 120}
