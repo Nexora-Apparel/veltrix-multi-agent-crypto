@@ -242,7 +242,7 @@ class OperatorAuthorization:
         self._validate_signing_key(signing_key)
         if not isinstance(policy, ExecutionPolicy) or policy.mode is not ExecutionMode.LIVE:
             raise AuthorizationError("policy is not live")
-        if not isinstance(consumer, AuthorizationConsumer):
+        if not callable(getattr(consumer, "consume", None)):
             raise AuthorizationError("an atomic authorization consumer is required")
         current = self._validate_clock(int(time.time()) if now is None else now, "current time")
         issued = self._validate_clock(self.issued_at, "issued_at")
