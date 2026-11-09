@@ -110,7 +110,7 @@ and strong dashboard token are in place.
 
 ## Verification checklist
 
-Run these checks on the actual deployment host; CI cannot prove them:
+Run `bash deployment/verify_phase09_isolation.sh` as root on the actual deployment host after both services are installed and running. The script checks distinct service UIDs, systemd identity/mount settings, credential file modes, dashboard database/WAL/SHM read-only access from inside its actual mount namespace, and cross-service credential-file isolation. It deliberately leaves provider egress firewall validation as a manual host/cloud check. CI cannot prove host state.
 
 1. `id veltrix-paper`, `id veltrix-dashboard` and `id veltrix-wallet-observer`
    show distinct UIDs.
