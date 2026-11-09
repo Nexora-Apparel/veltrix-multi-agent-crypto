@@ -23,6 +23,11 @@ class SafetyEvidence:
     source_ref: str | None = None
     method: str | None = None
     independence_group: str | None = None
+    # Required for liquidity-lock claims: complete pool-set reconciliation.
+    liquidity_inventory_complete: bool = False
+    liquidity_pool_count: int | None = None
+    liquidity_locked_pool_count: int | None = None
+    liquidity_locked_lp_pct: float | None = None
 
 @dataclass(frozen=True)
 class SafetyReport:
