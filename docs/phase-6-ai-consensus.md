@@ -19,7 +19,7 @@ candidate only when a comparative volume anomaly and positive 5-minute price
 movement are both present. This is a heuristic, not proof of organic demand.
 
 ### Whale
-Uses `WhaleFlowAggregator` over explicitly allowlisted Solana wallet-buy
+Uses the Solana-only `SolanaWhaleFlowAggregator` over explicitly allowlisted Solana wallet-buy
 observations. At least two distinct allowlisted wallets must buy the same mint
 inside the configured time window. Unknown wallets, stale events, malformed
 addresses, duplicate observations and non-Solana events are excluded. An empty
