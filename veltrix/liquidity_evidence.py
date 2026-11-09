@@ -36,11 +36,6 @@ EVM_LOCKER_CANDIDATES = {
             "abi_profile": "uncx-v2.1-locks-nonce",
             "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
         },
-        "uncx-aerodrome": {
-            "address": "0x30e522deDfFE3e3d11Cd53E27d18Cd4F016eD870",
-            "abi_profile": "uncx-v2.1-locks-nonce",
-            "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
-        },
     },
     "bsc": {
         "uncx-pancakeswap-v2": {
