@@ -28,3 +28,31 @@ def test_monitor_discovers_and_fetches_candidate(tmp_path):
     import sqlite3
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM events WHERE event='DISCOVERY_CANDIDATE'").fetchone()[0] == 1
+
+def test_monitor_builds_scout_context_only_after_minimum_history(tmp_path):
+    from veltrix.providers.base import MarketEvent
+    db = str(tmp_path / "signals.db")
+    monitor = MarketMonitor({"base": ["token-address"]}, db, FakeProvider())
+    for i in range(5):
+        monitor.ledger.record_market_event(MarketEvent(
+            "base", "token-address", f"old-{i}", "TST", 1.0, 5000,
+            1000, 0.5, 1000 + i, None, "fake"
+        ))
+    monitor.provider = type("SpikeProvider", (), {
+        "fetch_token_pairs": lambda self, chain, addresses: [
+            MarketEvent(chain, addresses[0], "new", "TST", 1.1, 6000,
+                        3000, 2.0, 2000, None, "fake")
+        ]
+    })()
+    monitor.poll_once()
+    assert len(monitor.signal_contexts) == 1
+    context = monitor.signal_contexts[0]
+    assert context["volume_spike"] is True
+    assert context["volume_multiple"] == 3.0
+    assert context["signal_quality"] == "heuristic"
+
+
+def test_monitor_does_not_emit_volume_signal_without_history(tmp_path):
+    monitor = MarketMonitor({"base": ["token-address"]}, str(tmp_path / "empty.db"), FakeProvider())
+    monitor.poll_once()
+    assert monitor.signal_contexts == []
