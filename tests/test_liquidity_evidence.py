@@ -226,6 +226,6 @@ def test_solana_unknown_program_and_wrong_account_owner_are_rejected():
 
 def test_base_uncx_v21_candidate_matches_current_official_deployment():
     from veltrix.liquidity_evidence import EVM_LOCKER_CANDIDATES
-    assert EVM_LOCKER_CANDIDATES["base"]["uncx-univ2"]["address"] == (
+    assert EVM_LOCKER_CANDIDATES["base"]["uncx-univ2-v2"]["address"] == (
         "0xc4E637D37113192F4F1F060DaEbD7758De7F4131"
     )
