@@ -172,12 +172,26 @@ class SolanaRiskEvidenceCollector:
                     raise ProviderError("mint token-program identity is unsupported")
                 if candidate.extension_tlv_structure_valid is not True:
                     raise ProviderError("Token-2022 extension TLV structure is incomplete")
+                if (isinstance(candidate.supply_raw, bool)
+                        or not isinstance(candidate.supply_raw, int) or candidate.supply_raw <= 0
+                        or isinstance(candidate.decimals, bool)
+                        or not isinstance(candidate.decimals, int)
+                        or not 0 <= candidate.decimals <= 38):
+                    raise ProviderError("mint supply or decimals are invalid")
                 if not isinstance(candidate.extension_types, tuple) or any(
                     not isinstance(name, str) or not name for name in candidate.extension_types
                 ):
                     raise ProviderError("mint extension type inventory is malformed")
-                if not isinstance(candidate.unknown_extension_ids, tuple):
-                    raise ProviderError("mint unknown-extension inventory is malformed")
+                if (not isinstance(candidate.unknown_extension_ids, tuple)
+                        or candidate.unknown_extension_ids):
+                    raise ProviderError("mint extension inventory contains unknown types")
+                for authority in (candidate.mint_authority, candidate.freeze_authority):
+                    if authority is not None:
+                        try:
+                            if canonical_mint(authority) != authority:
+                                raise ValueError("non-canonical authority")
+                        except (TypeError, ValueError) as exc:
+                            raise ProviderError("mint authority public key is malformed") from exc
                 mint_snapshot = candidate
             except Exception as exc:
                 errors.append(f"mint_account: {type(exc).__name__}: {str(exc)[:240]}")
