@@ -72,14 +72,38 @@ def build_funding_graph_providers(settings, *, session=None):
     silently presenting partial histories as complete.
     """
     from .alchemy_funding import AlchemyBaseFundingGraphProvider
+    from .helius_funding import HeliusSolanaFundingGraphProvider
 
-    if not getattr(settings, "alchemy_api_key", ""):
-        return {}
-    return {
-        "base": AlchemyBaseFundingGraphProvider(
-            settings.alchemy_api_key,
-            session=session,
+    providers = {}
+    if getattr(settings, "helius_api_key", ""):
+        providers["solana"] = HeliusSolanaFundingGraphProvider(
+            settings.helius_api_key, session=session,
             max_pages=getattr(settings, "funding_graph_max_pages", 100),
             max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
         )
-    }
+    if getattr(settings, "alchemy_api_key", ""):
+        providers["base"] = AlchemyBaseFundingGraphProvider(
+            settings.alchemy_api_key, session=session,
+            max_pages=getattr(settings, "funding_graph_max_pages", 100),
+            max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
+        )
+    return providers
+
+
+def build_developer_evidence_orchestrator(settings, intelligence_adapters, *,
+                                          holder_providers=None, funding_providers=None,
+                                          audit_sink=None):
+    from ..developer_concentration import DeveloperConcentrationAnalyzer
+    from ..developer_evidence import DeveloperEvidenceOrchestrator
+
+    holders = holder_providers or build_holder_inventory_providers(settings)
+    funding = funding_providers or build_funding_graph_providers(settings)
+    return DeveloperEvidenceOrchestrator(
+        holder_providers=holders, funding_providers=funding,
+        analyzer=DeveloperConcentrationAnalyzer(
+            max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000)
+        ), intelligence_adapters=intelligence_adapters,
+        trusted_root_providers=getattr(settings, "trusted_developer_root_providers", ()),
+        # No production capability is currently certified for this composite graph.
+        certified_provider_id=None, audit_sink=audit_sink,
+    )
