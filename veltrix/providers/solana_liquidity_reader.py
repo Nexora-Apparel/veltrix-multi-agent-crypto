@@ -334,6 +334,7 @@ class SolanaRaydiumV4UncxSnapshotReader:
                     account_owner=UNCX_PROGRAM, custody_account=vault,
                     custody_authority=authority, custody_token_mint=lp_mint,
                     custody_account_owner=TOKEN_PROGRAM,
+                    finalized_ref=finalized_ref,
                 ))
             pools.append(PoolLiquiditySnapshot(
                 chain="solana", token_address=token_key, pool_address=pool["amm_id"],
