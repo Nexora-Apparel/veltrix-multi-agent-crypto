@@ -160,7 +160,7 @@ class EvmV2LiquiditySnapshotReader:
     CHAIN_IDS = {"base": 8453, "bsc": 56}
     ABI_PROFILES = {
         "base": "uncx-v2.1-locks-nonce",
-        "bsc": "uncx-v1-user-lock-index",
+        "bsc": "uncx-v1-token-lock-index-events",
     }
 
     def __init__(
