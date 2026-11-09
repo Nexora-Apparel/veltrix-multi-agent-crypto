@@ -9,6 +9,7 @@ from .launch_stream import LaunchStore, LaunchStreamManager
 from .market_data import MarketDataUnavailable, SolanaMarketData, SolanaMarketSnapshot
 from .market_store import MarketSnapshotStore
 from .pumpportal import PumpPortalDiscovery, PumpPortalError
+from .risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
 
 __all__ = [
     "CandidateRejected", "SolanaCandidate", "canonical_mint",
@@ -18,4 +19,5 @@ __all__ = [
     "MarketDataUnavailable", "SolanaMarketData", "SolanaMarketSnapshot",
     "MarketSnapshotStore",
     "CandidateEnrichmentWorker", "EnrichmentBatchResult",
+    "SolanaRiskEvidenceCollector", "SolanaRiskEvidenceReport",
 ]
