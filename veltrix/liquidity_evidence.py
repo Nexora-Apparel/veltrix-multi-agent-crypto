@@ -20,14 +20,12 @@ EVM_ADDRESS = re.compile(r"^0x[a-fA-F0-9]{40}$")
 SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 HEX_HASH = re.compile(r"^[0-9a-f]{64}$")
 
-# These are discovery candidates only. UNCX's current and legacy docs contain
-# conflicting Base labels and explicitly flag some rows as pending verification.
-# The runtime reader does not trust this list: operators must confirm the exact
-# locker/factory relationship, ABI and deployed bytecode hash before configuring it.
+# These are discovery candidates only. Runtime trust still requires exact live
+# bytecode, constructor-factory, ABI and chain-state verification.
 EVM_LOCKER_CANDIDATES = {
     "base": {
         "uncx-univ2-v2": {
-            "address": "0xED9180976c2a4742C7A57354FD39d8BEc6cbd8AB",
+            "address": "0xc4E637D37113192F4F1F060DaEbD7758De7F4131",
             "abi_profile": "uncx-v2.1-locks-nonce",
             "source_ref": "https://docs.uncx.network/guides/for-developers/liquidity-lockers/lockers-v2/contracts",
         },
