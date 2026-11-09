@@ -12,8 +12,11 @@ def passing_report():
             chain="solana", token_address="x", provider="bundle",
             launch_at_ms=0, window_end_ms=1000, coverage_complete=True,
             bundled_supply_pct=0.0, shared_funder_clusters=0,
-            participating_wallets=0, accepted_transactions=1,
+            participating_wallets=0, accepted_transactions=0,
             rejected=(), notes=(),
+            evidence_id="bundle-evidence", observed_at_ms=1000,
+            scanned_through_ms=1000, supply_source="bundle",
+            supply_block_ref="slot:123", supply_observed_at_ms=1000,
         ),
     )
     return CompositeTokenSafetyValidator(
