@@ -15,9 +15,7 @@ def test_base_uniswap_v2_factory_is_pinned_to_archive_qualified_identity():
     assert identity.address == "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
     assert identity.deployment_block == 6_601_915
     assert identity.creation_tx == (
-        "0x3c94031f81d9afe7e3eb8fbcf4dcf1bd5b5688b86081d94e3d0231514dc00d31"
-    ) or identity.creation_tx == (
-        "0x3c94031f81d9afe7e3eb8fbcf4dcf1bd5b5688b86081d94e3d0231514dc00d31"
+        "0x3c94031f81d9afe3beeb8fbcf4dcf1bd5b5688b86081d94e3d0231514dc00d31"
     )
     assert identity.expected_code_hash == (
         "bab145d02e7005f0d84c6c1639d39b799b0ea16df99ebbdaf5a14d9da820b4e0"
