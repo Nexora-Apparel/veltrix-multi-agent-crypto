@@ -1,0 +1,81 @@
+# Phase 09 — Live Execution Safety Gate
+
+## Status
+
+DESIGN / IMPLEMENTATION IN PROGRESS. Live execution is disabled. This phase does not authorize wallet signing, swap submission, token approvals, or any real-money transaction.
+
+## Objective
+
+Define and enforce an independently testable boundary between the completed simulation pipeline and any future live execution adapter. The default system must remain paper-only, including when configuration is missing, malformed, stale, or contradictory.
+
+## Non-negotiable invariants
+
+1. **Paper-only default:** live execution is disabled unless every independent gate is explicitly satisfied. Missing configuration always resolves to disabled.
+2. **No private keys in the application:** never accept, persist, log, transmit, or expose seed phrases, raw private keys, or exported wallet secrets. A future signer must be isolated behind a separately reviewed signing boundary; this phase must not implement key import.
+3. **Wallet isolation:** paper ledger and live wallet state are separate domains. Simulation code cannot obtain a signer or submit transactions.
+4. **Explicit authorization:** live mode requires a deliberate operator action bound to an environment, wallet identity, approved limits, expiry, and an auditable authorization record. A generic boolean environment flag is insufficient.
+5. **Fail closed:** stale market data, unavailable RPC, failed simulation, unknown token state, failed risk checks, clock skew, nonce/blockhash uncertainty, or any validation error must reject execution.
+6. **Idempotency:** every proposed action has a stable unique intent ID. Retries must not create duplicate submissions.
+7. **Bounded exposure:** enforce per-trade, per-token, total portfolio, and rolling daily-loss ceilings in integer base units. Limits are checked immediately before signing/submission, not only at strategy time.
+8. **Emergency stop:** a persistent kill switch blocks new submissions; activation must not depend on the strategy worker or the same process that submits transactions.
+9. **Transaction preflight:** decode and validate the complete transaction, destination program allowlist, token mint, spend amount, minimum output/slippage, fee ceiling, account changes, and simulation result before any signer is called.
+10. **Auditability:** append-only records capture intent, evidence references, gate decisions, simulation, authorization, submission state, signature reference, and settlement. Never log secrets.
+11. **No hidden fallback:** do not silently downgrade to weaker RPC, skip simulation, relax limits, or switch from live to paper while reporting a live success.
+12. **No production activation in Phase 09:** implementation and tests must not submit a real transaction. A later, separately approved release process is required.
+
+## Required architecture
+
+- **ExecutionPolicy:** immutable policy snapshot with mode, limits, approved programs, slippage/fee ceilings, data freshness bounds, and policy version.
+- **OperatorAuthorization:** short-lived, one-use authorization bound to wallet public key, chain/cluster, policy hash, and intent scope.
+- **RiskGate:** deterministic validation of exposure, daily loss, token risk, market freshness, and emergency-stop state.
+- **TransactionValidator:** parses the unsigned transaction and checks every instruction against explicit allowlists and intent parameters.
+- **SimulationGate:** requires successful simulation against the intended cluster and rejects errors, missing simulation, or materially changed account state.
+- **SignerBoundary:** interface only in this phase; no secret-loading or signing implementation. Tests use a fake signer that proves it is never invoked when any gate fails.
+- **SubmissionCoordinator:** state machine with durable idempotency and explicit states: CREATED, VALIDATED, SIMULATED, AUTHORIZED, SIGNED, SUBMITTED, CONFIRMED, FAILED, CANCELLED. Terminal states cannot be reopened by retry.
+- **EmergencyStop:** independently readable persistent state; fail closed if unavailable.
+- **ExecutionAudit:** append-only, redacted event log with correlation IDs.
+
+## Mandatory rejection conditions
+
+Reject before signing if any of the following holds:
+- live mode is not explicitly enabled by the approved release configuration;
+- authorization is absent, expired, reused, mismatched, or has an invalid policy hash;
+- wallet public key or cluster differs from the authorized values;
+- emergency stop is active or cannot be read;
+- market quote, token-risk evidence, RPC state, or simulation is stale/unavailable;
+- token mint/program is not allowlisted or has unsupported extensions;
+- instruction set contains an unknown program, unexpected account, delegate/authority change, or transfer outside the approved intent;
+- requested spend, exposure, slippage, priority fee, or daily loss exceeds policy;
+- transaction simulation fails or output/account changes differ from expected bounds;
+- intent ID was already processed or submission outcome is ambiguous;
+- audit persistence fails.
+
+## Required test matrix
+
+- default configuration remains paper-only;
+- malformed or missing live configuration fails closed;
+- every rejection condition prevents fake-signer invocation;
+- one-use authorization cannot be replayed;
+- authorization is invalidated by policy, wallet, cluster, or intent changes;
+- concurrent duplicate intents result in at most one accepted state transition;
+- limit calculations use integer base units and handle boundary values;
+- kill switch blocks submissions across worker restarts;
+- unavailable kill-switch storage blocks submissions;
+- transaction parser rejects unknown instructions and unexpected account mutations;
+- failed or absent simulation blocks signing;
+- RPC timeout, stale blockhash, clock skew, and ambiguous submission are safely handled;
+- audit records are append-only, correlated, and secret-redacted;
+- paper-trading regression suite remains unchanged and passing.
+
+## Release gates
+
+Phase 09 is not complete until:
+1. design and threat model are reviewed;
+2. all gates above are implemented with unit, integration, and adversarial tests;
+3. fake-signer tests prove zero signer calls on every rejection path;
+4. concurrency and restart tests prove idempotency and persistent emergency-stop behavior;
+5. static scans confirm no private-key/seed phrase handling or accidental secret logging;
+6. full compilation and repository test suite pass on the PR head and after merge;
+7. a separate operator-facing checklist documents manual wallet isolation and emergency-stop verification without requiring the user to expose secrets.
+
+Passing CI is not proof of safe live trading. No real-money transaction is part of this phase.
