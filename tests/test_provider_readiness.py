@@ -120,3 +120,11 @@ def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
                for item in row.blockers)
     assert any("Solana supported-AMM registry completeness attestation is missing" in item
                for item in row.blockers)
+
+
+def test_solana_readiness_exposes_missing_cpmm_locker_adapter():
+    report = build_provider_readiness(settings())
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "liquidity_lock")
+    assert any("no source-verifiable UNCX CPMM locker adapter exists" in item
+               for item in row.blockers)
