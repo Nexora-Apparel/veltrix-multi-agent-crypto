@@ -198,6 +198,15 @@ def inspect_provider(rpc, factory, creation_tx, deployment_block, anchors, final
             f"{rpc.label}: PairCreated log count {len(logs)} does not match "
             f"allPairsLength delta {expected_delta} in blocks {log_from + 1}-{log_to}"
         )
+    if (
+        log_coverage.get("queried_from_block") != log_from + 1
+        or log_coverage.get("queried_to_block") != log_to
+        or log_coverage.get("queried_block_count") != log_to - log_from
+    ):
+        raise PreflightError(
+            f"{rpc.label}: PairCreated block coverage is incomplete for "
+            f"blocks {log_from + 1}-{log_to}"
+        )
     for log in logs:
         if log["blockNumber"] < log_from + 1 or log["blockNumber"] > log_to:
             raise PreflightError(f"{rpc.label}: PairCreated log outside requested range")
