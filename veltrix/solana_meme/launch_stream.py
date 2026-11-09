@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .candidates import SolanaCandidate
 from .pumpportal import PumpPortalDiscovery
@@ -30,10 +31,18 @@ class LaunchStore:
             Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path, timeout=10, uri=self._uri)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         with self._connect() as db:
@@ -201,20 +210,21 @@ class LaunchStore:
         timestamp = self._timestamp(occurred_at_ms, fallback_now=True)
         clean_source = source.strip()
         with self._connect() as db:
-            db.execute(
+            cursor = db.execute(
                 "UPDATE launch_feed_outages SET ended_at_ms = ? "
                 "WHERE source = ? AND ended_at_ms IS NULL",
                 (timestamp, clean_source),
             )
-            db.execute(
-                "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) "
-                "VALUES (?, ?, ?)",
-                (
-                    "feed_source_healthy",
-                    timestamp,
-                    json.dumps({"source": clean_source}),
-                ),
-            )
+            if cursor.rowcount:
+                db.execute(
+                    "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        "feed_source_healthy",
+                        timestamp,
+                        json.dumps({"source": clean_source}),
+                    ),
+                )
 
     def list_candidates(self, *, limit: int = 100) -> list[dict[str, Any]]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
