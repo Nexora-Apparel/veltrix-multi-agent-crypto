@@ -1,0 +1,65 @@
+name: Base V2 complete history and inventory acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_manifest:
+        description: "JSON array with the four verified candidate deployment records"
+        required: true
+        type: string
+      log_chunk_span:
+        description: "eth_getLogs chunk size (1-10000); start at 10000"
+        required: true
+        default: "10000"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: base-v2-history-inventory-acceptance
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      BASE_LIQUIDITY_POOL_RPC_URL: \${{ secrets.BASE_LIQUIDITY_POOL_RPC_URL }}
+      SOLIDRPC_BASE_ARCHIVE_RPC_URL: \${{ secrets.SOLIDRPC_BASE_ARCHIVE_RPC_URL }}
+      BASE_V2_CANDIDATE_MANIFEST: \${{ inputs.candidate_manifest }}
+      BASE_V2_HISTORY_LOG_CHUNK_SPAN: \${{ inputs.log_chunk_span }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Validate independent archive credentials
+        shell: bash
+        run: |
+          test -n "$BASE_LIQUIDITY_POOL_RPC_URL"
+          test -n "$SOLIDRPC_BASE_ARCHIVE_RPC_URL"
+          if [[ "$BASE_LIQUIDITY_POOL_RPC_URL" == "$SOLIDRPC_BASE_ARCHIVE_RPC_URL" ]]; then
+            echo "::error::Archive providers must be independent."
+            exit 1
+          fi
+          python - <<'PY'
+          import os
+          span = int(os.environ["BASE_V2_HISTORY_LOG_CHUNK_SPAN"])
+          if not 1 <= span <= 10000:
+              raise SystemExit("log_chunk_span must be between 1 and 10000")
+          PY
+      - name: Run history and inventory unit tests
+        run: pytest -q tests/test_base_v2_history_inventory.py
+      - name: Reconcile complete PairCreated history and every factory pair
+        run: python -m veltrix.base_v2_history_inventory
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: base-v2-history-inventory-acceptance
+          path: base-v2-history-inventory-acceptance.json
+          if-no-files-found: warn
