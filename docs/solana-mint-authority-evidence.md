@@ -18,18 +18,22 @@ supply, decimals, slot provenance, and account-data digest.
 - Account-only extension types, duplicate TLV types, truncated headers or
   payloads, malformed terminators, non-zero mint padding and incorrect account
   type fail closed.
-- The snapshot records whether the TLV structure was parsed without malformed bounds; it does not decode or validate each extension's payload semantics. The snapshot records active mint and freeze authorities as addresses or
-  explicit `None`. An active authority is evidence, not an automatic safety
-  approval.
+- The provider validates TLV boundaries but does not yet decode all extension
+  payload semantics or their individual authorities.
 
-## Scope boundary
+## Risk collector and Shield integration
 
-This is an evidence collector, not a safety verdict. It does not yet decode
-authority fields inside each Token-2022 extension, establish whether an
-authority is controlled by the creator, or decide whether an extension is
-acceptable. The existing risk evidence collector and Shield remain closed
-until this data is integrated with separate provenance, policy, and
-sellability checks.
+The optional `SolanaRiskEvidenceCollector` now accepts this provider and records
+mint/freeze authority state, program ID, finalized slot, evidence digest and
+extension inventory. When the mint account is verified and no Token-2022
+extensions are present, the corresponding authority and extension-presence
+claims can be resolved. Active mint or freeze authority is explicitly retained
+and vetoed by Shield. Any Token-2022 mint with extensions remains blocked until
+the extension-specific policy and authority fields are decoded and reviewed.
 
-The RPC URL is never written to evidence or exception messages. No private key,
-wallet signer, transaction, or write method is present.
+The runtime constructs this collector only when the existing
+`GOPLUS_ACCESS_TOKEN` and `SOLANA_RPC_URL` settings are both available. It adds
+no credential requirement.
+
+This is evidence collection, not a safety verdict. No private key, wallet
+signer, transaction, or write method is present.
