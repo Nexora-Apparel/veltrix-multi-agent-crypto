@@ -123,3 +123,15 @@ def test_rejects_invalid_timeout():
 
     with pytest.raises(ValueError):
         DexScreenerDiscovery(timeout_seconds=0)
+
+def test_rejects_object_response_without_token_fields():
+    session = FakeSession({
+        "/token-profiles/latest/v1": FakeResponse({"message": "upstream error"}),
+        "/token-boosts/latest/v1": FakeResponse([]),
+    })
+    batch = DexScreenerDiscovery(
+        session=session, base_url="https://dexscreener.test",
+        clock_ms=lambda: 123456,
+    ).fetch_candidates()
+    assert batch.errors[0][0] == "dexscreener-latest-profile"
+    assert "token fields" in batch.errors[0][1]
