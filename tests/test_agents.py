@@ -1,7 +1,10 @@
+from dataclasses import replace
+
 from veltrix.agents import Sniper, Shield, Exit, Signal
 from veltrix.safety import SafetyEvidence, TokenSafetyValidator
 from veltrix.composite_safety import CompositeTokenSafetyValidator, SafetyEvidenceBundle
 from veltrix.launch_bundles import LaunchBundleReport
+from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
 
 def passing_report():
     now = 1_001
@@ -24,6 +27,22 @@ def passing_report():
         ["lock"], ["dev"], ["bundle"], max_age_ms=10_000,
         capability_certifier=lambda provider, chain, claim: True,
     ).validate("x", bundle, now, chain="solana")
+
+def risk_report(*, missing=(), errors=(), liquidity=True, complete=True):
+    return SolanaRiskEvidenceReport(
+        mint="So11111111111111111111111111111111111111112",
+        observed_at_ms=10_000,
+        goplus_provider="goplus", goplus_evidence_id="goplus:1",
+        goplus_observed_at_ms=10_000, liquidity_locked=liquidity,
+        holder_provider="solana-rpc-holder-inventory",
+        holder_evidence_id="holders:1", holder_block_ref="finalized-slot:1",
+        holder_count=3, total_supply_raw=1000,
+        observed_holder_balance_raw=1000, holder_coverage_complete=complete,
+        top_holder_pct=50.0 if complete else None,
+        top5_holder_pct=100.0 if complete else None,
+        top10_holder_pct=100.0 if complete else None,
+        missing_claims=tuple(missing), errors=tuple(errors),
+    )
 
 def test_sniper_fails_closed_when_report_missing():
     assert Sniper().evaluate({"address":"x"}) is None
@@ -52,11 +71,38 @@ def test_exit_rules_and_invalid_fraction():
     assert e.decisions(100,200,0.5)==[("take_2x",0.25)]
     assert e.decisions(100,200,0)==[]
 
-
-
 def test_sniper_rejects_single_provider_legacy_safety_report():
     evidence = SafetyEvidence("x", "trusted", "evidence-1", 1000, True, 4.5, 0.0)
     legacy = TokenSafetyValidator(["trusted"]).validate("x", evidence, 1001)
     assert legacy.passed
     assert not legacy.composite_verified
     assert Sniper().evaluate({"address": "x", "safety_report": legacy}) is None
+
+def test_solana_shield_holds_when_required_claims_are_unknown():
+    decision = Shield().evaluate_solana_evidence(
+        risk_report(missing=("mint_authority", "developer_wallet_linkage"))
+    )
+    assert decision.state == "HOLD"
+    assert decision.veto is True
+    assert decision.entry_authorized is False
+    assert "missing_claim:mint_authority" in decision.reasons
+
+def test_solana_shield_blocks_explicit_liquidity_failure():
+    decision = Shield().evaluate_solana_evidence(risk_report(liquidity=False))
+    assert decision.state == "BLOCK"
+    assert decision.veto is True
+    assert decision.entry_authorized is False
+
+def test_solana_shield_never_authorizes_entry_from_evidence_alone():
+    decision = Shield().evaluate_solana_evidence(risk_report())
+    assert decision.state == "READY_FOR_AGENT_CONSENSUS"
+    assert decision.veto is False
+    assert decision.entry_authorized is False
+
+def test_solana_shield_holds_on_incomplete_holder_coverage_or_provider_errors():
+    decision = Shield().evaluate_solana_evidence(
+        risk_report(complete=False, errors=("rpc: timeout",))
+    )
+    assert decision.state == "HOLD"
+    assert decision.veto is True
+    assert decision.entry_authorized is False
