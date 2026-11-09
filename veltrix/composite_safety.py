@@ -162,8 +162,8 @@ class CompositeTokenSafetyValidator:
 def composite_validator_from_settings(settings) -> CompositeTokenSafetyValidator:
     """Construct claim-specific trust only from explicit environment settings."""
     return CompositeTokenSafetyValidator(
-        trusted_liquidity_providers=settings.trusted_liquidity_providers,
-        trusted_developer_providers=settings.trusted_developer_providers,
-        trusted_bundle_providers=settings.trusted_bundle_providers,
-        max_age_ms=settings.safety_evidence_max_age_ms,
+        trusted_liquidity_providers=getattr(settings, "trusted_liquidity_providers", ()),
+        trusted_developer_providers=getattr(settings, "trusted_developer_providers", ()),
+        trusted_bundle_providers=getattr(settings, "trusted_bundle_providers", ()),
+        max_age_ms=getattr(settings, "safety_evidence_max_age_ms", 300_000),
     )
