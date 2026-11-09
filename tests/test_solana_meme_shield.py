@@ -4,6 +4,7 @@ from veltrix.agents import Signal
 from veltrix.safety import SafetyReport
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
 from veltrix.solana_meme.shield import SolanaShieldPolicy
+from veltrix.providers.solana_mint import TOKEN_PROGRAM_ID
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -19,6 +20,9 @@ def evidence():
         holder_coverage_complete=True, top_holder_pct=60.0,
         top5_holder_pct=100.0, top10_holder_pct=100.0,
         missing_claims=(), errors=(),
+        mint_evidence_id="mint:1", mint_finalized_slot=10,
+        token_program_id=TOKEN_PROGRAM_ID, mint_authority=None, freeze_authority=None,
+        token_2022_extension_types=(), token_2022_extension_review_complete=True,
     )
 
 
@@ -143,3 +147,32 @@ def test_invalid_evaluation_timestamp_and_boolean_supply_are_rejected():
         open_positions=0, amount=10, now_ms=10_000,
     )
     assert invalid_supply.decision == "BLOCK"
+
+
+
+def test_active_mint_or_freeze_authority_vetoes_entry():
+    for changes, expected in (
+        ({"mint_authority": "11111111111111111111111111111111"}, "mint authority remains active"),
+        ({"freeze_authority": "11111111111111111111111111111111"}, "freeze authority remains active"),
+    ):
+        result = SolanaShieldPolicy().evaluate(
+            MINT, replace(evidence(), **changes), safety(), signals(),
+            open_positions=0, amount=10, now_ms=10_000,
+        )
+        assert result.decision == "BLOCK"
+        assert expected in result.reasons
+
+
+def test_token_2022_extension_presence_requires_separate_policy_review():
+    result = SolanaShieldPolicy().evaluate(
+        MINT,
+        replace(
+            evidence(),
+            token_program_id="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+            token_2022_extension_types=("permanent_delegate",),
+            token_2022_extension_review_complete=False,
+        ),
+        safety(), signals(), open_positions=0, amount=10, now_ms=10_000,
+    )
+    assert result.decision == "BLOCK"
+    assert "Token-2022 extensions require separate policy certification" in result.reasons
