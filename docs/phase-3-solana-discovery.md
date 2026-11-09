@@ -54,7 +54,16 @@ the primary stream's outage is closed by a subsequent valid event.
 
 `SolanaDiscoveryEngine.run(stop_event)` polls the secondary lists and can
 supervise the primary PumpPortal stream in a dedicated daemon thread. Run it as
-a long-lived worker process, not inside a web request.
+a long-lived worker process, not inside a web request:
+
+```bash
+python -m veltrix.solana_meme.worker
+```
+
+Configure the persistent database with `VELTRIX_SOLANA_DISCOVERY_DB` and the
+secondary poll interval with `VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS` (default
+30 seconds; accepted range 5–3600 seconds). `SIGINT` and `SIGTERM` trigger a
+graceful stop.
 
 ## Safety boundary
 
