@@ -140,7 +140,7 @@ The earlier liquidity layer accepted typed snapshot readers but did not itself a
 ### Configuration and live acceptance
 
 - Configure separate pool and locker RPC URLs for each chain in `.env` or GitHub Actions secrets.
-- EVM factory/locker JSON registries require the exact deployment block and 64-character runtime code hash (without `0x`). The Base locker ABI profile is `uncx-v2.1-locks-nonce`; BSC is `uncx-v1-user-lock-index`.
+- EVM factory/locker JSON registries require the exact deployment block and 64-character runtime code hash (without `0x`). The Base locker ABI profile is `uncx-v2.1-locks-nonce`; BSC is `uncx-v1-token-lock-index-events`.
 - Keep `BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE`, `BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE` and `SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE` false until every factory/program in the declared supported scope is included. Pin both Raydium program hashes before constructing the Solana reader.
 - Run the GitHub Actions workflow **Liquidity live read-only acceptance** manually with a chain and token address. It reports reader acceptance separately from the token's actual liquidity-lock safety result. A structurally valid reader can pass acceptance while the token correctly remains blocked because some pools are unlocked.
 - Reader IDs are not added to `TRUSTED_LIQUIDITY_PROVIDERS` by code. Live acceptance, deployment ownership review, registry review and explicit operator trust are prerequisites. No transactions are sent.
