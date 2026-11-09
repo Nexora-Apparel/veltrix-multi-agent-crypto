@@ -146,7 +146,7 @@ def test_runner_opens_only_with_complete_typed_evidence_and_two_agents(tmp_path)
         core=Core(broker), agent_context_provider=context_provider,
     )
     result = runner.run_once()
-    assert result.approved == 1
+    assert result.approved == 1, runner.audit_history(MINT)
     snapshot = broker.snapshot()
     assert len(snapshot["open_positions"]) == 1
     assert snapshot["cash"] == 450
