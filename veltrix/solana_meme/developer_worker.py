@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 from typing import Callable
 
 from ..developer_concentration import DeveloperConcentrationAnalyzer, DeveloperConcentrationReport
@@ -185,7 +186,7 @@ class SolanaDeveloperEvidenceWorker:
             raise ValueError("developer-root attestation chain or mint mismatch")
         if roots.coverage_complete is not True or not roots.roots:
             raise ValueError("developer-root coverage is incomplete")
-        source = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(roots.source_ref or "")
+        source = urlparse(roots.source_ref or "")
         if source.scheme != "https" or not source.netloc:
             raise ValueError("developer-root attestation source is not HTTPS")
         if (not isinstance(roots.observed_at_ms, int) or isinstance(roots.observed_at_ms, bool)
