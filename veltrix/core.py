@@ -100,6 +100,8 @@ class Core:
                     open_positions=open_count,
                     amount=amount,
                     now_ms=int(time.time() * 1000),
+                    sellability=token.get("sellability_evidence"),
+                    sell_amount_raw=token.get("sell_amount_raw"),
                 )
             except (TypeError, ValueError) as exc:
                 self.broker.record_agent_decision(
