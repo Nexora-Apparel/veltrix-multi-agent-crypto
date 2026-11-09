@@ -86,7 +86,7 @@ Before enabling the continuous worker, run the live market-data probe:
 python -m veltrix.solana_meme.market_smoke
 ```
 
-It fetches the public wrapped-SOL token-pairs response and verifies that the
+It fetches the established BONK token-pairs response and verifies that the
 provider can produce a normalized Solana market snapshot.
 
 The supervised runtime is started with:
