@@ -177,7 +177,10 @@ class LaunchIntelligenceService:
         return bool(
             snapshot.provider == provider_id
             and snapshot.chain == chain
-            and snapshot.token_address == token_address
+            and (
+                snapshot.token_address.lower() == token_address.lower()
+                if chain in {"base", "bsc"} else snapshot.token_address == token_address
+            )
             and snapshot.launch_at_ms <= now_ms
             and snapshot.observed_at_ms <= now_ms
             and coverage.provider == provider_id
