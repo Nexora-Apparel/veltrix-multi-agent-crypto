@@ -43,16 +43,18 @@ executable_sellability safety claim or approve a paper/live entry by itself.
 
 ## Jupiter integration boundary
 
-Jupiter Swap V2 order construction requires a taker public key. VELTRIX will not
-borrow the user's Phantom address or ask for a private key to obtain quote evidence.
-A future adapter must use a dedicated, non-custodial test-wallet public address
-or a documented quote endpoint that genuinely supports taker-free quoting. The
-adapter must not sign or submit the returned transaction.
+Jupiter Swap API V2 /order supports quote-only requests without a taker: the
+response contains quote data and no transaction. VELTRIX therefore uses the
+quote-only path and never supplies a Phantom or other wallet address. Keyless
+Jupiter access is limited to 0.5 requests per second; the provider enforces a
+minimum two-second interval. An existing optional JUPITER_API_KEY can raise the
+rate limit, but no new key is required for prototype use. The adapter never
+calls /execute or signs/submits a transaction.
 
 Before any execution claim, a separate controlled simulation must verify the
 unsigned transaction with an isolated test payer, and token-specific transfer
-semantics must be reviewed. This stage intentionally does not add a Jupiter
-network adapter, API key, signer, or live execution path.
+semantics must be reviewed. This stage adds a read-only Jupiter quote adapter but no signer, transaction
+submission, or live execution path.
 
 
 ## Persistence and scheduling
