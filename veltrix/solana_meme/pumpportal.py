@@ -86,6 +86,19 @@ class PumpPortalDiscovery:
         except CandidateRejected:
             return None
 
+    def probe_connection(self) -> None:
+        """Verify websocket handshake and send the free new-token subscription."""
+        ws = self._connect()
+        try:
+            ws.send(json.dumps({"method": "subscribeNewToken"}))
+        except Exception as exc:
+            raise PumpPortalError(f"PumpPortal subscription failed: {exc}") from exc
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
     def stream_new_tokens(
         self,
         *,
