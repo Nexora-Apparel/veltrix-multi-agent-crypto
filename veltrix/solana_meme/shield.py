@@ -211,7 +211,7 @@ class SolanaShieldPolicy:
                 reasons.append("sell-route price impact is invalid or above paper limit")
             fraction = sellability.input_supply_fraction
             if (isinstance(fraction, bool) or not isinstance(fraction, (int, float))
-                    or not math.isfinite(fraction) or not 0.005 <= fraction <= 0.05):
+                    or not math.isfinite(fraction) or not 0.000001 <= fraction <= 0.05):
                 reasons.append("sell-route size fraction is outside paper bounds")
             elif (isinstance(sellability.input_amount_raw, int)
                     and isinstance(evidence, SolanaRiskEvidenceReport)
