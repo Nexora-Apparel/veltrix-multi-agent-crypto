@@ -116,5 +116,5 @@ def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
     row = next(row for row in report.claims
                if row.chain == "solana" and row.claim == "liquidity_lock")
     assert not row.configured
-    assert any("separate Solana pool and locker RPC endpoints" not in item
+    assert any("Raydium AMM V4 executable SHA-256 hash is missing" in item
                for item in row.blockers)
