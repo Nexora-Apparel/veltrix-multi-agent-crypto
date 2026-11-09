@@ -152,16 +152,19 @@ class AlchemyWalletProvider:
         for tx_hash, legs in grouped.items():
             if not legs["inbound"] or not legs["outbound_quote"]:
                 continue
-            # A single transaction may contain several token legs; emit one row per
-            # unique inbound target mint and use the aggregate allowlisted quote spend.
+            # Avoid assigning one transaction's full quote spend to multiple mints.
+            tokens = {token for token, _ in legs["inbound"]}
+            if len(tokens) != 1:
+                continue
+            token = next(iter(tokens))
             notional = sum(legs["outbound_quote"])
-            for token, observed_ms in legs["inbound"]:
-                key = (chain, wallet, tx_hash, token)
-                if key in seen:
-                    continue
-                seen.add(key)
-                output.append(SmartWalletObservation(
-                    provider="alchemy", chain=chain, token_address=token,
-                    wallet_address=wallet, side="BUY", notional_usd=notional,
-                    transaction_id=tx_hash, observed_at_ms=observed_ms,
-                ))
+            observed_ms = max(timestamp for mint, timestamp in legs["inbound"] if mint == token)
+            key = (chain, wallet, tx_hash, token)
+            if key in seen:
+                continue
+            seen.add(key)
+            output.append(SmartWalletObservation(
+                provider="alchemy", chain=chain, token_address=token,
+                wallet_address=wallet, side="BUY", notional_usd=notional,
+                transaction_id=tx_hash, observed_at_ms=observed_ms,
+            ))
