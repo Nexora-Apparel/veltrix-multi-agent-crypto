@@ -178,3 +178,14 @@ def test_rejects_invalid_timeout_and_timestamp():
             MINT, TOKEN_PROGRAM_ID, mint_data(),
             finalized_slot=1, observed_at_ms=0,
         )
+
+def test_none_authority_uses_coption_tag_even_if_payload_bytes_are_nonzero():
+    data = bytearray(mint_data(mint_authority=None, freeze_authority=None))
+    data[4:36] = bytes(range(1, 33))
+    data[50:82] = bytes(range(32, 0, -1))
+    snapshot = SolanaMintAuthorityProvider.parse_account(
+        MINT, TOKEN_PROGRAM_ID, bytes(data),
+        finalized_slot=100, observed_at_ms=10_000,
+    )
+    assert snapshot.mint_authority is None
+    assert snapshot.freeze_authority is None
