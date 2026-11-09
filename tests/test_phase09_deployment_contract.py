@@ -12,6 +12,7 @@ def test_paper_unit_has_dedicated_identity_and_bounded_writable_state():
     unit = _unit("veltrix-paper.service")
     assert "User=veltrix-paper" in unit
     assert "Group=veltrix-db" in unit
+    assert "SupplementaryGroups=veltrix-paper-secrets" in unit
     assert "StateDirectory=veltrix" in unit
     assert "UMask=0007" in unit
     assert "ReadWritePaths=/var/lib/veltrix" in unit
@@ -26,6 +27,7 @@ def test_dashboard_unit_is_distinct_and_database_read_only():
     unit = _unit("veltrix-dashboard.service")
     assert "User=veltrix-dashboard" in unit
     assert "Group=veltrix-db" in unit
+    assert "SupplementaryGroups=veltrix-dashboard-secrets" in unit
     assert "ReadOnlyPaths=/var/lib/veltrix" in unit
     assert "VELTRIX_DASHBOARD_HOST=127.0.0.1" in unit
     assert "EnvironmentFile=/etc/veltrix/dashboard.env" in unit
