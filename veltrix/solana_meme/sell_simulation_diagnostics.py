@@ -32,7 +32,7 @@ def diagnose_sell_simulation(
 
     text = " ".join((observation.error or "", *observation.logs)).lower()
     if any(term in text for term in (
-        "blockhash not found", "block height exceeded", "node is unhealthy",
+        "blockhash not found", "blockhashnotfound", "block height exceeded", "node is unhealthy",
         "temporarily unavailable", "gateway timeout", "request timed out",
     )):
         return SolanaSellSimulationDiagnostic(
