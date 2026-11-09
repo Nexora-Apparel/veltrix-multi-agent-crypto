@@ -164,7 +164,7 @@ class MarketRefreshWorker:
                 (mint,),
             ).fetchone()
             failures = (int(row["consecutive_failures"]) if row else 0) + 1
-            delay = min(self.retry_base_ms * (2 ** (failures - 1)), self.retry_max_ms)
+            delay = min(self.retry_base_ms * (2 ** min(failures - 1, 30)), self.retry_max_ms)
             db.execute("""
                 UPDATE solana_market_refresh_jobs
                 SET status = 'retry', consecutive_failures = ?,
