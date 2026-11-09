@@ -61,7 +61,7 @@ def test_market_context_without_baseline_never_invents_spike(tmp_path):
     add_snapshot(store, observed=100_000, retrieved=100_000, volume=10_000)
     context = SolanaMarketAgentContextProvider(
         store, clock_ms=lambda: 100_000,
-    )(MINT, {})
+    )(MINT, {"market": store.latest(MINT)})
     assert context.volume_spike is False
 
 
