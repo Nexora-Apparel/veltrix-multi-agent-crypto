@@ -362,3 +362,38 @@ def build_solana_sellability_worker(settings, launch_store, risk_store, evidence
         launch_store, risk_store, evaluator, evidence_store,
         refresh_interval_ms=30_000, quote_supply_fraction=0.01,
     )
+
+
+def build_solana_sell_simulation_worker(settings, database_path, evidence_store, *, session=None):
+    """Build simulation only for explicit test-wallet mint/amount cases.
+
+    No signing key is accepted. The configured taker is a public address only.
+    """
+    if not getattr(settings, "solana_sell_simulation_enabled", False):
+        return None
+    import json
+    from .solana_sell_simulation import JupiterSolanaSellSimulationProvider
+    from ..solana_meme.sell_simulation_worker import SolanaSellSimulationWorker
+
+    rpc_url = getattr(settings, "solana_rpc_url", "")
+    taker = getattr(settings, "solana_sell_simulation_taker", "")
+    raw_cases = getattr(settings, "solana_sell_simulation_cases_json", "")
+    if not rpc_url or not taker or not raw_cases:
+        return None
+    try:
+        cases = json.loads(raw_cases)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SOLANA_SELL_SIMULATION_CASES_JSON must be valid JSON") from exc
+    if not isinstance(cases, dict) or not cases:
+        raise ValueError("SOLANA_SELL_SIMULATION_CASES_JSON must be a non-empty object")
+    provider = JupiterSolanaSellSimulationProvider(
+        rpc_url, taker, api_key=getattr(settings, "jupiter_api_key", ""),
+        session=session,
+        minimum_request_interval_seconds=max(
+            2.0, getattr(settings, "jupiter_quote_min_interval_seconds", 2.1),
+        ),
+    )
+    return SolanaSellSimulationWorker(
+        database_path, provider, evidence_store, cases,
+        refresh_interval_ms=300_000,
+    )
