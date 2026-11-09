@@ -76,6 +76,169 @@ def _evidence_id(*parts: object) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+
+class HeliusNativeFundingResolver:
+    """Trace a Solana buyer's recent inbound native-SOL funding transaction."""
+
+    provider_id = "helius-funder"
+    NATIVE_SOL_MINT = "So11111111111111111111111111111111111111111"
+
+    def __init__(self, api_key, *, base_url="https://mainnet.helius-rpc.com",
+                 session=None, timeout=20, max_pages=10, lookback_ms=86_400_000,
+                 clock_ms=None):
+        if not api_key or max_pages < 1 or lookback_ms <= 0:
+            raise ValueError("Helius funding resolver requires key and positive bounds")
+        self.api_key, self.base_url = api_key, base_url.rstrip("/")
+        self.session, self.timeout = session or requests.Session(), timeout
+        self.max_pages, self.lookback_ms = max_pages, lookback_ms
+        self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+
+    def trace_funder(self, chain, wallet_address, before_ms):
+        if chain != "solana":
+            return None
+        start_ms = max(0, before_ms - self.lookback_ms)
+        cursor, pages, incoming, scanned_through = None, 0, [], 0
+        reached_end = False
+        while pages < self.max_pages:
+            body = {
+                "address": wallet_address,
+                "match": {"mints": [{"mint": self.NATIVE_SOL_MINT}]},
+                "tokenAccounts": "balanceChanged",
+                "time": {"gte": start_ms // 1000, "lte": before_ms // 1000},
+                "limit": 100, "returnShape": "transactions",
+            }
+            if cursor:
+                body["paginationToken"] = cursor
+            try:
+                response = self.session.post(
+                    f"{self.base_url}/v1/parsed-events/scan",
+                    params={"api-key": self.api_key}, json=body,
+                    headers={"Content-Type": "application/json"}, timeout=self.timeout,
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except (requests.RequestException, ValueError) as exc:
+                raise ProviderError("Helius funding trace request failed") from exc
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise ProviderError("Helius funding trace response malformed")
+            scan = payload.get("scan") or {}
+            through = (scan.get("scannedThrough") or {}).get("blockTime")
+            if isinstance(through, (int, float)):
+                scanned_through = max(scanned_through, int(through * 1000))
+            for tx in payload["data"]:
+                if not isinstance(tx, dict):
+                    continue
+                ts = tx.get("blockTime", tx.get("timestamp"))
+                if not isinstance(ts, (int, float)):
+                    continue
+                observed = int(ts * 1000)
+                if not start_ms <= observed <= before_ms:
+                    continue
+                for transfer in tx.get("nativeTransfers", []):
+                    if (isinstance(transfer, dict)
+                            and transfer.get("toUserAccount") == wallet_address
+                            and isinstance(transfer.get("fromUserAccount"), str)
+                            and transfer.get("fromUserAccount") != wallet_address):
+                        incoming.append((observed, transfer["fromUserAccount"], tx.get("signature")))
+            pages += 1
+            cursor = payload.get("paginationToken")
+            if not cursor:
+                reached_end = scan.get("stoppedOn") == "windowEnd" and scanned_through >= before_ms
+                break
+        if not reached_end or not incoming:
+            return None
+        observed, funder, signature = max(incoming, key=lambda row: row[0])
+        if not isinstance(signature, str) or not signature:
+            return None
+        return FundingTrace(
+            provider=self.provider_id, chain="solana", wallet_address=wallet_address,
+            funder_address=funder, observed_at_ms=observed,
+            evidence_id=_evidence_id(self.provider_id, wallet_address, funder, signature, start_ms),
+            transaction_ids=(signature,), coverage_complete=True,
+        )
+
+
+class EvmQuoteFundingResolver:
+    """Trace direct inbound transfers of configured quote assets on Base or BSC.
+
+    This does not claim to cover native-coin funding or unconfigured ERC-20 assets.
+    """
+
+    def __init__(self, chain, rpc_url, quote_token_addresses, *,
+                 session=None, timeout=20, block_chunk_size=2_000,
+                 lookback_blocks=20_000, clock_ms=None):
+        if chain not in {"base", "bsc"} or not rpc_url:
+            raise ValueError("EVM funding resolver requires Base/BSC RPC URL")
+        self.provider_id = f"{chain}-quote-funder"
+        self.chain, self.rpc_url = chain, rpc_url
+        self.quote_tokens = tuple(x.lower() for x in quote_token_addresses)
+        self.session, self.timeout = session or requests.Session(), timeout
+        self.block_chunk_size, self.lookback_blocks = block_chunk_size, lookback_blocks
+        self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+        self._request_id = 0
+
+    def _rpc(self, method, params):
+        self._request_id += 1
+        try:
+            response = self.session.post(
+                self.rpc_url, json={"jsonrpc":"2.0","id":self._request_id,
+                                    "method":method,"params":params},
+                headers={"Content-Type":"application/json"}, timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise ProviderError(f"{self.chain} funding RPC failed: {method}") from exc
+        if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+            raise ProviderError(f"{self.chain} funding RPC returned invalid {method}")
+        return payload["result"]
+
+    def trace_funder(self, chain, wallet_address, before_ms):
+        if chain != self.chain or not self.quote_tokens:
+            return None
+        latest = self._rpc("eth_blockNumber", [])
+        end_block = int(latest, 16)
+        start_block = max(0, end_block - self.lookback_blocks)
+        wallet_topic = "0x" + wallet_address.lower().removeprefix("0x").rjust(64, "0")
+        found, rejected = [], False
+        for start in range(start_block, end_block + 1, self.block_chunk_size):
+            end = min(end_block, start + self.block_chunk_size - 1)
+            try:
+                logs = self._rpc("eth_getLogs", [{
+                    "address": list(self.quote_tokens), "fromBlock": hex(start),
+                    "toBlock": hex(end), "topics": [TRANSFER_TOPIC, None, wallet_topic],
+                }])
+            except ProviderError:
+                rejected = True
+                break
+            if not isinstance(logs, list):
+                rejected = True
+                break
+            for log in logs:
+                try:
+                    funder = "0x" + log["topics"][1][-40:]
+                    txid = log["transactionHash"]
+                    block_number = int(log["blockNumber"], 16)
+                    block = self._rpc("eth_getBlockByNumber", [hex(block_number), False])
+                    observed = int(block["timestamp"], 16) * 1000
+                    amount = int(log["data"], 16)
+                except (KeyError, TypeError, ValueError):
+                    rejected = True
+                    continue
+                if observed <= before_ms and amount > 0 and funder.lower() != wallet_address.lower():
+                    found.append((observed, funder, txid))
+        if rejected or not found:
+            return None
+        observed, funder, txid = max(found, key=lambda row: row[0])
+        return FundingTrace(
+            provider=self.provider_id, chain=chain, wallet_address=wallet_address,
+            funder_address=funder, observed_at_ms=observed,
+            evidence_id=_evidence_id(self.provider_id, wallet_address, funder, txid,
+                                     start_block, end_block, self.quote_tokens),
+            transaction_ids=(txid,), coverage_complete=True,
+        )
+
+
 class HeliusLaunchIndexer:
     """Helius Parsed Events Scan adapter for Solana launch-window swaps."""
 
@@ -505,7 +668,11 @@ class LaunchIntelligenceService:
         rejected = list(batch.rejected)
         if batch.provider not in self.trusted_launch:
             rejected.append("launch indexer is not explicitly trusted")
-        if batch.chain != chain or batch.token_address.lower() != token_address.lower():
+        token_matches = (
+            batch.token_address.lower() == token_address.lower()
+            if chain in {"base", "bsc"} else batch.token_address == token_address
+        )
+        if batch.chain != chain or not token_matches:
             rejected.append("launch indexer returned wrong chain or token")
         if batch.scanned_through_ms < batch.window_end_ms:
             rejected.append("indexer did not reach launch-window end")
@@ -522,6 +689,9 @@ class LaunchIntelligenceService:
                 rejected.append(f"funding trace for {item.wallet_address} is incomplete")
 
         effective_coverage = batch.coverage_complete and not rejected
+        if not batch.observations and not self.trusted_funding:
+            rejected.append("no trusted funding tracer configured for a zero-buy launch window")
+            effective_coverage = False
         report = self.analyzer.analyze(
             provider=batch.provider, chain=chain, token_address=token_address,
             launch_at_ms=launch_at_ms, total_supply=batch.total_supply,
