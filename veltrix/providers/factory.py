@@ -125,7 +125,7 @@ def build_developer_evidence_orchestrator(settings, intelligence_adapters, *,
 
 
 
-def build_liquidity_snapshot_providers(settings, *, session=None):
+def build_liquidity_snapshot_providers(settings, *, session=None, chains=("base", "bsc", "solana")):
     """Construct optional read-only chain snapshot readers.
 
     These readers are deliberately not registered as certified capabilities.
@@ -139,6 +139,9 @@ def build_liquidity_snapshot_providers(settings, *, session=None):
     )
     from .solana_liquidity_reader import SolanaRaydiumV4UncxSnapshotReader
 
+    allowed = {"base", "bsc", "solana"}
+    if not set(chains).issubset(allowed):
+        raise ValueError("unsupported liquidity reader chain")
     providers = {}
 
     def parse_registry(raw, model, label):
@@ -156,6 +159,8 @@ def build_liquidity_snapshot_providers(settings, *, session=None):
             raise ValueError(f"{label} contains an invalid entry") from exc
 
     for chain in ("base", "bsc"):
+        if chain not in chains:
+            continue
         pool_url = getattr(settings, f"{chain}_liquidity_pool_rpc_url", "")
         locker_url = getattr(settings, f"{chain}_liquidity_locker_rpc_url", "")
         factories_raw = getattr(settings, f"{chain}_liquidity_factories_json", "")
@@ -180,7 +185,7 @@ def build_liquidity_snapshot_providers(settings, *, session=None):
 
     sol_pool = getattr(settings, "solana_liquidity_pool_rpc_url", "")
     sol_locker = getattr(settings, "solana_liquidity_locker_rpc_url", "")
-    if sol_pool or sol_locker:
+    if "solana" in chains and (sol_pool or sol_locker):
         providers["solana"] = SolanaRaydiumV4UncxSnapshotReader(
             sol_pool, sol_locker, session=session,
             max_pools=getattr(settings, "liquidity_reader_max_pools", 20_000),
