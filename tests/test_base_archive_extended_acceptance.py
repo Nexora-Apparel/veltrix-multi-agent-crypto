@@ -10,6 +10,8 @@ from veltrix.base_archive_extended_acceptance import (
     block_by_tag,
     common_finalized_checkpoint,
     normalized_logs,
+    pair_created_index,
+    validate_pair_created_sequence,
     quantity,
 )
 
@@ -67,6 +69,29 @@ def test_common_finalized_checkpoint_rejects_common_height_hash_mismatch():
             {"number": 100, "hash": "0xaaa"},
             {"number": 120, "hash": "0xccc"},
         )
+
+
+def _pair_created_log(index):
+    return {
+        "data": "0x" + ("00" * 32) + index.to_bytes(32, "big").hex()
+    }
+
+
+def test_pair_created_sequence_requires_every_factory_pair_index():
+    logs = [_pair_created_log(9), _pair_created_log(7), _pair_created_log(8)]
+    validate_pair_created_sequence(logs, 6, 9, "test-provider")
+
+
+def test_pair_created_sequence_rejects_missing_or_duplicate_indices():
+    logs = [_pair_created_log(7), _pair_created_log(9), _pair_created_log(9)]
+    with pytest.raises(Exception, match="indices do not reconcile"):
+        validate_pair_created_sequence(logs, 6, 9, "test-provider")
+
+
+def test_pair_created_index_rejects_wrong_event_data_length():
+    with pytest.raises(Exception, match="expected 64 bytes"):
+        pair_created_index({"data": "0x1234"})
+
 
 def test_quantity_accepts_hex_quantity():
     assert quantity("0x349eb47", "block") == 0x349EB47
