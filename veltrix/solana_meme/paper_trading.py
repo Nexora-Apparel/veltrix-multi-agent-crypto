@@ -339,6 +339,8 @@ class PaperTradingWorker:
                 fee_bps=self.policy.fee_bps,
                 slippage_bps=self.policy.slippage_bps,
                 processed_at_ms=now,
+                expected_market_snapshot_id=market["id"],
+                expected_risk_evidence_hash=decision["risk_evidence_hash"],
             )
             if result["status"] == "OPENED":
                 opened += 1
@@ -358,9 +360,34 @@ class PaperTradingWorker:
         )
 
     def status(self) -> dict:
+        now = self.clock_ms()
+        if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
+            raise ValueError("clock_ms must return a positive integer")
+        unmarked = []
+        prices = {}
+        for position in self.broker.snapshot().get("open_positions", []):
+            mint = position.get("token")
+            market = self.market_store.latest(mint) if isinstance(mint, str) else None
+            if market is None or not self._fresh(
+                market.get("retrieved_at_ms"), now, self.policy.max_market_age_ms
+            ):
+                unmarked.append(mint)
+                continue
+            price = market.get("price_usd")
+            if (
+                isinstance(price, bool)
+                or not isinstance(price, (int, float))
+                or not math.isfinite(float(price))
+                or price <= 0
+            ):
+                unmarked.append(mint)
+                continue
+            prices[mint] = float(price)
+        account = self.broker.snapshot(prices)
         return {
-            "account": self.broker.snapshot(),
+            "account": account,
             "paper_performance": self.broker.session_report(),
             "execution_costs": self.broker.execution_cost_totals(),
+            "unmarked_positions": unmarked,
             "recent_decisions": self.broker.paper_decisions(limit=50),
         }
