@@ -96,12 +96,17 @@ class VerifiedIntelligenceAdapters:
     @classmethod
     def from_settings(cls, settings):
         """Build the trust boundary from validated application settings."""
-        return cls(
+        adapter = cls(
             trusted_wallet_providers=settings.trusted_wallet_providers,
             trusted_safety_providers=settings.trusted_safety_providers,
             max_wallet_age_ms=settings.wallet_evidence_max_age_ms,
             max_safety_age_ms=settings.safety_evidence_max_age_ms,
         )
+        # Composite trust roles are deliberately configured independently.
+        # Empty or overlapping allowlists remain fail-closed at validation time.
+        from ..composite_safety import composite_validator_from_settings
+        adapter.set_composite_safety_validator(composite_validator_from_settings(settings))
+        return adapter
 
     def collect_wallet_observations(
         self, provider: SmartWalletProvider, chain: str,
