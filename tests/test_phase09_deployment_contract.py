@@ -16,6 +16,7 @@ def test_paper_unit_has_dedicated_identity_and_bounded_writable_state():
     assert "StateDirectory=veltrix" in unit
     assert "UMask=0007" in unit
     assert "ReadWritePaths=/var/lib/veltrix" in unit
+    assert "InaccessiblePaths=/etc/veltrix/dashboard.env" in unit
     assert "LIVE_TRADING=false" in unit
     assert "PAPER_TRADING_ENABLED=true" in unit
     assert "NoNewPrivileges=true" in unit
