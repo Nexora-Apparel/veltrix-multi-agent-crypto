@@ -221,3 +221,16 @@ executable_sellability claim.
 - Added `docs/solana-paper-decision-runner.md` defining the next bridge from persisted evidence stores into Core and the paper broker.
 - The runner is a design boundary only; it has not been implemented or enabled. It must reconstruct typed evidence, enforce freshness and exact quote sizing, retain audit provenance, and remain unable to sign or submit transactions.
 - Acceptance tests are specified for stale/missing evidence, unknown risk claims, amount mismatches, duplicate processing, cash/position limits and transaction-submission exclusion.
+
+
+## 2026-11-09 — Evidence-to-paper decision runner implemented
+
+- Added `SolanaSafetyReportStore` for append-only persistence of typed composite safety reports. The store does not create or certify reports.
+- Added `SolanaAgentContext` and `SolanaPaperDecisionRunner`. The runner joins persisted candidate, market, risk, developer, bundle, sell-route and composite-safety records; reconstructs typed reports; and invokes the existing paper-only Core.
+- Added deterministic evidence-packet claims and append-only decision audits. A repeated evidence packet is not replayed. A process crash after a packet is claimed requires reconciliation rather than automatic replay, preventing an uncertain Core/broker outcome from being duplicated.
+- The runner permits only the explicit `executable_sellability` unknown for paper evaluation. It remains in the persisted risk report; route evidence is still labelled `ROUTE_OBSERVED_NOT_EXECUTION_PROVEN`.
+- Added explicit trusted-provider allowlisting for agent context, finalized supply/decimals reconciliation, developer and bundle provenance checks, freshness gates, and paper account profile checks.
+- Added tests for complete typed evidence, two-agent paper entry, missing evidence, idempotency, missing agent context, and untrusted agent-context providers.
+- GitHub Actions run [42687193171](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687193171) passed on test commit `a28b00b071bdafbab824288693748eb8e9103d57`: 459 passed, 5 skipped.
+- **Not runtime-enabled:** the current Solana provider capability catalogue still has no certifying Solana liquidity-lock provider and no certifying developer-holdings provider. A production composite SafetyReport producer is therefore not available. There is also no production Solana agent-context provider with a verified source for momentum, volume-spike and independent smart-wallet BUY signals. The runner fails closed and is not connected to the runtime.
+- No live wallet, signer, Jupiter `/execute`, RPC write, or transaction submission capability was added.
