@@ -22,6 +22,8 @@ from .shield import ShieldDecision, SolanaShieldPolicy
 from .sellability import (SolanaSellQuoteObservation, SellQuoteProvider, SolanaSellabilityEvidence, SolanaSellabilityEvaluator)
 from .sellability_store import SolanaSellabilityEvidenceStore
 from .sellability_worker import SellabilityBatchResult, SolanaSellabilityWorker
+from .sell_simulation_store import SolanaSellSimulationStore
+from .sell_simulation_worker import SellSimulationBatchResult, SolanaSellSimulationWorker
 
 __all__ = [
     "CandidateRejected", "SolanaCandidate", "canonical_mint",
@@ -40,4 +42,5 @@ __all__ = [
     "ShieldDecision", "SolanaShieldPolicy",
     "SolanaSellQuoteObservation", "SellQuoteProvider", "SolanaSellabilityEvidence", "SolanaSellabilityEvaluator",
     "SolanaSellabilityEvidenceStore", "SellabilityBatchResult", "SolanaSellabilityWorker",
+    "SolanaSellSimulationStore", "SellSimulationBatchResult", "SolanaSellSimulationWorker",
 ]
