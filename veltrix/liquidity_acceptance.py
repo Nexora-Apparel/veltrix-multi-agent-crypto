@@ -12,7 +12,7 @@ LOCK_RATIO_ONLY = "at least one discovered pool lacks the required active locked
 
 def run(chain, token_address):
     cfg = settings()
-    providers = build_liquidity_snapshot_providers(cfg)
+    providers = build_liquidity_snapshot_providers(cfg, chains=(chain,))
     provider = providers.get(chain)
     if provider is None:
         raise RuntimeError(f"No fully configured {chain} liquidity snapshot reader is available")
