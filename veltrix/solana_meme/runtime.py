@@ -137,6 +137,7 @@ def run_service(
             f"market snapshots stored={markets.count()}, "
             f"risk reports stored={risk_store.count() if risk_store is not None else 0}, "
             f"developer reports stored={developer_store.count()}, "
+            f"bundle reports stored={bundle_store.count()}, "
             f"active feed outages={launches.active_outage_count()}"
         )
 
