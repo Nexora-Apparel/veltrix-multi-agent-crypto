@@ -159,3 +159,54 @@ def test_pipeline_rejects_developer_worker_on_separate_database():
         assert False, "expected mismatched developer database to be rejected"
     except ValueError as exc:
         assert "share one SQLite database" in str(exc)
+
+
+@dataclass
+class FakeBundleResult:
+    discovered: int = 1
+    processed: int = 1
+    stored: int = 1
+    complete: int = 1
+    incomplete: int = 0
+    failed: int = 0
+    deferred: int = 1
+
+
+def test_pipeline_runs_bundle_analysis_after_developer_evidence():
+    order = []
+
+    class OrderedWorker(FakeWorker):
+        def run_once(self, *, limit):
+            order.append(self.result.__class__.__name__)
+            return super().run_once(limit=limit)
+
+    enrichment = OrderedWorker("shared.sqlite3", FakeEnrichmentResult())
+    risk = OrderedWorker("shared.sqlite3", FakeRiskResult())
+    developer = OrderedWorker("shared.sqlite3", FakeDeveloperResult())
+    bundle = OrderedWorker("shared.sqlite3", FakeBundleResult())
+    refresh = OrderedWorker("shared.sqlite3", FakeRefreshResult())
+    pipeline = SolanaMemePipeline(
+        enrichment, refresh, risk, developer, bundle,
+        risk_batch_size=4, developer_batch_size=2, bundle_batch_size=1,
+    )
+    result = pipeline.run_once(limit=12)
+
+    assert result.bundle.complete == 1
+    assert bundle.calls == [1]
+    assert order == [
+        "FakeEnrichmentResult", "FakeRiskResult", "FakeDeveloperResult",
+        "FakeBundleResult", "FakeRefreshResult",
+    ]
+
+
+def test_pipeline_rejects_bundle_worker_on_separate_database():
+    try:
+        SolanaMemePipeline(
+            FakeWorker("shared.sqlite3", FakeEnrichmentResult()),
+            FakeWorker("shared.sqlite3", FakeRefreshResult()),
+            None, None,
+            FakeWorker("bundle.sqlite3", FakeBundleResult()),
+        )
+        assert False, "expected mismatched bundle database to be rejected"
+    except ValueError as exc:
+        assert "share one SQLite database" in str(exc)
