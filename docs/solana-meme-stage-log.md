@@ -247,3 +247,13 @@ executable_sellability claim.
 - Added tests for missing evidence, untrusted/missing agent context, complete typed evidence, two-agent consensus, paper broker cash/position handling and duplicate-cycle idempotency.
 - CI run [42687215593](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687215593) passed on code/test commit `f618e949893a7182d2e3eb0de7c28e2f167d7a87`: 459 passed, 5 skipped.
 - The runner is not wired into the read-only runtime and is not enabled. Production composite-safety and trusted agent-context providers are not yet available; the documentation records these blockers. No live signing or transaction submission was added.
+
+
+## 2026-11-09 — Paper decision crash reconciliation
+
+- Added `reconcile_stale_claims()` to inspect decision claims left in CLAIMED state after a process interruption.
+- If the durable PaperBroker has a matching position opened after the claim timestamp, the audit is marked `PAPER_ENTRY_OPENED_RECONCILED`.
+- If no matching new position exists, the audit is marked `INDETERMINATE_NO_REPLAY`; it is never automatically retried. Manual ledger reconciliation is required.
+- Added tests for both recovery paths and confirmed neither path creates a duplicate paper position.
+- GitHub Actions run [42687501006](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/42687501006) passed on code/test commit `2743734fcdb9f8f07ae4ebbdb67d1952c86e5022`: 461 passed, 5 skipped.
+- The runner remains disabled in the runtime pending independently certified safety and agent-context providers.
