@@ -23,11 +23,15 @@ def make_bundle(now):
     return SafetyEvidenceBundle(
         liquidity=SafetyEvidence(
             "MintABC", "lock-provider", "lock-1", now - 100,
-            True, None, None,
+            True, None, None, claim="liquidity_lock", chain="solana",
+            coverage_complete=True, source_ref="https://evidence.invalid/lock",
+            method="full_lp_inventory", independence_group="lock-org",
         ),
         developer_holdings=SafetyEvidence(
             "MintABC", "dev-provider", "dev-1", now - 100,
-            None, 4.0, None,
+            None, 4.0, None, claim="developer_holdings", chain="solana",
+            coverage_complete=True, source_ref="https://evidence.invalid/dev",
+            method="full_holder_graph", independence_group="dev-org",
         ),
         launch_bundle=LaunchBundleReport(
             chain="solana", token_address="MintABC", provider="bundle-provider",
