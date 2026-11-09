@@ -66,6 +66,11 @@ def safety_evidence(provider, *, liquidity=None, dev=None):
         liquidity_locked=liquidity,
         dev_hold_pct=dev,
         bundled_supply_pct=None,
+        claim="liquidity_lock" if liquidity is True else "developer_holdings",
+        chain=CHAIN, coverage_complete=True,
+        source_ref=f"https://evidence.invalid/{provider}",
+        method="full_lp_inventory" if liquidity is True else "full_holder_graph",
+        independence_group=provider,
     )
 
 
