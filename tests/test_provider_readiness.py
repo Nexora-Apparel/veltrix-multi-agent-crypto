@@ -81,3 +81,12 @@ def test_developer_readiness_reports_signed_root_and_chain_provider_blockers():
     assert any("bsc complete first-funder ancestry provider is unavailable" in x
                for x in rows["bsc"].blockers)
     assert all(not row.capability_complete for row in rows.values())
+
+
+def test_liquidity_readiness_names_missing_chain_specific_snapshot_readers():
+    report = build_provider_readiness(settings())
+    rows = {row.chain: row for row in report.claims if row.claim == "liquidity_lock"}
+    assert all(any("production chain-specific locker RPC snapshot reader" in item
+                   for item in row.blockers) for row in rows.values())
+    assert any("pinned runtime bytecode hash" in item for item in rows["base"].blockers)
+    assert any("deployed executable" in item for item in rows["solana"].blockers)
