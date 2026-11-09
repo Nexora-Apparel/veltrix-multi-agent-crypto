@@ -8,6 +8,7 @@ from veltrix.solana_meme.paper_runtime import PaperTradingRuntime, build_runtime
 def test_paper_runtime_builds_all_stores_on_one_persistent_database(tmp_path, monkeypatch):
     monkeypatch.setenv("VELTRIX_PAPER_FEE_BPS", "125")
     monkeypatch.setenv("VELTRIX_PAPER_SLIPPAGE_BPS", "60")
+    monkeypatch.setenv("VELTRIX_PAPER_MAX_PORTFOLIO_EXPOSURE_PCT", "0.4")
     monkeypatch.setenv("VELTRIX_PAPER_MAX_DECISION_AGE_MS", "90000")
     monkeypatch.setenv("VELTRIX_PAPER_MAX_MARKET_AGE_MS", "60000")
     monkeypatch.setenv("VELTRIX_PAPER_MAX_RISK_AGE_MS", "180000")
@@ -33,6 +34,7 @@ def test_paper_runtime_builds_all_stores_on_one_persistent_database(tmp_path, mo
     assert worker.policy.position_usd == 35
     assert worker.policy.fee_bps == 125
     assert worker.policy.slippage_bps == 60
+    assert worker.policy.max_portfolio_exposure_pct == 0.4
     assert worker.policy.max_decision_age_ms == 90_000
     assert worker.policy.max_market_age_ms == 60_000
     assert worker.policy.max_risk_age_ms == 180_000
