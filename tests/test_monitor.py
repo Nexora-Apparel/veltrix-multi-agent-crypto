@@ -89,3 +89,69 @@ def test_monitor_collects_verified_wallet_clusters_without_opening_positions(tmp
     assert len(result.batch.accepted) == 2
     assert len(result.clusters) == 1
     assert monitor.ledger.snapshot()["open_positions"] == []
+
+
+def test_discovered_launch_is_resolved_and_submitted_to_composite_gate(tmp_path):
+    from types import SimpleNamespace
+
+    class OriginResolver:
+        provider_id = "base-rpc-launch-origin"
+        def resolve(self, token, window):
+            assert token == "discovered-token"
+            assert window == 120_000
+            return SimpleNamespace(
+                complete=True, chain="base", launch_at_ms=1_700_000_000_000,
+                launch_block=100, window_end_block=120,
+                provider=self.provider_id, evidence_id="origin-evidence",
+            )
+
+    class LaunchService:
+        launch_window_ms = 120_000
+        def __init__(self):
+            self.calls = []
+        def evaluate(self, **kwargs):
+            self.calls.append(kwargs)
+            return (
+                SimpleNamespace(coverage_complete=False, bundled_supply_pct=None),
+                SimpleNamespace(passed=False, composite_verified=False,
+                                reasons=("liquidity evidence missing",)),
+            )
+
+    service = LaunchService()
+    monitor = MarketMonitor(
+        {}, str(tmp_path / "launch-runtime.db"), FakeProvider(), FakeDiscovery(),
+        True, ("base",), 5, launch_intelligence=service,
+        launch_origin_resolvers={"base": OriginResolver()},
+        trusted_launch_origin_providers=["base-rpc-launch-origin"],
+    )
+    monitor.poll_once()
+    assert len(service.calls) == 1
+    call = service.calls[0]
+    assert call["chain"] == "base"
+    assert call["indexer_kwargs"] == {"launch_block": 100, "window_end_block": 120}
+    assert call["liquidity_evidence"] is None
+    assert call["developer_evidence"] is None
+    result = monitor.last_launch_results[("base", "discovered-token")]
+    assert result["status"] == "blocked"
+    assert result["origin_evidence_id"] == "origin-evidence"
+
+
+def test_discovered_launch_origin_requires_explicit_provider_trust(tmp_path):
+    class UntrustedResolver:
+        provider_id = "unknown-origin"
+        def resolve(self, token, window):
+            raise AssertionError("untrusted resolver must not be called")
+
+    class LaunchService:
+        launch_window_ms = 120_000
+
+    monitor = MarketMonitor(
+        {}, str(tmp_path / "untrusted-origin.db"), FakeProvider(), FakeDiscovery(),
+        True, ("base",), 5, launch_intelligence=LaunchService(),
+        launch_origin_resolvers={"base": UntrustedResolver()},
+        trusted_launch_origin_providers=(),
+    )
+    monitor.poll_once()
+    result = monitor.last_launch_results[("base", "discovered-token")]
+    assert result["status"] == "blocked"
+    assert "untrusted" in result["reason"]
