@@ -84,3 +84,23 @@ The first CI attempts exposed missing provider IDs in test fixtures; both
 fixtures were corrected. Latest full CI passed at commit
 `5b3125924fe5c504afe5aeb0e78fa03fef2d897b`: **395 passed, 5 skipped**.
 Provider-backed production validation has not been performed.
+
+
+## Sell-route evidence evaluator — 2026-11-09
+
+Added a provider-neutral, read-only sell-route evaluator and tests. It requires an
+exact-in candidate-token to wrapped-SOL quote, exact raw input amount, provider
+provenance, freshness and expiry, non-empty route, positive quoted/minimum output,
+bounded supply fraction, and bounded price impact.
+
+The evidence state is explicitly ROUTE_OBSERVED_NOT_EXECUTION_PROVEN. The
+execution_proven field is permanently false; this evidence cannot satisfy the
+existing executable_sellability claim, bypass Shield, or approve a paper/live
+entry. No Jupiter adapter, API key, wallet, signer, transaction submission, or
+runtime activation was added. Jupiter V2 taker requirements remain a blocker for
+a real provider adapter without a separate dedicated public test-wallet address.
+
+Unit fixtures are synthetic and do not constitute provider-backed sellability
+validation. A later stage must add controlled unsigned-transaction simulation,
+token transfer-semantics review, and chain-confirmed test results before any
+execution claim.
