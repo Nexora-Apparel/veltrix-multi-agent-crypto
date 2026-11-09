@@ -32,6 +32,14 @@ class HeliusWalletProvider:
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self.limit = limit
 
+    @classmethod
+    def from_settings(cls, settings, price_usd_resolver):
+        return cls(
+            api_key=settings.helius_api_key,
+            tracked_wallets=settings.tracked_smart_wallets,
+            price_usd_resolver=price_usd_resolver,
+        )
+
     def fetch_wallet_observations(self, chain, token_addresses, since_ms):
         if str(chain).lower() != "solana":
             raise ProviderError("HeliusWalletProvider currently supports Solana only")
