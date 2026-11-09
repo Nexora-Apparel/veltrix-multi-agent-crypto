@@ -431,8 +431,12 @@ class EvmV2LiquiditySnapshotReader:
             lock_count = _decode_uint(bytes.fromhex(count_data[2:]).rjust(32, b"\x00"))
             if lock_count >= self.max_locks:
                 raise ProviderError("BSC per-LP lock index exceeds configured exhaustive scan limit")
-            if deposits_by_lp.get(pair.lower(), 0) != lock_count:
-                raise ProviderError("BSC onDeposit event count does not reconcile to per-LP lock index")
+            # onDeposit is emitted for both a new lock and a relock. Its
+            # historical count therefore cannot equal the current index length.
+            # It must cover at least every indexed position; exact current
+            # balances are independently reconciled below against locker custody.
+            if deposits_by_lp.get(pair.lower(), 0) < lock_count:
+                raise ProviderError("BSC onDeposit history is incomplete for the per-LP lock index")
             for index in range(lock_count):
                 data = self._call(
                     self.locker_rpc, locker.address,
