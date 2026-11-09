@@ -16,6 +16,8 @@ state from Solana JSON-RPC.
 - Optional finalized mint account: token program, mint authority, freeze
   authority, supply, decimals, finalized slot, evidence digest and Token-2022
   extension type inventory.
+- A reconciliation flag requiring finalized mint supply and decimals to match
+  the holder inventory before Shield can approve a paper entry.
 
 A failed, stale, mismatched or incomplete source remains unknown. Percentages are
 never calculated from a partial holder list. Active mint/freeze authorities are
