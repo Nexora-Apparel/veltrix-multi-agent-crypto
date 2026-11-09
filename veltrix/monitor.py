@@ -2,6 +2,8 @@
 from .discovery import DexScreenerDiscovery
 from .ledger import PaperBroker
 from .providers.dexscreener import DexScreenerProvider
+from .signal_intelligence import SignalContextBuilder
+import time
 
 class MarketMonitor:
     def __init__(self, watchlist, db_path, provider=None, discovery=None, discovery_enabled=False, allowed_chains=("solana","base","bsc"), max_discovered_per_chain=20, broker=None):
@@ -12,6 +14,8 @@ class MarketMonitor:
         self.allowed_chains = tuple(allowed_chains)
         self.max_discovered_per_chain = max_discovered_per_chain
         self.ledger = broker or PaperBroker(db_path)
+        self.signal_builder = SignalContextBuilder()
+        self.signal_contexts = []
 
     def poll_once(self):
         observations = []
@@ -28,6 +32,10 @@ class MarketMonitor:
                 continue
             events = self.provider.fetch_token_pairs(chain, addresses)
             for event in events:
+                history = self.ledger.recent_market_observations(event.token_address, limit=20)
+                context = self.signal_builder.build(event, history, int(time.time() * 1000))
+                if context is not None:
+                    self.signal_contexts.append(context)
                 self.ledger.record_market_event(event)
                 self.ledger.process_market_price(event.token_address, event.price_usd)
                 observations.append(event)
