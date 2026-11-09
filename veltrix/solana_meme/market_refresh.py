@@ -94,9 +94,15 @@ class MarketRefreshWorker:
                 INSERT OR IGNORE INTO solana_market_refresh_jobs
                     (mint, status, attempts, consecutive_failures,
                      next_refresh_at_ms, updated_at_ms)
-                SELECT mint, 'active', 0, 0, ?, ?
-                FROM solana_launch_candidates
-            """, (now, now))
+                SELECT c.mint, 'active', 0, 0,
+                       CASE WHEN MAX(s.retrieved_at_ms) + ? <= ?
+                            THEN ? ELSE MAX(s.retrieved_at_ms) + ? END,
+                       ?
+                FROM solana_launch_candidates AS c
+                JOIN solana_market_snapshots AS s ON s.mint = c.mint
+                GROUP BY c.mint
+            """, (self.refresh_interval_ms, now, now,
+                  self.refresh_interval_ms, now))
             return cursor.rowcount
 
     def _claim(self, now: int, limit: int) -> list[str]:
