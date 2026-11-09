@@ -367,7 +367,8 @@ def build_solana_sellability_worker(settings, launch_store, risk_store, evidence
 def build_solana_sell_simulation_worker(settings, database_path, evidence_store, *, preflight_store=None, session=None):
     """Build simulation only for explicit test-wallet mint/amount cases.
 
-    No signing key is accepted. The configured taker is a public address only.
+    A finalized token-balance preflight is mandatory. No signing key is accepted;
+    the configured taker is a public address only.
     """
     if not getattr(settings, "solana_sell_simulation_enabled", False):
         return None
