@@ -1,7 +1,10 @@
+import io
 import json
+import urllib.error
 
 import pytest
 
+from veltrix.base_archive_preflight import Rpc
 from veltrix.base_archive_extended_acceptance import (
     PAIR_CREATED_TOPIC,
     block_by_tag,
@@ -137,3 +140,68 @@ def test_normalized_logs_rejects_non_pair_created_topic():
     })
     with pytest.raises(Exception, match="non-PairCreated"):
         normalized_logs(rpc, factory, 16, 16)
+
+
+
+def test_rpc_retries_http_429_then_returns_result(monkeypatch):
+    calls = {"count": 0}
+    sleeps = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit):
+            return b'{"jsonrpc":"2.0","id":2,"result":"0x2105"}'
+
+    def fake_urlopen(request, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise urllib.error.HTTPError(
+                request.full_url, 429, "Too Many Requests",
+                {"Retry-After": "1"}, io.BytesIO(b'{"error":"rate limited"}')
+            )
+        return Response()
+
+    monkeypatch.setattr("veltrix.base_archive_preflight.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("veltrix.base_archive_preflight.time.sleep", sleeps.append)
+    rpc = Rpc("https://rpc.example.invalid", "test-provider")
+
+    assert rpc.call("eth_chainId", []) == "0x2105"
+    assert calls["count"] == 2
+    assert sleeps == [1.0]
+
+
+def test_rpc_retries_json_rpc_rate_limit_code(monkeypatch):
+    calls = {"count": 0}
+    sleeps = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit):
+            return json.dumps(self.payload).encode()
+
+    def fake_urlopen(request, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return Response({"jsonrpc": "2.0", "id": 1, "error": {"code": -32005, "message": "rate limited"}})
+        return Response({"jsonrpc": "2.0", "id": 2, "result": "0x2105"})
+
+    monkeypatch.setattr("veltrix.base_archive_preflight.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("veltrix.base_archive_preflight.time.sleep", sleeps.append)
+    rpc = Rpc("https://rpc.example.invalid", "test-provider")
+
+    assert rpc.call("eth_chainId", []) == "0x2105"
+    assert calls["count"] == 2
+    assert sleeps == [2]
