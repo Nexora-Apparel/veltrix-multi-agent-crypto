@@ -175,10 +175,23 @@ class SolanaDeveloperEvidenceWorker:
         roots = self.root_provider.fetch_attestation("solana", mint)
         if not isinstance(roots, DeveloperRootAttestation):
             raise TypeError("root provider returned an untyped attestation")
-        if roots.provider != self.root_provider.provider_id or roots.signature_verified is not True:
+        if (roots.provider != self.root_provider.provider_id
+                or roots.signature_verified is not True
+                or not isinstance(roots.signing_key_fingerprint, str)
+                or len(roots.signing_key_fingerprint) != 64
+                or any(char not in "0123456789abcdef" for char in roots.signing_key_fingerprint)):
             raise ValueError("developer-root signature or provider identity was not verified")
+        if roots.chain != "solana" or roots.token_address != mint:
+            raise ValueError("developer-root attestation chain or mint mismatch")
         if roots.coverage_complete is not True or not roots.roots:
             raise ValueError("developer-root coverage is incomplete")
+        source = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(roots.source_ref or "")
+        if source.scheme != "https" or not source.netloc:
+            raise ValueError("developer-root attestation source is not HTTPS")
+        if (not isinstance(roots.observed_at_ms, int) or isinstance(roots.observed_at_ms, bool)
+                or roots.observed_at_ms > now or now - roots.observed_at_ms > self.analyzer.max_age_ms
+                or not roots.evidence_id):
+            raise ValueError("developer-root attestation is stale or missing provenance")
         holder = self.holder_provider.fetch_snapshot(mint)
         if holder.provider != self.holder_provider.provider_id:
             raise ValueError("holder provider identity mismatch")
