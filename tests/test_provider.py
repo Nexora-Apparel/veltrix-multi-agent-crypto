@@ -173,3 +173,47 @@ def test_skips_pair_with_non_integer_creation_timestamp():
         "solana", [mint]
     )
     assert [event.pair_address for event in events] == ["valid-pool"]
+
+def test_normalizes_token_when_requested_mint_is_quote_side():
+    quote_mint = "So11111111111111111111111111111111111111112"
+    base_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    quote_pair = pair(
+        baseToken={"address": base_mint, "name": "Meme", "symbol": "MEME"},
+        quoteToken={"address": quote_mint, "symbol": "SOL"},
+        priceUsd="2",
+        priceNative="0.02",
+        fdv=1_000_000,
+        marketCap=900_000,
+        priceChange={"m5": 5, "h1": 10, "h24": 20},
+    )
+    event = DexScreenerProvider(session=Session([[quote_pair]])).fetch_token_pairs(
+        "solana", [quote_mint]
+    )[0]
+
+    assert event.token_address == quote_mint
+    assert event.pool_token_side == "quote"
+    assert event.price_usd == 100
+    assert event.symbol == "SOL"
+    assert event.name is None
+    assert event.quote_token_symbol == "MEME"
+    assert event.fdv_usd is None
+    assert event.market_cap_usd is None
+    assert event.price_change_m5_pct is None
+    assert event.price_change_h1_pct is None
+
+
+def test_returns_both_sides_when_both_pair_tokens_are_requested():
+    base_mint = "So11111111111111111111111111111111111111112"
+    quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    payload = pair(
+        baseToken={"address": base_mint, "symbol": "BASE"},
+        quoteToken={"address": quote_mint, "symbol": "QUOTE"},
+        priceNative="0.5",
+    )
+    events = DexScreenerProvider(session=Session([[payload]])).fetch_token_pairs(
+        "solana", [base_mint, quote_mint]
+    )
+    assert {(item.token_address, item.pool_token_side) for item in events} == {
+        (base_mint, "base"),
+        (quote_mint, "quote"),
+    }
