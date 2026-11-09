@@ -81,9 +81,13 @@ class DexScreenerProvider:
                 or observed_at_ms <= 0
             ):
                 raise ProviderError("Invalid local provider response timestamp")
+            requested = set(batch)
             for pair in payload:
-                event = self._normalize(pair, chain_id, observed_at_ms)
-                if event is not None and event.token_address in set(batch):
+                try:
+                    event = self._normalize(pair, chain_id, observed_at_ms)
+                except ProviderError:
+                    continue
+                if event is not None and event.token_address in requested:
                     events.append(event)
         return events
 
