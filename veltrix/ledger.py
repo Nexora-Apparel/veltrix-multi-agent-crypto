@@ -126,6 +126,11 @@ class PaperBroker:
                 db.execute("UPDATE position_state SET hit_2x=1 WHERE token=?", (token,))
         return actions
 
+    def record_agent_decision(self, token, decision, signals, reason):
+        payload = {"token": token, "decision": decision, "signals": signals, "reason": reason}
+        with self._connect() as db:
+            db.execute("INSERT INTO events(event,payload,created_at) VALUES(?,?,?)", ("AGENT_DECISION", json.dumps(payload), time.time()))
+
     def record_discovery_candidate(self, candidate):
         payload = {"chain": candidate.chain, "token": candidate.token_address, "source": candidate.source, "discovered_at_ms": candidate.discovered_at_ms}
         with self._connect() as db:
