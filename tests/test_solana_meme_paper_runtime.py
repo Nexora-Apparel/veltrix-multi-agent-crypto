@@ -105,3 +105,8 @@ def test_paper_runtime_survives_one_failed_cycle_and_stops_cleanly(caplog):
     runtime = PaperTradingRuntime(FailingOnceWorker(), poll_interval_seconds=5)
     runtime.run(StopAfterWait())
     assert "paper cycle failed safely" in caplog.text
+
+def test_paper_runtime_refuses_to_start_when_live_trading_is_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    with pytest.raises(RuntimeError, match="LIVE_TRADING is enabled"):
+        build_runtime(database_path=tmp_path / "live-guard.sqlite3")
