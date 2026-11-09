@@ -116,6 +116,8 @@ def test_core_routes_solana_entries_through_claim_aware_paper_shield(tmp_path):
     result = core.evaluate(token)
     assert result is not None
     assert result["side"] == "BUY"
+    assert result["sellability_state"] == "ROUTE_OBSERVED_NOT_EXECUTION_PROVEN"
+    assert result["sellability_evidence_id"] == "route:core"
     assert len(broker.snapshot()["open_positions"]) == 1
 
 def test_core_rejects_non_finite_price(tmp_path):
