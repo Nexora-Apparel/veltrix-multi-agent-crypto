@@ -25,6 +25,7 @@ class SafetyReport:
     reasons: tuple[str, ...]
     observed_at_ms: int
     creator_hold_pct: float | None = None
+    composite_verified: bool = False
 
 class TokenSafetyValidator:
     def __init__(self, trusted_providers: Iterable[str] = (), max_age_ms: int = 300_000):
