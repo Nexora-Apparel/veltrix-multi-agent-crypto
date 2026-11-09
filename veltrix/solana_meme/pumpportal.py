@@ -30,7 +30,11 @@ class PumpPortalDiscovery:
         endpoint: str | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
-        if isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or timeout_seconds <= 0
+        ):
             raise ValueError("timeout_seconds must be positive")
         self.timeout_seconds = timeout_seconds
         self.endpoint = endpoint or self.endpoint
