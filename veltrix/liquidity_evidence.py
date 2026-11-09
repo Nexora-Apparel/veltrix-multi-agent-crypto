@@ -242,11 +242,16 @@ class LiquidityEvidenceAnalyzer:
             if not deployment.source_ref or not deployment.independence_group:
                 reasons.append("locker deployment provenance or ownership is missing")
                 continue
-            if chain in {"base", "bsc"} and not deployment.abi_profile:
-                reasons.append("unsupported EVM locker ABI profile")
-                continue
-            if chain == "solana" and not HEX_HASH.fullmatch(deployment.program_executable_hash or ""):
-                reasons.append("Solana locker executable hash is not pinned")
+            if chain in {"base", "bsc"}:
+                expected_chain_id = 8453 if chain == "base" else 56
+                if deployment.chain_id != expected_chain_id or not deployment.abi_profile:
+                    reasons.append("unsupported EVM chain ID or locker ABI profile")
+                    continue
+            if chain == "solana" and (
+                not HEX_HASH.fullmatch(deployment.program_executable_hash or "")
+                or deployment.program_executable_hash != deployment.expected_code_hash
+            ):
+                reasons.append("Solana locker executable hash is not pinned or mismatched")
                 continue
             deployment_map[deployment.address.lower() if chain in {"base", "bsc"} else deployment.address] = deployment
 
@@ -315,6 +320,8 @@ class LiquidityEvidenceAnalyzer:
                     reasons.append("Solana custody account is not owned by a supported token program")
             if not position.position_id or position.position_id in seen_positions:
                 reasons.append("locker position ID is missing or duplicated")
+            if not position.owner:
+                reasons.append("locker position owner is missing")
             seen_positions.add(position.position_id)
             if (not isinstance(position.amount, int) or isinstance(position.amount, bool)
                     or position.amount <= 0):
