@@ -498,7 +498,7 @@ def build_server(
 ) -> ThreadingHTTPServer:
     resolved_host = host or os.getenv("VELTRIX_DASHBOARD_HOST", "127.0.0.1")
     resolved_port = int(port if port is not None else os.getenv("VELTRIX_DASHBOARD_PORT", "8765"))
-    token = os.getenv("VELTRIX_DASHBOARD_API_TOKEN", "") if api_token is None else api_token
+    token = os.getenv("VELTRIX_DASHBOARD_TOKEN", "") if api_token is None else api_token
     if not isinstance(resolved_host, str) or not resolved_host.strip():
         raise ValueError("dashboard host is required")
     if isinstance(resolved_port, bool) or not isinstance(resolved_port, int) or not 0 <= resolved_port <= 65535:
@@ -508,7 +508,7 @@ def build_server(
     token = token.strip()
     loopback_hosts = {"127.0.0.1", "localhost", "::1"}
     if resolved_host not in loopback_hosts and len(token) < 32:
-        raise ValueError("remote dashboard binding requires VELTRIX_DASHBOARD_API_TOKEN of at least 32 characters")
+        raise ValueError("remote dashboard binding requires VELTRIX_DASHBOARD_TOKEN of at least 32 characters")
     repository = DashboardRepository(shared_database_path(database_path))
     server = ThreadingHTTPServer(
         (resolved_host, resolved_port),
