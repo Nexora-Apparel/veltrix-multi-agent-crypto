@@ -334,20 +334,26 @@ def test_helius_historical_supply_reverses_post_launch_mints_and_burns():
     page = {
         "data": [
             {
-                "slot": 101, "summary": {"type": "TOKEN_MINT"},
-                "tokenTransfers": [{
-                    "mint": "MintABC", "fromUserAccount": None,
-                    "toUserAccount": "wallet-a",
-                    "rawTokenAmount": 50000, "decimals": 2,
-                }],
+                "signature": "mint-post-launch", "parserStatus": "OK",
+                "parsed": {
+                    "slot": 101, "summary": {"type": "TOKEN_MINT"},
+                    "tokenTransfers": [{
+                        "mint": "MintABC", "fromUserAccount": None,
+                        "toUserAccount": "wallet-a",
+                        "rawTokenAmount": 50000, "decimals": 2,
+                    }],
+                },
             },
             {
-                "slot": 102, "summary": {"type": "BURN"},
-                "tokenTransfers": [{
-                    "mint": "MintABC", "fromUserAccount": "wallet-a",
-                    "toUserAccount": None,
-                    "rawTokenAmount": 10000, "decimals": 2,
-                }],
+                "signature": "burn-post-launch", "parserStatus": "OK",
+                "parsed": {
+                    "slot": 102, "summary": {"type": "BURN"},
+                    "tokenTransfers": [{
+                        "mint": "MintABC", "fromUserAccount": "wallet-a",
+                        "toUserAccount": None,
+                        "rawTokenAmount": 10000, "decimals": 2,
+                    }],
+                },
             },
         ],
         "scan": {"stoppedOn": "windowEnd",
