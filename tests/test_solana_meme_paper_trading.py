@@ -286,3 +286,13 @@ def test_security_evidence_change_after_approval_blocks_paper_entry(tmp_path):
     assert result.blocked_entries == 1
     assert broker.snapshot()["open_positions"] == []
     assert broker.paper_decisions(limit=1)[0]["execution_status"] == "BLOCKED"
+
+def test_paper_worker_rejects_split_phase_databases(tmp_path):
+    shared = tmp_path / "phase-data.sqlite3"
+    markets = MarketSnapshotStore(shared)
+    risks = SolanaRiskEvidenceStore(shared)
+    consensus = ConsensusStore(shared)
+    broker = PaperBroker(str(tmp_path / "separate-paper.sqlite3"))
+
+    with pytest.raises(ValueError, match="must share one persistent SQLite"):
+        PaperTradingWorker(consensus, markets, risks, broker)
