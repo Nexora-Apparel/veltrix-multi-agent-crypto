@@ -225,3 +225,82 @@ def test_untrusted_funder_or_indexer_forces_unknown_bundle_percentage():
     assert report.bundled_supply_pct is None
     assert not report.coverage_complete
     assert not safety.passed
+
+
+def test_helius_native_funding_resolver_traces_direct_inbound_sol():
+    from veltrix.providers.launch import HeliusNativeFundingResolver
+    session = HeliusSession([{
+        "data": [{
+            "signature": "funding-signature",
+            "blockTime": (END - 5_000) // 1000,
+            "nativeTransfers": [{
+                "fromUserAccount": "fund-source",
+                "toUserAccount": "buyer-wallet",
+                "amount": 1_000_000_000,
+            }],
+        }],
+        "scan": {"stoppedOn": "windowEnd", "scannedThrough": {"blockTime": END // 1000}},
+    }])
+    resolver = HeliusNativeFundingResolver(
+        "secret", session=session, clock_ms=lambda: NOW,
+        lookback_ms=60_000,
+    )
+    trace = resolver.trace_funder("solana", "buyer-wallet", END)
+    assert trace is not None
+    assert trace.funder_address == "fund-source"
+    assert trace.provider == "helius-funder"
+    assert trace.coverage_complete
+
+
+class EvmFundingSession:
+    def __init__(self):
+        self.log_calls = 0
+    def post(self, url, json, **kwargs):
+        method, params = json["method"], json["params"]
+        if method == "eth_blockNumber":
+            return Response({"result": hex(256)})
+        if method == "eth_getLogs":
+            self.log_calls += 1
+            if self.log_calls > 1:
+                return Response({"result": []})
+            return Response({"result": [{
+                "topics": [
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                    "0x" + "0" * 24 + "1" * 40,
+                    "0x" + "0" * 24 + "2" * 40,
+                ],
+                "transactionHash": "0xfund",
+                "blockNumber": hex(250),
+                "data": hex(1_000_000),
+            }]})
+        if method == "eth_getBlockByNumber":
+            return Response({"result": {"timestamp": hex(END // 1000 - 5)}})
+        raise AssertionError(method)
+
+
+def test_evm_quote_funding_resolver_traces_allowlisted_inbound_asset():
+    from veltrix.providers.launch import EvmQuoteFundingResolver
+    resolver = EvmQuoteFundingResolver(
+        "base", "https://rpc.invalid", ["0xquote"],
+        session=EvmFundingSession(), block_chunk_size=10,
+        lookback_blocks=10,
+    )
+    trace = resolver.trace_funder("base", "0x" + "2" * 40, END)
+    assert trace is not None
+    assert trace.funder_address == "0x" + "1" * 40
+    assert trace.provider == "base-quote-funder"
+    assert trace.coverage_complete
+
+
+def test_bsc_uses_same_bounded_historical_rpc_indexer():
+    indexer = EvmRpcLaunchIndexer(
+        "bsc", "https://bsc-rpc.invalid", FundingResolver(),
+        quote_token_addresses=["0xquote"], session=EvmRpcSession(),
+        clock_ms=lambda: NOW, block_chunk_size=10,
+    )
+    batch = indexer.index_launch(
+        "0xToken", LAUNCH, END, launch_block=100, window_end_block=102,
+    )
+    assert batch.chain == "bsc"
+    assert batch.provider == "bsc-rpc-launch"
+    assert batch.coverage_complete
