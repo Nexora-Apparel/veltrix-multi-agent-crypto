@@ -18,6 +18,7 @@ def inputs(*, chain="solana", holders=None, relationships=None, covered=None,
         HolderBalance("wallet-clean", 700),
     )
     relationships = relationships or (
+        FundingRelationship("dev", None, None, NOW - 200, "root-edge"),
         FundingRelationship("wallet-linked", "dev", "funding-tx-1", NOW - 200, "edge-1"),
         FundingRelationship("wallet-clean", None, None, NOW - 200, "edge-2"),
     )
@@ -54,6 +55,7 @@ def test_complete_holder_and_funding_graph_calculates_developer_linked_supply():
 
 def test_common_funder_does_not_make_wallets_developer_linked():
     holder, funding = inputs(relationships=(
+        FundingRelationship("dev", None, None, NOW - 200, "root-edge"),
         FundingRelationship("wallet-linked", "shared-exchange", "tx-1", NOW - 200, "e1"),
         FundingRelationship("wallet-clean", "shared-exchange", "tx-2", NOW - 200, "e2"),
     ), covered=("dev", "wallet-linked", "wallet-clean"))
