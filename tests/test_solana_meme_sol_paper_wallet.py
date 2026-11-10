@@ -189,3 +189,39 @@ def test_sol_wallet_rejects_incomplete_or_invalid_quote_audit_provenance(tmp_pat
             quote_provenance={**provenance, "extra": "x" * 20_000},
         )
     assert wallet.snapshot()["fills"] == []
+
+
+def test_sol_wallet_persists_verified_quote_provenance_for_entry_and_manual_exit(tmp_path):
+    path = str(tmp_path / "sol-wallet-exit-provenance.sqlite3")
+    wallet = SolanaPaperWallet(path, LAMPORTS_PER_SOL)
+    provenance = {
+        "mint": MINT,
+        "market_snapshot_id": 42,
+        "token_pair_address": "token-pool",
+        "sol_usd_pair_address": "sol-usdc-pool",
+        "sol_usd_method": "wsol_stable_pool",
+        "token_price_usd": "0.001",
+        "sol_price_usd": "100",
+        "token_observed_at_ms": 1_800_000_000_000,
+        "sol_observed_at_ms": 1_800_000_000_000,
+        "token_source": "dexscreener",
+        "sol_source": "dexscreener",
+    }
+    wallet.open_position(
+        idempotency_key="entry-with-audit", mint=MINT, quantity=100,
+        price_lamports=10, fee_lamports=5,
+        created_at_ms=1_800_000_000_000, quote_provenance=provenance,
+    )
+    wallet.close_position(
+        idempotency_key="exit-with-audit", mint=MINT, price_lamports=20,
+        fee_lamports=10, created_at_ms=1_800_000_000_100,
+        quote_provenance={**provenance, "market_snapshot_id": 43,
+                          "token_observed_at_ms": 1_800_000_000_100,
+                          "sol_observed_at_ms": 1_800_000_000_100},
+    )
+    restarted = SolanaPaperWallet(path, 7 * LAMPORTS_PER_SOL)
+    fills = restarted.snapshot()["fills"]
+    assert [fill["side"] for fill in fills] == ["SELL", "BUY"]
+    assert fills[0]["quote_provenance"]["market_snapshot_id"] == 43
+    assert fills[1]["quote_provenance"]["market_snapshot_id"] == 42
+    assert restarted.snapshot()["realized_pnl_lamports"] == 985
