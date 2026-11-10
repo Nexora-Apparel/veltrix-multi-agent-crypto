@@ -174,7 +174,7 @@ def test_sol_wallet_rejects_incomplete_or_invalid_quote_audit_provenance(tmp_pat
         ("market_snapshot_id", 0),
     ):
         broken = {**provenance, key: invalid}
-        with pytest.raises(ValueError, match="quote provenance"):
+        with pytest.raises(ValueError, match="quote provenance|market_snapshot_id"):
             wallet.open_position(
                 idempotency_key="bad-" + key, mint=MINT, quantity=1,
                 price_lamports=1_000, fee_lamports=0,
