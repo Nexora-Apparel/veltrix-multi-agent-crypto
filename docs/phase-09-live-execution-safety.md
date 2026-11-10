@@ -246,3 +246,14 @@ Implemented in `veltrix/jupiter_instruction_decoder.py`, based on the official `
 - Supports a deliberately small DEX variant set: Raydium, Raydium CLMM/CP, Meteora, Whirlpool, Pump.fun, Moonshot and SolFi. Other variants require explicit reviewed mappings before enablement.
 - Does not parse arbitrary DEX inner-instruction payloads or prove every CPI account semantic. It must be combined with the pinned CPI program-trace gate and exact simulated token-balance effect gate.
 - No Jupiter `/execute`, signing, wallet prompt, transaction broadcast, or live trading is introduced.
+
+
+### 09.15 — full simulated inner-CPI instruction capture
+
+Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.py`.
+
+- Simulation evidence now retains each inner instruction's top-level parent index, resolved program ID, resolved account public keys, decoded base58 instruction bytes, and stack height.
+- The adapter validates every parent index, program index, account index, stack height and base58 payload before creating immutable evidence.
+- The existing top-level/inner program-ID trace is cross-checked against the full captured instruction list.
+- Malformed or out-of-range trace entries fail closed; the RPC adapter does not silently drop malformed CPI records.
+- This provides the raw evidence needed for DEX-specific instruction decoders. It does not itself interpret DEX instruction payloads, approve CPI account semantics, or authorize execution.
