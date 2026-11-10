@@ -334,6 +334,7 @@ class SolanaRpcSimulationAdapter:
                 "replaceRecentBlockhash": False,
                 "minContextSlot": pre_slot,
                 "accounts": {"encoding": "base64", "addresses": addresses},
+                "innerInstructions": True,
             }],
         )
         simulation_slot = self._context_slot(simulation, "simulateTransaction")
@@ -342,6 +343,20 @@ class SolanaRpcSimulationAdapter:
         value = simulation.get("value")
         if not isinstance(value, dict):
             raise SolanaRpcAdapterError("simulateTransaction omitted its value object")
+        inner_groups = value.get("innerInstructions") or []
+        if not isinstance(inner_groups, list):
+            raise SolanaRpcAdapterError("simulateTransaction returned malformed inner-instruction trace")
+        inner_program_ids: list[str] = []
+        for group in inner_groups:
+            if not isinstance(group, dict) or not isinstance(group.get("instructions"), list):
+                raise SolanaRpcAdapterError("simulateTransaction returned malformed inner-instruction group")
+            for inner in group["instructions"]:
+                if not isinstance(inner, dict):
+                    raise SolanaRpcAdapterError("simulateTransaction returned a malformed inner instruction")
+                program_index = inner.get("programIdIndex")
+                if isinstance(program_index, bool) or not isinstance(program_index, int) or not 0 <= program_index < len(validation.account_keys):
+                    raise SolanaRpcAdapterError("inner instruction program index is outside the resolved account list")
+                inner_program_ids.append(validation.account_keys[program_index])
         post_accounts = value.get("accounts")
         if not isinstance(post_accounts, list) or len(post_accounts) != len(addresses):
             raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state token accounts")
@@ -393,5 +408,8 @@ class SolanaRpcSimulationAdapter:
             units_consumed=units,
             fee_lamports=fee_lamports,
             token_balances=tuple(token_balances),
+            top_level_program_ids=validation.program_ids,
+            inner_program_ids=tuple(inner_program_ids),
+            inner_instruction_count=len(inner_program_ids),
         )
         return RpcSimulationResult(validation=validation, evidence=evidence)
