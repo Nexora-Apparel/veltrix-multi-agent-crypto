@@ -179,6 +179,33 @@ required, expose it only through the Cloudflare authenticated HTTPS edge or a
 separately hardened authenticated TLS reverse proxy. Do not bind the dashboard
 directly to a public interface.
 
+### Publish the API through Cloudflare Tunnel
+
+The supported Cloudflare path keeps the Python API loopback-only and runs a
+separate unprivileged `cloudflared` service. Follow
+`docs/cloudflare-tunnel-origin.md` to create the named tunnel, install its
+credentials file and configure the public API hostname with an Access
+**Service Auth** policy. The tunnel user must not belong to the database-write
+group or read pipeline secrets.
+
+Install the example unit only after replacing the tunnel UUID and hostname in
+`/etc/cloudflared/config.yml` and installing the credentials JSON with
+`root:cloudflared` ownership and mode `0640`:
+
+```sh
+useradd --system --home /var/lib/cloudflared --shell /usr/sbin/nologin cloudflared
+install -o root -g cloudflared -m 0640 deployment/cloudflared/config.yml.example /etc/cloudflared/config.yml
+install -o root -g root -m 0644 deployment/systemd/cloudflared-veltrix.service /etc/systemd/system/cloudflared-veltrix.service
+cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
+systemd-analyze verify /etc/systemd/system/cloudflared-veltrix.service
+systemctl daemon-reload
+systemctl enable --now cloudflared-veltrix.service
+systemctl status cloudflared-veltrix.service
+```
+
+The copied config must contain the actual UUID and API hostname; do not deploy
+the example placeholders. Keep port 8765 closed to inbound network traffic.
+
 ## 6. Run host isolation verification
 
 From the deployed repository revision, as root:
