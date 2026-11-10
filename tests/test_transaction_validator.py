@@ -285,3 +285,22 @@ def test_rejects_program_account_marked_writable_by_message_header():
     policy = TransactionValidationPolicy(allowed_program_ids=(str(program),))
     with pytest.raises(TransactionValidationError, match="program account"):
         validate_transaction_message(to_bytes_versioned(unsafe), intent=intent, policy=policy)
+
+
+def test_accepts_fee_payer_as_implicit_account_without_instruction_accounts():
+    payer = Pubkey.new_unique()
+    program = Pubkey.new_unique()
+    blockhash = Hash.new_unique()
+    instruction = Instruction(program, bytes([2]) + (200_000).to_bytes(4, "little"), [])
+    message = Message.new_with_blockhash([instruction], payer, blockhash)
+    intent = TransactionIntent(
+        fee_payer=str(payer),
+        required_signers=(str(payer),),
+        recent_blockhash=str(blockhash),
+        instructions=(
+            InstructionExpectation(str(program), (), bytes([2]) + (200_000).to_bytes(4, "little")),
+        ),
+    )
+    policy = TransactionValidationPolicy(allowed_program_ids=(str(program),))
+    result = validate_transaction_message(to_bytes_versioned(message), intent=intent, policy=policy)
+    assert result.fee_payer == str(payer)
