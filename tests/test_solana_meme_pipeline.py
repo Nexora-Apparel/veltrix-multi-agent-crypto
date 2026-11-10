@@ -142,7 +142,7 @@ def test_one_shot_pipeline_is_idempotent_for_same_window(tmp_path):
 
 
 def test_one_shot_pipeline_rejects_paper_stage_until_transaction_fenced(tmp_path):
-    with pytest.raises(ValueError, match="transaction-scoped fencing"):
+    with pytest.raises(ValueError, match="transaction-fenced PaperTradingWorker"):
         build_pipeline(tmp_path, paper_enabled=True)
 
 
