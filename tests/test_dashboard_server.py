@@ -316,13 +316,17 @@ def test_dashboard_remote_database_adapter_remains_query_only(monkeypatch, tmp_p
     import veltrix.dashboard_server as dashboard_module
 
     database = make_database(tmp_path)
-    monkeypatch.setattr(
-        dashboard_module, "connect_database",
-        lambda _path, timeout=3, auth_token=None: sqlite3.connect(database, timeout=timeout),
-    )
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "w" * 48)
+    monkeypatch.setenv("TURSO_DASHBOARD_AUTH_TOKEN", "r" * 48)
+    received = {}
+    def connect(_path, timeout=3, auth_token=None):
+        received["auth_token"] = auth_token
+        return sqlite3.connect(database, timeout=timeout)
+    monkeypatch.setattr(dashboard_module, "connect_database", connect)
     monkeypatch.setattr(dashboard_module, "row_factory_for", lambda _path: sqlite3.Row)
     repository = DashboardRepository("libsql://example.aws-eu-central-1.turso.io")
     assert repository.health()["database"] == "connected"
+    assert received["auth_token"] == "r" * 48
     with repository._connect() as db:
         for statement in (
             "CREATE TABLE dashboard_write_must_fail(id INTEGER)",
@@ -435,3 +439,20 @@ def test_native_sol_wallet_http_route_is_authenticated_and_get_only(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_dashboard_remote_database_refuses_to_fallback_to_pipeline_write_token(monkeypatch):
+    import veltrix.dashboard_server as dashboard_module
+
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "pipeline-write-token-" + "x" * 32)
+    monkeypatch.delenv("TURSO_DASHBOARD_AUTH_TOKEN", raising=False)
+    called = False
+    def connect(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("remote DB driver must not be called without dashboard token")
+    monkeypatch.setattr(dashboard_module, "connect_database", connect)
+    repository = DashboardRepository("libsql://example.aws-eu-central-1.turso.io")
+    with pytest.raises(RuntimeError, match="TURSO_DASHBOARD_AUTH_TOKEN"):
+        repository.health()
+    assert called is False
