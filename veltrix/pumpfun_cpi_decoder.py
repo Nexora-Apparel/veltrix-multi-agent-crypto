@@ -19,12 +19,13 @@ from veltrix.jupiter_swap_effects import (
     derive_associated_token_address,
 )
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
-from veltrix.simulation_gate import SimulationEvidence
+from veltrix.simulation_gate import SimulatedAccountSnapshot, SimulationEvidence
 from veltrix.transaction_validator import TransactionValidationResult
 
 
 PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMP_FEE_PROGRAM_ID = "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ"
+PUMP_GLOBAL_DISCRIMINATOR = bytes([167, 232, 232, 177, 200, 108, 114, 127])
 SYSTEM_PROGRAM_ID = "11111111111111111111111111111111"
 WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
 
@@ -72,7 +73,6 @@ class PumpFunCpiPolicy:
     max_slippage_bps: int = 500
     max_stack_height: int = 8
     require_partial_fill_disabled: bool = True
-    allowed_fee_recipient_accounts: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.max_slippage_bps, bool) or not isinstance(self.max_slippage_bps, int) or not 0 <= self.max_slippage_bps <= 10_000:
@@ -81,16 +81,6 @@ class PumpFunCpiPolicy:
             raise PumpFunCpiDecodeError("max_stack_height must be between 1 and 64")
         if not isinstance(self.require_partial_fill_disabled, bool):
             raise PumpFunCpiDecodeError("require_partial_fill_disabled must be a boolean")
-        if not isinstance(self.allowed_fee_recipient_accounts, tuple) or not self.allowed_fee_recipient_accounts:
-            raise PumpFunCpiDecodeError("an independently verified fee-recipient allowlist is required")
-        if len(set(self.allowed_fee_recipient_accounts)) != len(self.allowed_fee_recipient_accounts):
-            raise PumpFunCpiDecodeError("fee-recipient allowlist contains duplicates")
-        try:
-            for address in self.allowed_fee_recipient_accounts:
-                if not isinstance(address, str) or str(Pubkey.from_string(address)) != address:
-                    raise ValueError("non-canonical address")
-        except Exception as exc:
-            raise PumpFunCpiDecodeError("fee-recipient allowlist contains an invalid public key") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +101,8 @@ class PumpFunCpiResult:
     track_volume: bool | None
     stack_height: int | None
     instruction_data_sha256: str
+    global_config_sha256: str
+    global_config_slot: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +110,137 @@ class PumpFunCpiGateResult:
     passed: bool
     message_sha256: str
     decoded_instructions: tuple[PumpFunCpiResult, ...]
+    global_config_sha256: str
+    global_config_slot: int
+
+
+class _GlobalReader:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.offset = 8
+
+    def read(self, size: int) -> bytes:
+        if self.offset + size > len(self.data):
+            raise PumpFunCpiDecodeError("Pump.fun Global account data is truncated")
+        value = self.data[self.offset:self.offset + size]
+        self.offset += size
+        return value
+
+    def boolean(self) -> bool:
+        value = self.read(1)[0]
+        if value not in (0, 1):
+            raise PumpFunCpiDecodeError("Pump.fun Global boolean field is malformed")
+        return bool(value)
+
+    def u64(self) -> int:
+        return int.from_bytes(self.read(8), "little")
+
+    def pubkey(self) -> str:
+        raw = self.read(32)
+        number = int.from_bytes(raw, "big")
+        encoded = ""
+        alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        while number:
+            number, remainder = divmod(number, 58)
+            encoded = alphabet[remainder] + encoded
+        leading_zeroes = len(raw) - len(raw.lstrip(b"\\x00"))
+        address = "1" * leading_zeroes + (encoded or "")
+        try:
+            return str(Pubkey.from_string(address))
+        except Exception as exc:
+            raise PumpFunCpiDecodeError("Pump.fun Global contains an invalid public key") from exc
+
+    def skip(self, size: int) -> None:
+        self.read(size)
+
+
+@dataclass(frozen=True, slots=True)
+class PumpFunGlobalConfigSnapshot:
+    address: str
+    owner: str
+    context_slot: int
+    data_sha256: str
+    fee_recipient: str
+    fee_recipients: tuple[str, ...]
+    reserved_fee_recipient: str
+    reserved_fee_recipients: tuple[str, ...]
+    buyback_fee_recipients: tuple[str, ...]
+
+    @property
+    def fee_recipient_allowlist(self) -> tuple[str, ...]:
+        default = str(Pubkey.default())
+        return tuple(sorted({
+            key for key in (self.fee_recipient, *self.fee_recipients, self.reserved_fee_recipient, *self.reserved_fee_recipients)
+            if key != default
+        }))
+
+    @property
+    def buyback_fee_recipient_allowlist(self) -> tuple[str, ...]:
+        default = str(Pubkey.default())
+        return tuple(sorted({key for key in self.buyback_fee_recipients if key != default}))
+
+
+def decode_pumpfun_global_config(
+    snapshot: SimulatedAccountSnapshot,
+    *,
+    expected_context_slot: int,
+) -> PumpFunGlobalConfigSnapshot:
+    if not isinstance(snapshot, SimulatedAccountSnapshot):
+        raise PumpFunCpiDecodeError("same-slot Pump.fun Global account snapshot is required")
+    global_address = _pda((b"global",), PUMP_PROGRAM_ID)
+    if snapshot.address != global_address:
+        raise PumpFunCpiDecodeError("Pump.fun Global snapshot address is not the pinned Global PDA")
+    if snapshot.owner != PUMP_PROGRAM_ID or snapshot.executable:
+        raise PumpFunCpiDecodeError("Pump.fun Global snapshot owner or executable status is invalid")
+    if snapshot.context_slot != expected_context_slot:
+        raise PumpFunCpiDecodeError("Pump.fun Global snapshot is not from the simulation context slot")
+    if snapshot.lamports <= 0 or not snapshot.data.startswith(PUMP_GLOBAL_DISCRIMINATOR):
+        raise PumpFunCpiDecodeError("Pump.fun Global account is absent or has the wrong Anchor discriminator")
+    reader = _GlobalReader(snapshot.data)
+    initialized = reader.boolean()
+    if not initialized:
+        raise PumpFunCpiDecodeError("Pump.fun Global account is not initialized")
+    reader.skip(32)  # authority
+    fee_recipient = reader.pubkey()
+    reader.skip(5 * 8)  # initial reserves, supply and fee basis points
+    reader.skip(32)  # withdraw authority
+    reader.boolean()  # enable_migrate
+    reader.u64()  # pool_migration_fee
+    reader.u64()  # creator_fee_basis_points
+    fee_recipients = tuple(reader.pubkey() for _ in range(7))
+    reader.skip(32)  # set_creator_authority
+    reader.skip(32)  # admin_set_creator_authority
+    reader.boolean()  # create_v2_enabled
+    reader.skip(32)  # whitelist_pda
+    reserved_fee_recipient = reader.pubkey()
+    reader.boolean()  # mayhem_mode_enabled
+    reserved_fee_recipients = tuple(reader.pubkey() for _ in range(7))
+    reader.boolean()  # cashback enabled
+    buyback_fee_recipients = tuple(reader.pubkey() for _ in range(8))
+    reader.u64()  # buyback basis points
+    reader.u64()  # initial virtual quote reserves
+    reader.skip(32)  # whitelisted quote mints
+    reader.boolean()  # creator fee configurable
+    reader.u64()  # max configurable creator fee
+    reader.skip(32)  # holder reward claim authority
+    reader.boolean()  # holder reward enabled
+    reader.read(1)  # max curve depth
+    if reader.offset != len(reader.data):
+        raise PumpFunCpiDecodeError("Pump.fun Global account has an unexpected trailing layout")
+    result = PumpFunGlobalConfigSnapshot(
+        address=snapshot.address,
+        owner=snapshot.owner,
+        context_slot=snapshot.context_slot,
+        data_sha256=hashlib.sha256(snapshot.data).hexdigest(),
+        fee_recipient=fee_recipient,
+        fee_recipients=fee_recipients,
+        reserved_fee_recipient=reserved_fee_recipient,
+        reserved_fee_recipients=reserved_fee_recipients,
+        buyback_fee_recipients=buyback_fee_recipients,
+    )
+    if not result.fee_recipient_allowlist:
+        raise PumpFunCpiDecodeError("Pump.fun Global account contains no active fee recipients")
+    return result
 
 
 def _parse_data(data: bytes) -> tuple[str, str, str, int, int, bool | None, bool]:
