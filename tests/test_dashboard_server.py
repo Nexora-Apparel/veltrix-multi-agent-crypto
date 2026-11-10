@@ -261,6 +261,17 @@ def test_dashboard_sol_wallet_endpoint_reports_native_lamports_and_pnl(tmp_path)
     assert marked_state["open_positions"][0]["mark_source"] == "dexscreener"
     assert marked_state["open_positions"][0]["mark_freshness"] == "fresh"
 
+    import sqlite3
+    with sqlite3.connect(database) as db:
+        db.execute(
+            "UPDATE solana_paper_marks SET observed_at_ms=? WHERE mint=?",
+            (now_ms - 120_001, mint),
+        )
+    stale_state = DashboardRepository(database).sol_paper_wallet()
+    assert stale_state["equity_complete"] is False
+    assert stale_state["unrealized_pnl_lamports"] is None
+    assert stale_state["open_positions"][0]["mark_freshness"] == "stale"
+
     exit_provenance = {**provenance, "market_snapshot_id": 3}
     wallet.close_position(
         idempotency_key="dashboard-exit", mint=mint, price_lamports=2_000_000,
