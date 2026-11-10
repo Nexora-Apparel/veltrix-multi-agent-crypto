@@ -258,3 +258,66 @@ def test_deadline_exhaustion_is_deferred_for_later_invocation(tmp_path):
     job = store.get_job(result["run_id"])
     assert job["error_code"] == "JobDeadlineExceeded"
     assert job["next_attempt_at_ms"] is not None
+
+
+def test_run_context_exposes_transaction_scoped_fence_on_callers_connection(tmp_path):
+    from veltrix.orchestration import RunContext
+
+    store = store_at(tmp_path / "transaction-fence.sqlite3")
+    token = store.acquire_lease("worker-a", now_ms=10_000, ttl_ms=30_000)
+    seen = []
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, token,
+        lambda: store.assert_fence("worker-a", token, now_ms=10_001),
+        owner_id="worker-a",
+        lease_name="global-worker",
+        _assert_fence_in_transaction=lambda db: (
+            seen.append(db),
+            store.assert_fence_in_transaction(
+                db, "worker-a", token, now_ms=10_001
+            ),
+        ),
+    )
+    db = store._connect()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        context.assert_fence_in_transaction(db)
+        assert seen == [db]
+        db.rollback()
+    finally:
+        db.close()
+
+
+def test_run_context_fails_closed_without_transaction_fence():
+    from veltrix.orchestration import RunContext
+
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None
+    )
+    with pytest.raises(LeaseBusy, match="transaction-scoped fencing"):
+        context.assert_fence_in_transaction(object())
+
+
+def test_transaction_scoped_fence_rejects_replaced_lease(tmp_path):
+    from veltrix.orchestration import RunContext
+
+    store = store_at(tmp_path / "transaction-stale-fence.sqlite3")
+    old_token = store.acquire_lease("worker-a", now_ms=10_000, ttl_ms=2_000)
+    new_token = store.acquire_lease("worker-b", now_ms=12_000, ttl_ms=30_000)
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, old_token,
+        lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: store.assert_fence_in_transaction(
+            db, "worker-a", old_token, now_ms=12_001
+        ),
+    )
+    db = store._connect()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        with pytest.raises(LeaseBusy):
+            context.assert_fence_in_transaction(db)
+        db.rollback()
+    finally:
+        db.close()
+    assert new_token == old_token + 1
