@@ -225,6 +225,13 @@ def test_exit_pipeline_applies_simulated_fee_and_slippage(tmp_path):
     assert costs["fees_usd"] > 0.25
     assert costs["slippage_cost_usd"] > 0
     assert broker.totals()["closed_sell_fills"] == 1
+    realized = broker.totals()["realized_pnl"]
+    assert realized > 0
+    restarted = PaperBroker(
+        broker.db_path, starting_balance=500, max_positions=10, max_position_usd=50
+    )
+    assert restarted.totals()["closed_sell_fills"] == 1
+    assert restarted.totals()["realized_pnl"] == pytest.approx(realized)
 
 
 def test_paper_policy_rejects_nonfinite_or_unbounded_costs():
