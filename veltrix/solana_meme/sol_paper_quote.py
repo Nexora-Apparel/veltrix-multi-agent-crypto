@@ -151,7 +151,7 @@ class SolanaPaperQuoteAdapter:
                     continue
                 if event.chain != "solana" or event.token_address != token_mint:
                     continue
-                if event.quote_token_address != WSOL_MINT:
+                if event.quote_token_address != WSOL_MINT or event.pool_token_side != "base":
                     continue
                 try:
                     token_price_usd = self._decimal(event.price_usd, "token USD price")
