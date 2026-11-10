@@ -15,6 +15,9 @@ import pytest
 URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
 TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
 EXPECTED_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io"
+# Deterministic, non-canonical test mint (32-byte public key); never use a
+# production token mint such as wrapped SOL for destructive conformance data.
+MINT = "4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw"
 
 pytestmark = pytest.mark.skipif(
     not URL or not TOKEN,
@@ -71,7 +74,7 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
             ]
 
     now = int(time.time() * 1000)
-    mint = "So11111111111111111111111111111111111111112"
+    mint = MINT
     run_tag = uuid.uuid4().hex
     owner = f"turso-worker-{run_tag}"
     lease_name = f"turso-worker-conformance-{run_tag}"
@@ -118,8 +121,8 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
     )
 
     try:
-        # The target is disposable, but isolate this run from leftovers after
-        # an interrupted prior dispatch using the same fixed conformance mint.
+        # Remove only this deterministic synthetic mint's rows from the exact
+        # disposable database, recovering safely from an interrupted dispatch.
         with launches._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             context.assert_fence_in_transaction(db)
@@ -190,7 +193,7 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
         decision = ConsensusEngine().evaluate(
             MarketEvidence.from_store_row(market_row),
             RiskEvidence.from_store_payload(risk_payload),
-            history=(),  # Isolated conformance mint has no prior snapshots.
+            history=(),  # Isolated synthetic conformance mint has no history.
             now_ms=now,
         )
         decisions.record(decision)
