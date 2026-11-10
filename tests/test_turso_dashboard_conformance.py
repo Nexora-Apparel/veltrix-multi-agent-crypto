@@ -72,7 +72,7 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
     assert marked["open_positions"][0]["mark_source"] == "turso-conformance"
     wallet.close_position(
         idempotency_key=f"turso-mark-exit-{now_ms}", mint=mint,
-        price_lamports=1_500, fee_lamports=0, created_at_ms=now_ms + 2,
+        price_lamports=1_000, fee_lamports=0, created_at_ms=now_ms + 2,
         quote_provenance=provenance,
     )
     with wallet._transaction() as db:
