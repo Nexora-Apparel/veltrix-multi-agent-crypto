@@ -121,7 +121,7 @@ def test_sol_wallet_partial_take_profits_and_trailing_stop_are_idempotent(tmp_pa
         fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_002_000,
     )
     assert Decimal(second[0]["quantity_sold"]) == Decimal("25")
-    assert wallet.snapshot()[ "open_positions" ][0]["quantity"] == "25"
+    assert Decimal(wallet.snapshot()["open_positions"][0]["quantity"]) == Decimal("25")
 
     final = wallet.process_market_price(
         mint=MINT, price_lamports=2_800_000, market_snapshot_id=12,
