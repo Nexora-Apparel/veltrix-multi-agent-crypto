@@ -52,6 +52,7 @@ export default {
       !env.CF_ACCESS_CLIENT_ID.trim() ||
       env.CF_ACCESS_CLIENT_ID.trim() !== env.CF_ACCESS_CLIENT_ID ||
       typeof env.CF_ACCESS_CLIENT_SECRET !== "string" ||
+      env.CF_ACCESS_CLIENT_SECRET.length < 32 ||
       !env.CF_ACCESS_CLIENT_SECRET.trim() ||
       env.CF_ACCESS_CLIENT_SECRET.trim() !== env.CF_ACCESS_CLIENT_SECRET
     ) {
