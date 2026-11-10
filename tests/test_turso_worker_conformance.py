@@ -74,6 +74,7 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
     mint = "So11111111111111111111111111111111111111112"
     run_tag = uuid.uuid4().hex
     owner = f"turso-worker-{run_tag}"
+    lease_name = f"turso-worker-conformance-{run_tag}"
     decision_id = f"paper-conformance-{run_tag}"
 
     launches = LaunchStore(URL)
@@ -102,15 +103,17 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
         clock_ms=lambda: now,
     )
 
-    token = orchestration.acquire_lease(owner, now_ms=now, ttl_ms=120_000)
+    token = orchestration.acquire_lease(
+        owner, now_ms=now, ttl_ms=120_000, lease_name=lease_name
+    )
     context = RunContext(
         run_tag, run_tag, 1, time.monotonic() + 30, 100,
         time.monotonic, token,
-        lambda: orchestration.assert_fence(owner, token),
+        lambda: orchestration.assert_fence(owner, token, lease_name=lease_name),
         owner_id=owner,
-        lease_name="global-worker",
+        lease_name=lease_name,
         _assert_fence_in_transaction=lambda db: orchestration.assert_fence_in_transaction(
-            db, owner, token
+            db, owner, token, lease_name=lease_name
         ),
     )
 
@@ -219,7 +222,7 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
                 }
             assert {"claimed_by_owner_id", "claim_fencing_token"} <= columns
     finally:
-        orchestration.release_lease(owner, token)
+        orchestration.release_lease(owner, token, lease_name=lease_name)
         with launches._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             for table in (
