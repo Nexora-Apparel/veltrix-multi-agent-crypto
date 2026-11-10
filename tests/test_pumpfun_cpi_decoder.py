@@ -14,15 +14,17 @@ from veltrix.jupiter_swap_effects import (
 )
 from veltrix.pumpfun_cpi_decoder import (
     PUMP_FEE_PROGRAM_ID,
+    PUMP_GLOBAL_DISCRIMINATOR,
     PUMP_INSTRUCTION_DISCRIMINATORS,
     PUMP_PROGRAM_ID,
     SYSTEM_PROGRAM_ID,
     WRAPPED_SOL_MINT,
     PumpFunCpiDecodeError,
     PumpFunCpiPolicy,
+    decode_pumpfun_global_config,
     decode_pumpfun_route_cpis,
 )
-from veltrix.simulation_gate import SimulatedInnerInstruction, SimulationEvidence
+from veltrix.simulation_gate import SimulatedAccountSnapshot, SimulatedInnerInstruction, SimulationEvidence
 from veltrix.transaction_validator import TransactionValidationResult
 
 
@@ -43,6 +45,42 @@ def encode(name, *values):
         payload += bytes([values[2]])
     return discriminator + payload
 
+
+
+def global_account_data(fee_recipient, buyback_recipient, *, initialized=True):
+    default = bytes(Pubkey.default())
+    authority = bytes(Pubkey.new_unique())
+    return b"".join([
+        PUMP_GLOBAL_DISCRIMINATOR,
+        bytes([1 if initialized else 0]),
+        authority,
+        bytes(Pubkey.from_string(fee_recipient)),
+        (0).to_bytes(8, "little") * 5,
+        bytes(Pubkey.new_unique()),
+        bytes([0]),
+        (0).to_bytes(8, "little"),
+        (0).to_bytes(8, "little"),
+        bytes(Pubkey.from_string(fee_recipient)),
+        default * 6,
+        bytes(Pubkey.new_unique()),
+        bytes(Pubkey.new_unique()),
+        bytes([0]),
+        bytes(Pubkey.new_unique()),
+        default,
+        bytes([0]),
+        default * 7,
+        bytes([0]),
+        bytes(Pubkey.from_string(buyback_recipient)),
+        default * 7,
+        (0).to_bytes(8, "little"),
+        (0).to_bytes(8, "little"),
+        default,
+        bytes([0]),
+        (0).to_bytes(8, "little"),
+        bytes(Pubkey.new_unique()),
+        bytes([0]),
+        bytes([0]),
+    ])
 
 def build_case(*, version="v1", name="buy_exact_sol_in", direction="buy", data_override=None):
     taker = str(Pubkey.new_unique())
