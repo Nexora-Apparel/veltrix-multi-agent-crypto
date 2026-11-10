@@ -1,6 +1,12 @@
 name: Turso remote DB conformance
 
 on:
+  push:
+    branches: [work/veltrix-trading-terminal]
+    paths:
+      - ".github/workflows/turso-remote-conformance.yml"
+      - "tests/test_turso_dashboard_conformance.py"
+      - "veltrix/dashboard_server.py"
   workflow_dispatch:
 
 permissions:
@@ -59,4 +65,5 @@ jobs:
             tests/test_turso_application_schema.py \
             tests/test_turso_orchestration.py \
             tests/test_turso_worker_conformance.py \
-            tests/test_turso_pipeline_conformance.py
+            tests/test_turso_pipeline_conformance.py \
+            tests/test_turso_dashboard_conformance.py
