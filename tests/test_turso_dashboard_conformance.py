@@ -21,6 +21,7 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
     assert parsed.scheme == "libsql" and parsed.hostname == EXPECTED_HOST
     assert parsed.username is None and parsed.password is None
     os.environ["TURSO_AUTH_TOKEN"] = AUTH_TOKEN
+    os.environ["TURSO_DASHBOARD_AUTH_TOKEN"] = AUTH_TOKEN
 
     from veltrix.ledger import PaperBroker
     from veltrix.dashboard_server import DashboardRepository
