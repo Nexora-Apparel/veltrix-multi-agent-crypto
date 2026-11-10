@@ -181,7 +181,8 @@ def validate_transaction_message(
     if not message.is_signer(0) or not _is_writable(message, 0, len(account_keys)):
         raise TransactionValidationError("fee payer must be a writable signer")
 
-    referenced_indices: set[int] = set()
+    # The fee payer is an implicit message account even when no instruction references it.
+    referenced_indices: set[int] = {0}
     actual_program_ids: list[str] = []
     for index, (compiled, expected) in enumerate(zip(instructions, intent.instructions)):
         try:
