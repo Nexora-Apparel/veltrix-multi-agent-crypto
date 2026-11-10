@@ -1,0 +1,75 @@
+name: Deploy VELTRIX dashboard to Cloudflare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-cloudflare-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VELTRIX_API_ORIGIN: ${{ secrets.VELTRIX_API_ORIGIN }}
+      VELTRIX_DASHBOARD_TOKEN: ${{ secrets.VELTRIX_DASHBOARD_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require protected default-branch deployment
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          test "$REF" = "refs/heads/main" || {
+            echo "::error::Production deployment is allowed only from main."
+            exit 1
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate Cloudflare configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || {
+            echo "::error::Missing CLOUDFLARE_API_TOKEN repository secret."; exit 1;
+          }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || {
+            echo "::error::Missing CLOUDFLARE_ACCOUNT_ID repository secret."; exit 1;
+          }
+          [[ "$VELTRIX_API_ORIGIN" =~ ^https://[^/]+/?$ ]] || {
+            echo "::error::VELTRIX_API_ORIGIN must be an HTTPS origin without a path."; exit 1;
+          }
+          [[ "${#VELTRIX_DASHBOARD_TOKEN}" -ge 32 ]] || {
+            echo "::error::VELTRIX_DASHBOARD_TOKEN must contain at least 32 characters."; exit 1;
+          }
+          [[ "$VELTRIX_DASHBOARD_TOKEN" != *[[:space:]]* ]] || {
+            echo "::error::VELTRIX_DASHBOARD_TOKEN must not contain whitespace."; exit 1;
+          }
+
+      - name: Install pinned Wrangler
+        run: npm install --global wrangler@4.160.0
+
+      - name: Set Worker secrets without exposing them in logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$VELTRIX_API_ORIGIN" | wrangler secret put VELTRIX_API_ORIGIN --config wrangler.jsonc
+          printf '%s' "$VELTRIX_DASHBOARD_TOKEN" | wrangler secret put VELTRIX_DASHBOARD_TOKEN --config wrangler.jsonc
+
+      - name: Deploy dashboard Worker and static assets
+        run: wrangler deploy --config wrangler.jsonc
+
+      - name: Confirm deployed Worker configuration
+        run: wrangler deployments list --name veltrix-dashboard
