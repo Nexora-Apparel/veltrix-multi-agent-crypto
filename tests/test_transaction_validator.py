@@ -2,7 +2,7 @@
 import pytest
 
 from solders.hash import Hash
-from solders.instruction import AccountMeta, Instruction
+from solders.instruction import AccountMeta, CompiledInstruction, Instruction
 from solders.message import Message, MessageV0, to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.address_lookup_table_account import AddressLookupTableAccount
@@ -251,3 +251,37 @@ def test_intent_requires_fee_payer_to_be_signer():
             recent_blockhash=intent.recent_blockhash,
             instructions=intent.instructions,
         )
+
+
+def test_rejects_impossible_message_header_privilege_counts():
+    payer = Pubkey.new_unique()
+    program = Pubkey.new_unique()
+    blockhash = Hash.new_unique()
+    malformed = Message.new_with_compiled_instructions(
+        1, 2, 0, [payer, program], blockhash,
+        [CompiledInstruction(1, b"", b"")],
+    )
+    intent = TransactionIntent(
+        str(payer), (str(payer),), str(blockhash),
+        (InstructionExpectation(str(program), (), b""),),
+    )
+    policy = TransactionValidationPolicy(allowed_program_ids=(str(program),))
+    with pytest.raises(TransactionValidationError, match="impossible signer"):
+        validate_transaction_message(to_bytes_versioned(malformed), intent=intent, policy=policy)
+
+
+def test_rejects_program_account_marked_writable_by_message_header():
+    payer = Pubkey.new_unique()
+    program = Pubkey.new_unique()
+    blockhash = Hash.new_unique()
+    unsafe = Message.new_with_compiled_instructions(
+        1, 0, 0, [payer, program], blockhash,
+        [CompiledInstruction(1, b"", b"")],
+    )
+    intent = TransactionIntent(
+        str(payer), (str(payer),), str(blockhash),
+        (InstructionExpectation(str(program), (), b""),),
+    )
+    policy = TransactionValidationPolicy(allowed_program_ids=(str(program),))
+    with pytest.raises(TransactionValidationError, match="program account"):
+        validate_transaction_message(to_bytes_versioned(unsafe), intent=intent, policy=policy)
