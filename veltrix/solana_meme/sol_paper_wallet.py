@@ -219,6 +219,9 @@ class SolanaPaperWallet:
             positions = db.execute(
                 "SELECT * FROM solana_paper_positions ORDER BY opened_at_ms,mint"
             ).fetchall()
+            realized_row = db.execute(
+                "SELECT COALESCE(SUM(realized_pnl_lamports),0) AS total FROM solana_paper_fills"
+            ).fetchone()
             fills = db.execute(
                 "SELECT * FROM solana_paper_fills ORDER BY created_at_ms DESC LIMIT 100"
             ).fetchall()
@@ -238,7 +241,7 @@ class SolanaPaperWallet:
                 **dict(row), "mark_price_lamports": mark,
                 "market_value_lamports": market_value, "unrealized_pnl_lamports": pnl,
             })
-        realized = sum(int(x["realized_pnl_lamports"]) for x in fills)
+        realized = int(realized_row["total"])
         return {
             "unit": "lamports", "lamports_per_sol": LAMPORTS_PER_SOL,
             "starting_balance_lamports": int(account["starting_balance_lamports"]),
