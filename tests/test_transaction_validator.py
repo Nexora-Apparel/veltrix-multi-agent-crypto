@@ -7,7 +7,6 @@ from solders.instruction import AccountMeta, CompiledInstruction, Instruction
 from solders.message import Message, MessageV0, to_bytes_versioned
 from solders.address_lookup_table_account import AddressLookupTableAccount
 from solders.pubkey import Pubkey
-from solders.address_lookup_table_account import AddressLookupTableAccount
 
 from veltrix.transaction_validator import (
     AccountExpectation,
