@@ -324,14 +324,14 @@ def _fee_recipient(
     inner_accounts: tuple[str, ...],
     validation: TransactionValidationResult,
     position: int,
-    policy: PumpFunCpiPolicy,
+    allowed_addresses: tuple[str, ...],
     *,
     role: str,
 ) -> str:
     if position < 0 or position >= len(inner_accounts):
         raise PumpFunCpiDecodeError(f"{role} account position is missing")
     address = inner_accounts[position]
-    if address not in policy.allowed_fee_recipient_accounts:
+    if address not in allowed_addresses:
         raise PumpFunCpiDecodeError(f"{role} is not in the independently verified fee-recipient allowlist")
     _account(inner_accounts, validation, position, address, writable=True, role=role)
     return address
@@ -346,6 +346,7 @@ def _decode_pump_accounts(
     order: JupiterOrderTransaction,
     amm_key: str,
     policy: PumpFunCpiPolicy,
+    global_config: PumpFunGlobalConfigSnapshot,
 ) -> tuple[str, str]:
     direction = "buy" if name.startswith("buy") else "sell"
     global_pda = _pda((b"global",), PUMP_PROGRAM_ID)
@@ -369,7 +370,7 @@ def _decode_pump_accounts(
         if (direction == "buy" and order.input_mint != WRAPPED_SOL_MINT) or (direction == "sell" and order.output_mint != WRAPPED_SOL_MINT):
             raise PumpFunCpiDecodeError("Pump.fun v1 bonding-curve routes require wrapped SOL as the quote mint")
         _account(inner_accounts, validation, 0, global_pda, writable=False, role="global config")
-        fee_recipient = _fee_recipient(inner_accounts, validation, 1, policy, role="fee recipient")
+        fee_recipient = _fee_recipient(inner_accounts, validation, 1, global_config.fee_recipient_allowlist, role="fee recipient")
         _account(inner_accounts, validation, 2, base_mint, writable=False, role="mint")
         _account(inner_accounts, validation, 3, amm_key, writable=True, role="bonding curve")
         _account(inner_accounts, validation, 4, derive_associated_token_address(amm_key, base_mint), writable=True, role="associated bonding-curve token account")
@@ -400,8 +401,8 @@ def _decode_pump_accounts(
         _account(inner_accounts, validation, 3, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="base token program")
         _account(inner_accounts, validation, 4, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="quote token program")
         _account(inner_accounts, validation, 5, ASSOCIATED_TOKEN_PROGRAM_ID, writable=False, role="associated token program")
-        fee_recipient = _fee_recipient(inner_accounts, validation, 6, policy, role="fee recipient")
-        buyback_recipient = _fee_recipient(inner_accounts, validation, 8, policy, role="buyback fee recipient")
+        fee_recipient = _fee_recipient(inner_accounts, validation, 6, global_config.fee_recipient_allowlist, role="fee recipient")
+        buyback_recipient = _fee_recipient(inner_accounts, validation, 8, global_config.buyback_fee_recipient_allowlist, role="buyback fee recipient")
         _account(inner_accounts, validation, 7, derive_associated_token_address(fee_recipient, quote_mint), writable=True, role="associated quote fee recipient")
         _account(inner_accounts, validation, 9, derive_associated_token_address(buyback_recipient, quote_mint), writable=True, role="associated quote buyback fee recipient")
         _account(inner_accounts, validation, 10, amm_key, writable=True, role="bonding curve")
@@ -448,7 +449,7 @@ def _decode_pump_accounts(
         _account(inner_accounts, validation, 10, derive_associated_token_address(order.taker, quote_mint), writable=True, role="user quote token account")
         _account(inner_accounts, validation, 11, user_volume_pda, writable=True, role="user volume accumulator")
         _account(inner_accounts, validation, 12, fee_config_pda, writable=False, role="fee config")
-        _fee_recipient(inner_accounts, validation, 13, policy, role="buyback fee recipient")
+        _fee_recipient(inner_accounts, validation, 13, global_config.buyback_fee_recipient_allowlist, role="buyback fee recipient")
         _account(inner_accounts, validation, 14, SYSTEM_PROGRAM_ID, writable=False, role="system program")
         _account(inner_accounts, validation, 15, event_pda, writable=False, role="event authority")
         _account(inner_accounts, validation, 16, PUMP_PROGRAM_ID, writable=False, role="Pump.fun program")
@@ -484,6 +485,11 @@ def decode_pumpfun_route_cpis(
         raise PumpFunCpiDecodeError("Pump.fun decoder inputs refer to different transaction messages")
     if PUMP_PROGRAM_ID not in route_gate.dex_program_ids:
         raise PumpFunCpiDecodeError("Pump.fun program is not part of the locally pinned Jupiter route")
+    global_address = _pda((b"global",), PUMP_PROGRAM_ID)
+    global_snapshots = [item for item in simulation.account_snapshots if item.address == global_address]
+    if len(global_snapshots) != 1:
+        raise PumpFunCpiDecodeError("exactly one same-slot Pump.fun Global account snapshot is required")
+    global_config = decode_pumpfun_global_config(global_snapshots[0], expected_context_slot=simulation.context_slot)
     if jupiter_instruction.top_level_instruction_index != route_gate.parent_instruction_index:
         raise PumpFunCpiDecodeError("Jupiter route parent instruction differs from route-gate evidence")
     if len(jupiter_instruction.route_plan) != len(order.route_plan):
@@ -530,6 +536,7 @@ def decode_pumpfun_route_cpis(
             order=order,
             amm_key=route.amm_key,
             policy=policy,
+            global_config=global_config,
         )
         if policy.require_partial_fill_disabled and partial_fill:
             raise PumpFunCpiDecodeError("Pump.fun partial fills are disabled by local policy")
@@ -572,10 +579,14 @@ def decode_pumpfun_route_cpis(
             track_volume=track_volume,
             stack_height=inner.stack_height,
             instruction_data_sha256=hashlib.sha256(inner.data).hexdigest(),
+            global_config_sha256=global_config.data_sha256,
+            global_config_slot=global_config.context_slot,
         ))
 
     return PumpFunCpiGateResult(
         passed=True,
         message_sha256=digest,
         decoded_instructions=tuple(decoded_results),
+        global_config_sha256=global_config.data_sha256,
+        global_config_slot=global_config.context_slot,
     )
