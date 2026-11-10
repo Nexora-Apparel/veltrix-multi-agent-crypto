@@ -54,3 +54,25 @@ This adapter is a quote primitive only. It is not yet wired into the consensus
 paper worker. The next integration step must preserve Phase 06 approval checks,
 use the existing orchestration RunContext fence for all SOL wallet writes,
 and persist quote provenance with each fill.
+
+
+# Native SOL consensus paper worker
+
+The native SOL paper worker reuses the Phase 06 approval validator and persists
+fills in the separate lamport-native wallet. It refuses to proceed unless the
+consensus, market, risk, legacy validation broker, quote adapter and SOL wallet
+share one persistent database.
+
+Entries preserve the configured USD risk budget but are settled in SOL:
+token quantity is derived from the token USD mark, while the token's lamport
+price is derived from the same persisted market snapshot and a separate fresh
+SOL/USD pool observation. Fill provenance stores both sources, timestamps,
+pool addresses and snapshot ID. Any changed snapshot, stale conversion, or
+missing provider evidence blocks entry.
+
+Exits use the wallet's native 6% initial stop, 2x and 3x one-time 50% partial
+take-profit milestones, and 6% trailing stop after the 3x milestone. Every
+wallet write accepts the global orchestration RunContext and checks its fence
+inside the same transaction. This worker is not yet enabled in the default
+pipeline runtime; explicit runtime integration and full end-to-end acceptance
+remain required.
