@@ -48,6 +48,7 @@ def test_native_sol_worker_opens_only_validated_consensus_in_sol(tmp_path):
         sol_price_usd=Decimal("100"), token_observed_at_ms=1_800_000_000_000,
         sol_observed_at_ms=1_800_000_000_000, token_source="dexscreener",
         sol_source="dexscreener", sol_usd_pair_address="sol-usdc-pool",
+        sol_usd_method="wsol_stable_pool",
     )
     worker = SolanaNativePaperTradingWorker(validator, wallet, QuoteAdapter(markets, quote))
     assert worker.status()["unit"] == "SOL"
