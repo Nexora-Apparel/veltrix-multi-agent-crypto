@@ -44,6 +44,7 @@ class MarketSnapshotStore:
                     fdv_usd REAL,
                     market_cap_usd REAL,
                     dex_id TEXT,
+                    source TEXT NOT NULL DEFAULT 'unknown',
                     quote_token_symbol TEXT,
                     pool_token_side TEXT,
                     pair_count INTEGER NOT NULL,
@@ -54,6 +55,9 @@ class MarketSnapshotStore:
                     UNIQUE(mint, pair_address, response_received_at_ms)
                 )
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(solana_market_snapshots)").fetchall()}
+            if "source" not in columns:
+                db.execute("ALTER TABLE solana_market_snapshots ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'")
             db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_solana_market_mint_time "
                 "ON solana_market_snapshots(mint, retrieved_at_ms DESC, id DESC)"
@@ -95,10 +99,10 @@ class MarketSnapshotStore:
              price_change_m5_pct, price_change_h1_pct, price_change_h24_pct,
              txns_m5_buys, txns_m5_sells, txns_h1_buys, txns_h1_sells,
              txns_h24_buys, txns_h24_sells, fdv_usd, market_cap_usd,
-             dex_id, quote_token_symbol, pool_token_side, pair_count, retrieved_at_ms,
+             dex_id, source, quote_token_symbol, pool_token_side, pair_count, retrieved_at_ms,
              response_received_at_ms, pair_created_at_ms, quality_flags_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 snapshot.mint,
                 snapshot.selected_pair_address,
@@ -121,6 +125,7 @@ class MarketSnapshotStore:
                 snapshot.fdv_usd,
                 snapshot.market_cap_usd,
                 snapshot.dex_id,
+                snapshot.source,
                 snapshot.quote_token_symbol,
                 snapshot.pool_token_side,
                 snapshot.pair_count,
