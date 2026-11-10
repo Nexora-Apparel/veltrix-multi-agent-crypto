@@ -108,41 +108,29 @@ def decode(case, token_expected=(), native_expected=()):
 
 
 def test_decodes_exact_spl_transfer_checked_even_when_authority_is_fee_payer():
+    created = {}
     def build(payer):
-        instruction, _, _, _ = transfer_checked_instructions(payer)
+        instruction, source, mint, destination = transfer_checked_instructions(payer)
+        created.update(source=source, mint=mint, destination=destination)
         return [instruction]
 
     payer, raw, intent, tx_policy, validation, semantic_policy = make_case(build)
-    program = Pubkey.from_string(TOKEN_PROGRAM_ID)
-    instruction, source, mint, destination = transfer_checked_instructions(payer)
-    # Rebuild with the exact instruction set used in the message for effect assertions.
-    expected = ExpectedTokenTransfer(
-        source=str(source),
-        mint=str(mint),
-        destination=str(destination),
-        authority=str(payer),
-        amount_raw=250,
-        decimals=6,
-    )
+    source, mint, destination = created["source"], created["mint"], created["destination"]
+    expected = ExpectedTokenTransfer(str(source), str(mint), str(destination), str(payer), 250, 6)
     result = decode_transaction_semantics(
-        raw,
-        intent=intent,
-        validation=validation,
-        transaction_policy=tx_policy,
-        policy=semantic_policy,
-        expected_token_transfers=(expected,),
-        expected_native_transfers=(),
+        raw, intent=intent, validation=validation, transaction_policy=tx_policy,
+        policy=semantic_policy, expected_token_transfers=(expected,), expected_native_transfers=(),
     )
     assert result.token_transfers[0].amount_raw == 250
     assert result.token_transfers[0].mint == str(mint)
     assert result.total_native_lamports == 0
 
-
 def test_decodes_bounded_system_transfer():
     amount = 50_000
-
+    created = {}
     def build(payer):
         destination = Pubkey.new_unique()
+        created["destination"] = destination
         data = (2).to_bytes(4, "little") + amount.to_bytes(8, "little")
         return [Instruction(
             Pubkey.from_string(SYSTEM_PROGRAM_ID),
@@ -151,21 +139,13 @@ def test_decodes_bounded_system_transfer():
         )]
 
     payer, raw, intent, tx_policy, validation, semantic_policy = make_case(build)
-    message = Message.new_with_blockhash(build(payer), payer, Hash.new_unique())
-    destination = str(message.account_keys[1])
+    destination = str(created["destination"])
     expected = ExpectedNativeTransfer(str(payer), destination, amount)
-    # Use the message's exact blockhash and derived intent from the helper.
     result = decode_transaction_semantics(
-        raw,
-        intent=intent,
-        validation=validation,
-        transaction_policy=tx_policy,
-        policy=semantic_policy,
-        expected_token_transfers=(),
-        expected_native_transfers=(ExpectedNativeTransfer(str(payer), destination, amount),),
+        raw, intent=intent, validation=validation, transaction_policy=tx_policy,
+        policy=semantic_policy, expected_token_transfers=(), expected_native_transfers=(expected,),
     )
     assert result.total_native_lamports == amount
-
 
 def test_decodes_bounded_compute_budget_limit_and_price():
     def build(payer):
@@ -233,21 +213,22 @@ def test_rejects_transfer_amount_different_from_approved_effect():
 
 
 def test_rejects_token_amount_over_policy():
+    created = {}
     def build(payer):
-        instruction, _, _, _ = transfer_checked_instructions(payer, amount=10_000_001)
+        instruction, source, mint, destination = transfer_checked_instructions(payer, amount=10_000_001)
+        created.update(source=source, mint=mint, destination=destination)
         return [instruction]
 
     case = make_case(build)
-    payer, raw, intent, tx_policy, validation, policy = case
+    payer, raw, intent, tx_policy, validation, _ = case
     policy = SemanticDecodePolicy(1_000_000, 10_000_000, 1_000_000, 10_000)
-    _, source, mint, destination = transfer_checked_instructions(payer, amount=10_000_001)
+    source, mint, destination = created["source"], created["mint"], created["destination"]
     expected = ExpectedTokenTransfer(str(source), str(mint), str(destination), str(payer), 10_000_001, 6)
     with pytest.raises(SemanticDecodeError, match="aggregate token"):
         decode_transaction_semantics(
             raw, intent=intent, validation=validation, transaction_policy=tx_policy,
             policy=policy, expected_token_transfers=(expected,), expected_native_transfers=(),
         )
-
 
 def test_rejects_compute_budget_price_over_policy():
     def build(payer):
