@@ -271,15 +271,24 @@
   async function loadCandles() {
     if (candleLoading) return;
     const mint = $("chart-mint").value.trim();
-    const pair = $("chart-pair").value.trim();
+    let pair = $("chart-pair").value.trim();
     const interval = $("chart-interval").value;
-    if (!mint || !pair) {
+    if (!mint) {
       $("candle-empty").hidden = false;
-      $("candle-empty").textContent = "A token mint and pool address are required.";
+      $("candle-empty").textContent = "Enter a Solana token mint to resolve its market pool.";
       return;
     }
     candleLoading = true;
     try {
+      if (!pair) {
+        $("candle-source").textContent = "Resolving deepest eligible Solana pool…";
+        const resolved = await api("/api/pool?" + new URLSearchParams({mint}).toString());
+        pair = resolved.pair_address;
+        $("chart-pair").value = pair;
+        $("candle-source").textContent = "Pool: " + (resolved.dex_id || "DEX") +
+          " · Liquidity " + money(resolved.liquidity_usd) +
+          " · 1h volume " + money(resolved.volume_h1_usd);
+      }
       const query = new URLSearchParams({mint, pair, interval, limit:"180"});
       const data = await api("/api/candles?" + query.toString());
       renderCandles(data);
