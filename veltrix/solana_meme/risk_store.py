@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from ..database import connect_database, ensure_database_parent, row_factory_for
 from .risk_evidence import SolanaRiskEvidenceReport
@@ -49,20 +49,27 @@ class SolanaRiskEvidenceStore:
             db.close()
 
     def record(self, report: SolanaRiskEvidenceReport) -> bool:
+        """Persist a risk report using a store-owned connection."""
+        with self._connect() as db:
+            return self.record_in_transaction(report, db)
+
+    def record_in_transaction(self, report: SolanaRiskEvidenceReport, db: Any) -> bool:
+        """Write evidence on a caller-owned connection without committing it."""
         if not isinstance(report, SolanaRiskEvidenceReport):
             raise TypeError("report must be a SolanaRiskEvidenceReport")
+        if db is None or not callable(getattr(db, "execute", None)):
+            raise TypeError("db must be an open database connection")
         payload_data = asdict(report)
         payload_data["risk_state"] = report.risk_state
         payload = json.dumps(payload_data, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-        with self._connect() as db:
-            cursor = db.execute(
-                """INSERT OR IGNORE INTO solana_risk_evidence_reports
-                (mint, observed_at_ms, evidence_hash, payload_json)
-                VALUES (?, ?, ?, ?)""",
-                (report.mint, report.observed_at_ms, digest, payload),
-            )
-            return cursor.rowcount == 1
+        cursor = db.execute(
+            """INSERT OR IGNORE INTO solana_risk_evidence_reports
+            (mint, observed_at_ms, evidence_hash, payload_json)
+            VALUES (?, ?, ?, ?)""",
+            (report.mint, report.observed_at_ms, digest, payload),
+        )
+        return cursor.rowcount == 1
 
     @staticmethod
     def _decode(row: sqlite3.Row | None) -> dict | None:
