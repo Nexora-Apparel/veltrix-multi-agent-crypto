@@ -21,15 +21,19 @@ class ExecutionPreflightError(ValueError):
     """Raised when any required pre-sign evidence is absent or outside policy."""
 
 
-REQUIRED_MINT_CLAIMS = (
+REQUIRED_LIVE_RISK_CLAIMS = (
     "mint_account_state",
     "mint_authority",
     "freeze_authority",
     "token_2022_extension_review",
     "complete_holder_inventory",
     "mint_holder_supply_reconciliation",
+    "liquidity_lock_complete_inventory",
+    "developer_wallet_linkage",
+    "bundled_supply",
+    "creator_wallet_provenance",
+    "executable_sellability",
 )
-
 
 @dataclass(frozen=True, slots=True)
 class ExecutionPreflightPolicy:
@@ -41,6 +45,7 @@ class ExecutionPreflightPolicy:
     max_top5_holder_pct: float = 50.0
     max_top10_holder_pct: float = 80.0
     blocked_flag_severities: tuple[str, ...] = ("critical", "high")
+    required_claims: tuple[str, ...] = REQUIRED_LIVE_RISK_CLAIMS
 
     def __post_init__(self) -> None:
         if not isinstance(self.expected_mint, str) or not self.expected_mint:
@@ -69,6 +74,10 @@ class ExecutionPreflightPolicy:
             raise ExecutionPreflightError("blocked_flag_severities must be a non-empty immutable tuple")
         if any(value not in {"critical", "high", "medium", "low", "info"} for value in self.blocked_flag_severities):
             raise ExecutionPreflightError("blocked_flag_severities contains an unsupported severity")
+        if not isinstance(self.required_claims, tuple) or not self.required_claims:
+            raise ExecutionPreflightError("required_claims must be a non-empty immutable tuple")
+        if any(not isinstance(value, str) or not value for value in self.required_claims):
+            raise ExecutionPreflightError("required_claims contains an invalid claim name")
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,8 +137,8 @@ def evaluate_execution_preflight(
         raise ExecutionPreflightError("mint evidence does not meet the required finalized slot")
 
     missing = set(risk_report.missing_claims)
-    if missing.intersection(REQUIRED_MINT_CLAIMS):
-        raise ExecutionPreflightError("one or more required mint/holder evidence claims are missing")
+    if missing.intersection(policy.required_claims):
+        raise ExecutionPreflightError("one or more required live risk evidence claims are missing")
     if risk_report.token_program_id != TOKEN_PROGRAM_ID:
         raise ExecutionPreflightError("only the classic SPL Token program is approved by this preflight policy")
     if risk_report.mint_authority is not None:
@@ -140,6 +149,12 @@ def evaluate_execution_preflight(
         raise ExecutionPreflightError("token extension review is incomplete or extensions are present")
     if risk_report.mint_supply_reconciled is not True:
         raise ExecutionPreflightError("mint supply does not reconcile with holder inventory")
+    if (
+        isinstance(risk_report.mint_decimals, bool)
+        or not isinstance(risk_report.mint_decimals, int)
+        or not 0 <= risk_report.mint_decimals <= 38
+    ):
+        raise ExecutionPreflightError("mint decimals are missing or invalid")
     if (
         isinstance(risk_report.mint_supply_raw, bool)
         or not isinstance(risk_report.mint_supply_raw, int)
