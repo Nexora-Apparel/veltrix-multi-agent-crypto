@@ -15,7 +15,7 @@ from typing import Any
 def is_remote_database(database: str | Path) -> bool:
     """Return True only for secure remote database URL schemes."""
     value = str(database).strip().lower()
-    return value.startswith(("libsql://", "https://"))
+    return value.startswith(("libsql://", "https://", "http://", "turso://"))
 
 
 def ensure_database_parent(database: str | Path) -> None:
@@ -63,12 +63,18 @@ def connect_database(
         parsed = urlsplit(value)
         host = (parsed.hostname or "").lower()
         if (
-            parsed.scheme not in {"libsql", "https"}
+            parsed.scheme not in {"libsql", "https", "http", "turso"}
             or not host.endswith(".turso.io")
             or parsed.username
             or parsed.password
         ):
             raise ValueError("remote database URL host is not an approved Turso endpoint")
+        # Normalize dashboard/client URL variants to secure schemes.
+        # Plain HTTP is never sent over the network.
+        if parsed.scheme == "http":
+            value = parsed._replace(scheme="https").geturl()
+        elif parsed.scheme == "turso":
+            value = parsed._replace(scheme="libsql").geturl()
         token = os.getenv("TURSO_AUTH_TOKEN", "").strip()
         if not token:
             raise RuntimeError(
