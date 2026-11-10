@@ -48,9 +48,16 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || {
             echo "::error::Missing CLOUDFLARE_ACCOUNT_ID repository secret."; exit 1;
           }
-          [[ "$VELTRIX_API_ORIGIN" =~ ^https://[^/]+/?$ ]] || {
-            echo "::error::VELTRIX_API_ORIGIN must be an HTTPS origin without a path."; exit 1;
-          }
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          origin = urlsplit(os.environ["VELTRIX_API_ORIGIN"])
+          assert origin.scheme == "https" and origin.hostname, "API origin must use HTTPS"
+          assert origin.username is None and origin.password is None, "API origin credentials are forbidden"
+          assert origin.path in ("", "/") and not origin.query and not origin.fragment, "API origin must not contain a path, query or fragment"
+          _ = origin.port
+          PY
           [[ "${#VELTRIX_DASHBOARD_TOKEN}" -ge 32 ]] || {
             echo "::error::VELTRIX_DASHBOARD_TOKEN must contain at least 32 characters."; exit 1;
           }
