@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 from ..database import connect_database, row_factory_for
+from ..orchestration import LeaseBusy, RunContext
 
 from .launch_stream import LaunchStore
 from .market_store import MarketSnapshotStore
@@ -91,6 +92,8 @@ class SolanaRiskEvidenceWorker:
                     consecutive_failures INTEGER NOT NULL DEFAULT 0,
                     next_refresh_at_ms INTEGER NOT NULL,
                     lease_until_ms INTEGER,
+                    claimed_by_owner_id TEXT,
+                    claim_fencing_token INTEGER,
                     last_attempt_at_ms INTEGER,
                     last_success_at_ms INTEGER,
                     last_error TEXT,
@@ -101,9 +104,32 @@ class SolanaRiskEvidenceWorker:
                 "CREATE INDEX IF NOT EXISTS idx_solana_risk_evidence_due "
                 "ON solana_risk_evidence_jobs(status, next_refresh_at_ms, lease_until_ms)"
             )
+            columns = {row["name"] for row in db.execute(
+                "PRAGMA table_info(solana_risk_evidence_jobs)"
+            ).fetchall()}
+            if "claimed_by_owner_id" not in columns:
+                db.execute("ALTER TABLE solana_risk_evidence_jobs ADD COLUMN claimed_by_owner_id TEXT")
+            if "claim_fencing_token" not in columns:
+                db.execute("ALTER TABLE solana_risk_evidence_jobs ADD COLUMN claim_fencing_token INTEGER")
 
-    def _discover_jobs(self, now: int) -> int:
+    @staticmethod
+    def _assert_claim(db: Any, mint: str, now: int, context: RunContext) -> None:
+        if not context.owner_id:
+            raise LeaseBusy("run context has no lease owner identity")
+        row = db.execute(
+            """SELECT 1 FROM solana_risk_evidence_jobs
+               WHERE mint=? AND status='processing' AND claimed_by_owner_id=?
+                 AND claim_fencing_token=? AND lease_until_ms>?""",
+            (mint, context.owner_id, context.fencing_token, now),
+        ).fetchone()
+        if row is None:
+            raise LeaseBusy("risk evidence row claim expired or was replaced")
+
+    def _discover_jobs(self, now: int, context: RunContext | None = None) -> int:
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
             cursor = db.execute("""
                 INSERT OR IGNORE INTO solana_risk_evidence_jobs
                     (mint, status, attempts, consecutive_failures,
@@ -115,12 +141,16 @@ class SolanaRiskEvidenceWorker:
             """, (now, now))
             return cursor.rowcount
 
-    def _claim(self, now: int, limit: int) -> list[str]:
+    def _claim(self, now: int, limit: int,
+               context: RunContext | None = None) -> list[str]:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
             db.execute("""
                 UPDATE solana_risk_evidence_jobs
                 SET status = 'retry', lease_until_ms = NULL,
+                    claimed_by_owner_id = NULL, claim_fencing_token = NULL,
                     next_refresh_at_ms = ?, updated_at_ms = ?
                 WHERE status = 'processing' AND lease_until_ms <= ?
             """, (now, now, now))
@@ -134,31 +164,55 @@ class SolanaRiskEvidenceWorker:
                 db.execute("""
                     UPDATE solana_risk_evidence_jobs
                     SET status = 'processing', attempts = attempts + 1,
-                        last_attempt_at_ms = ?, lease_until_ms = ?, updated_at_ms = ?
-                    WHERE mint = ?
-                """, (now, now + self.lease_ms, now, mint))
+                        last_attempt_at_ms = ?, lease_until_ms = ?, updated_at_ms = ?,
+                        claimed_by_owner_id = ?, claim_fencing_token = ?
+                    WHERE mint = ? AND status IN ('active', 'retry')
+                """, (
+                    now, now + self.lease_ms, now,
+                    context.owner_id if context else None,
+                    context.fencing_token if context else None,
+                    mint,
+                ))
             return mints
 
-    def _succeed(self, mint: str, now: int, report_errors: tuple[str, ...]) -> None:
+    def _succeed(self, report: Any, now: int,
+                 context: RunContext | None = None) -> None:
         with self._connect() as db:
-            degraded = bool(report_errors)
-            db.execute("""
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
+                self._assert_claim(db, report.mint, now, context)
+            self.risk_store.record_in_transaction(report, db)
+            degraded = bool(report.errors)
+            cursor = db.execute("""
                 UPDATE solana_risk_evidence_jobs
                 SET status = 'active', consecutive_failures = ?,
                     next_refresh_at_ms = ?, lease_until_ms = NULL,
+                    claimed_by_owner_id = NULL, claim_fencing_token = NULL,
                     last_success_at_ms = ?, last_error = ?, updated_at_ms = ?
-                WHERE mint = ?
+                WHERE mint = ? AND status = 'processing'
+                  AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
             """, (
                 1 if degraded else 0,
                 now + (self.retry_base_ms if degraded else self.refresh_interval_ms),
                 now,
-                "; ".join(report_errors)[:500] if report_errors else None,
+                "; ".join(report.errors)[:500] if degraded else None,
                 now,
-                mint,
+                report.mint,
+                context.owner_id if context else None,
+                context.owner_id if context else None,
+                context.fencing_token if context else None,
             ))
+            if cursor.rowcount != 1:
+                raise LeaseBusy("risk evidence completion lost its row claim")
 
-    def _fail(self, mint: str, error: Exception, now: int) -> None:
+    def _fail(self, mint: str, error: Exception, now: int,
+              context: RunContext | None = None) -> None:
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
+                self._assert_claim(db, mint, now, context)
             row = db.execute(
                 "SELECT consecutive_failures FROM solana_risk_evidence_jobs WHERE mint = ?",
                 (mint,),
@@ -168,37 +222,42 @@ class SolanaRiskEvidenceWorker:
                 self.retry_base_ms * (2 ** min(failures - 1, 30)),
                 self.retry_max_ms,
             )
-            db.execute("""
+            cursor = db.execute("""
                 UPDATE solana_risk_evidence_jobs
                 SET status = 'retry', consecutive_failures = ?,
                     next_refresh_at_ms = ?, lease_until_ms = NULL,
+                    claimed_by_owner_id = NULL, claim_fencing_token = NULL,
                     last_error = ?, updated_at_ms = ?
-                WHERE mint = ?
+                WHERE mint = ? AND status = 'processing'
+                  AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
             """, (
-                failures,
-                now + delay,
-                f"{type(error).__name__}: {error}"[:500],
-                now,
-                mint,
+                failures, now + delay,
+                f"{type(error).__name__}: {error}"[:500], now, mint,
+                context.owner_id if context else None,
+                context.owner_id if context else None,
+                context.fencing_token if context else None,
             ))
+            if cursor.rowcount != 1:
+                raise LeaseBusy("risk evidence failure update lost its row claim")
 
-    def run_once(self, *, limit: int = 5) -> RiskEvidenceBatchResult:
+    def run_once(self, *, limit: int = 5, context: RunContext | None = None) -> RiskEvidenceBatchResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
             raise ValueError("limit must be between 1 and 25")
         now = self.clock_ms()
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("clock_ms must return a positive integer")
-        discovered = self._discover_jobs(now)
-        claimed = self._claim(now, limit)
+        discovered = self._discover_jobs(now, context)
+        claimed = self._claim(now, limit, context)
         recorded = failed = 0
         for mint in claimed:
             try:
                 report = self.collector.collect(mint, now_ms=self.clock_ms())
-                self.risk_store.record(report)
-                self._succeed(mint, self.clock_ms(), report.errors)
+                if context is not None:
+                    context.checkpoint(items=1)
+                self._succeed(report, self.clock_ms(), context)
                 recorded += 1
             except Exception as exc:
-                self._fail(mint, exc, self.clock_ms())
+                self._fail(mint, exc, self.clock_ms(), context)
                 failed += 1
 
         with self._connect() as db:
