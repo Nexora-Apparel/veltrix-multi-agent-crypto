@@ -225,76 +225,110 @@ def _decode_pump_accounts(
     policy: PumpFunCpiPolicy,
 ) -> tuple[str, str]:
     direction = "buy" if name.startswith("buy") else "sell"
+    global_pda = _pda((b"global",), PUMP_PROGRAM_ID)
+    event_pda = _pda((b"__event_authority",), PUMP_PROGRAM_ID)
+    global_volume_pda = _pda((b"global_volume_accumulator",), PUMP_PROGRAM_ID)
+    user_volume_pda = _pda(
+        (b"user_volume_accumulator", bytes(Pubkey.from_string(order.taker))),
+        PUMP_PROGRAM_ID,
+    )
+    fee_config_pda = _pda(
+        (b"fee_config", bytes(Pubkey.from_string(PUMP_PROGRAM_ID))),
+        PUMP_FEE_PROGRAM_ID,
+    )
+
     if version == "v1":
-        expected_count = 16 if name in {"buy", "buy_exact_sol_in"} else 14
+        expected_count = 16 if direction == "buy" else 14
         if len(inner_accounts) != expected_count:
             raise PumpFunCpiDecodeError(f"Pump.fun {name} requires exactly {expected_count} accounts")
         base_mint = order.output_mint if direction == "buy" else order.input_mint
         quote_mint = WRAPPED_SOL_MINT
         if (direction == "buy" and order.input_mint != WRAPPED_SOL_MINT) or (direction == "sell" and order.output_mint != WRAPPED_SOL_MINT):
             raise PumpFunCpiDecodeError("Pump.fun v1 bonding-curve routes require wrapped SOL as the quote mint")
-        user_position = 6
-        mint_position = 2
-        bonding_curve_position = 3
-        associated_curve_position = 4
-        associated_user_position = 5
-        token_program_position = 8 if direction == "buy" else 9
-        program_position = 11
-        fee_program_position = 15 if direction == "buy" else 13
-        creator_vault_position = 9 if direction == "buy" else 8
-        fee_recipient_position = 1
-        _account(inner_accounts, validation, mint_position, base_mint, role="mint")
-        _account(inner_accounts, validation, associated_curve_position, derive_associated_token_address(amm_key, base_mint), writable=True, role="associated bonding-curve token account")
-        _account(inner_accounts, validation, associated_user_position, derive_associated_token_address(order.taker, base_mint), writable=True, role="user base token account")
-        _account(inner_accounts, validation, 7, SYSTEM_PROGRAM_ID, role="system program")
-        _account(inner_accounts, validation, token_program_position, CLASSIC_TOKEN_PROGRAM_ID, role="token program")
-        _account(inner_accounts, validation, program_position, PUMP_PROGRAM_ID, role="Pump.fun program")
-        _account(inner_accounts, validation, fee_program_position, PUMP_FEE_PROGRAM_ID, role="fee program")
-        _account(inner_accounts, validation, 10, inner_accounts[10], role="event authority")
-        _account(inner_accounts, validation, fee_recipient_position, inner_accounts[fee_recipient_position], writable=True, role="fee recipient")
-        _account(inner_accounts, validation, creator_vault_position, inner_accounts[creator_vault_position], writable=True, role="creator vault")
-        _account(inner_accounts, validation, bonding_curve_position, amm_key, writable=True, role="bonding curve")
-        _account(inner_accounts, validation, user_position, order.taker, signer=True, writable=True, role="user")
+        _account(inner_accounts, validation, 0, global_pda, writable=False, role="global config")
+        fee_recipient = _fee_recipient(inner_accounts, validation, 1, policy, role="fee recipient")
+        _account(inner_accounts, validation, 2, base_mint, writable=False, role="mint")
+        _account(inner_accounts, validation, 3, amm_key, writable=True, role="bonding curve")
+        _account(inner_accounts, validation, 4, derive_associated_token_address(amm_key, base_mint), writable=True, role="associated bonding-curve token account")
+        _account(inner_accounts, validation, 5, derive_associated_token_address(order.taker, base_mint), writable=True, role="user base token account")
+        _account(inner_accounts, validation, 6, order.taker, signer=True, writable=True, role="user")
+        _account(inner_accounts, validation, 7, SYSTEM_PROGRAM_ID, writable=False, role="system program")
+        _account(inner_accounts, validation, 8 if direction == "buy" else 9, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="token program")
+        _account(inner_accounts, validation, 9 if direction == "buy" else 8, inner_accounts[9 if direction == "buy" else 8], writable=True, role="creator vault")
+        _account(inner_accounts, validation, 10, event_pda, writable=False, role="event authority")
+        _account(inner_accounts, validation, 11, PUMP_PROGRAM_ID, writable=False, role="Pump.fun program")
         if direction == "buy":
-            _account(inner_accounts, validation, 12, inner_accounts[12], role="global volume accumulator")
-            _account(inner_accounts, validation, 13, inner_accounts[13], writable=True, role="user volume accumulator")
+            _account(inner_accounts, validation, 12, global_volume_pda, writable=False, role="global volume accumulator")
+            _account(inner_accounts, validation, 13, user_volume_pda, writable=True, role="user volume accumulator")
+            _account(inner_accounts, validation, 14, fee_config_pda, writable=False, role="fee config")
+            _account(inner_accounts, validation, 15, PUMP_FEE_PROGRAM_ID, writable=False, role="fee program")
+        else:
+            _account(inner_accounts, validation, 12, fee_config_pda, writable=False, role="fee config")
+            _account(inner_accounts, validation, 13, PUMP_FEE_PROGRAM_ID, writable=False, role="fee program")
     elif version == "v2":
         expected_count = 27 if direction == "buy" else 26
         if len(inner_accounts) != expected_count:
             raise PumpFunCpiDecodeError(f"Pump.fun {name} requires exactly {expected_count} accounts")
         base_mint = order.output_mint if direction == "buy" else order.input_mint
         quote_mint = order.input_mint if direction == "buy" else order.output_mint
-        _account(inner_accounts, validation, 1, base_mint, role="base mint")
-        _account(inner_accounts, validation, 2, quote_mint, role="quote mint")
-        _account(inner_accounts, validation, 3, CLASSIC_TOKEN_PROGRAM_ID, role="base token program")
-        _account(inner_accounts, validation, 4, CLASSIC_TOKEN_PROGRAM_ID, role="quote token program")
-        _account(inner_accounts, validation, 5, ASSOCIATED_TOKEN_PROGRAM_ID, role="associated token program")
+        _account(inner_accounts, validation, 0, global_pda, writable=False, role="global config")
+        _account(inner_accounts, validation, 1, base_mint, writable=False, role="base mint")
+        _account(inner_accounts, validation, 2, quote_mint, writable=False, role="quote mint")
+        _account(inner_accounts, validation, 3, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="base token program")
+        _account(inner_accounts, validation, 4, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="quote token program")
+        _account(inner_accounts, validation, 5, ASSOCIATED_TOKEN_PROGRAM_ID, writable=False, role="associated token program")
+        fee_recipient = _fee_recipient(inner_accounts, validation, 6, policy, role="fee recipient")
+        buyback_recipient = _fee_recipient(inner_accounts, validation, 8, policy, role="buyback fee recipient")
+        _account(inner_accounts, validation, 7, derive_associated_token_address(fee_recipient, quote_mint), writable=True, role="associated quote fee recipient")
+        _account(inner_accounts, validation, 9, derive_associated_token_address(buyback_recipient, quote_mint), writable=True, role="associated quote buyback fee recipient")
         _account(inner_accounts, validation, 10, amm_key, writable=True, role="bonding curve")
         _account(inner_accounts, validation, 11, derive_associated_token_address(amm_key, base_mint), writable=True, role="associated base bonding-curve account")
         _account(inner_accounts, validation, 12, derive_associated_token_address(amm_key, quote_mint), writable=True, role="associated quote bonding-curve account")
         _account(inner_accounts, validation, 13, order.taker, signer=True, writable=True, role="user")
         _account(inner_accounts, validation, 14, derive_associated_token_address(order.taker, base_mint), writable=True, role="user base token account")
         _account(inner_accounts, validation, 15, derive_associated_token_address(order.taker, quote_mint), writable=True, role="user quote token account")
-        _account(inner_accounts, validation, 23 if direction == "buy" else 22, PUMP_FEE_PROGRAM_ID, role="fee program")
-        _account(inner_accounts, validation, 24 if direction == "buy" else 23, SYSTEM_PROGRAM_ID, role="system program")
-        _account(inner_accounts, validation, 26 if direction == "buy" else 25, PUMP_PROGRAM_ID, role="Pump.fun program")
+        _account(inner_accounts, validation, 16, inner_accounts[16], writable=True, role="creator vault")
+        _account(inner_accounts, validation, 17, derive_associated_token_address(inner_accounts[16], quote_mint), writable=True, role="associated creator vault")
+        sharing_config = _pda((b"sharing-config", bytes(Pubkey.from_string(base_mint))), PUMP_FEE_PROGRAM_ID)
+        _account(inner_accounts, validation, 18, sharing_config, writable=False, role="sharing config")
+        volume_position = 20 if direction == "buy" else 19
+        associated_volume_position = 21 if direction == "buy" else 20
+        if direction == "buy":
+            _account(inner_accounts, validation, 19, global_volume_pda, writable=False, role="global volume accumulator")
+        _account(inner_accounts, validation, volume_position, user_volume_pda, writable=True, role="user volume accumulator")
+        _account(inner_accounts, validation, associated_volume_position, derive_associated_token_address(user_volume_pda, quote_mint), writable=True, role="associated user volume accumulator")
+        fee_config_position = 22 if direction == "buy" else 21
+        fee_program_position = 23 if direction == "buy" else 22
+        system_position = 24 if direction == "buy" else 23
+        event_position = 25 if direction == "buy" else 24
+        program_position = 26 if direction == "buy" else 25
+        _account(inner_accounts, validation, fee_config_position, fee_config_pda, writable=False, role="fee config")
+        _account(inner_accounts, validation, fee_program_position, PUMP_FEE_PROGRAM_ID, writable=False, role="fee program")
+        _account(inner_accounts, validation, system_position, SYSTEM_PROGRAM_ID, writable=False, role="system program")
+        _account(inner_accounts, validation, event_position, event_pda, writable=False, role="event authority")
+        _account(inner_accounts, validation, program_position, PUMP_PROGRAM_ID, writable=False, role="Pump.fun program")
     elif version == "v3":
         if len(inner_accounts) != 17:
             raise PumpFunCpiDecodeError(f"Pump.fun {name} requires exactly 17 accounts")
         base_mint = order.output_mint if direction == "buy" else order.input_mint
         quote_mint = order.input_mint if direction == "buy" else order.output_mint
-        _account(inner_accounts, validation, 1, base_mint, role="base mint")
-        _account(inner_accounts, validation, 2, quote_mint, role="quote mint")
-        _account(inner_accounts, validation, 3, CLASSIC_TOKEN_PROGRAM_ID, role="base token program")
-        _account(inner_accounts, validation, 4, CLASSIC_TOKEN_PROGRAM_ID, role="quote token program")
+        _account(inner_accounts, validation, 0, global_pda, writable=False, role="global config")
+        _account(inner_accounts, validation, 1, base_mint, writable=False, role="base mint")
+        _account(inner_accounts, validation, 2, quote_mint, writable=False, role="quote mint")
+        _account(inner_accounts, validation, 3, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="base token program")
+        _account(inner_accounts, validation, 4, CLASSIC_TOKEN_PROGRAM_ID, writable=False, role="quote token program")
         _account(inner_accounts, validation, 5, amm_key, writable=True, role="bonding curve")
         _account(inner_accounts, validation, 6, derive_associated_token_address(amm_key, base_mint), writable=True, role="associated base bonding-curve account")
         _account(inner_accounts, validation, 7, derive_associated_token_address(amm_key, quote_mint), writable=True, role="associated quote bonding-curve account")
         _account(inner_accounts, validation, 8, order.taker, signer=True, writable=True, role="user")
         _account(inner_accounts, validation, 9, derive_associated_token_address(order.taker, base_mint), writable=True, role="user base token account")
         _account(inner_accounts, validation, 10, derive_associated_token_address(order.taker, quote_mint), writable=True, role="user quote token account")
-        _account(inner_accounts, validation, 14, SYSTEM_PROGRAM_ID, role="system program")
-        _account(inner_accounts, validation, 16, PUMP_PROGRAM_ID, role="Pump.fun program")
+        _account(inner_accounts, validation, 11, user_volume_pda, writable=True, role="user volume accumulator")
+        _account(inner_accounts, validation, 12, fee_config_pda, writable=False, role="fee config")
+        _fee_recipient(inner_accounts, validation, 13, policy, role="buyback fee recipient")
+        _account(inner_accounts, validation, 14, SYSTEM_PROGRAM_ID, writable=False, role="system program")
+        _account(inner_accounts, validation, 15, event_pda, writable=False, role="event authority")
+        _account(inner_accounts, validation, 16, PUMP_PROGRAM_ID, writable=False, role="Pump.fun program")
     else:
         raise PumpFunCpiDecodeError("Pump.fun CPI version is not supported")
     return base_mint, quote_mint
