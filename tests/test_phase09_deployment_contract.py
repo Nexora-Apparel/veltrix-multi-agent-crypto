@@ -167,3 +167,12 @@ def test_cloudflare_static_bundle_validation_is_deploy_free_and_pinned():
     assert "workflow_dispatch:" in workflow
     assert "CLOUDFLARE_API_TOKEN" not in workflow
     assert "wrangler secret put" not in workflow
+
+
+def test_dashboard_browser_never_collects_or_stores_service_bearer_token():
+    html = (ROOT / "veltrix" / "dashboard_assets" / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "veltrix" / "dashboard_assets" / "dashboard.js").read_text(encoding="utf-8")
+    assert 'id="api-token"' not in html
+    assert "sessionStorage" not in js
+    assert "Authorization:" not in js
+    assert 'fetch(path, { cache: "no-store" })' in js
