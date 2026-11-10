@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -27,7 +26,7 @@ class EnrichmentBatchResult:
 class CandidateEnrichmentWorker:
     """Fetch one initial market snapshot per discovered mint; never emits trade signals.
 
-    The launch and market stores must share one persistent SQLite file so the
+    The launch and market stores must share one persistent database so the
     candidate queue and evidence ledger remain in one durable transaction domain.
     """
 
@@ -44,7 +43,7 @@ class CandidateEnrichmentWorker:
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if launch_store.database_path != market_store.database_path:
-            raise ValueError("launch and market stores must share one persistent SQLite database")
+            raise ValueError("launch and market stores must share one persistent database")
         if getattr(launch_store, "_uri", False):
             raise ValueError("enrichment requires a persistent SQLite database")
         for name, value in (
