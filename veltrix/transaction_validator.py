@@ -106,6 +106,13 @@ def _is_writable(message: object, index: int, account_count: int) -> bool:
     required = int(header.num_required_signatures)
     readonly_signed = int(header.num_readonly_signed_accounts)
     readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+    if (
+        required < 1
+        or required > account_count
+        or readonly_signed > required
+        or readonly_unsigned > account_count - required
+    ):
+        raise TransactionValidationError("message header contains impossible signer or writable counts")
     if index < 0 or index >= account_count:
         raise TransactionValidationError("account index is out of range")
     if index < required:
@@ -192,6 +199,8 @@ def validate_transaction_message(
         program_id = account_keys[program_index]
         if program_id not in policy.allowed_program_ids:
             raise TransactionValidationError(f"instruction {index} invokes a non-allowlisted program")
+        if message.is_signer(program_index) or _is_writable(message, program_index, len(account_keys)):
+            raise TransactionValidationError(f"instruction {index} program account has unsafe signer or writable privileges")
         if program_id != expected.program_id:
             raise TransactionValidationError(f"instruction {index} program ID differs from approved intent")
         if data != expected.data:
