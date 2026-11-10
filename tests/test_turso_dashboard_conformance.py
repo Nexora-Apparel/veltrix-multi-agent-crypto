@@ -28,7 +28,7 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
     from veltrix.solana_meme.sol_paper_wallet import SolanaPaperWallet, LAMPORTS_PER_SOL
 
     PaperBroker(DATABASE_URL, starting_balance=500, max_positions=10, max_position_usd=50)
-    SolanaPaperWallet(DATABASE_URL, LAMPORTS_PER_SOL)
+    wallet_store = SolanaPaperWallet(DATABASE_URL, LAMPORTS_PER_SOL)
     repository = DashboardRepository(DATABASE_URL)
 
     health = repository.health()
@@ -76,7 +76,7 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
         price_lamports=1_000, fee_lamports=0, created_at_ms=now_ms + 2,
         quote_provenance=provenance,
     )
-    with wallet._transaction() as db:
+    with wallet_store._transaction() as db:
         db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
         db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
         db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (mint,))
