@@ -599,3 +599,89 @@ def test_rejects_inner_instruction_group_for_nonexistent_top_level_instruction()
             raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected,
             minimum_context_slot=490, last_valid_block_height=950,
         )
+
+
+def snapshot_info(owner, data, *, lamports=1_000_000):
+    return {
+        "owner": owner,
+        "lamports": lamports,
+        "data": [base64.b64encode(data).decode("ascii"), "base64"],
+        "executable": False,
+        "rentEpoch": 0,
+    }
+
+
+def test_captures_additional_account_snapshot_at_simulation_slot():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    info = snapshot_info(owner, b"same-slot-global-config")
+    data["addresses"].append(address)
+    data["pre_accounts"].append(info)
+    data["post_accounts"].append(info)
+    result = adapter(FakeSession(data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+        additional_account_snapshots=(address,),
+    )
+    snapshot = result.evidence.account_snapshots[0]
+    assert snapshot.address == address
+    assert snapshot.owner == owner
+    assert snapshot.data == b"same-slot-global-config"
+    assert snapshot.context_slot == result.evidence.context_slot == 500
+
+
+def test_rejects_additional_account_snapshot_mutated_by_simulation():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    data["addresses"].append(address)
+    data["pre_accounts"].append(snapshot_info(owner, b"before"))
+    data["post_accounts"].append(snapshot_info(owner, b"after"))
+    with pytest.raises(SolanaRpcAdapterError, match="changed between pre-state and simulated post-state"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            additional_account_snapshots=(address,),
+        )
+
+
+def test_rejects_missing_additional_account_snapshot():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    data["addresses"].append(address)
+    data["pre_accounts"].append(snapshot_info(owner, b"before"))
+    data["post_accounts"].append(None)
+    with pytest.raises(SolanaRpcAdapterError, match="requested account snapshot is missing"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            additional_account_snapshots=(address,),
+        )
+
+
+def test_rejects_snapshot_address_that_duplicates_token_account():
+    raw, intent, tx_policy, expected, data = fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="unique and separate"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            additional_account_snapshots=(expected[0].token_account,),
+        )
