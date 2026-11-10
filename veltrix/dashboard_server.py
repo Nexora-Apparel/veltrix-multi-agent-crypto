@@ -49,6 +49,58 @@ def _iso_from_ms(value: object) -> str | None:
     return datetime.fromtimestamp(stamp / 1000, tz=timezone.utc).isoformat()
 
 
+class _ReadOnlyRemoteConnection:
+    """Application-enforced SELECT-only guard for Turso's HTTP DB-API.
+
+    The Turso serverless driver rejects SQLite PRAGMA query_only. This wrapper
+    therefore permits only a single SELECT statement and exposes no commit or
+    transaction methods to dashboard code. Use a separate Turso read-only token
+    as an additional deployment boundary where available.
+    """
+
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    @staticmethod
+    def _validate(sql: str) -> None:
+        if not isinstance(sql, str):
+            raise sqlite3.OperationalError("dashboard database is read-only")
+        statement = sql.lstrip()
+        while statement.startswith("--") or statement.startswith("/*"):
+            if statement.startswith("--"):
+                newline = statement.find("\\n")
+                statement = "" if newline < 0 else statement[newline + 1:].lstrip()
+            else:
+                end = statement.find("*/", 2)
+                statement = "" if end < 0 else statement[end + 2:].lstrip()
+        if not statement[:6].upper() == "SELECT" or (
+            len(statement) > 6 and statement[6].isalnum()
+        ):
+            raise sqlite3.OperationalError("dashboard database is read-only")
+        without_trailing = statement.rstrip()
+        if ";" in without_trailing.rstrip(";"):
+            raise sqlite3.OperationalError("multiple SQL statements are not allowed")
+
+    def execute(self, sql: str, parameters: Any = ()):
+        self._validate(sql)
+        return self._connection.execute(sql, parameters)
+
+    def executemany(self, *_args, **_kwargs):
+        raise sqlite3.OperationalError("dashboard database is read-only")
+
+    def executescript(self, *_args, **_kwargs):
+        raise sqlite3.OperationalError("dashboard database is read-only")
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        self.close()
+
+
 class DashboardRepository:
     """Small read-only query layer over the shared Phase 03–07 SQLite database."""
 
@@ -67,11 +119,11 @@ class DashboardRepository:
         if self._remote_database:
             db = connect_database(str(self.database_path), timeout=3)
             db.row_factory = row_factory_for(str(self.database_path))
+            guarded = _ReadOnlyRemoteConnection(db)
             try:
-                db.execute("PRAGMA query_only=ON")
-                yield db
+                yield guarded
             finally:
-                db.close()
+                guarded.close()
             return
         if not self.database_path.is_file():
             raise FileNotFoundError("shared VELTRIX SQLite database does not exist")
