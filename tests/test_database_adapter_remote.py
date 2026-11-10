@@ -63,3 +63,18 @@ def test_turso_scheme_is_normalized_to_libsql(monkeypatch):
     monkeypatch.setenv("TURSO_AUTH_TOKEN", "test-only-token")
     connect_database("turso://veltrix-h0-conformance.turso.io")
     assert calls == ["libsql://veltrix-h0-conformance.turso.io"]
+
+
+def test_remote_connection_accepts_dedicated_dashboard_readonly_token(monkeypatch):
+    calls = []
+    fake_driver = types.ModuleType("turso_serverless")
+    fake_driver.Row = type("RemoteRow", (), {})
+    fake_driver.connect = lambda url, **kwargs: calls.append((url, kwargs)) or object()
+    monkeypatch.setitem(sys.modules, "turso_serverless", fake_driver)
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "pipeline-write-token")
+    url = "libsql://veltrix-h0-conformance.turso.io"
+    connect_database(url, auth_token="dashboard-readonly-token")
+    assert calls == [(url, {
+        "auth_token": "dashboard-readonly-token",
+        "isolation_level": "DEFERRED",
+    })]
