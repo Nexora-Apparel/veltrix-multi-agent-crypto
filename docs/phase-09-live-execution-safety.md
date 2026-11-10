@@ -113,3 +113,19 @@ Implemented in `veltrix/simulation_gate.py` with adversarial coverage in `tests/
 - This gate does not independently decode arbitrary SPL/Anchor instructions, verify mint extensions, model native SOL rent/fee balance changes, prove external program behavior, sign, or broadcast. Those remain separate requirements; a passing gate is not live-trade authorization.
 
 No RPC client, signer, private-key handling, transaction submission, or live execution is introduced. Live execution remains disabled.
+
+
+### 09.6 — provider-pinned read-only Solana RPC simulation adapter
+
+Implemented in `veltrix/solana_rpc_simulation.py` with mocked-RPC adversarial coverage in `tests/test_solana_rpc_simulation.py`.
+
+- Pins the HTTPS endpoint to an explicit host allowlist, rejects URL credentials/query/fragment, disables redirects, enforces bounded request timeouts, and validates JSON-RPC response IDs/envelopes.
+- Checks the configured cluster genesis hash and exact approved recent blockhash validity; rejects expired blockhashes.
+- Fetches pre-simulation token-account states with `getMultipleAccounts`, then simulates the exact serialized message with `sigVerify=false`, `replaceRecentBlockhash=false`, `encoding=base64`, and the requested post-simulation account list.
+- Constructs only an unsigned transaction with default placeholder signatures. No signing keys are loaded and no `sendTransaction` method exists.
+- Requests pre- and post-simulation token-account data and decodes only the fixed SPL Token base layout (mint, token authority, raw amount) for the legacy SPL Token and Token-2022 program owners.
+- Requires pre-state, simulation, and fee-quote context slots to match exactly. This is intentionally strict: if a provider cannot supply a consistent bank snapshot, evidence collection fails rather than comparing balances from different slots.
+- Retrieves the exact-message fee with `getFeeForMessage`, compute units from simulation, and block height / blockhash validity from read-only RPC methods.
+- Does not implement native SOL balance-delta accounting, mint-extension policy, transfer-hook semantics, arbitrary program decoding, or live transaction submission. Token-2022 extension-specific semantics remain unsupported and must fail closed in the semantic decoder.
+
+This is an RPC evidence adapter, not a trade executor. Live execution remains disabled.
