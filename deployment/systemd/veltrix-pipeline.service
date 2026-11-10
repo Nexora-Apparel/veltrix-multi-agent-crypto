@@ -12,6 +12,8 @@ WorkingDirectory=/opt/veltrix/app
 EnvironmentFile=-/etc/veltrix/pipeline.env
 Environment=LIVE_TRADING=false
 Environment=PAPER_TRADING_ENABLED=false
+Environment=SOL_PAPER_TRADING_ENABLED=false
+Environment=PAPER_BALANCE_SOL=1.0
 Environment=VELTRIX_PIPELINE_POLL_SECONDS=60
 Environment=VELTRIX_SOLANA_DISCOVERY_DB=/var/lib/veltrix/solana_discovery.sqlite3
 UMask=0007
