@@ -127,13 +127,13 @@ class SolanaCandleRefreshWorker:
             cursor = db.execute("""
                 INSERT INTO solana_candle_refresh_jobs
                     (mint,interval,pair_address,status,next_refresh_at_ms,updated_at_ms)
-                SELECT m.mint, ?, m.selected_pair_address, 'active', ?, ?
+                SELECT m.mint, ?, m.pair_address, 'active', ?, ?
                 FROM solana_market_snapshots m
                 JOIN (
                     SELECT mint, MAX(id) AS latest_id
                     FROM solana_market_snapshots GROUP BY mint
                 ) latest ON latest.latest_id=m.id
-                WHERE m.selected_pair_address IS NOT NULL AND m.selected_pair_address <> ''
+                WHERE m.pair_address IS NOT NULL AND m.pair_address <> ''
                 ON CONFLICT(mint,interval) DO UPDATE SET
                     pair_address=excluded.pair_address,
                     status=CASE WHEN solana_candle_refresh_jobs.pair_address <> excluded.pair_address
