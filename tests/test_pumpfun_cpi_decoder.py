@@ -359,10 +359,16 @@ def test_decodes_v1_exact_output_buy():
     assert result.decoded_instructions[0].quote_limit_raw == 1010
 
 
-def test_rejects_fee_recipient_not_in_independent_allowlist():
+def test_rejects_fee_recipient_not_in_same_slot_global_account_allowlist():
     values = build_case()
     order, validation, jupiter_instruction, simulation, route_gate, policy, _ = values
-    policy = dataclasses.replace(policy, allowed_fee_recipient_accounts=(str(Pubkey.new_unique()),))
+    other_fee = str(Pubkey.new_unique())
+    buyback = str(Pubkey.new_unique())
+    changed_snapshot = dataclasses.replace(
+        simulation.account_snapshots[0],
+        data=global_account_data(other_fee, buyback),
+    )
+    simulation = dataclasses.replace(simulation, account_snapshots=(changed_snapshot,))
     with pytest.raises(PumpFunCpiDecodeError, match="fee-recipient allowlist"):
         decode((order, validation, jupiter_instruction, simulation, route_gate, policy, None))
 
