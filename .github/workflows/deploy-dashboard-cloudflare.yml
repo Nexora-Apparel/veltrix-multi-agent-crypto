@@ -88,6 +88,14 @@ jobs:
           worker = payload.get("worker")
           if not isinstance(worker, dict) or worker.get("healthy") is not True or worker.get("stale") is True:
               raise SystemExit("persistent pipeline worker must have a fresh healthy heartbeat")
+          candle_refresh = payload.get("candle_refresh")
+          if not isinstance(candle_refresh, dict):
+              raise SystemExit("candle refresh health is missing")
+          if candle_refresh.get("status") == "degraded" or candle_refresh.get("retry_jobs", 0):
+              raise SystemExit("candle refresh queue is degraded")
+          candle_age = candle_refresh.get("last_success_age_seconds")
+          if not isinstance(candle_age, (int, float)) or candle_age > 300:
+              raise SystemExit("no fresh persisted candle refresh in the last five minutes")
           '
 
       - name: Install pinned Wrangler
