@@ -32,3 +32,25 @@ market quote adapter, plus fenced transaction integration.
 ## Tests
 
 `pytest -q tests/test_solana_meme_sol_paper_wallet.py`
+
+
+# SOL quote conversion boundary
+
+The native SOL paper wallet accepts only integer lamports per token. This
+adapter converts an existing token USD snapshot using a separate, fresh SOL/USD
+market observation from a stable-quoted Solana pool.
+
+Acceptance requirements:
+- Token USD snapshot and SOL/USD observation must both be no older than the
+  configured maximum age and cannot be future-dated.
+- SOL/USD observations must be WSOL token pairs quoted in USD, USDC or USDT,
+  with a non-empty provider source, sufficient liquidity and hourly volume.
+- The most liquid eligible stable-quoted WSOL pool is selected.
+- Conversion uses Decimal arithmetic and rounds to the nearest lamport.
+- Missing, stale, malformed or illiquid conversion data blocks SOL paper entry;
+  there is no cached, fixed, synthetic or inferred SOL/USD fallback.
+
+This adapter is a quote primitive only. It is not yet wired into the consensus
+paper worker. The next integration step must preserve Phase 06 approval checks,
+use the existing orchestration RunContext fence for all SOL wallet writes,
+and persist quote provenance with each fill.
