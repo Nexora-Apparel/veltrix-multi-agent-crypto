@@ -66,9 +66,16 @@ Turso database and configure TLS/custom-domain routing at Cloudflare.
 
 ## Ephemeral scheduled runner
 
-The public repository also contains
-`.github/workflows/solana-scheduled-pipeline.yml`, which runs one bounded cycle
-every five minutes on GitHub-hosted runners. It uses the same production Turso
+The repository contains
+`.github/workflows/solana-scheduled-pipeline.yml`, which is configured to run
+one bounded cycle every five minutes on GitHub-hosted runners. **GitHub only
+executes scheduled workflows from the repository's default branch**: this
+cron is therefore dormant while the workflow exists only on this feature
+branch. It becomes scheduled only after the workflow is merged into the
+default branch. A manual dispatch can run the selected branch revision.
+The workflow checks out `github.sha`, so the runner executes exactly the
+revision that triggered it; it does not silently fetch a moving feature-branch
+head. It uses the same production Turso
 database, UTC-bucket idempotency, and fencing lease as the systemd runtime.
 The job is serialized by GitHub Actions concurrency and has a four-minute
 timeout. It is an alternative to an always-on host, not a second concurrent
