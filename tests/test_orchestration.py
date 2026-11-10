@@ -234,3 +234,27 @@ def test_audit_log_is_append_only_and_error_codes_are_allowlisted(tmp_path):
         db.rollback()
     finally:
         db.close()
+
+
+def test_deadline_exhaustion_is_deferred_for_later_invocation(tmp_path):
+    store = store_at(tmp_path / "deadline-retry.sqlite3")
+    clock = [100.0]
+
+    def handler(context, payload):
+        clock[0] = 102.0
+        context.checkpoint(items=1)
+
+    result = run_once(
+        store,
+        idempotency_key="deadline-retry",
+        job_type="scan",
+        payload={},
+        handler=handler,
+        max_runtime_seconds=1,
+        monotonic=lambda: clock[0],
+        retry_delay_ms=5_000,
+    )
+    assert result["status"] == "RETRYABLE"
+    job = store.get_job(result["run_id"])
+    assert job["error_code"] == "JobDeadlineExceeded"
+    assert job["next_attempt_at_ms"] is not None
