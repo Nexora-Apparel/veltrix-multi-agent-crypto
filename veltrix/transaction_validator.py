@@ -124,7 +124,12 @@ def validate_transaction_message(
 
     try:
         message = from_bytes_versioned(message_bytes)
-        message.sanitize()
+        # Legacy Message exposes has_duplicates/is_writable; MessageV0 exposes
+        # sanitize/is_maybe_writable. Keep the version-specific API explicit.
+        if isinstance(message, MessageV0):
+            message.sanitize()
+        elif message.has_duplicates():
+            raise TransactionValidationError("legacy message contains duplicate account keys")
     except Exception as exc:
         raise TransactionValidationError("message could not be decoded and sanitized") from exc
 
@@ -153,7 +158,12 @@ def validate_transaction_message(
         raise TransactionValidationError("message signer privileges could not be inspected") from exc
     if actual_signers != intent.required_signers:
         raise TransactionValidationError("required signer set or ordering does not match the approved intent")
-    if not message.is_signer(0) or not message.is_maybe_writable(0):
+    writable = (
+        message.is_maybe_writable
+        if isinstance(message, MessageV0)
+        else message.is_writable
+    )
+    if not message.is_signer(0) or not writable(0):
         raise TransactionValidationError("fee payer must be a writable signer")
 
     referenced_indices: set[int] = set()
@@ -188,7 +198,7 @@ def validate_transaction_message(
                 raise TransactionValidationError(f"instruction {index} account key differs from approved intent")
             if message.is_signer(account_index) != account_expectation.is_signer:
                 raise TransactionValidationError(f"instruction {index} signer privilege differs from approved intent")
-            if message.is_maybe_writable(account_index) != account_expectation.is_writable:
+            if writable(account_index) != account_expectation.is_writable:
                 raise TransactionValidationError(f"instruction {index} writable privilege differs from approved intent")
             referenced_indices.add(account_index)
         actual_program_ids.append(program_id)
