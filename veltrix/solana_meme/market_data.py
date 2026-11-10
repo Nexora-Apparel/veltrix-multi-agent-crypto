@@ -54,6 +54,7 @@ class SolanaMarketSnapshot:
     response_received_at_ms: int
     pair_created_at_ms: int | None
     quality_flags: tuple[str, ...]
+    source: str = "unknown"
 
     def __post_init__(self) -> None:
         canonical_mint(self.mint)
@@ -341,6 +342,7 @@ class SolanaMarketData:
             response_received_at_ms=selected.observed_at_ms,
             pair_created_at_ms=selected.pair_created_at_ms,
             quality_flags=tuple(sorted(flags)),
+            source=selected.source,
         )
 
     def fetch_many(
