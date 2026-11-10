@@ -240,3 +240,15 @@ def test_cloudflare_deployment_requires_origin_access_service_credentials():
     assert "CF-Access-Client-Secret:" in workflow
     assert "wrangler secret put CF_ACCESS_CLIENT_ID" in workflow
     assert "wrangler secret put CF_ACCESS_CLIENT_SECRET" in workflow
+
+
+def test_phase09_isolation_verifies_cloudflared_identity_and_secret_separation():
+    script = (ROOT / "deployment" / "verify_phase09_isolation.sh").read_text(encoding="utf-8")
+    assert "cloudflared-veltrix.service" in script
+    assert "id -u cloudflared" in script
+    assert 'unit_value "$TUNNEL_UNIT" ProtectSystem' in script
+    assert 'unit_value "$TUNNEL_UNIT" NoNewPrivileges' in script
+    assert '/etc/cloudflared/*.json' in script
+    assert 'runuser -u cloudflared -- test -r "$PIPELINE_ENV"' in script
+    assert 'runuser -u cloudflared -- test -r "$DASHBOARD_ENV"' in script
+    assert 'tunnel process has database or secret-group access' in script
