@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from veltrix.orchestration import OrchestrationStore
@@ -13,7 +15,7 @@ from veltrix.solana_meme.launch_stream import LaunchStore
 from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_refresh import MarketRefreshWorker
 from veltrix.solana_meme.market_store import MarketSnapshotStore
-from veltrix.solana_meme.pipeline import OneShotSolanaPipeline
+from veltrix.solana_meme.pipeline import OneShotSolanaPipeline, build_one_shot_pipeline
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 from veltrix.solana_meme.risk_worker import SolanaRiskEvidenceWorker
@@ -148,3 +150,46 @@ def test_one_shot_pipeline_rejects_missing_idempotency_key(tmp_path):
     pipeline, *_ = build_pipeline(tmp_path)
     with pytest.raises(ValueError, match="idempotency_key"):
         pipeline.run_once(idempotency_key=" ")
+
+
+def test_production_builder_disables_pumpportal_supervisor_and_shares_database(
+    tmp_path, monkeypatch
+):
+    from veltrix.solana_meme import (
+        consensus_runtime, intelligence_worker, risk_runtime, worker,
+    )
+
+    database = str(tmp_path / "builder.sqlite3")
+    launch_store = LaunchStore(database)
+    seen = {}
+
+    class Stage:
+        def __init__(self):
+            self.database_path = database
+
+        def run_once(self, **kwargs):
+            raise AssertionError("builder test must not execute workers")
+
+    def fake_discovery(**kwargs):
+        seen["include_primary_stream"] = kwargs["include_primary_stream"]
+        return SimpleNamespace(store=launch_store)
+
+    def fake_intelligence(**kwargs):
+        return SimpleNamespace(enrichment=Stage(), refresh=Stage())
+
+    def fake_risk(**kwargs):
+        return SimpleNamespace(worker=Stage())
+
+    def fake_consensus(**kwargs):
+        return SimpleNamespace(worker=Stage())
+
+    monkeypatch.setattr(worker, "build_engine", fake_discovery)
+    monkeypatch.setattr(intelligence_worker, "build_runtime", fake_intelligence)
+    monkeypatch.setattr(risk_runtime, "build_runtime", fake_risk)
+    monkeypatch.setattr(consensus_runtime, "build_runtime", fake_consensus)
+
+    pipeline = build_one_shot_pipeline(database_path=database)
+
+    assert isinstance(pipeline, OneShotSolanaPipeline)
+    assert seen["include_primary_stream"] is False
+    assert pipeline.orchestration.database == database
