@@ -119,18 +119,18 @@ def test_interrupted_run_recovery_requires_current_lease(tmp_path):
     job = store.enqueue(idempotency_key="recover-1", job_type="scan",
                         payload={}, now_ms=10_000)
     with pytest.raises(TypeError):
-        store.recover_interrupted(now_ms=311_000, stale_after_ms=300_000)
+        store.recover_interrupted(now_ms=211_000, stale_after_ms=200_000)
     fence = leased(store, now=11_000)
     store.start_attempt(job["run_id"], owner_id="worker-a", fencing_token=fence, now_ms=11_000)
     assert store.recover_interrupted(owner_id="worker-a", fencing_token=fence,
-                                     now_ms=310_999, stale_after_ms=300_000) == 0
+                                     now_ms=210_999, stale_after_ms=200_000) == 0
     assert store.recover_interrupted(owner_id="worker-a", fencing_token=fence,
                                      now_ms=311_000, stale_after_ms=300_000) == 1
     recovered = store.get_job(job["run_id"])
     assert recovered["status"] == "RETRYABLE"
     assert recovered["error_code"] == "INTERRUPTED"
     assert store.start_attempt(job["run_id"], owner_id="worker-a",
-                               fencing_token=fence, now_ms=311_001)["attempt"] == 2
+                               fencing_token=fence, now_ms=211_001)["attempt"] == 2
 
 
 def test_run_once_executes_one_attempt_and_is_idempotent(tmp_path):
