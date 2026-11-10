@@ -124,3 +124,9 @@ def test_ephemeral_scheduler_uses_shared_turso_and_fenced_five_minute_cycles():
     assert 'LIVE_TRADING: "false"' in workflow
     assert "python -m veltrix.solana_meme.pipeline_once" in workflow
     assert "timeout-minutes: 4" in workflow
+
+
+def test_cloudflare_worker_is_not_published_on_unprotected_workers_dev_host():
+    config = (ROOT / "wrangler.jsonc").read_text(encoding="utf-8")
+    assert '"workers_dev": false' in config
+    assert '"run_worker_first": ["/api/*"]' in config
