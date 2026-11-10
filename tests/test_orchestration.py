@@ -150,3 +150,21 @@ def test_runtime_must_fit_inside_lease(tmp_path):
         run_once(store, idempotency_key="x", job_type="scan", payload={},
                  handler=lambda context, payload: None,
                  max_runtime_seconds=60, lease_ttl_ms=60_000)
+
+
+def test_payload_digest_requires_finite_json_data(tmp_path):
+    store = store_at(tmp_path / "payload-validation.sqlite3")
+    with pytest.raises(ValueError, match="JSON-serializable"):
+        store.enqueue(idempotency_key="bad-payload", job_type="scan",
+                      payload={"not_json": object()})
+    with pytest.raises(ValueError, match="JSON-serializable"):
+        store.enqueue(idempotency_key="nan-payload", job_type="scan",
+                      payload={"not_finite": float("nan")})
+
+
+def test_lease_renewal_rejects_unbounded_ttl(tmp_path):
+    store = store_at(tmp_path / "lease-validation.sqlite3")
+    fence = store.acquire_lease("worker", ttl_ms=10_000)
+    with pytest.raises(ValueError, match="ttl_ms"):
+        store.renew_lease("worker", fence, ttl_ms=900_000)
+    assert store.release_lease("worker", fence)
