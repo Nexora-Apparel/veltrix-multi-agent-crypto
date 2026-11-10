@@ -47,7 +47,9 @@ dashboard_pid="$(unit_value "$DASHBOARD_UNIT" MainPID)"
   || fail "both services must be running for process identity checks"
 proc_id() {
   local pid="$1" field="$2"
-  awk -v field="$field" '$1 == field ":" { print $3; found=1 } END { if (!found) exit 1 }' "/proc/$pid/status"
+  # /proc/PID/status ID tuples are real, effective, saved-set, filesystem.
+  # The second field is the effective UID/GID used by permission checks.
+  awk -v field="$field" '$1 == field ":" { print $2; found=1 } END { if (!found) exit 1 }' "/proc/$pid/status"
 }
 [[ "$(proc_id "$paper_pid" Uid)" == "$paper_uid" ]] || fail "paper process effective UID mismatch"
 [[ "$(proc_id "$dashboard_pid" Uid)" == "$dashboard_uid" ]] || fail "dashboard process effective UID mismatch"
@@ -98,6 +100,17 @@ dashboard_mount_options="$(nsenter -t "$dashboard_pid" -m -- findmnt --noheading
 case ",$paper_mount_options," in *,rw,*) ;; *) fail "paper database mount is not effectively read-write: $paper_mount_options" ;; esac
 case ",$dashboard_mount_options," in *,ro,*) ;; *) fail "dashboard database mount is not effectively read-only: $dashboard_mount_options" ;; esac
 pass "kernel mount options confirm paper=rw and dashboard=ro"
+
+# Verify effective DAC access as the actual service identities, inside their
+# actual systemd mount namespaces. A read-write mount alone does not prove the
+# paper UID can write the database after Unix ownership/mode checks.
+nsenter -t "$paper_pid" -m -- runuser -u veltrix-paper -- test -r "$DB" \
+  || fail "paper service cannot read the shared database"
+nsenter -t "$paper_pid" -m -- runuser -u veltrix-paper -- test -w "$DB" \
+  || fail "paper service cannot write the shared database"
+nsenter -t "$paper_pid" -m -- runuser -u veltrix-paper -- test -w "$(dirname "$DB")" \
+  || fail "paper service cannot write the database directory"
+pass "paper service identity has effective database read/write access"
 
 # Check access from inside the dashboard's actual systemd mount namespace.
 nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test -r "$DB" \
