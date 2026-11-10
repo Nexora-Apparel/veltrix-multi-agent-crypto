@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
+
+from ..database import connect_database, row_factory_for
 
 from ..whales import WalletBuyEvent
 from .consensus import ConsensusEngine, MarketEvidence, RiskEvidence
@@ -54,7 +55,7 @@ class ConsensusWorker:
             consensus_store.database_path,
         }
         if len(paths) != 1 or getattr(launch_store, "_uri", False):
-            raise ValueError("launch, market, risk and consensus stores must share one persistent SQLite database")
+            raise ValueError("launch, market, risk and consensus stores must share one persistent database")
         for name, value in (
             ("refresh_interval_ms", refresh_interval_ms),
             ("lease_ms", lease_ms),
@@ -81,9 +82,9 @@ class ConsensusWorker:
         self._initialize()
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.database_path, timeout=10)
-        db.row_factory = sqlite3.Row
+    def _connect(self) -> Iterator[Any]:
+        db = connect_database(self.database_path, timeout=10)
+        db.row_factory = row_factory_for(self.database_path)
         try:
             yield db
             db.commit()
