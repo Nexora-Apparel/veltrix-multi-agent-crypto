@@ -140,8 +140,17 @@ def build_runtime(*, database_path: str | None = None,
         interval = float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("VELTRIX_PIPELINE_POLL_SECONDS must be numeric") from exc
+    live_enabled = os.getenv("LIVE_TRADING", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if live_enabled:
+        raise RuntimeError("Phase 09 live execution is disabled; LIVE_TRADING must remain false")
     paper_enabled = os.getenv("PAPER_TRADING_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-    pipeline = build_one_shot_pipeline(database_path=db_path, paper_enabled=paper_enabled)
+    sol_paper_enabled = os.getenv("SOL_PAPER_TRADING_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if paper_enabled and sol_paper_enabled:
+        raise RuntimeError("enable only one paper ledger: USD or native SOL")
+    pipeline = build_one_shot_pipeline(
+        database_path=db_path, paper_enabled=paper_enabled,
+        sol_paper_enabled=sol_paper_enabled,
+    )
     return SolanaPipelineRuntime(pipeline, str(db_path), poll_interval_seconds=interval)
 
 
@@ -155,9 +164,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
     runtime = build_runtime()
-    LOGGER.info("starting fenced Solana pipeline supervisor interval=%ss paper_enabled=%s",
-                runtime.poll_interval_seconds,
-                os.getenv("PAPER_TRADING_ENABLED", "false").lower() in {"1","true","yes","on"})
+    LOGGER.info(
+        "starting fenced Solana pipeline supervisor interval=%ss usd_paper=%s sol_paper=%s live_trading=false",
+        runtime.poll_interval_seconds,
+        os.getenv("PAPER_TRADING_ENABLED", "false").lower() in {"1","true","yes","on"},
+        os.getenv("SOL_PAPER_TRADING_ENABLED", "false").lower() in {"1","true","yes","on"},
+    )
     runtime.run(stop)
 
 
