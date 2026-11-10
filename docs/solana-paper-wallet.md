@@ -17,17 +17,20 @@ USD marks or mixing currencies.
 - Restarting the process preserves the initial balance, cash, positions,
   fills and realized P&L. Supplying a different initial balance on restart
   never resets an existing account.
-- Marks must be supplied in lamports per token. No USD/SOL conversion is
-  inferred; the caller must later provide a fresh, provenance-checked SOL
-  quote conversion before this wallet is connected to the consensus worker.
+- The integrated quote adapter derives lamports per token from a fresh token
+  USD mark and a separately verified SOL/USD observation. It persists the
+  complete source, pool, timestamp and market-snapshot provenance with each
+  fill; missing or stale conversion evidence blocks entry.
 
 ## Explicit phase boundary
 
 This is a virtual accounting component only. It does not contain a keypair,
 wallet signer, Solana RPC transaction builder, or transaction broadcast
-method. It is not yet wired into consensus-approved paper execution. That
-integration is gated on a verified, timestamped SOL/USD conversion and
-market quote adapter, plus fenced transaction integration.
+method. The native SOL paper worker is integrated with consensus-approved
+paper execution and the orchestration RunContext fence. It is disabled by
+default and requires the explicit `SOL_PAPER_TRADING_ENABLED=true` runtime
+flag. Legacy USD paper trading and native SOL paper trading cannot be enabled
+at the same time.
 
 ## Tests
 
@@ -83,6 +86,7 @@ missing provider evidence blocks entry.
 Exits use the wallet's native 6% initial stop, 2x and 3x one-time 50% partial
 take-profit milestones, and 6% trailing stop after the 3x milestone. Every
 wallet write accepts the global orchestration RunContext and checks its fence
-inside the same transaction. This worker is not yet enabled in the default
-pipeline runtime; explicit runtime integration and full end-to-end acceptance
-remain required.
+inside the same transaction. The worker is integrated into the default pipeline builder but remains
+disabled unless `SOL_PAPER_TRADING_ENABLED=true`. The scheduled GitHub
+workflow keeps it disabled unless the repository variable is explicitly
+enabled. Full end-to-end provider-to-ledger acceptance remains outstanding.
