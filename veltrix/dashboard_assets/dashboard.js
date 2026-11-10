@@ -15,7 +15,7 @@
 
   async function api(path) {
     const response = await fetch(path, { cache: "no-store" });
-    if (response.status === 401) throw new Error("Dashboard access token required.");
+    if (response.status === 401) throw new Error("Dashboard API authentication failed; check the server-side proxy configuration.");
     if (!response.ok) throw new Error("Dashboard request failed (" + response.status + ").");
     return response.json();
   }
