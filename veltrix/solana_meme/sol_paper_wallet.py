@@ -113,8 +113,8 @@ class SolanaPaperWallet:
         mint = canonical_mint(mint)
         qty = _quantity(quantity)
         _positive_int(price_lamports, "price_lamports")
-        if isinstance(fee_lamports, bool) or not isinstance(fee_lamports, int) or fee_lamports < 0:
-            raise ValueError("fee_lamports must be a non-negative integer")
+        if isinstance(fee_lamports, bool) or not isinstance(fee_lamports, int) or not 0 <= fee_lamports <= MAX_SQLITE_INTEGER:
+            raise ValueError("fee_lamports must be a non-negative SQLite integer")
         _positive_int(created_at_ms, "created_at_ms")
         notional = int((qty * price_lamports).to_integral_value(rounding=ROUND_DOWN))
         if notional <= 0 or notional > MAX_SQLITE_INTEGER:
@@ -189,9 +189,11 @@ class SolanaPaperWallet:
                 raise ValueError("no open paper position exists for this mint")
             qty = Decimal(position["quantity"])
             notional = int((qty * price_lamports).to_integral_value(rounding=ROUND_DOWN))
+            if not 0 < notional <= MAX_SQLITE_INTEGER:
+                raise ValueError("exit notional is outside the SQLite lamport range")
             proceeds = notional - fee_lamports
-            if proceeds < 0:
-                raise ValueError("exit fee exceeds simulated proceeds")
+            if proceeds < 0 or proceeds > MAX_SQLITE_INTEGER:
+                raise ValueError("exit proceeds are outside the SQLite lamport range")
             pnl = proceeds - int(position["cost_basis_lamports"])
             fill_id = "solpaper-" + idempotency_key
             db.execute(
