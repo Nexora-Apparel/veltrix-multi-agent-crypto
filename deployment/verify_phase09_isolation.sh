@@ -133,14 +133,14 @@ if [[ "$REMOTE_DB" == false ]]; then
   done
   pass "pipeline has database write access; dashboard and existing SQLite sidecars are read-only"
   
-  nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -r "$PIPELINE_ENV" \
-    || fail "dashboard can read provider credentials"
-  nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test ! -r "$DASHBOARD_ENV" \
-    || fail "pipeline can read dashboard API credentials"
   else
   pass "remote Turso database selected; authenticated remote DB conformance verifies dashboard query-only access"
 fi
 
+nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -r "$PIPELINE_ENV" \
+  || fail "dashboard can read provider credentials"
+nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test ! -r "$DASHBOARD_ENV" \
+  || fail "pipeline can read dashboard API credentials"
 pass "pipeline and dashboard cannot read each other's credential files"
 
 [[ "$(unit_value "$DASHBOARD_UNIT" Environment)" == *"VELTRIX_DASHBOARD_HOST=127.0.0.1"* ]] \
