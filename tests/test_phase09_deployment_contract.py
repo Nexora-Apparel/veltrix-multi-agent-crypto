@@ -193,3 +193,14 @@ def test_cloudflare_deployment_requires_recent_successful_candle_ingestion():
     assert 'candle_refresh.get("retry_jobs", 0)' in workflow
     assert 'candle_refresh.get("last_success_age_seconds")' in workflow
     assert "candle_age > 300" in workflow
+
+
+def test_native_sol_dashboard_exposes_open_positions_freshness_and_unrealized_pnl():
+    html = (ROOT / "veltrix" / "dashboard_assets" / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "veltrix" / "dashboard_assets" / "dashboard.js").read_text(encoding="utf-8")
+    assert 'id="sol-unrealized"' in html
+    assert 'id="sol-positions-body"' in html
+    assert 'id="sol-positions-empty"' in html
+    assert "function renderSolPositions(rows)" in js
+    assert 'renderSolPositions(data.open_positions || [])' in js
+    assert 'data.unrealized_pnl_sol' in js
