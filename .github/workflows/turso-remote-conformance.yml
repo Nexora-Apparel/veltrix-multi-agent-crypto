@@ -28,17 +28,32 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "git+https://github.com/tursodatabase/turso.git@367fe14dff049a665d5601a8c970b9f5640bfd6d#subdirectory=serverless/python" "pytest>=8,<9"
 
-      - name: Require disposable database credentials
+      - name: Require the dedicated disposable conformance database
         env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_CONFORMANCE_DATABASE_URL: ${{ secrets.TURSO_CONFORMANCE_DATABASE_URL }}
+          TURSO_CONFORMANCE_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
         run: |
-          test -n "$TURSO_DATABASE_URL"
-          test -n "$TURSO_AUTH_TOKEN"
+          set -euo pipefail
+          test -n "$TURSO_CONFORMANCE_DATABASE_URL"
+          test -n "$TURSO_CONFORMANCE_AUTH_TOKEN"
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
 
-      - name: Run live DB-API compatibility tests
+          url = urlsplit(os.environ["TURSO_CONFORMANCE_DATABASE_URL"])
+          assert url.scheme == "libsql", "conformance URL must use libsql://"
+          assert url.hostname == "veltrix-h0-conformance.turso.io", "wrong disposable database host"
+          assert url.username is None and url.password is None, "URL credentials are forbidden"
+          assert not url.query and not url.fragment and url.path in ("", "/"), "URL extras are forbidden"
+          PY
+
+      - name: Run live DB-API, application schema and orchestration conformance
         env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_CONFORMANCE_DATABASE_URL: ${{ secrets.TURSO_CONFORMANCE_DATABASE_URL }}
+          TURSO_CONFORMANCE_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
         run: |
-          python -m pytest -q -rs tests/test_turso_remote_conformance.py
+          python -m pytest -q -rs \
+            tests/test_turso_remote_conformance.py \
+            tests/test_turso_application_schema.py \
+            tests/test_turso_orchestration.py
