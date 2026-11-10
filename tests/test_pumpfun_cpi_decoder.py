@@ -411,3 +411,32 @@ def test_rejects_unrelated_message_digest():
     simulation = dataclasses.replace(simulation, message_sha256="f" * 64)
     with pytest.raises(PumpFunCpiDecodeError, match="different transaction messages"):
         decode((order, validation, jupiter_instruction, simulation, route_gate, policy, data))
+
+
+def test_decodes_global_config_and_exposes_slot_bound_fee_allowlists():
+    values = build_case()
+    simulation = values[3]
+    global_config = decode_pumpfun_global_config(
+        simulation.account_snapshots[0],
+        expected_context_slot=simulation.context_slot,
+    )
+    assert global_config.context_slot == 100
+    assert global_config.fee_recipient_allowlist
+    assert global_config.buyback_fee_recipient_allowlist
+
+
+def test_rejects_global_config_from_different_slot():
+    values = build_case()
+    snapshot = dataclasses.replace(values[3].account_snapshots[0], context_slot=99)
+    with pytest.raises(PumpFunCpiDecodeError, match="simulation context slot"):
+        decode_pumpfun_global_config(snapshot, expected_context_slot=100)
+
+
+def test_rejects_uninitialized_global_config():
+    values = build_case()
+    snapshot = dataclasses.replace(
+        values[3].account_snapshots[0],
+        data=global_account_data(str(Pubkey.new_unique()), str(Pubkey.new_unique()), initialized=False),
+    )
+    with pytest.raises(PumpFunCpiDecodeError, match="not initialized"):
+        decode_pumpfun_global_config(snapshot, expected_context_slot=100)
