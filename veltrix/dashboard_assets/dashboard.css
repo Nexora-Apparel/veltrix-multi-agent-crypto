@@ -97,3 +97,7 @@ td{border-color:#30212a;color:#eee5ea}
 .market-row-selectable{cursor:pointer}
 .market-row-selectable:focus-visible{outline:1px solid var(--accent);outline-offset:-2px}
 .market-row-selectable:hover td{background:rgba(255,55,155,.055)}
+
+.sol-fills-scroll{max-height:320px;overflow:auto;margin-top:12px}
+.sol-fills-scroll table{min-width:720px}
+#sol-fills-empty{padding:12px}
