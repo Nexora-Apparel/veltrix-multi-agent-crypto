@@ -229,8 +229,6 @@ def decode_transaction_semantics(
                 raise SemanticDecodeError("token transfer destination must be writable")
             if not message.is_signer(authority_index):
                 raise SemanticDecodeError("token transfer authority must be a required signer")
-            if _is_writable(message, authority_index, len(account_keys)):
-                raise SemanticDecodeError("token transfer authority must be read-only")
             decoded_tokens.append(DecodedTokenTransfer(
                 source=account_keys[source_index],
                 mint=account_keys[mint_index],
