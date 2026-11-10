@@ -208,7 +208,8 @@ the example placeholders. Keep port 8765 closed to inbound network traffic.
 
 ## 6. Run host isolation verification
 
-From the deployed repository revision, as root:
+From the deployed repository revision, as root, after the pipeline,
+dashboard and Cloudflare Tunnel services are installed and active:
 
 ```sh
 bash deployment/verify_phase09_isolation.sh
