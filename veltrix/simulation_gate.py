@@ -49,12 +49,15 @@ class SimulatedTokenBalance:
     owner: str
     pre_amount_raw: int
     post_amount_raw: int
+    token_program_id: str | None = None
 
     def __post_init__(self) -> None:
         for field in ("token_account", "mint", "owner"):
             _nonempty(getattr(self, field), field)
         _nonnegative_int(self.pre_amount_raw, "pre_amount_raw")
         _nonnegative_int(self.post_amount_raw, "post_amount_raw")
+        if self.token_program_id is not None:
+            _nonempty(self.token_program_id, "token_program_id")
 
 
 @dataclass(frozen=True, slots=True)
