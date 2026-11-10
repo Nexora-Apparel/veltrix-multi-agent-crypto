@@ -215,3 +215,52 @@ def test_dashboard_pool_resolution_rejects_invalid_mint_without_provider_access(
         server.shutdown()
         thread.join(timeout=2)
         server.server_close()
+
+
+def test_dashboard_sol_wallet_endpoint_reports_native_lamports_and_pnl(tmp_path):
+    from veltrix.solana_meme.sol_paper_wallet import SolanaPaperWallet, LAMPORTS_PER_SOL
+
+    database = make_database(tmp_path)
+    wallet = SolanaPaperWallet(str(database), 2 * LAMPORTS_PER_SOL)
+    before = DashboardRepository(database).sol_paper_wallet()
+    assert before["configured"] is True
+    assert before["cash_lamports"] == 2 * LAMPORTS_PER_SOL
+    assert before["equity_complete"] is True
+
+    mint = "So11111111111111111111111111111111111111112"
+    wallet.open_position(
+        idempotency_key="dashboard-entry", mint=mint, quantity=10,
+        price_lamports=1_000_000, fee_lamports=100_000,
+        created_at_ms=1_800_000_000_000,
+    )
+    open_state = DashboardRepository(database).sol_paper_wallet()
+    assert open_state["open_position_count"] == 1
+    assert open_state["equity_lamports"] is None
+    assert open_state["equity_complete"] is False
+
+    wallet.close_position(
+        idempotency_key="dashboard-exit", mint=mint, price_lamports=2_000_000,
+        fee_lamports=100_000, created_at_ms=1_800_000_001_000,
+    )
+    closed = DashboardRepository(database).sol_paper_wallet()
+    assert closed["open_position_count"] == 0
+    assert closed["realized_pnl_lamports"] == 9_800_000
+    assert closed["equity_lamports"] == 2 * LAMPORTS_PER_SOL + 9_800_000
+    assert closed["live_execution"] is False
+
+
+def test_dashboard_remote_database_adapter_remains_query_only(monkeypatch, tmp_path):
+    import sqlite3
+    import veltrix.dashboard_server as dashboard_module
+
+    database = make_database(tmp_path)
+    monkeypatch.setattr(
+        dashboard_module, "connect_database",
+        lambda _path, timeout=3: sqlite3.connect(database, timeout=timeout),
+    )
+    monkeypatch.setattr(dashboard_module, "row_factory_for", lambda _path: sqlite3.Row)
+    repository = DashboardRepository("libsql://example.aws-eu-central-1.turso.io")
+    assert repository.health()["database"] == "connected"
+    with repository._connect() as db:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            db.execute("CREATE TABLE dashboard_write_must_fail(id INTEGER)")
