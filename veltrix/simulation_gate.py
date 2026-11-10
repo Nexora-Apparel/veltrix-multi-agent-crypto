@@ -73,6 +73,9 @@ class SimulationEvidence:
     units_consumed: int
     fee_lamports: int
     token_balances: tuple[SimulatedTokenBalance, ...]
+    top_level_program_ids: tuple[str, ...] = ()
+    inner_program_ids: tuple[str, ...] = ()
+    inner_instruction_count: int = 0
 
     def __post_init__(self) -> None:
         for field in (
@@ -93,6 +96,13 @@ class SimulationEvidence:
             not isinstance(item, SimulatedTokenBalance) for item in self.token_balances
         ):
             raise SimulationGateError("token_balances must be an immutable tuple of validated balances")
+        for field in ("top_level_program_ids", "inner_program_ids"):
+            values = getattr(self, field)
+            if not isinstance(values, tuple) or any(not isinstance(value, str) or not value for value in values):
+                raise SimulationGateError(f"{field} must be an immutable tuple of program IDs")
+        _nonnegative_int(self.inner_instruction_count, "inner_instruction_count")
+        if self.inner_instruction_count != len(self.inner_program_ids):
+            raise SimulationGateError("inner instruction count does not match the captured program trace")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")
