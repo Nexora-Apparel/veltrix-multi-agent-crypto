@@ -75,6 +75,36 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
             job["run_id"], 2, owner_id="h2-worker-a", fencing_token=fence, outcome="SUCCEEDED", now_ms=1_001_005,
         ) == "SUCCEEDED"
         assert store.get_job(job["run_id"])["status"] == "SUCCEEDED"
+
+        audit_job = store.enqueue(
+            idempotency_key="h2-audit-sanitization",
+            job_type="conformance",
+            payload={"audit": True},
+            max_attempts=1,
+            now_ms=1_001_006,
+        )
+        audit_attempt = store.start_attempt(
+            audit_job["run_id"], owner_id="h2-worker-a",
+            fencing_token=fence, now_ms=1_001_007,
+        )
+        assert store.finish_attempt(
+            audit_job["run_id"], audit_attempt["attempt"],
+            owner_id="h2-worker-a", fencing_token=fence,
+            outcome="FAILED", error_code="PRIVATE_PROVIDER_ERROR",
+            now_ms=1_001_008,
+        ) == "FAILED"
+        assert store.get_job(audit_job["run_id"])["error_code"] == "HANDLER_ERROR"
+        audit_db = store._connect()
+        try:
+            with pytest.raises(Exception, match="append-only"):
+                audit_db.execute("UPDATE orchestration_audit SET detail_json='{}'")
+            audit_db.rollback()
+            with pytest.raises(Exception, match="append-only"):
+                audit_db.execute("DELETE FROM orchestration_audit")
+            audit_db.rollback()
+        finally:
+            audit_db.close()
+
         assert store.release_lease("h2-worker-a", fence)
         next_fence = store.acquire_lease(
             "h2-worker-b", now_ms=1_002_001, ttl_ms=10_000
