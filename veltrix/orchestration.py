@@ -38,7 +38,13 @@ class RunContext:
     deadline_monotonic: float
     max_items: int
     _clock: Callable[[], float]
+    fencing_token: int
+    _assert_fence: Callable[[], None]
     _items: int = 0
+
+    def assert_fence(self) -> None:
+        """Fail closed if this worker no longer owns the unexpired lease."""
+        self._assert_fence()
 
     def checkpoint(self, *, items: int = 1) -> "RunContext":
         if isinstance(items, bool) or not isinstance(items, int) or items < 0:
@@ -48,6 +54,7 @@ class RunContext:
             raise JobDeadlineExceeded("job item budget exceeded")
         if self._clock() >= self.deadline_monotonic:
             raise JobDeadlineExceeded("job deadline exceeded")
+        self.assert_fence()
         self._items = next_items
         return self
 
@@ -114,6 +121,26 @@ class OrchestrationStore:
         if isinstance(result, bool) or not isinstance(result, int) or result <= 0:
             raise ValueError("timestamp must be a positive integer in milliseconds")
         return result
+
+    @staticmethod
+    def _assert_fence_in_transaction(db, owner_id: str, fencing_token: int,
+                                     now_ms: int, lease_name: str = "global-worker") -> None:
+        row = db.execute(
+            """SELECT 1 FROM orchestration_worker_lease
+               WHERE lease_name=? AND owner_id=? AND fencing_token=? AND expires_at_ms>?""",
+            (lease_name, owner_id, fencing_token, now_ms),
+        ).fetchone()
+        if row is None:
+            raise LeaseBusy("worker lease expired or fencing token is stale")
+
+    def assert_fence(self, owner_id: str, fencing_token: int, *,
+                     now_ms: int | None = None, lease_name: str = "global-worker") -> None:
+        now = self._now(now_ms)
+        db = self._connect()
+        try:
+            self._assert_fence_in_transaction(db, owner_id, fencing_token, now, lease_name)
+        finally:
+            db.close()
 
     @staticmethod
     def _audit(db, run_id: str | None, event_type: str, detail: dict, now: int):
@@ -239,11 +266,13 @@ class OrchestrationStore:
         finally:
             db.close()
 
-    def start_attempt(self, run_id: str, *, now_ms: int | None = None) -> dict | None:
+    def start_attempt(self, run_id: str, *, owner_id: str, fencing_token: int,
+                      now_ms: int | None = None) -> dict | None:
         now = self._now(now_ms)
         db = self._connect()
         try:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_fence_in_transaction(db, owner_id, fencing_token, now)
             row = db.execute("SELECT * FROM orchestration_jobs WHERE run_id=?", (run_id,)).fetchone()
             if row is None:
                 raise KeyError("unknown run_id")
@@ -273,15 +302,16 @@ class OrchestrationStore:
         finally:
             db.close()
 
-    def finish_attempt(self, run_id: str, attempt: int, *, outcome: str,
-                       now_ms: int | None = None, retry_delay_ms: int = 30_000,
-                       error_code: str | None = None) -> str:
+    def finish_attempt(self, run_id: str, attempt: int, *, owner_id: str,
+                       fencing_token: int, outcome: str, now_ms: int | None = None,
+                       retry_delay_ms: int = 30_000, error_code: str | None = None) -> str:
         now = self._now(now_ms)
         if outcome not in {"SUCCEEDED", "RETRYABLE", "FAILED"}:
             raise ValueError("unsupported attempt outcome")
         db = self._connect()
         try:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_fence_in_transaction(db, owner_id, fencing_token, now)
             row = db.execute("SELECT * FROM orchestration_jobs WHERE run_id=?", (run_id,)).fetchone()
             if row is None or row["status"] != "RUNNING" or int(row["attempt"]) != attempt:
                 raise ValueError("stale or invalid attempt completion")
@@ -310,8 +340,8 @@ class OrchestrationStore:
         finally:
             db.close()
 
-    def recover_interrupted(self, *, now_ms: int | None = None,
-                            stale_after_ms: int = 300_000) -> int:
+    def recover_interrupted(self, *, owner_id: str, fencing_token: int,
+                            now_ms: int | None = None, stale_after_ms: int = 300_000) -> int:
         """Mark old RUNNING attempts retryable; a later invocation performs retry."""
         now = self._now(now_ms)
         if isinstance(stale_after_ms, bool) or not isinstance(stale_after_ms, int) or not 1_000 <= stale_after_ms <= 86_400_000:
@@ -319,6 +349,7 @@ class OrchestrationStore:
         db = self._connect()
         try:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_fence_in_transaction(db, owner_id, fencing_token, now)
             rows = db.execute(
                 "SELECT run_id,attempt,max_attempts FROM orchestration_jobs WHERE status='RUNNING' AND started_at_ms<=?",
                 (now - stale_after_ms,),
@@ -366,27 +397,37 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
         raise ValueError("lease_ttl_ms must exceed the job deadline by at least 15 seconds")
     fencing = store.acquire_lease(owner, ttl_ms=lease_ttl_ms)
     try:
-        store.recover_interrupted()
+        store.recover_interrupted(owner_id=owner, fencing_token=fencing)
         job = store.enqueue(idempotency_key=idempotency_key, job_type=job_type,
                             payload=payload, max_attempts=max_attempts)
-        attempt = store.start_attempt(job["run_id"])
+        attempt = store.start_attempt(job["run_id"], owner_id=owner, fencing_token=fencing)
         if attempt is None:
             return {"status": store.get_job(job["run_id"])["status"],
                     "run_id": job["run_id"], "executed": False}
         deadline = monotonic() + float(max_runtime_seconds)
-        context = RunContext(job["run_id"], idempotency_key, attempt["attempt"],
-                             deadline, max_items, monotonic)
+        context = RunContext(
+            job["run_id"], idempotency_key, attempt["attempt"], deadline,
+            max_items, monotonic, fencing,
+            lambda: store.assert_fence(owner, fencing),
+        )
         try:
             handler(context, payload)
             context.checkpoint(items=0)
-            status = store.finish_attempt(job["run_id"], attempt["attempt"], outcome="SUCCEEDED")
+            status = store.finish_attempt(
+                job["run_id"], attempt["attempt"], owner_id=owner,
+                fencing_token=fencing, outcome="SUCCEEDED",
+            )
         except RetryableJobError as exc:
-            status = store.finish_attempt(job["run_id"], attempt["attempt"],
-                outcome="RETRYABLE", retry_delay_ms=retry_delay_ms,
-                error_code=type(exc).__name__)
+            status = store.finish_attempt(
+                job["run_id"], attempt["attempt"], owner_id=owner,
+                fencing_token=fencing, outcome="RETRYABLE",
+                retry_delay_ms=retry_delay_ms, error_code=type(exc).__name__,
+            )
         except Exception as exc:
-            status = store.finish_attempt(job["run_id"], attempt["attempt"],
-                outcome="FAILED", error_code=type(exc).__name__)
+            status = store.finish_attempt(
+                job["run_id"], attempt["attempt"], owner_id=owner,
+                fencing_token=fencing, outcome="FAILED", error_code=type(exc).__name__,
+            )
         return {"status": status, "run_id": job["run_id"],
                 "attempt": attempt["attempt"], "executed": True}
     finally:
