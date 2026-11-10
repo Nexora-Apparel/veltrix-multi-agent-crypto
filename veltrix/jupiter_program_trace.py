@@ -134,6 +134,8 @@ class JupiterProgramRegistryAdapter:
 @dataclass(frozen=True, slots=True)
 class JupiterRouteProgramPolicy:
     allowed_dex_labels: tuple[str, ...]
+    allowed_dex_program_ids: tuple[str, ...]
+    allowed_jupiter_program_ids: tuple[str, ...]
     allowed_routers: tuple[str, ...] = ("metis", "dflow", "okx")
     jupiter_program_labels: tuple[str, ...] = ("Jupiter V6",)
     standard_program_ids: tuple[str, ...] = (
@@ -146,7 +148,7 @@ class JupiterRouteProgramPolicy:
     max_future_skew_ms: int = 1_000
 
     def __post_init__(self) -> None:
-        for field in ("allowed_dex_labels", "allowed_routers", "jupiter_program_labels", "standard_program_ids"):
+        for field in ("allowed_dex_labels", "allowed_dex_program_ids", "allowed_jupiter_program_ids", "allowed_routers", "jupiter_program_labels", "standard_program_ids"):
             value = getattr(self, field)
             if not isinstance(value, tuple) or not value:
                 raise JupiterProgramTraceError(f"{field} must be a non-empty immutable tuple")
@@ -156,6 +158,13 @@ class JupiterRouteProgramPolicy:
                 raise JupiterProgramTraceError(f"{field} must not contain duplicates")
         if any(router not in {"metis", "jupiterz", "dflow", "okx"} for router in self.allowed_routers):
             raise JupiterProgramTraceError("allowed_routers contains an unknown router")
+        for field in ("allowed_dex_program_ids", "allowed_jupiter_program_ids", "standard_program_ids"):
+            for program_id in getattr(self, field):
+                try:
+                    if str(Pubkey.from_string(program_id)) != program_id:
+                        raise ValueError("non-canonical")
+                except Exception as exc:
+                    raise JupiterProgramTraceError(f"{field} contains an invalid public key") from exc
         for program_id in self.standard_program_ids:
             try:
                 if str(Pubkey.from_string(program_id)) != program_id:
@@ -236,22 +245,27 @@ def evaluate_jupiter_route_programs(
     if any(label not in policy.allowed_dex_labels for label in route_labels):
         raise JupiterProgramTraceError("Jupiter route contains a DEX label outside local policy")
 
-    ids_by_label = {
-        label: registry.program_ids_for_label(label)
-        for label in route_labels
-    }
-    if any(not values for values in ids_by_label.values()):
-        raise JupiterProgramTraceError("Jupiter registry does not map every route DEX label to a program ID")
-    dex_ids = tuple(sorted({program_id for values in ids_by_label.values() for program_id in values}))
+    dex_ids_by_label = {}
+    for label in route_labels:
+        mapped = set(registry.program_ids_for_label(label))
+        pinned = mapped.intersection(policy.allowed_dex_program_ids)
+        if not pinned:
+            raise JupiterProgramTraceError(f"route DEX label {label} has no locally pinned program ID in the registry")
+        dex_ids_by_label[label] = tuple(sorted(pinned))
 
-    jupiter_ids = tuple(sorted({
-        program_id
-        for label in policy.jupiter_program_labels
-        for program_id in registry.program_ids_for_label(label)
-    }))
+    for program_id in policy.allowed_dex_program_ids:
+        if registry.label_for(program_id) not in policy.allowed_dex_labels:
+            raise JupiterProgramTraceError("a pinned DEX program ID is not labelled as an allowed DEX")
+    for program_id in policy.allowed_jupiter_program_ids:
+        if registry.label_for(program_id) not in policy.jupiter_program_labels:
+            raise JupiterProgramTraceError("a pinned Jupiter program ID does not match the expected registry label")
+
+    dex_ids = tuple(sorted(set(policy.allowed_dex_program_ids).intersection(
+        program_id for values in dex_ids_by_label.values() for program_id in values
+    )))
+    jupiter_ids = policy.allowed_jupiter_program_ids
     if not jupiter_ids:
-        raise JupiterProgramTraceError("Jupiter registry does not identify an approved Jupiter aggregator program")
-
+        raise JupiterProgramTraceError("no locally pinned Jupiter aggregator program IDs are configured")
     top_level = simulation.top_level_program_ids
     inner = simulation.inner_program_ids
     if top_level != validation.program_ids:
@@ -266,7 +280,7 @@ def evaluate_jupiter_route_programs(
         raise JupiterProgramTraceError("top-level message invokes a program outside the route allowlist")
     if any(program_id not in allowed for program_id in inner):
         raise JupiterProgramTraceError("inner CPI trace invokes a program outside the route allowlist")
-    for label, program_ids in ids_by_label.items():
+    for label, program_ids in dex_ids_by_label.items():
         if not any(program_id in inner for program_id in program_ids):
             raise JupiterProgramTraceError(f"simulated inner CPI trace does not invoke route DEX label {label}")
     if any(program_id not in validation.account_keys for program_id in set(top_level) | set(inner)):
