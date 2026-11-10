@@ -36,16 +36,20 @@ market quote adapter, plus fenced transaction integration.
 
 # SOL quote conversion boundary
 
-The native SOL paper wallet accepts only integer lamports per token. This
-adapter converts an existing token USD snapshot using a separate, fresh SOL/USD
-market observation from a stable-quoted Solana pool.
+The native SOL paper wallet accepts only integer lamports per token. The quote
+adapter converts a fresh token USD snapshot using either a fresh WSOL/stablecoin
+pool or a fresh token/WSOL pool. For the latter it derives SOL/USD as
+token-price-USD divided by token-price-SOL from the same provider observation.
 
 Acceptance requirements:
 - Token USD snapshot and SOL/USD observation must both be no older than the
   configured maximum age and cannot be future-dated.
 - SOL/USD observations must be WSOL token pairs quoted in USD, USDC or USDT,
   with a non-empty provider source, sufficient liquidity and hourly volume.
-- The most liquid eligible stable-quoted WSOL pool is selected.
+- The most liquid eligible stable-quoted WSOL pool is preferred. If that
+  endpoint has no eligible pool, a token/WSOL pair may be used only when its
+  quote mint is the canonical WSOL mint and the provider supplies a valid
+  native token price; the conversion method is persisted with the fill.
 - Conversion uses Decimal arithmetic and rounds to the nearest lamport.
 - Missing, stale, malformed or illiquid conversion data blocks SOL paper entry;
   there is no cached, fixed, synthetic or inferred SOL/USD fallback.
