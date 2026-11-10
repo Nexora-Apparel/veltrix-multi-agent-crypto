@@ -68,3 +68,25 @@ def test_sol_wallet_validates_lamport_precision_and_mint(tmp_path):
             idempotency_key="bad-mint", mint="not-a-mint", quantity=1,
             price_lamports=1, fee_lamports=0, created_at_ms=1000,
         )
+
+
+class LostFence:
+    def checkpoint(self, *, items=1):
+        return None
+
+    def assert_fence_in_transaction(self, db):
+        raise RuntimeError("fence lost")
+
+
+def test_sol_wallet_rolls_back_fill_when_orchestration_fence_is_lost(tmp_path):
+    wallet = SolanaPaperWallet(str(tmp_path / "fenced-sol.sqlite3"), 1_000_000_000)
+    with pytest.raises(RuntimeError, match="fence lost"):
+        wallet.open_position(
+            idempotency_key="fenced-entry", mint=MINT, quantity=10,
+            price_lamports=1_000_000, fee_lamports=1_000,
+            created_at_ms=1_800_000_000_000, context=LostFence(),
+        )
+    snapshot = wallet.snapshot()
+    assert snapshot["cash_lamports"] == 1_000_000_000
+    assert snapshot["open_positions"] == []
+    assert snapshot["fills"] == []
