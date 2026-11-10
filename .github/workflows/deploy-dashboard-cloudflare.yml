@@ -77,6 +77,17 @@ jobs:
           payload = json.load(sys.stdin)
           if not isinstance(payload, dict):
               raise SystemExit("API health response must be a JSON object")
+          if payload.get("ok") is not True or payload.get("database") != "connected":
+              raise SystemExit("production API/database health check failed")
+          if payload.get("database_read_only") is not True:
+              raise SystemExit("dashboard API database binding must be read-only")
+          if payload.get("live_execution") is not False:
+              raise SystemExit("live execution must remain disabled")
+          if payload.get("missing_paper_tables") != []:
+              raise SystemExit("production paper ledger schema is incomplete")
+          worker = payload.get("worker")
+          if not isinstance(worker, dict) or worker.get("healthy") is not True or worker.get("stale") is True:
+              raise SystemExit("persistent pipeline worker must have a fresh healthy heartbeat")
           '
 
       - name: Install pinned Wrangler
