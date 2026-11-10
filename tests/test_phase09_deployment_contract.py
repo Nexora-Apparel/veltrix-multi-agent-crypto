@@ -217,3 +217,27 @@ def test_cloudflare_worker_requires_service_auth_to_access_tunnel_origin():
     assert "secrets.CF_ACCESS_CLIENT_SECRET" in workflow
     assert "wrangler secret put CF_ACCESS_CLIENT_ID" in workflow
     assert "wrangler secret put CF_ACCESS_CLIENT_SECRET" in workflow
+
+
+def test_cloudflare_tunnel_origin_is_loopback_only_and_hardened():
+    config = (ROOT / "deployment" / "cloudflared" / "config.yml.example").read_text(encoding="utf-8")
+    service = (ROOT / "deployment" / "systemd" / "cloudflared-veltrix.service").read_text(encoding="utf-8")
+    assert "hostname: api.example.com" in config
+    assert "service: http://127.0.0.1:8765" in config
+    assert "service: http_status:404" in config
+    assert "User=cloudflared" in service
+    assert "NoNewPrivileges=true" in service
+    assert "ProtectSystem=strict" in service
+    assert "ReadOnlyPaths=/etc/cloudflared" in service
+    assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in service
+    assert "CF_ACCESS_CLIENT_ID" in service or "CF_ACCESS_CLIENT_ID" not in service
+
+
+def test_cloudflare_deployment_requires_origin_access_service_credentials():
+    workflow = (ROOT / ".github" / "workflows" / "deploy-dashboard-cloudflare.yml").read_text(encoding="utf-8")
+    assert "secrets.CF_ACCESS_CLIENT_ID" in workflow
+    assert "secrets.CF_ACCESS_CLIENT_SECRET" in workflow
+    assert "CF-Access-Client-Id:" in workflow
+    assert "CF-Access-Client-Secret:" in workflow
+    assert "wrangler secret put CF_ACCESS_CLIENT_ID" in workflow
+    assert "wrangler secret put CF_ACCESS_CLIENT_SECRET" in workflow
