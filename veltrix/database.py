@@ -51,6 +51,7 @@ def connect_database(
     timeout: float = 10.0,
     uri: bool = False,
     isolation_level: str | None = "DEFERRED",
+    auth_token: str | None = None,
 ):
     """Open local SQLite or explicit remote Turso without implicit fallback."""
     value = str(database).strip()
@@ -75,7 +76,7 @@ def connect_database(
             value = parsed._replace(scheme="https").geturl()
         elif parsed.scheme == "turso":
             value = parsed._replace(scheme="libsql").geturl()
-        token = os.getenv("TURSO_AUTH_TOKEN", "").strip()
+        token = (auth_token if auth_token is not None else os.getenv("TURSO_AUTH_TOKEN", "")).strip()
         if not token:
             raise RuntimeError(
                 "Turso URL configured but TURSO_AUTH_TOKEN is missing"
