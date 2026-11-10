@@ -44,7 +44,7 @@ def sol_event(*, price=100.0, observed=NOW - 500, liquidity=1_000_000, volume=10
         observed_at_ms=observed, pair_created_at_ms=NOW - 100_000,
         source="dexscreener", quote_token_symbol=quote,
         quote_token_address=(
-            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v"
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
             if quote == "USDC" else
             "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
             if quote == "USDT" else
