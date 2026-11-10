@@ -151,21 +151,33 @@ write to the ledger. The pipeline service and paper stage share the same
 persistent database; keep the explicit paper opt-in disabled until the
 simulation test gates have passed.
 
-## 5. Start pipeline, paper, and dashboard services
+## 5. Start the continuous pipeline and dashboard services
 
-Only start the paper runtime if paper operation is intentionally enabled and
-the operator has confirmed the provider configuration and database path.
-This is simulation/paper execution only; live execution remains disabled.
+The pipeline supervisor owns discovery, enrichment, market refresh, candle
+refresh, risk, consensus and the explicitly selected paper ledger. Start the
+pipeline and dashboard services:
 
 ```sh
-systemctl enable --now veltrix-paper.service
+systemctl enable --now veltrix-pipeline.service
 systemctl enable --now veltrix-dashboard.service
-systemctl --no-pager --full status veltrix-paper.service veltrix-dashboard.service
+systemctl --no-pager --full status veltrix-pipeline.service veltrix-dashboard.service
+journalctl -u veltrix-pipeline.service -f
 ```
 
+Set exactly one of `PAPER_TRADING_ENABLED=true` or
+`SOL_PAPER_TRADING_ENABLED=true` in the protected `pipeline.env` only after
+the corresponding simulation acceptance tests pass. Both default to false.
+Never enable both. Keep `LIVE_TRADING=false`.
+
+The standalone `veltrix-paper.service` is a legacy separate paper runtime.
+It must remain disabled when the pipeline supervisor is active; running both
+can create duplicate entries against separate ledgers and invalidate results.
+The pipeline's own paper stage is the supported continuous execution path.
+
 The dashboard must listen only on `127.0.0.1:8765`. If remote access is
-required, expose it only through a separately hardened authenticated TLS
-reverse proxy. Do not bind the dashboard directly to a public interface.
+required, expose it only through the Cloudflare authenticated HTTPS edge or a
+separately hardened authenticated TLS reverse proxy. Do not bind the dashboard
+directly to a public interface.
 
 ## 6. Run host isolation verification
 
@@ -210,7 +222,7 @@ details redacted:
 - complete output of `verify_phase09_isolation.sh`;
 - database ownership/mode and whether WAL/SHM sidecars were present;
 - firewall policy reference and observed egress test results;
-- dashboard unauthenticated request returns HTTP 401;
+- dashboard unauthenticated request returns HTTP 401;\n- pipeline authenticated health reports a recent successful fenced cycle;
 - dashboard authenticated health request succeeds;
 - confirmation that `LIVE_TRADING=false` remains in effect.
 
