@@ -263,8 +263,16 @@ def test_dashboard_remote_database_adapter_remains_query_only(monkeypatch, tmp_p
     repository = DashboardRepository("libsql://example.aws-eu-central-1.turso.io")
     assert repository.health()["database"] == "connected"
     with repository._connect() as db:
-        with pytest.raises(sqlite3.OperationalError, match="readonly"):
-            db.execute("CREATE TABLE dashboard_write_must_fail(id INTEGER)")
+        for statement in (
+            "CREATE TABLE dashboard_write_must_fail(id INTEGER)",
+            "DELETE FROM account",
+            "PRAGMA query_only=OFF",
+            "SELECT 1; DELETE FROM account",
+            "WITH x AS (SELECT 1) DELETE FROM account",
+        ):
+            with pytest.raises(sqlite3.OperationalError, match="read-only|multiple SQL"):
+                db.execute(statement)
+        assert db.execute("SELECT 1").fetchone()[0] == 1
 
 
 def test_dashboard_health_marks_old_pipeline_heartbeat_stale(tmp_path, monkeypatch):
