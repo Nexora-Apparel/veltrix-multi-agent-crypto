@@ -56,4 +56,5 @@ jobs:
           python -m pytest -q -rs \
             tests/test_turso_remote_conformance.py \
             tests/test_turso_application_schema.py \
-            tests/test_turso_orchestration.py
+            tests/test_turso_orchestration.py \
+            tests/test_turso_worker_conformance.py
