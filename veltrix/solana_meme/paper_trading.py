@@ -17,7 +17,7 @@ from .consensus_store import ConsensusStore
 from .market_store import MarketSnapshotStore
 from .candidates import canonical_mint
 from .risk_store import SolanaRiskEvidenceStore
-from ..orchestration import JobDeadlineExceeded, LeaseBusy, RunContext
+from ..orchestration import LeaseBusy, RunContext
 
 
 @dataclass(frozen=True)
