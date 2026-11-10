@@ -60,6 +60,13 @@
         <article class="metric-card"><span>Open positions</span><strong id="sol-open">—</strong><small id="sol-equity">Equity awaiting fresh marks</small></article>
       </div>
       <p class="panel-note" id="sol-wallet-note">Native SOL ledger has not been initialized. This panel is read-only.</p>
+      <div class="table-scroll sol-fills-scroll">
+        <table>
+          <thead><tr><th>Time</th><th>Side</th><th>Token</th><th>Quantity</th><th>Price / token</th><th>Fee</th><th>Realized P&amp;L</th></tr></thead>
+          <tbody id="sol-fills-body"></tbody>
+        </table>
+      </div>
+      <div id="sol-fills-empty" class="empty-state">No native SOL paper fills recorded.</div>
     </section>
 
     <section class="panel token-chart-panel" id="token-terminal">
