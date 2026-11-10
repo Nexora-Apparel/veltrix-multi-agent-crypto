@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 
 
@@ -59,7 +60,14 @@ def connect_database(
     if is_remote_database(value):
         if uri:
             raise ValueError("SQLite URI mode is not supported for remote databases")
-        if value.startswith("https://") and "turso.io" not in value:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme not in {"libsql", "https"}
+            or not host.endswith(".turso.io")
+            or parsed.username
+            or parsed.password
+        ):
             raise ValueError("remote database URL host is not an approved Turso endpoint")
         token = os.getenv("TURSO_AUTH_TOKEN", "").strip()
         if not token:
