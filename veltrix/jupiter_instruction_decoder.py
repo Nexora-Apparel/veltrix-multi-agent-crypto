@@ -303,6 +303,20 @@ def _decode_route_data(data: bytes, *, instruction_name: str, policy: JupiterSwa
     return tuple(steps), in_amount, quoted_out_amount, slippage_bps, platform_fee_bps, shared_route_id
 
 
+def _assert_privileges(
+    validation: TransactionValidationResult,
+    index: int,
+    *,
+    signer: bool,
+    writable: bool,
+    role: str,
+) -> None:
+    if index < 0 or index >= len(validation.account_keys):
+        raise JupiterInstructionDecodeError(f"{role} account index is out of range")
+    if len(validation.account_signers) != len(validation.account_keys) or len(validation.account_writable) != len(validation.account_keys):
+        raise JupiterInstructionDecodeError("validated account privilege evidence is incomplete")
+    if validation.account_signers[index] is not signer or validation.account_writable[index] is not writable:
+        raise JupiterInstructionDecodeError(f"{role} signer/writable privilege differs from the Jupiter IDL")
 def _assert_account(
     validation: TransactionValidationResult,
     index: int,
@@ -340,6 +354,8 @@ def decode_jupiter_swap_instruction(
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if digest != validation.message_sha256:
         raise JupiterInstructionDecodeError("Jupiter order and structural validation message digests differ")
+    if order.transaction_version != 0:
+        raise JupiterInstructionDecodeError("only Jupiter v0 order transactions are supported")
     if not validation.account_keys or validation.account_keys[0] != order.taker:
         raise JupiterInstructionDecodeError("validated account key zero is not the taker fee payer")
     if len(validation.account_signers) != len(validation.account_keys) or len(validation.account_writable) != len(validation.account_keys):
@@ -350,6 +366,8 @@ def decode_jupiter_swap_instruction(
         if not isinstance(message, MessageV0):
             raise JupiterInstructionDecodeError("only v0 Jupiter order messages are supported")
         message.sanitize()
+        if str(message.recent_blockhash) != order.recent_blockhash:
+            raise JupiterInstructionDecodeError("Jupiter order blockhash differs from the decoded message")
     except JupiterInstructionDecodeError:
         raise
     except Exception as exc:
@@ -362,7 +380,7 @@ def decode_jupiter_swap_instruction(
             raise JupiterInstructionDecodeError("Jupiter instruction program index is out of range")
         if validation.account_keys[program_index] == JUPITER_V6_PROGRAM_ID:
             jupiter_instructions.append((instruction, program_index))
-    if len(jupiter_instructions) != 1:
+    if len(jupiter_instructions) != 1 or validation.program_ids.count(JUPITER_V6_PROGRAM_ID) != 1:
         raise JupiterInstructionDecodeError("transaction must contain exactly one top-level Jupiter v6 instruction")
 
     instruction, program_index = jupiter_instructions[0]
@@ -394,6 +412,19 @@ def decode_jupiter_swap_instruction(
     _assert_account(validation, account_indexes[source_position], input_ata, signer=False, writable=True, role="user source token account")
     _assert_account(validation, account_indexes[destination_position], output_ata, signer=False, writable=True, role="user destination token account")
     _assert_account(validation, account_indexes[destination_mint_position], order.output_mint, signer=False, writable=False, role="destination mint")
+    _assert_privileges(validation, account_indexes[0], signer=False, writable=False, role="token program")
+    _assert_privileges(validation, account_indexes[authority_position], signer=True, writable=False, role="transfer authority")
+    _assert_privileges(validation, account_indexes[source_position], signer=False, writable=True, role="user source token account")
+    _assert_privileges(validation, account_indexes[destination_position], signer=False, writable=True, role="user destination token account")
+    _assert_privileges(validation, account_indexes[destination_mint_position], signer=False, writable=False, role="destination mint")
+    if instruction_name == "sharedAccountsRoute":
+        source_mint_position = 7
+        _assert_account(validation, account_indexes[source_mint_position], order.input_mint, signer=False, writable=False, role="source mint")
+        _assert_privileges(validation, account_indexes[1], signer=False, writable=False, role="Jupiter program authority")
+        _assert_privileges(validation, account_indexes[4], signer=False, writable=True, role="program source token account")
+        _assert_privileges(validation, account_indexes[5], signer=False, writable=True, role="program destination token account")
+        if account_keys[4] in (input_ata, output_ata) or account_keys[5] in (input_ata, output_ata):
+            raise JupiterInstructionDecodeError("shared route program token accounts cannot alias user ATAs")
     for position in optional_positions:
         _assert_account(validation, account_indexes[position], SYSTEM_PROGRAM_ID, signer=False, writable=False, role="unsupported optional fee/Token-2022 account")
 
@@ -415,7 +446,7 @@ def decode_jupiter_swap_instruction(
     for decoded, quoted in zip(route_plan, order.route_plan):
         if decoded.dex_label != quoted.label:
             raise JupiterInstructionDecodeError("Jupiter instruction DEX variant differs from the API route label")
-        if int(quoted.percent) != decoded.percent or quoted.bps != decoded.percent * 100:
+        if quoted.percent != decoded.percent or quoted.bps != decoded.percent * 100:
             raise JupiterInstructionDecodeError("Jupiter instruction split percentage differs from the API route plan")
 
     return JupiterSwapInstructionResult(
