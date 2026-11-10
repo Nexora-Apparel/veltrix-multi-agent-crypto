@@ -44,6 +44,7 @@ class SolanaNativePaperTradingWorker:
             "market_snapshot_id": quote.market_snapshot_id,
             "token_pair_address": quote.token_pair_address,
             "sol_usd_pair_address": quote.sol_usd_pair_address,
+            "sol_usd_method": quote.sol_usd_method,
             "token_price_usd": str(quote.token_price_usd),
             "sol_price_usd": str(quote.sol_price_usd),
             "token_observed_at_ms": quote.token_observed_at_ms,
