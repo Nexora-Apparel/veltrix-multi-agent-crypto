@@ -42,7 +42,7 @@ jobs:
 
           url = urlsplit(os.environ["TURSO_CONFORMANCE_DATABASE_URL"])
           assert url.scheme == "libsql", "conformance URL must use libsql://"
-          assert url.hostname == "veltrix-h0-conformance.turso.io", "wrong disposable database host"
+          assert url.hostname == "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io", "wrong disposable database host"
           assert url.username is None and url.password is None, "URL credentials are forbidden"
           assert not url.query and not url.fragment and url.path in ("", "/"), "URL extras are forbidden"
           PY
