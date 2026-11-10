@@ -31,7 +31,7 @@ class JobDeadlineExceeded(TimeoutError):
     """The cooperative job deadline or work budget was exceeded."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class RunContext:
     run_id: str
     idempotency_key: str
@@ -49,10 +49,8 @@ class RunContext:
             raise JobDeadlineExceeded("job item budget exceeded")
         if self._clock() >= self.deadline_monotonic:
             raise JobDeadlineExceeded("job deadline exceeded")
-        return RunContext(
-            self.run_id, self.idempotency_key, self.attempt,
-            self.deadline_monotonic, self.max_items, self._clock, next_items,
-        )
+        self._items = next_items
+        return self
 
 
 class OrchestrationStore:
@@ -350,8 +348,11 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
     if isinstance(max_items, bool) or not isinstance(max_items, int) or not 1 <= max_items <= 10_000:
         raise ValueError("max_items must be between 1 and 10000")
     owner = str(uuid.uuid4())
+    if isinstance(lease_ttl_ms, bool) or not isinstance(lease_ttl_ms, int) or lease_ttl_ms < int(max_runtime_seconds * 1000) + 15_000:
+        raise ValueError("lease_ttl_ms must exceed the job deadline by at least 15 seconds")
     fencing = store.acquire_lease(owner, ttl_ms=lease_ttl_ms)
     try:
+        store.recover_interrupted()
         job = store.enqueue(idempotency_key=idempotency_key, job_type=job_type,
                             payload=payload, max_attempts=max_attempts)
         attempt = store.start_attempt(job["run_id"])
