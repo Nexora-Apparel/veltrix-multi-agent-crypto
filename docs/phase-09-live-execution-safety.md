@@ -189,3 +189,17 @@ Implemented in the extended `veltrix/transaction_validator.py` and `veltrix/sola
 - Tables with any non-max deactivation slot are conservatively rejected, even where Solana's deactivation cooldown might still permit use. This is an intentional false-negative safety choice.
 
 This enables structural validation of v0 transactions that use active lookup tables; it does not yet approve Jupiter DEX swap instructions or authorize signing/execution.
+
+
+### 09.11 — Jupiter v0 order transaction intake
+
+Implemented in `veltrix/jupiter_order.py` with mocked API and transaction fixtures in `tests/test_jupiter_order.py`.
+
+- Requests a Jupiter Swap API V2 order for an explicit taker wallet and exact-in raw amount.
+- Sends `maxSupportedTransactionVersion=0` and excludes routers outside local policy. The default policy excludes JupiterZ until its maker/fee-payer signing path is separately reviewed.
+- Requires response taker, input/output mints, exact input amount, output threshold, router, fees, route plan, transaction version and last-valid block height to match policy.
+- Rejects gasless orders, third-party signature fee payers, unexpected/partially signed transactions, non-v0 messages, malformed base64 and mismatched fee payer. The taker must be the fee payer and required signer.
+- Extracts exact v0 message bytes and preserves the original serialized transaction for audit. Active address lookup tables are preserved for the Phase 09.10 resolver.
+- This is order intake only. It does not construct an approved `TransactionIntent`, decode Jupiter/DEX instruction semantics, call Jupiter `/execute`, request a Phantom signature, or broadcast.
+
+The next required component is a Jupiter/DEX-specific semantic parser. Until that exists, the returned transaction remains untrusted and cannot pass the complete execution preflight.
