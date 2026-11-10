@@ -277,7 +277,7 @@ def test_rejects_transaction_with_multiple_jupiter_instructions():
     order, validation, _, _ = build_case()
     original_message = from_bytes_versioned(order.message_bytes)
     compiled = original_message.instructions[0]
-    static_keys = tuple(original_message.account_keys)
+    static_keys = tuple(str(key) for key in original_message.account_keys)
     header = original_message.header
     required = int(header.num_required_signatures)
     readonly_signed = int(header.num_readonly_signed_accounts)
@@ -340,7 +340,7 @@ def test_policy_rejects_unknown_variant_or_missing_label_mapping():
     with pytest.raises(JupiterInstructionDecodeError, match="explicit DEX label mapping"):
         JupiterSwapInstructionPolicy(
             allowed_swap_variants=("RaydiumClmm",),
-            variant_to_label=(),
+            variant_to_label=(("Raydium", "Raydium"),),
         )
 
 def test_decodes_whirlpool_v2_variant_option_layout():
