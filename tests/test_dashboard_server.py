@@ -272,6 +272,28 @@ def test_dashboard_sol_wallet_endpoint_reports_native_lamports_and_pnl(tmp_path)
     assert stale_state["unrealized_pnl_lamports"] is None
     assert stale_state["open_positions"][0]["mark_freshness"] == "stale"
 
+    unverified_mint = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+    wallet.open_position(
+        idempotency_key="dashboard-unverified-entry", mint=unverified_mint,
+        quantity=1, price_lamports=1_000, fee_lamports=0,
+        created_at_ms=now_ms + 3,
+    )
+    wallet.process_market_price(
+        mint=unverified_mint, price_lamports=2_000, market_snapshot_id=4,
+        created_at_ms=now_ms + 4,
+    )
+    unverified_state = DashboardRepository(database).sol_paper_wallet()
+    unverified_position = next(
+        position for position in unverified_state["open_positions"]
+        if position["mint"] == unverified_mint
+    )
+    assert unverified_position["mark_freshness"] == "unverified"
+    assert unverified_state["equity_complete"] is False
+    wallet.close_position(
+        idempotency_key="dashboard-unverified-exit", mint=unverified_mint,
+        price_lamports=1_000, fee_lamports=0, created_at_ms=now_ms + 5,
+    )
+
     exit_provenance = {**provenance, "market_snapshot_id": 3}
     wallet.close_position(
         idempotency_key="dashboard-exit", mint=mint, price_lamports=2_000_000,
