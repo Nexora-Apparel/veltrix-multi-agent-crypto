@@ -34,6 +34,7 @@ test("missing bindings and non-HTTPS origins fail closed", async () => {
   const missing = await worker.fetch(new Request("https://terminal.example/api/health"), {});
   assert.equal(missing.status, 503);
   const insecure = await worker.fetch(new Request("https://terminal.example/api/health"), {
+    ...ACCESS,
     VELTRIX_API_ORIGIN: "http://api.example",
     VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
   });
@@ -73,6 +74,7 @@ test("upstream redirects are rejected", async () => {
   globalThis.fetch = async () => new Response(null, { status: 302, headers: { location: "https://evil.example" } });
   try {
     const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+      ...ACCESS,
       VELTRIX_API_ORIGIN: "https://api.example",
       VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
     });
@@ -102,6 +104,7 @@ test("upstream transport failures return a bounded 502 response", async () => {
   globalThis.fetch = async () => { throw new Error("network detail must not leak"); };
   try {
     const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+      ...ACCESS,
       VELTRIX_API_ORIGIN: "https://api.example",
       VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
     });
@@ -115,6 +118,7 @@ test("upstream transport failures return a bounded 502 response", async () => {
 
 test("short dashboard bearer tokens fail closed", async () => {
   const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+    ...ACCESS,
     VELTRIX_API_ORIGIN: "https://api.example",
     VELTRIX_DASHBOARD_TOKEN: "too-short"
   });
