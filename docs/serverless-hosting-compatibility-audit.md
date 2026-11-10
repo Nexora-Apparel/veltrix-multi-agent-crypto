@@ -146,6 +146,13 @@ The Worker must be read-only against the trading tables. Do not expose a generic
 - Never depend on GitHub Actions artifacts or commits as the live database.
 - Preserve the current SQLite file untouched as the rollback source.
 
+
+### H0 driver source inspection update
+
+The official `turso_serverless` Python source was inspected after the initial audit. It exposes a DB-API connection/cursor implementation with a configurable `row_factory`, `commit()`, `rollback()`, context-manager methods, `execute()`, `executemany()`, cursor `rowcount` and `lastrowid`, and explicit transaction support including `BEGIN IMMEDIATE`. Its package metadata currently classifies it as Beta (version 0.1.0 in the inspected source). This materially improves the compatibility outlook but is not a substitute for the package's live-database conformance suite or our application-specific tests. The official driver README states that its conformance tests run against a live Turso database and skip when the database URL/token are absent.
+
+Consequently, the next implementation task is a disposable-database H0 conformance spike, not a production data migration. The test must specifically exercise the repository's actual `sqlite3.Row` access patterns through the driver's row factory, multi-statement transactions, rollback, `BEGIN IMMEDIATE` lease claims, duplicate/idempotency constraints, and the existing store initialization SQL.
+
 ## 6. Migration safety protocol
 
 1. Stop local writers before taking the source backup.
