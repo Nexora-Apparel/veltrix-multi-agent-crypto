@@ -57,6 +57,40 @@
     }
   }
 
+  function renderSolWallet(data) {
+    const status = $("sol-wallet-status");
+    if (!data || data.configured !== true) {
+      status.textContent = "NOT INITIALIZED";
+      status.className = "count-pill";
+      $("sol-starting").textContent = "—";
+      $("sol-cash").textContent = "—";
+      $("sol-realized").textContent = "—";
+      $("sol-open").textContent = "—";
+      $("sol-fills").textContent = "— fills";
+      $("sol-equity").textContent = "No SOL marks";
+      $("sol-wallet-note").textContent = data && data.reason
+        ? data.reason + " · read-only panel"
+        : "Native SOL ledger is not initialized.";
+      return;
+    }
+    status.textContent = "PAPER LEDGER CONNECTED";
+    status.className = "count-pill positive";
+    $("sol-starting").textContent = number(data.starting_balance_sol, 6) + " SOL";
+    $("sol-cash").textContent = number(data.cash_sol, 6) + " SOL";
+    $("sol-realized").textContent = (Number(data.realized_pnl_lamports) > 0 ? "+" : "") +
+      number(data.realized_pnl_sol, 6) + " SOL";
+    $("sol-realized").className = Number(data.realized_pnl_lamports) >= 0 ? "positive" : "negative";
+    $("sol-open").textContent = number(data.open_position_count, 0);
+    $("sol-fills").textContent = number(data.entry_fills, 0) + " entries · " +
+      number(data.exit_fills, 0) + " exits";
+    $("sol-equity").textContent = data.equity_complete
+      ? "Equity " + number(data.equity_sol, 6) + " SOL"
+      : number((data.unmarked_positions || []).length, 0) + " unmarked · equity incomplete";
+    $("sol-wallet-note").textContent =
+      "All balances and P&L are integer lamports · " +
+      number(data.fill_count, 0) + " persisted fills · live execution disabled";
+  }
+
   function renderMetrics(overview) {
     const a = overview.account || {};
     const p = overview.performance || {};
@@ -306,11 +340,12 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      const [health, overview, positions, trades, decisions, consensus, markets, curve, costs] =
+      const [health, overview, positions, trades, decisions, consensus, markets, curve, costs, solWallet] =
         await Promise.all([
           api("/api/health"), api("/api/overview"), api("/api/positions"),
           api("/api/trades"), api("/api/decisions"), api("/api/consensus"),
-          api("/api/markets"), api("/api/equity-curve"), api("/api/costs")
+          api("/api/markets"), api("/api/equity-curve"), api("/api/costs"),
+          api("/api/sol-paper-wallet")
         ]);
       renderMetrics(overview);
       renderPositions(positions);
@@ -320,6 +355,7 @@
       renderMarkets(markets);
       renderEquityCurve(curve);
       renderCosts(costs);
+      renderSolWallet(solWallet);
       const worker = health.worker || { status: "not_configured", healthy: false };
       const workerHealthy = worker.healthy === true;
       const workerState = worker.status || "unknown";
