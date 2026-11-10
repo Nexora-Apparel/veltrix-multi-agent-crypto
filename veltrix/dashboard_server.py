@@ -117,7 +117,10 @@ class DashboardRepository:
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         if self._remote_database:
-            db = connect_database(str(self.database_path), timeout=3)
+            db = connect_database(
+                str(self.database_path), timeout=3,
+                auth_token=os.getenv("TURSO_DASHBOARD_AUTH_TOKEN") or None,
+            )
             db.row_factory = row_factory_for(str(self.database_path))
             guarded = _ReadOnlyRemoteConnection(db)
             try:
