@@ -51,7 +51,7 @@ class OneShotSolanaPipeline:
         paper_enabled: bool = False,
         max_runtime_seconds: float = 180.0,
         lease_ttl_ms: int = 240_000,
-        max_items: int = 100,
+        max_items: int = 150,
     ) -> None:
         if paper_enabled and paper_worker is None:
             raise ValueError("paper_enabled requires a transaction-fenced PaperTradingWorker")
