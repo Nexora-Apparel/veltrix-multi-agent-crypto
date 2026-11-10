@@ -126,8 +126,8 @@ class OrchestrationStore:
     def acquire_lease(self, owner_id: str, *, now_ms: int | None = None,
                       ttl_ms: int = 120_000, lease_name: str = "global-worker") -> int:
         now = self._now(now_ms)
-        if not owner_id or not isinstance(owner_id, str):
-            raise ValueError("owner_id is required")
+        if not owner_id or not isinstance(owner_id, str) or not isinstance(lease_name, str) or not lease_name:
+            raise ValueError("owner_id and lease_name are required")
         if isinstance(ttl_ms, bool) or not isinstance(ttl_ms, int) or not 1_000 <= ttl_ms <= 300_000:
             raise ValueError("ttl_ms must be between 1000 and 300000")
         db = self._connect()
@@ -167,6 +167,10 @@ class OrchestrationStore:
                     now_ms: int | None = None, ttl_ms: int = 120_000,
                     lease_name: str = "global-worker") -> bool:
         now = self._now(now_ms)
+        if isinstance(ttl_ms, bool) or not isinstance(ttl_ms, int) or not 1_000 <= ttl_ms <= 300_000:
+            raise ValueError("ttl_ms must be between 1000 and 300000")
+        if not owner_id or isinstance(fencing_token, bool) or not isinstance(fencing_token, int) or fencing_token < 1:
+            raise ValueError("valid owner_id and fencing_token are required")
         db = self._connect()
         try:
             cursor = db.execute("""
@@ -198,9 +202,13 @@ class OrchestrationStore:
             raise ValueError("idempotency_key and job_type are required")
         if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or not 1 <= max_attempts <= 5:
             raise ValueError("max_attempts must be between 1 and 5")
-        payload_hash = hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
-        ).hexdigest()
+        try:
+            canonical_payload = json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("payload must be finite, JSON-serializable data") from exc
+        payload_hash = hashlib.sha256(canonical_payload.encode()).hexdigest()
         run_id = str(uuid.uuid4())
         db = self._connect()
         try:
@@ -301,6 +309,8 @@ class OrchestrationStore:
                             stale_after_ms: int = 300_000) -> int:
         """Mark old RUNNING attempts retryable; a later invocation performs retry."""
         now = self._now(now_ms)
+        if isinstance(stale_after_ms, bool) or not isinstance(stale_after_ms, int) or not 1_000 <= stale_after_ms <= 86_400_000:
+            raise ValueError("stale_after_ms must be between 1000 and 86400000")
         db = self._connect()
         try:
             db.execute("BEGIN IMMEDIATE")
