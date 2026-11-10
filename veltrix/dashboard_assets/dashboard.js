@@ -384,10 +384,13 @@
       renderCosts(costs);
       renderSolWallet(solWallet);
       const worker = health.worker || { status: "not_configured", healthy: false };
+      const candleHealth = health.candle_refresh || { status: "not_configured", total_jobs: 0 };
       const workerHealthy = worker.healthy === true;
+      const candleHealthy = candleHealth.status !== "degraded";
       const workerState = worker.status || "unknown";
-      $("health-led").className = "status-led" + (workerHealthy ? "" : " bad");
-      $("health-label").textContent = "Database connected · worker " + workerState;
+      $("health-led").className = "status-led" + (workerHealthy && candleHealthy ? "" : " bad");
+      $("health-label").textContent = "Database connected · worker " + workerState +
+        " · candles " + (candleHealth.status || "unknown");
       const workerMeta = worker.last_success_at
         ? " · Last success " + date(worker.last_success_at)
         : " · No successful worker cycle recorded";
@@ -397,6 +400,9 @@
         number(worker.consecutive_failures || 0, 0) +
         " · Last duration: " + number(worker.last_duration_ms || 0, 0) + " ms" +
         workerMeta + workerError +
+        " · Candle pools: " + number(candleHealth.total_jobs || 0, 0) +
+        " · Candle retries: " + number(candleHealth.retry_jobs || 0, 0) +
+        " · Last candle success: " + date(candleHealth.last_success_at) +
         " · Missing paper tables: " + ((health.missing_paper_tables || []).join(", ") || "none");
       $("last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
     } catch (error) {
