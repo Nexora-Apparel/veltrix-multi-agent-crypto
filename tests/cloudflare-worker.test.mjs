@@ -6,6 +6,10 @@ const source = await readFile(new URL("../cloudflare/worker.js", import.meta.url
 const { default: worker } = await import(
   "data:text/javascript;base64," + Buffer.from(source).toString("base64")
 );
+const ACCESS = {
+  CF_ACCESS_CLIENT_ID: "veltrix-origin-token.access",
+  CF_ACCESS_CLIENT_SECRET: "cloudflare-access-secret"
+};
 
 test("static assets are served with no-store cache policy", async () => {
   const response = await worker.fetch(new Request("https://terminal.example/"), {
@@ -47,6 +51,7 @@ test("allowlisted requests receive server-side auth and never follow redirects",
     const response = await worker.fetch(
       new Request("https://terminal.example/api/sol-paper-wallet?view=summary"),
       {
+        ...ACCESS,
         VELTRIX_API_ORIGIN: "https://api.example",
         VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
       }
@@ -54,6 +59,8 @@ test("allowlisted requests receive server-side auth and never follow redirects",
     assert.equal(response.status, 200);
     assert.equal(captured.url, "https://api.example/api/sol-paper-wallet?view=summary");
     assert.equal(captured.init.headers.get("authorization"), "Bearer " + "x".repeat(32));
+    assert.equal(captured.init.headers.get("cf-access-client-id"), ACCESS.CF_ACCESS_CLIENT_ID);
+    assert.equal(captured.init.headers.get("cf-access-client-secret"), ACCESS.CF_ACCESS_CLIENT_SECRET);
     assert.equal(captured.init.redirect, "manual");
     assert.equal(response.headers.get("set-cookie"), null);
   } finally {
@@ -82,6 +89,7 @@ test("API origin rejects embedded paths and credentials", async () => {
     "https://user:pass@api.example"
   ]) {
     const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+      ...ACCESS,
       VELTRIX_API_ORIGIN: origin,
       VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
     });
