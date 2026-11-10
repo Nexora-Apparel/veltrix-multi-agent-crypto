@@ -1,0 +1,3 @@
+# Optional remote backend. Local SQLite remains the default.
+# Pinned to the exact upstream source revision reviewed by the H0 audit.
+turso-serverless @ git+https://github.com/tursodatabase/turso.git@367fe14dff049a665d5601a8c970b9f5640bfd6d#subdirectory=serverless/python
