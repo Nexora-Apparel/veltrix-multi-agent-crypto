@@ -9,6 +9,8 @@ import pytest
 from veltrix.ledger import PaperBroker
 from veltrix.dashboard_server import DashboardRepository, build_server
 from veltrix.solana_meme.consensus_store import ConsensusStore
+from veltrix.solana_meme.candle_data import SolanaCandle
+from veltrix.solana_meme.candle_store import SolanaCandleStore
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 
@@ -148,3 +150,39 @@ def test_dashboard_api_token_environment_variable_is_used(tmp_path, monkeypatch)
         port=0,
     )
     server.server_close()
+
+
+def test_dashboard_candle_endpoint_contract_returns_real_stored_candles(tmp_path):
+    database = make_database(tmp_path)
+    store = SolanaCandleStore(str(database))
+    now = 1_800_000_000_000
+    store.record(SolanaCandle(
+        mint="So11111111111111111111111111111111111111112",
+        pair_address="pool-chart", interval="1m", open_time_ms=now,
+        open=0.001, high=0.0012, low=0.0009, close=0.0011,
+        volume=1200, source="fixture-provider",
+        observed_at_ms=now + 59000, is_closed=True,
+    ))
+    repository = DashboardRepository(database)
+    result = repository.candles(
+        mint="So11111111111111111111111111111111111111112",
+        pair_address="pool-chart", interval="1m",
+    )
+    assert result["count"] == 1
+    assert result["candles"][0]["close"] == 0.0011
+    assert result["source"] == "fixture-provider"
+    assert result["synthetic"] is False
+
+
+def test_dashboard_candle_endpoint_rejects_invalid_interval_and_missing_pair(tmp_path):
+    repository = DashboardRepository(make_database(tmp_path))
+    with pytest.raises(ValueError, match="unsupported"):
+        repository.candles(
+            mint="So11111111111111111111111111111111111111112",
+            pair_address="pool", interval="2m",
+        )
+    with pytest.raises(ValueError, match="pair_address"):
+        repository.candles(
+            mint="So11111111111111111111111111111111111111112",
+            pair_address="", interval="1m",
+        )
