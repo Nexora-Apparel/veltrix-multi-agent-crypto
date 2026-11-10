@@ -15,11 +15,12 @@ from ..database import connect_database, ensure_database_parent, is_remote_datab
 from .candidates import canonical_mint
 
 LAMPORTS_PER_SOL = 1_000_000_000
+MAX_SQLITE_INTEGER = 9_223_372_036_854_775_807
 
 
 def _positive_int(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{name} must be a positive integer")
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= MAX_SQLITE_INTEGER:
+        raise ValueError(f"{name} must be a positive SQLite integer")
     return value
 
 
@@ -105,6 +106,7 @@ class SolanaPaperWallet:
     def open_position(
         self, *, idempotency_key: str, mint: str, quantity: object,
         price_lamports: int, fee_lamports: int, created_at_ms: int,
+        context=None,
     ) -> dict:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
@@ -115,10 +117,16 @@ class SolanaPaperWallet:
             raise ValueError("fee_lamports must be a non-negative integer")
         _positive_int(created_at_ms, "created_at_ms")
         notional = int((qty * price_lamports).to_integral_value(rounding=ROUND_DOWN))
-        if notional <= 0:
-            raise ValueError("position notional rounds below one lamport")
+        if notional <= 0 or notional > MAX_SQLITE_INTEGER:
+            raise ValueError("position notional is outside the SQLite lamport range")
         total = notional + fee_lamports
+        if total > MAX_SQLITE_INTEGER:
+            raise ValueError("position debit exceeds the SQLite lamport range")
+        if context is not None:
+            context.checkpoint(items=1)
         with self._transaction() as db:
+            if context is not None:
+                context.assert_fence_in_transaction(db)
             existing = db.execute(
                 "SELECT fill_id FROM solana_paper_fills WHERE idempotency_key=?",
                 (idempotency_key,),
@@ -154,7 +162,7 @@ class SolanaPaperWallet:
 
     def close_position(
         self, *, idempotency_key: str, mint: str, price_lamports: int,
-        fee_lamports: int, created_at_ms: int,
+        fee_lamports: int, created_at_ms: int, context=None,
     ) -> dict:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
@@ -163,7 +171,11 @@ class SolanaPaperWallet:
         if isinstance(fee_lamports, bool) or not isinstance(fee_lamports, int) or fee_lamports < 0:
             raise ValueError("fee_lamports must be a non-negative integer")
         _positive_int(created_at_ms, "created_at_ms")
+        if context is not None:
+            context.checkpoint(items=1)
         with self._transaction() as db:
+            if context is not None:
+                context.assert_fence_in_transaction(db)
             existing = db.execute(
                 "SELECT fill_id FROM solana_paper_fills WHERE idempotency_key=?",
                 (idempotency_key,),
