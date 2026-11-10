@@ -22,7 +22,12 @@ def test_sol_wallet_opens_marks_closes_and_persists_after_restart(tmp_path):
     )["status"] == "DUPLICATE"
 
     restarted = SolanaPaperWallet(path, 99 * LAMPORTS_PER_SOL)
+    unmarked = restarted.snapshot()
+    assert unmarked["equity_lamports"] is None
+    assert unmarked["equity_complete"] is False
+    assert unmarked["unmarked_positions"] == [MINT]
     marked = restarted.snapshot({MINT: 1_500_000})
+    assert marked["equity_complete"] is True
     assert marked["cash_lamports"] == 2 * LAMPORTS_PER_SOL - 110_000_000
     assert marked["unrealized_pnl_lamports"] == 40_000_000
     assert marked["equity_lamports"] == 2 * LAMPORTS_PER_SOL + 40_000_000
