@@ -50,3 +50,13 @@ def test_build_engine_accepts_optional_provider_websocket_endpoint(tmp_path, mon
         websocket_factory=lambda *args, **kwargs: None,
     )
     assert engine.primary_stream.adapter.endpoint == endpoint
+
+
+def test_build_engine_can_disable_long_lived_pumpportal_stream_for_ephemeral_runs(tmp_path):
+    engine = build_engine(
+        database_path=tmp_path / "ephemeral.sqlite3",
+        poll_interval_seconds=30,
+        include_primary_stream=False,
+    )
+    assert engine.primary_stream is None
+    assert engine.secondary_source is not None

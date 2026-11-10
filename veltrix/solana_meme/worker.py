@@ -32,6 +32,7 @@ def build_engine(
     poll_interval_seconds: float | None = None,
     http_session: Any | None = None,
     websocket_factory: Any | None = None,
+    include_primary_stream: bool = True,
 ) -> SolanaDiscoveryEngine:
     """Construct the production discovery runtime without opening network sockets."""
     db_path = shared_database_path(database_path)
@@ -46,11 +47,13 @@ def build_engine(
         raise ValueError("VELTRIX_SOLANA_DISCOVERY_POLL_SECONDS must be numeric") from exc
 
     store = LaunchStore(db_path)
-    primary_adapter = PumpPortalDiscovery(
-        websocket_factory=websocket_factory,
-        endpoint=os.getenv("VELTRIX_PUMPPORTAL_WS_ENDPOINT") or None,
-    )
-    primary_manager = LaunchStreamManager(primary_adapter, store)
+    primary_manager = None
+    if include_primary_stream:
+        primary_adapter = PumpPortalDiscovery(
+            websocket_factory=websocket_factory,
+            endpoint=os.getenv("VELTRIX_PUMPPORTAL_WS_ENDPOINT") or None,
+        )
+        primary_manager = LaunchStreamManager(primary_adapter, store)
     secondary_adapter = DexScreenerDiscovery(session=http_session)
     return SolanaDiscoveryEngine(
         store,

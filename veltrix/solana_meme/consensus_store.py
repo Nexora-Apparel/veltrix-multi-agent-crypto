@@ -6,8 +6,9 @@ import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
+from ..database import connect_database, ensure_database_parent, row_factory_for
 from .consensus import ConsensusDecision
 
 
@@ -16,7 +17,7 @@ class ConsensusStore:
         self.database_path = str(database_path)
         if self.database_path == ":memory:":
             raise ValueError("consensus decisions require a persistent SQLite database")
-        Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        ensure_database_parent(self.database_path)
         with self._connect() as db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS solana_consensus_decisions (
@@ -34,8 +35,8 @@ class ConsensusStore:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.database_path, timeout=10)
-        db.row_factory = sqlite3.Row
+        db = connect_database(self.database_path, timeout=10)
+        db.row_factory = row_factory_for(self.database_path)
         try:
             yield db
             db.commit()
@@ -46,6 +47,12 @@ class ConsensusStore:
             db.close()
 
     def record(self, decision: ConsensusDecision) -> bool:
+        """Persist a consensus decision using a store-owned connection."""
+        with self._connect() as db:
+            return self.record_in_transaction(decision, db)
+
+    def record_in_transaction(self, decision: ConsensusDecision, db: Any) -> bool:
+        """Write a read-only decision on a caller-owned transaction connection."""
         if not isinstance(decision, ConsensusDecision):
             raise TypeError("decision must be a ConsensusDecision")
         if decision.status not in {"REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"}:
@@ -54,15 +61,16 @@ class ConsensusStore:
             raise ValueError("Phase 06 consensus decisions cannot authorize execution")
         if decision.paper_review_eligible is not (decision.status == "CONSENSUS_APPROVED"):
             raise ValueError("paper-review eligibility must match the consensus disposition")
+        if db is None or not callable(getattr(db, "execute", None)):
+            raise TypeError("db must be an open database connection")
         payload = json.dumps(asdict(decision), sort_keys=True, separators=(",", ":"))
-        with self._connect() as db:
-            cursor = db.execute(
-                """INSERT OR IGNORE INTO solana_consensus_decisions
-                (mint, created_at_ms, decision_id, payload_json)
-                VALUES (?, ?, ?, ?)""",
-                (decision.mint, decision.created_at_ms, decision.decision_id, payload),
-            )
-            return cursor.rowcount == 1
+        cursor = db.execute(
+            """INSERT OR IGNORE INTO solana_consensus_decisions
+            (mint, created_at_ms, decision_id, payload_json)
+            VALUES (?, ?, ?, ?)""",
+            (decision.mint, decision.created_at_ms, decision.decision_id, payload),
+        )
+        return cursor.rowcount == 1
 
     @staticmethod
     def _decode(row: sqlite3.Row | None) -> dict | None:

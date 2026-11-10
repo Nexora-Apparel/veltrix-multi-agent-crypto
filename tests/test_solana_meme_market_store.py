@@ -93,3 +93,19 @@ def test_store_rejects_untyped_data_and_invalid_history_limit(tmp_path):
         store.history(MINT, limit=0)
     with pytest.raises(ValueError):
         MarketSnapshotStore(":memory:")
+
+
+def test_record_in_transaction_uses_caller_commit_and_rollback(tmp_path):
+    store = MarketSnapshotStore(tmp_path / "market-transaction.sqlite3")
+    item = snapshot(retrieved=4000, observed=3900)
+    with store._connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        assert store.record_in_transaction(item, db)
+        db.rollback()
+    assert store.count(MINT) == 0
+
+    with store._connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        assert store.record_in_transaction(item, db)
+        db.commit()
+    assert store.count(MINT) == 1
