@@ -23,6 +23,7 @@ class SolUsdMarketProvider(Protocol):
 class SolanaPaperQuote:
     mint: str
     market_snapshot_id: int
+    token_pair_address: str
     price_lamports: int
     token_price_usd: Decimal
     sol_price_usd: Decimal
@@ -137,6 +138,7 @@ class SolanaPaperQuoteAdapter:
         return SolanaPaperQuote(
             mint=mint,
             market_snapshot_id=int(token["id"]),
+            token_pair_address=str(token["pair_address"]),
             price_lamports=lamports,
             token_price_usd=token_usd,
             sol_price_usd=sol_usd,
