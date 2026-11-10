@@ -254,6 +254,8 @@ class MarketRefreshWorker:
             return MarketRefreshBatchResult(discovered, 0, 0, 0, 0, deferred)
 
         refreshed = unchanged = failed = 0
+        if context is not None:
+            context.checkpoint(items=len(claimed))
         try:
             batch = self.market_data.fetch_many(claimed, now_ms=self.clock_ms())
             if not isinstance(batch, MarketDataBatch):
@@ -287,8 +289,6 @@ class MarketRefreshWorker:
                         or observed_at - snapshot.retrieved_at_ms > self.max_snapshot_age_ms
                     ):
                         raise ValueError("market snapshot retrieval timestamp is stale or invalid")
-                    if context is not None:
-                        context.checkpoint(items=1)
                     with self._connect() as db:
                         db.execute("BEGIN IMMEDIATE")
                         if context is not None:
