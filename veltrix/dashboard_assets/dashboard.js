@@ -79,6 +79,8 @@
       $("sol-cash").textContent = "—";
       $("sol-realized").textContent = "—";
       $("sol-open").textContent = "—";
+      $("sol-unrealized").textContent = "—";
+      $("sol-unrealized").className = "";
       $("sol-fills").textContent = "— fills";
       renderSolFills([]);
       $("sol-equity").textContent = "No SOL marks";
@@ -95,12 +97,19 @@
       number(data.realized_pnl_sol, 6) + " SOL";
     $("sol-realized").className = Number(data.realized_pnl_lamports) >= 0 ? "positive" : "negative";
     $("sol-open").textContent = number(data.open_position_count, 0);
+    $("sol-unrealized").textContent = data.unrealized_pnl_sol === null ||
+      data.unrealized_pnl_sol === undefined
+      ? "—" : (Number(data.unrealized_pnl_lamports) > 0 ? "+" : "") +
+        number(data.unrealized_pnl_sol, 6) + " SOL";
+    $("sol-unrealized").className = data.unrealized_pnl_lamports === null ||
+      data.unrealized_pnl_lamports === undefined ? "" :
+      Number(data.unrealized_pnl_lamports) >= 0 ? "positive" : "negative";
     $("sol-fills").textContent = number(data.entry_fills, 0) + " entries · " +
       number(data.exit_fills, 0) + " exits";
     renderSolFills(data.recent_fills || []);
     $("sol-equity").textContent = data.equity_complete
       ? "Equity " + number(data.equity_sol, 6) + " SOL"
-      : number((data.unmarked_positions || []).length, 0) + " unmarked · equity incomplete";
+      : number((data.unmarked_positions || []).length, 0) + " stale / unmarked · equity incomplete";
     $("sol-wallet-note").textContent =
       "All balances and P&L are integer lamports · " +
       number(data.fill_count, 0) + " persisted fills · live execution disabled";
