@@ -1,15 +1,18 @@
 """Adversarial tests for the exact-intent Solana transaction validator."""
+import dataclasses
 import pytest
 
 from solders.hash import Hash
 from solders.instruction import AccountMeta, CompiledInstruction, Instruction
 from solders.message import Message, MessageV0, to_bytes_versioned
-from solders.pubkey import Pubkey
 from solders.address_lookup_table_account import AddressLookupTableAccount
+from solders.pubkey import Pubkey
 
 from veltrix.transaction_validator import (
     AccountExpectation,
     InstructionExpectation,
+    ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+    ResolvedLookupTable,
     TransactionIntent,
     TransactionValidationError,
     TransactionValidationPolicy,
@@ -237,9 +240,17 @@ def test_rejects_v0_message_with_address_lookup_table():
         validate_transaction_message(to_bytes_versioned(message), intent=intent, policy=policy)
 
 
-def test_policy_rejects_attempt_to_enable_lookup_tables():
-    with pytest.raises(TransactionValidationError, match="disabled"):
-        TransactionValidationPolicy(allowed_program_ids=(), allow_address_lookup_tables=True)
+def test_policy_requires_explicit_boolean_for_lookup_table_opt_in():
+    policy = TransactionValidationPolicy(
+        allowed_program_ids=("program-id",),
+        allow_address_lookup_tables=True,
+    )
+    assert policy.allow_address_lookup_tables is True
+    with pytest.raises(TransactionValidationError, match="must be a boolean"):
+        TransactionValidationPolicy(
+            allowed_program_ids=("program-id",),
+            allow_address_lookup_tables="true",
+        )
 
 
 def test_intent_requires_fee_payer_to_be_signer():
@@ -304,3 +315,155 @@ def test_accepts_fee_payer_as_implicit_account_without_instruction_accounts():
     policy = TransactionValidationPolicy(allowed_program_ids=(str(program),))
     result = validate_transaction_message(to_bytes_versioned(message), intent=intent, policy=policy)
     assert result.fee_payer == str(payer)
+
+
+def _v0_lookup_fixture():
+    payer = Pubkey.new_unique()
+    source = Pubkey.new_unique()
+    destination = Pubkey.new_unique()
+    program = Pubkey.new_unique()
+    table_key = Pubkey.new_unique()
+    blockhash = Hash.new_unique()
+    table_account = AddressLookupTableAccount(key=table_key, addresses=[source, destination])
+    instruction = Instruction(
+        program,
+        b"lookup-table-test",
+        [
+            AccountMeta(source, False, True),
+            AccountMeta(destination, False, False),
+        ],
+    )
+    message = MessageV0.try_compile(payer, [instruction], [table_account], blockhash)
+    raw = to_bytes_versioned(message)
+    static_keys = tuple(str(key) for key in message.account_keys)
+    loaded_writable = []
+    loaded_readonly = []
+    for lookup in message.address_table_lookups:
+        loaded_writable.extend(str(table_account.addresses[i]) for i in bytes(lookup.writable_indexes))
+        loaded_readonly.extend(str(table_account.addresses[i]) for i in bytes(lookup.readonly_indexes))
+    account_keys = static_keys + tuple(loaded_writable) + tuple(loaded_readonly)
+    static_count = len(static_keys)
+
+    def writable(index):
+        if index < static_count:
+            header = message.header
+            required = int(header.num_required_signatures)
+            readonly_signed = int(header.num_readonly_signed_accounts)
+            readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+            if index < required:
+                return index < required - readonly_signed
+            return index < static_count - readonly_unsigned
+        return index < static_count + len(loaded_writable)
+
+    compiled = message.instructions[0]
+    program_id = str(account_keys[int(compiled.program_id_index)])
+    expected_accounts = tuple(
+        AccountExpectation(
+            account_keys[int(i)],
+            message.is_signer(int(i)) if int(i) < static_count else False,
+            writable(int(i)),
+        )
+        for i in bytes(compiled.accounts)
+    )
+    intent = TransactionIntent(
+        fee_payer=str(payer),
+        required_signers=tuple(
+            key for i, key in enumerate(static_keys) if message.is_signer(i)
+        ),
+        recent_blockhash=str(blockhash),
+        instructions=(
+            InstructionExpectation(program_id, expected_accounts, bytes(compiled.data)),
+        ),
+    )
+    policy = TransactionValidationPolicy(
+        allowed_program_ids=(program_id,),
+        allow_address_lookup_tables=True,
+    )
+    resolved = ResolvedLookupTable(
+        table_address=str(table_key),
+        owner_program_id=ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+        addresses=tuple(str(key) for key in table_account.addresses),
+        deactivation_slot=(1 << 64) - 1,
+        last_extended_slot=50,
+        context_slot=100,
+    )
+    return raw, intent, policy, resolved, message
+
+
+def test_accepts_v0_message_with_exact_active_resolved_lookup_table():
+    raw, intent, policy, resolved, _ = _v0_lookup_fixture()
+    result = validate_transaction_message(
+        raw,
+        intent=intent,
+        policy=policy,
+        resolved_lookup_tables=(resolved,),
+        current_slot=100,
+        minimum_context_slot=90,
+    )
+    assert result.fee_payer == intent.fee_payer
+    assert result.instruction_count == 1
+
+
+def test_rejects_lookup_table_when_policy_disallows_it():
+    raw, intent, _, resolved, _ = _v0_lookup_fixture()
+    policy = TransactionValidationPolicy(allowed_program_ids=(intent.instructions[0].program_id,))
+    with pytest.raises(TransactionValidationError, match="disabled by transaction policy"):
+        validate_transaction_message(
+            raw, intent=intent, policy=policy,
+            resolved_lookup_tables=(resolved,), current_slot=100, minimum_context_slot=90,
+        )
+
+
+def test_rejects_v0_lookup_without_resolution_evidence():
+    raw, intent, policy, _, _ = _v0_lookup_fixture()
+    with pytest.raises(TransactionValidationError, match="evidence is required"):
+        validate_transaction_message(raw, intent=intent, policy=policy, current_slot=100)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("owner_program_id", str(Pubkey.new_unique()), "not owned"),
+        ("deactivation_slot", 99, "deactivated"),
+        ("last_extended_slot", 100, "extended in the current slot"),
+        ("context_slot", 89, "context slot"),
+    ],
+)
+def test_rejects_untrusted_or_inactive_lookup_table_metadata(field, value, message):
+    raw, intent, policy, resolved, _ = _v0_lookup_fixture()
+    changed = dataclasses.replace(resolved, **{field: value})
+    with pytest.raises(TransactionValidationError, match=message):
+        validate_transaction_message(
+            raw, intent=intent, policy=policy,
+            resolved_lookup_tables=(changed,), current_slot=100, minimum_context_slot=90,
+        )
+
+
+def test_rejects_lookup_index_outside_resolved_address_table():
+    raw, intent, policy, resolved, _ = _v0_lookup_fixture()
+    changed = dataclasses.replace(resolved, addresses=resolved.addresses[:1])
+    with pytest.raises(TransactionValidationError, match="outside the resolved table"):
+        validate_transaction_message(
+            raw, intent=intent, policy=policy,
+            resolved_lookup_tables=(changed,), current_slot=100, minimum_context_slot=90,
+        )
+
+
+def test_rejects_duplicate_loaded_addresses():
+    raw, intent, policy, resolved, _ = _v0_lookup_fixture()
+    changed = dataclasses.replace(resolved, addresses=(resolved.addresses[0], resolved.addresses[0]))
+    with pytest.raises(TransactionValidationError, match="duplicate account keys"):
+        validate_transaction_message(
+            raw, intent=intent, policy=policy,
+            resolved_lookup_tables=(changed,), current_slot=100, minimum_context_slot=90,
+        )
+
+
+def test_rejects_lookup_resolution_set_with_extra_table():
+    raw, intent, policy, resolved, _ = _v0_lookup_fixture()
+    extra = dataclasses.replace(resolved, table_address=str(Pubkey.new_unique()))
+    with pytest.raises(TransactionValidationError, match="set does not exactly match"):
+        validate_transaction_message(
+            raw, intent=intent, policy=policy,
+            resolved_lookup_tables=(resolved, extra), current_slot=100, minimum_context_slot=90,
+        )

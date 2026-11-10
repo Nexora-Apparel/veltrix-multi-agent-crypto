@@ -174,3 +174,18 @@ Implemented in `veltrix/jupiter_quote.py` with adversarial coverage in `tests/te
 - Axiom remains an optional manual monitoring/trading terminal, not an execution dependency of this adapter.
 
 No live trading capability is added.
+
+
+### 09.10 — v0 address lookup table resolution
+
+Implemented in the extended `veltrix/transaction_validator.py` and `veltrix/solana_rpc_simulation.py`, with adversarial coverage in the transaction-validator and RPC simulation suites.
+
+- v0 address lookup tables are now supported only when policy explicitly enables them and the RPC adapter fetches every referenced table from the configured cluster.
+- Each table must exist, be owned by the canonical Address Lookup Table program, deserialize successfully, be active (deactivation slot is `u64::MAX`), and have been extended before the observed bank slot.
+- The validator reconstructs Solana's exact runtime key order: static keys, all loaded writable keys, then all loaded readonly keys. It validates lookup indexes, signer/writable privileges, duplicates, unused accounts, and the 128-account runtime lock ceiling.
+- Lookup-table and token-account snapshots must share the same confirmed context slot; the simulation must use that same slot. Missing, stale, deactivated, same-slot-extended, duplicate, out-of-range, or mismatched tables fail closed.
+- Semantic direct-transfer decoding can now consume the same verified resolved table set.
+- Transaction v1 remains unsupported. Jupiter quote intake requests no transaction and the next order-intake layer must keep `maxSupportedTransactionVersion=0` until v1 support is separately implemented and tested.
+- Tables with any non-max deactivation slot are conservatively rejected, even where Solana's deactivation cooldown might still permit use. This is an intentional false-negative safety choice.
+
+This enables structural validation of v0 transactions that use active lookup tables; it does not yet approve Jupiter DEX swap instructions or authorize signing/execution.

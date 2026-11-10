@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 import requests
 from solders.message import MessageV0, from_bytes_versioned, to_bytes_versioned
+from solders.address_lookup_table_account import AddressLookupTable, ID as ADDRESS_LOOKUP_TABLE_ID
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
@@ -24,6 +25,7 @@ from veltrix.simulation_gate import (
     SimulationGateError,
 )
 from veltrix.transaction_validator import (
+    ResolvedLookupTable,
     TransactionIntent,
     TransactionValidationPolicy,
     TransactionValidationResult,
@@ -128,6 +130,57 @@ class SolanaRpcSimulationAdapter:
             raise SolanaRpcAdapterError(f"RPC {method} returned an invalid context slot")
         return slot
 
+    def _resolve_lookup_tables(
+        self,
+        message: object,
+        *,
+        minimum_context_slot: int,
+    ) -> tuple[tuple[ResolvedLookupTable, ...], int | None]:
+        if not isinstance(message, MessageV0) or not message.address_table_lookups:
+            return (), None
+        table_addresses = [str(item.account_key) for item in message.address_table_lookups]
+        if len(table_addresses) != len(set(table_addresses)):
+            raise SolanaRpcAdapterError("message contains duplicate address lookup table references")
+        result = self._rpc(
+            "getMultipleAccounts",
+            [table_addresses, {
+                "encoding": "base64",
+                "commitment": "confirmed",
+                "minContextSlot": minimum_context_slot,
+            }],
+        )
+        context_slot = self._context_slot(result, "getMultipleAccounts(lookup tables)")
+        if context_slot < minimum_context_slot:
+            raise SolanaRpcAdapterError("lookup table response did not reach the required minimum context slot")
+        values = result.get("value")
+        if not isinstance(values, list) or len(values) != len(table_addresses):
+            raise SolanaRpcAdapterError("lookup table RPC response is incomplete")
+        resolved: list[ResolvedLookupTable] = []
+        for address, info in zip(table_addresses, values):
+            if not isinstance(info, dict):
+                raise SolanaRpcAdapterError("address lookup table account is missing")
+            if info.get("owner") != str(ADDRESS_LOOKUP_TABLE_ID):
+                raise SolanaRpcAdapterError("lookup table account owner is not the canonical address lookup table program")
+            data = info.get("data")
+            if not isinstance(data, list) or len(data) != 2 or data[1] != "base64" or not isinstance(data[0], str):
+                raise SolanaRpcAdapterError("lookup table account has unsupported data encoding")
+            try:
+                raw = base64.b64decode(data[0], validate=True)
+                table = AddressLookupTable.deserialize(raw)
+                meta = table.meta
+                addresses = tuple(str(key) for key in table.addresses)
+                resolved.append(ResolvedLookupTable(
+                    table_address=address,
+                    owner_program_id=str(ADDRESS_LOOKUP_TABLE_ID),
+                    addresses=addresses,
+                    deactivation_slot=int(meta.deactivation_slot),
+                    last_extended_slot=int(meta.last_extended_slot),
+                    context_slot=context_slot,
+                ))
+            except Exception as exc:
+                raise SolanaRpcAdapterError("address lookup table account data could not be safely decoded") from exc
+        return tuple(resolved), context_slot
+
     @staticmethod
     def _token_balance(account_info: Any, address: str) -> tuple[str, str, int]:
         if not isinstance(account_info, dict):
@@ -171,11 +224,6 @@ class SolanaRpcSimulationAdapter:
         same confirmed context slot. This intentionally rejects non-atomic
         snapshots rather than comparing balances from different banks.
         """
-        validation = validate_transaction_message(
-            message_bytes,
-            intent=intent,
-            policy=transaction_policy,
-        )
         if not isinstance(expected_token_deltas, tuple) or not expected_token_deltas:
             raise SolanaRpcAdapterError("explicit expected token-account deltas are required")
         if len(expected_token_deltas) > MAX_TRACKED_TOKEN_ACCOUNTS:
@@ -220,17 +268,37 @@ class SolanaRpcSimulationAdapter:
         if block_height > last_valid_block_height:
             raise SolanaRpcAdapterError("approved recent blockhash has expired")
 
+        try:
+            message = from_bytes_versioned(message_bytes)
+            if isinstance(message, MessageV0):
+                message.sanitize()
+        except Exception as exc:
+            raise SolanaRpcAdapterError("transaction message could not be decoded before lookup resolution") from exc
+        resolved_lookup_tables, lookup_context_slot = self._resolve_lookup_tables(
+            message, minimum_context_slot=minimum_context_slot
+        )
+        validation = validate_transaction_message(
+            message_bytes,
+            intent=intent,
+            policy=transaction_policy,
+            resolved_lookup_tables=resolved_lookup_tables,
+            current_slot=lookup_context_slot,
+            minimum_context_slot=minimum_context_slot,
+        )
+
         pre_result = self._rpc(
             "getMultipleAccounts",
             [addresses, {
                 "encoding": "base64",
                 "commitment": "confirmed",
-                "minContextSlot": max(minimum_context_slot, blockhash_slot),
+                "minContextSlot": max(minimum_context_slot, blockhash_slot, lookup_context_slot or 0),
             }],
         )
         pre_slot = self._context_slot(pre_result, "getMultipleAccounts")
-        if pre_slot < max(minimum_context_slot, blockhash_slot):
+        if pre_slot < max(minimum_context_slot, blockhash_slot, lookup_context_slot or 0):
             raise SolanaRpcAdapterError("pre-state response did not reach the required minimum context slot")
+        if lookup_context_slot is not None and pre_slot != lookup_context_slot:
+            raise SolanaRpcAdapterError("lookup table and token-account snapshots were not observed at the same context slot")
         pre_accounts = pre_result.get("value")
         if not isinstance(pre_accounts, list) or len(pre_accounts) != len(addresses):
             raise SolanaRpcAdapterError("getMultipleAccounts returned an incomplete account list")

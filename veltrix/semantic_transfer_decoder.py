@@ -12,6 +12,7 @@ from collections import defaultdict
 from solders.message import MessageV0, from_bytes_versioned
 
 from veltrix.transaction_validator import (
+    ResolvedLookupTable,
     TransactionIntent,
     TransactionValidationPolicy,
     TransactionValidationResult,
@@ -130,6 +131,9 @@ def decode_transaction_semantics(
     policy: SemanticDecodePolicy,
     expected_token_transfers: tuple[ExpectedTokenTransfer, ...],
     expected_native_transfers: tuple[ExpectedNativeTransfer, ...],
+    resolved_lookup_tables: tuple[ResolvedLookupTable, ...] = (),
+    current_slot: int | None = None,
+    minimum_context_slot: int = 0,
 ) -> SemanticDecodeResult:
     """Decode only explicit direct-transfer primitives and compare approved effects."""
     if not isinstance(policy, SemanticDecodePolicy):
@@ -146,6 +150,9 @@ def decode_transaction_semantics(
             message_bytes,
             intent=intent,
             policy=transaction_policy,
+            resolved_lookup_tables=resolved_lookup_tables,
+            current_slot=current_slot,
+            minimum_context_slot=minimum_context_slot,
         )
     except Exception as exc:
         raise SemanticDecodeError("structural transaction validation failed") from exc
@@ -156,16 +163,36 @@ def decode_transaction_semantics(
         message = from_bytes_versioned(message_bytes)
         if isinstance(message, MessageV0):
             message.sanitize()
-        account_keys = tuple(str(key) for key in message.account_keys)
+        static_keys = tuple(str(key) for key in message.account_keys)
+        loaded_writable = []
+        loaded_readonly = []
+        if isinstance(message, MessageV0) and message.address_table_lookups:
+            tables = {item.table_address: item for item in resolved_lookup_tables}
+            for lookup in message.address_table_lookups:
+                table = tables[str(lookup.account_key)]
+                loaded_writable.extend(table.addresses[i] for i in bytes(lookup.writable_indexes))
+                loaded_readonly.extend(table.addresses[i] for i in bytes(lookup.readonly_indexes))
+        account_keys = static_keys + tuple(loaded_writable) + tuple(loaded_readonly)
+        static_count = len(static_keys)
+        loaded_writable_count = len(loaded_writable)
         instructions = tuple(message.instructions)
     except Exception as exc:
         raise SemanticDecodeError("message could not be decoded for semantic inspection") from exc
 
-    if isinstance(message, MessageV0) and message.address_table_lookups:
-        raise SemanticDecodeError("address lookup tables are unsupported")
     if not instructions:
         raise SemanticDecodeError("transaction contains no instructions")
 
+    def is_signer(index: int) -> bool:
+        if index < 0 or index >= len(account_keys):
+            raise SemanticDecodeError("instruction account index is out of range")
+        return message.is_signer(index) if index < static_count else False
+
+    def is_writable(index: int) -> bool:
+        if index < 0 or index >= len(account_keys):
+            raise SemanticDecodeError("instruction account index is out of range")
+        if index < static_count:
+            return _is_writable(message, index, static_count)
+        return index < static_count + loaded_writable_count
     decoded_tokens: list[DecodedTokenTransfer] = []
     decoded_native: list[DecodedNativeTransfer] = []
     compute_unit_limit: int | None = None
@@ -200,9 +227,9 @@ def decode_transaction_semantics(
             amount = int.from_bytes(data[4:12], "little")
             if amount <= 0:
                 raise SemanticDecodeError("native transfer amount must be positive")
-            if not message.is_signer(source_index) or not _is_writable(message, source_index, len(account_keys)):
+            if not is_signer(source_index) or not is_writable(source_index):
                 raise SemanticDecodeError("native transfer source must be a writable signer")
-            if not _is_writable(message, destination_index, len(account_keys)):
+            if not is_writable(destination_index):
                 raise SemanticDecodeError("native transfer destination must be writable")
             decoded_native.append(DecodedNativeTransfer(
                 source=account_keys[source_index],
@@ -221,13 +248,13 @@ def decode_transaction_semantics(
             decimals = data[9]
             if amount <= 0:
                 raise SemanticDecodeError("token transfer amount must be positive")
-            if not _is_writable(message, source_index, len(account_keys)):
+            if not is_writable(source_index):
                 raise SemanticDecodeError("token transfer source must be writable")
-            if _is_writable(message, mint_index, len(account_keys)):
+            if is_writable(mint_index):
                 raise SemanticDecodeError("token mint account must be read-only")
-            if not _is_writable(message, destination_index, len(account_keys)):
+            if not is_writable(destination_index):
                 raise SemanticDecodeError("token transfer destination must be writable")
-            if not message.is_signer(authority_index):
+            if not is_signer(authority_index):
                 raise SemanticDecodeError("token transfer authority must be a required signer")
             decoded_tokens.append(DecodedTokenTransfer(
                 source=account_keys[source_index],
