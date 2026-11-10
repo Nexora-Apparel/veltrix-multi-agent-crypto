@@ -8,6 +8,7 @@ on:
       - "veltrix/dashboard_assets/**"
       - "wrangler.jsonc"
       - ".github/workflows/cloudflare-dashboard-validation.yml"
+      - "tests/cloudflare_worker.test.mjs"
   pull_request:
     paths:
       - "cloudflare/**"
