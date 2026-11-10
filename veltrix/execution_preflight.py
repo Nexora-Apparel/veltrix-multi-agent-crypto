@@ -121,11 +121,23 @@ def evaluate_execution_preflight(
         raise ExecutionPreflightError("structural, semantic and simulation evidence message digests differ")
     if risk_report.mint != policy.expected_mint:
         raise ExecutionPreflightError("risk evidence mint does not match the approved mint")
-    if not risk_report.mint_evidence_id or not risk_report.holder_evidence_id:
+    if (
+        not isinstance(risk_report.mint_evidence_id, str)
+        or not risk_report.mint_evidence_id
+        or not isinstance(risk_report.holder_evidence_id, str)
+        or not risk_report.holder_evidence_id
+    ):
         raise ExecutionPreflightError("mint and holder evidence identifiers are both required")
+    if not isinstance(risk_report.errors, tuple) or any(not isinstance(error, str) for error in risk_report.errors):
+        raise ExecutionPreflightError("risk evidence errors are malformed")
     if risk_report.errors:
         raise ExecutionPreflightError("risk evidence report contains provider or parsing errors")
-    if risk_report.observed_at_ms <= 0 or risk_report.observed_at_ms > now_epoch_ms + policy.max_future_skew_ms:
+    if (
+        isinstance(risk_report.observed_at_ms, bool)
+        or not isinstance(risk_report.observed_at_ms, int)
+        or risk_report.observed_at_ms <= 0
+        or risk_report.observed_at_ms > now_epoch_ms + policy.max_future_skew_ms
+    ):
         raise ExecutionPreflightError("risk evidence timestamp is invalid or excessively future-dated")
     if now_epoch_ms - risk_report.observed_at_ms > policy.max_risk_evidence_age_ms:
         raise ExecutionPreflightError("risk evidence report is stale")
@@ -136,6 +148,10 @@ def evaluate_execution_preflight(
     ):
         raise ExecutionPreflightError("mint evidence does not meet the required finalized slot")
 
+    if not isinstance(risk_report.missing_claims, tuple) or any(
+        not isinstance(claim, str) or not claim for claim in risk_report.missing_claims
+    ):
+        raise ExecutionPreflightError("missing-claim evidence is malformed")
     missing = set(risk_report.missing_claims)
     if missing.intersection(policy.required_claims):
         raise ExecutionPreflightError("one or more required live risk evidence claims are missing")
