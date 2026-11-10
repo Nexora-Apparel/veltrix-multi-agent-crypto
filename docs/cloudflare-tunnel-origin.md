@@ -80,7 +80,9 @@ Add these repository secrets for the guarded Worker deployment workflow:
   credentials.
 
 The Worker injects both the Access service-token headers and the VELTRIX
-bearer token server-side. The browser receives neither credential. The Python
+bearer token server-side. The browser receives neither credential. Cloudflare
+service tokens have an expiry; schedule rotation, update the GitHub secret,
+and redeploy before the token expires. The Python
 API still checks its bearer token using constant-time comparison. Access
 service-token authentication is an additional origin boundary, not a
 replacement for the application bearer token.
