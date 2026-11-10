@@ -168,7 +168,9 @@ The static dashboard intentionally has no bearer-token input and does not store
 service credentials in browser storage. The Cloudflare Worker injects
 `VELTRIX_DASHBOARD_TOKEN` on the server side for allowlisted read-only API
 requests. The Python API independently validates that bearer token using
-constant-time comparison. Keep the origin private or firewall-restricted where
+constant-time comparison. For a remote Turso database, it also requires
+`TURSO_DASHBOARD_AUTH_TOKEN` and refuses to fall back to the pipeline's
+`TURSO_AUTH_TOKEN`; provision a separate provider-issued read-only token. Keep the origin private or firewall-restricted where
 the hosting provider permits it; do not expose the API origin as an unauthenticated
 alternate route. Local development can use the Python API's documented
 environment binding and direct authenticated HTTP clients.
