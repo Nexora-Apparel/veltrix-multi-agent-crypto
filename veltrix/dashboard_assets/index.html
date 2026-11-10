@@ -47,6 +47,21 @@
       <article class="metric-card"><span>Portfolio exposure</span><strong id="exposure">$—</strong><small id="exposure-pct">— of starting balance</small></article>
     </section>
 
+    <section class="panel" id="sol-wallet">
+      <div class="panel-heading">
+        <div><p class="eyebrow">PHASE 07 / NATIVE SOL SIMULATION</p><h2>Lamport-native paper wallet</h2>
+        <p class="panel-note">Separate virtual SOL ledger · provider-provenance marks · no wallet signing</p></div>
+        <span class="count-pill" id="sol-wallet-status">NOT INITIALIZED</span>
+      </div>
+      <div class="metrics-grid sol-wallet-grid">
+        <article class="metric-card"><span>Starting balance</span><strong id="sol-starting">—</strong><small>Virtual SOL only</small></article>
+        <article class="metric-card"><span>Available SOL</span><strong id="sol-cash">—</strong><small>After simulated fees</small></article>
+        <article class="metric-card"><span>Realized P&amp;L</span><strong id="sol-realized">—</strong><small id="sol-fills">— fills</small></article>
+        <article class="metric-card"><span>Open positions</span><strong id="sol-open">—</strong><small id="sol-equity">Equity awaiting fresh marks</small></article>
+      </div>
+      <p class="panel-note" id="sol-wallet-note">Native SOL ledger has not been initialized. This panel is read-only.</p>
+    </section>
+
     <section class="panel token-chart-panel" id="token-terminal">
       <div class="panel-heading">
         <div><p class="eyebrow">SOLANA TOKEN TERMINAL</p><h2>Live OHLCV market chart</h2>
