@@ -309,7 +309,27 @@ class DashboardRepository:
             mark_age_ms = (
                 now_ms - int(mark["observed_at_ms"]) if mark is not None else None
             )
-            fresh = mark_age_ms is not None and 0 <= mark_age_ms <= 120_000
+            try:
+                mark_provenance = (
+                    json.loads(mark.get("quote_provenance_json") or "{}")
+                    if mark is not None else {}
+                )
+            except (TypeError, ValueError):
+                mark_provenance = {}
+            source = mark_provenance.get("token_source")
+            provenance_valid = (
+                isinstance(source, str) and bool(source.strip())
+                and isinstance(mark_provenance.get("token_pair_address"), str)
+                and bool(mark_provenance["token_pair_address"].strip())
+                and mark_provenance.get("token_observed_at_ms") == (
+                    int(mark["observed_at_ms"]) if mark is not None else None
+                )
+                and mark is not None and mark.get("market_snapshot_id") is not None
+            )
+            fresh = (
+                mark_age_ms is not None and 0 <= mark_age_ms <= 120_000
+                and provenance_valid
+            )
             if fresh:
                 quantity = Decimal(position["quantity"])
                 market_value = int(
@@ -318,31 +338,36 @@ class DashboardRepository:
                 pnl = market_value - int(position["cost_basis_lamports"])
                 unrealized_lamports += pnl
                 marked_market_value_lamports += market_value
-                try:
-                    mark_provenance = json.loads(mark.get("quote_provenance_json") or "{}")
-                except (TypeError, ValueError):
-                    mark_provenance = {}
                 marked_positions.append({
                     **position,
                     "mark_price_lamports": int(mark["price_lamports"]),
                     "mark_observed_at_ms": int(mark["observed_at_ms"]),
                     "mark_age_seconds": round(mark_age_ms / 1000, 1),
-                    "mark_source": mark_provenance.get("token_source"),
+                    "mark_source": source,
                     "market_value_lamports": market_value,
                     "unrealized_pnl_lamports": pnl,
                     "mark_freshness": "fresh",
                 })
             else:
                 unmarked_positions.append(position["mint"])
+                freshness = (
+                    "unavailable" if mark is None else
+                    "future" if mark_age_ms is not None and mark_age_ms < 0 else
+                    "stale" if mark_age_ms is not None and mark_age_ms > 120_000 else
+                    "unverified"
+                )
                 marked_positions.append({
                     **position,
                     "mark_price_lamports": None,
                     "mark_observed_at_ms": None if mark is None else int(mark["observed_at_ms"]),
-                    "mark_age_seconds": None if mark_age_ms is None else round(mark_age_ms / 1000, 1),
+                    "mark_age_seconds": (
+                        None if mark_age_ms is None or mark_age_ms < 0
+                        else round(mark_age_ms / 1000, 1)
+                    ),
                     "mark_source": None,
                     "market_value_lamports": None,
                     "unrealized_pnl_lamports": None,
-                    "mark_freshness": "stale" if mark is not None else "unavailable",
+                    "mark_freshness": freshness,
                 })
         equity_complete = not unmarked_positions
         equity_lamports = cash + marked_market_value_lamports if equity_complete else None
