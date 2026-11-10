@@ -133,6 +133,31 @@ class DashboardRepository:
                     worker["last_success_at"] = _iso_from_ms(worker.pop("last_success_at_ms"))
                     worker["last_started_at"] = _iso_from_ms(worker.pop("last_started_at_ms"))
                     worker["last_finished_at"] = _iso_from_ms(worker.pop("last_finished_at_ms"))
+        candle_refresh: dict = {"status": "not_configured", "total_jobs": 0}
+        if "solana_candle_refresh_jobs" in tables:
+            with self._connect() as db:
+                row = db.execute("""
+                    SELECT COUNT(*) AS total_jobs,
+                           SUM(CASE WHEN status='retry' THEN 1 ELSE 0 END) AS retry_jobs,
+                           SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END) AS processing_jobs,
+                           COALESCE(SUM(consecutive_failures),0) AS consecutive_failures,
+                           MAX(last_success_at_ms) AS last_success_at_ms,
+                           MAX(updated_at_ms) AS updated_at_ms
+                    FROM solana_candle_refresh_jobs
+                """).fetchone()
+            candle_refresh = dict(row)
+            candle_refresh["status"] = (
+                "idle" if int(candle_refresh["total_jobs"] or 0) == 0
+                else "degraded" if int(candle_refresh["retry_jobs"] or 0) > 0
+                else "active"
+            )
+            candle_refresh["last_success_at"] = _iso_from_ms(candle_refresh.pop("last_success_at_ms"))
+            candle_refresh["last_updated_at"] = _iso_from_ms(candle_refresh.get("updated_at_ms"))
+            candle_refresh["last_success_age_seconds"] = (
+                None if candle_refresh.get("last_success_at") is None
+                else max(0.0, (int(time.time() * 1000) - int(row["last_success_at_ms"])) / 1000)
+            )
+
         return {
             "ok": True,
             "database": "connected",
@@ -141,6 +166,7 @@ class DashboardRepository:
             "available_tables": sorted(tables),
             "missing_paper_tables": sorted(required - tables),
             "worker": worker or {"status": "not_configured", "healthy": False},
+            "candle_refresh": candle_refresh,
             "live_execution": False,
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
