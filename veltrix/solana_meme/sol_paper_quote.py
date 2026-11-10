@@ -114,6 +114,9 @@ class SolanaPaperQuoteAdapter:
             direct_events = self.sol_usd_provider.fetch_token_pairs("solana", [WSOL_MINT])
         except Exception:
             direct_events = []
+        now_ms = self.clock_ms()
+        if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms <= 0:
+            raise ValueError("clock_ms must return a positive integer")
         eligible = []
         for event in direct_events:
             if not self._valid_event(event, now_ms):
@@ -145,6 +148,9 @@ class SolanaPaperQuoteAdapter:
                 token_events = self.sol_usd_provider.fetch_token_pairs("solana", [token_mint])
             except Exception:
                 token_events = []
+            now_ms = self.clock_ms()
+            if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms <= 0:
+                raise ValueError("clock_ms must return a positive integer")
             native_eligible = []
             for event in token_events:
                 if not self._valid_event(event, now_ms):
