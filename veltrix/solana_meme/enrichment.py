@@ -255,6 +255,8 @@ class CandidateEnrichmentWorker:
             return EnrichmentBatchResult(discovered, 0, 0, 0, deferred)
 
         enriched = failed = 0
+        if context is not None:
+            context.checkpoint(items=len(claimed))
         try:
             batch = self.market_data.fetch_many(claimed, now_ms=self.clock_ms())
             if not isinstance(batch, MarketDataBatch):
@@ -280,8 +282,6 @@ class CandidateEnrichmentWorker:
                 try:
                     if snapshot.mint != mint:
                         raise ValueError("market adapter returned a mismatched mint")
-                    if context is not None:
-                        context.checkpoint(items=1)
                     self._complete(snapshot, self.clock_ms(), context)
                     enriched += 1
                 except Exception as exc:
