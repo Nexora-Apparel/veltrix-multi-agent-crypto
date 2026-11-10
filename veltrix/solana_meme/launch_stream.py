@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from ..database import connect_database, ensure_database_parent, is_remote_database, row_factory_for
 from .candidates import SolanaCandidate
 from .pumpportal import PumpPortalDiscovery
 
@@ -30,15 +31,15 @@ class LaunchStore:
         )
         self._keeper: sqlite3.Connection | None = None
         if self._uri:
-            self._keeper = sqlite3.connect(self.database_path, uri=True, timeout=10)
+            self._keeper = connect_database(self.database_path, uri=True, timeout=10)
         else:
-            Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+            ensure_database_parent(self.database_path)
         self._initialize()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.database_path, timeout=10, uri=self._uri)
-        connection.row_factory = sqlite3.Row
+        connection = connect_database(self.database_path, timeout=10, uri=self._uri)
+        connection.row_factory = row_factory_for(self.database_path)
         try:
             yield connection
             connection.commit()
@@ -50,7 +51,7 @@ class LaunchStore:
 
     def _initialize(self) -> None:
         with self._connect() as db:
-            if not self._uri:
+            if not self._uri and not is_remote_database(self.database_path):
                 db.execute("PRAGMA journal_mode=WAL")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS solana_launch_candidates (

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from ..database import connect_database, ensure_database_parent, row_factory_for
 from .market_data import SolanaMarketSnapshot
 
 
@@ -17,7 +18,7 @@ class MarketSnapshotStore:
         self.database_path = str(database_path)
         if self.database_path == ":memory:":
             raise ValueError("market snapshots require a persistent SQLite database")
-        Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        ensure_database_parent(self.database_path)
         with self._connect() as db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS solana_market_snapshots (
@@ -60,8 +61,8 @@ class MarketSnapshotStore:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.database_path, timeout=10)
-        db.row_factory = sqlite3.Row
+        db = connect_database(self.database_path, timeout=10)
+        db.row_factory = row_factory_for(self.database_path)
         try:
             yield db
             db.commit()

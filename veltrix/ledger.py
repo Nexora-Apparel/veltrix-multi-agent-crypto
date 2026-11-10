@@ -7,6 +7,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from .database import connect_database, ensure_database_parent, is_remote_database, row_factory_for
+
 class PaperBroker:
     def __init__(self, db_path: str, starting_balance: float = 500.0, max_positions: int = 10, max_position_usd: float = 50.0, stop_loss_pct: float = 0.06, trailing_pct: float = 0.06):
         for name, value in (
@@ -32,7 +34,7 @@ class PaperBroker:
         self.db_path = str(db_path)
         self.max_positions, self.max_position_usd = max_positions, max_position_usd
         self.stop_loss_pct, self.trailing_pct = stop_loss_pct, trailing_pct
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True) if Path(self.db_path).parent != Path(".") else None
+        ensure_database_parent(self.db_path)
         with self._connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY CHECK(id=1), starting_balance REAL NOT NULL, cash REAL NOT NULL);
@@ -75,9 +77,10 @@ class PaperBroker:
     @contextmanager
     def _connect(self):
         """Open, commit/rollback, and always close one SQLite connection."""
-        db = sqlite3.connect(self.db_path, timeout=15)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
+        db = connect_database(self.db_path, timeout=15)
+        db.row_factory = row_factory_for(self.db_path)
+        if not is_remote_database(self.db_path):
+            db.execute("PRAGMA foreign_keys=ON")
         try:
             yield db
             db.commit()
