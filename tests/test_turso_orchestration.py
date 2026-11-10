@@ -62,16 +62,16 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
             now_ms=1_000_001,
         )
         assert duplicate["run_id"] == job["run_id"]
-        attempt = store.start_attempt(job["run_id"], now_ms=1_000_002)
+        attempt = store.start_attempt(job["run_id"], owner_id="h2-worker-a", fencing_token=fence, now_ms=1_000_002)
         assert attempt["attempt"] == 1
         assert store.finish_attempt(
-            job["run_id"], 1, outcome="RETRYABLE",
+            job["run_id"], 1, owner_id="h2-worker-a", fencing_token=fence, outcome="RETRYABLE",
             now_ms=1_000_003, retry_delay_ms=1_000,
         ) == "RETRYABLE"
-        assert store.start_attempt(job["run_id"], now_ms=1_000_500) is None
-        assert store.start_attempt(job["run_id"], now_ms=1_001_004)["attempt"] == 2
+        assert store.start_attempt(job["run_id"], owner_id="h2-worker-a", fencing_token=fence, now_ms=1_000_500) is None
+        assert store.start_attempt(job["run_id"], owner_id="h2-worker-a", fencing_token=fence, now_ms=1_001_004)["attempt"] == 2
         assert store.finish_attempt(
-            job["run_id"], 2, outcome="SUCCEEDED", now_ms=1_001_005,
+            job["run_id"], 2, owner_id="h2-worker-a", fencing_token=fence, outcome="SUCCEEDED", now_ms=1_001_005,
         ) == "SUCCEEDED"
         assert store.get_job(job["run_id"])["status"] == "SUCCEEDED"
         assert store.release_lease("h2-worker-a", fence)
