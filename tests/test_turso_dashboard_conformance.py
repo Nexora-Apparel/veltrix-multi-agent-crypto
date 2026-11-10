@@ -39,6 +39,51 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
     assert wallet["unit"] == "SOL"
     assert wallet["cash_lamports"] == LAMPORTS_PER_SOL
 
+    import time
+    mint = "So11111111111111111111111111111111111111112"
+    now_ms = time.time_ns() // 1_000_000
+    provenance = {
+        "mint": mint, "market_snapshot_id": 1,
+        "token_pair_address": "turso-test-token-pool",
+        "sol_usd_pair_address": "turso-test-sol-usdc-pool",
+        "sol_usd_method": "wsol_stable_pool",
+        "token_price_usd": "0.001", "sol_price_usd": "100",
+        "token_observed_at_ms": now_ms, "sol_observed_at_ms": now_ms,
+        "token_source": "turso-conformance", "sol_source": "turso-conformance",
+    }
+    # Isolate the fixed probe mint so repeated conformance runs are idempotent.
+    with repository._connect() as db:
+        with pytest.raises(Exception):
+            db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
+    with wallet._transaction() as db:
+        db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
+        db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
+        db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (mint,))
+        db.execute("DELETE FROM solana_paper_fills WHERE mint=?", (mint,))
+    wallet.open_position(
+        idempotency_key=f"turso-mark-entry-{now_ms}", mint=mint, quantity=1,
+        price_lamports=1_000, fee_lamports=0, created_at_ms=now_ms,
+        quote_provenance=provenance,
+    )
+    wallet.process_market_price(
+        mint=mint, price_lamports=1_500, market_snapshot_id=1,
+        created_at_ms=now_ms + 1, quote_provenance=provenance,
+    )
+    marked = repository.sol_paper_wallet()
+    assert marked["equity_complete"] is True
+    assert marked["unrealized_pnl_lamports"] == 500
+    assert marked["open_positions"][0]["mark_source"] == "turso-conformance"
+    wallet.close_position(
+        idempotency_key=f"turso-mark-exit-{now_ms}", mint=mint,
+        price_lamports=1_500, fee_lamports=0, created_at_ms=now_ms + 2,
+        quote_provenance=provenance,
+    )
+    with wallet._transaction() as db:
+        db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
+        db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
+        db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (mint,))
+        db.execute("DELETE FROM solana_paper_fills WHERE mint=?", (mint,))
+
     with repository._connect() as db:
         with pytest.raises(Exception):
             db.execute(
