@@ -125,7 +125,7 @@ def test_interrupted_run_recovery_requires_current_lease(tmp_path):
     assert store.recover_interrupted(owner_id="worker-a", fencing_token=fence,
                                      now_ms=210_999, stale_after_ms=200_000) == 0
     assert store.recover_interrupted(owner_id="worker-a", fencing_token=fence,
-                                     now_ms=311_000, stale_after_ms=300_000) == 1
+                                     now_ms=211_000, stale_after_ms=200_000) == 1
     recovered = store.get_job(job["run_id"])
     assert recovered["status"] == "RETRYABLE"
     assert recovered["error_code"] == "INTERRUPTED"
