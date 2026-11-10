@@ -297,13 +297,20 @@ def _decode_route_data(data: bytes, *, instruction_name: str, policy: JupiterSwa
     outgoing_percentages: dict[int, int] = {}
     reachable = {0}
     for step in steps:
+        if step.input_index not in reachable:
+            raise JupiterInstructionDecodeError("Jupiter route plan is not topologically ordered from the input node")
         outgoing_percentages[step.input_index] = outgoing_percentages.get(step.input_index, 0) + step.percent
-        if step.input_index in reachable:
-            reachable.add(step.output_index)
+        reachable.add(step.output_index)
     if any(total != 100 for total in outgoing_percentages.values()):
         raise JupiterInstructionDecodeError("Jupiter route split percentages do not total 100 for each input node")
     if count not in reachable:
         raise JupiterInstructionDecodeError("Jupiter route DAG does not reach the final output node")
+    can_reach_final = {count}
+    for step in reversed(steps):
+        if step.output_index in can_reach_final:
+            can_reach_final.add(step.input_index)
+    if any(step.input_index not in can_reach_final or step.output_index not in can_reach_final for step in steps):
+        raise JupiterInstructionDecodeError("Jupiter route plan contains a disconnected or unused branch")
     in_amount = reader.u64()
     quoted_out_amount = reader.u64()
     slippage_bps = reader.u16()
