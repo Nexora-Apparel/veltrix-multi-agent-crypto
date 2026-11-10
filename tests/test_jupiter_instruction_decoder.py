@@ -41,12 +41,15 @@ def encode_route_data(
     platform_fee_bps=0,
     shared=False,
     trailing=b"",
+    variant_fields=b"",
 ):
     prefix = SHARED_ACCOUNTS_ROUTE_DISCRIMINATOR + bytes([1]) if shared else ROUTE_DISCRIMINATOR
     return (
         prefix
         + (1).to_bytes(4, "little")
-        + bytes([swap_tag, percent, input_index, output_index])
+        + bytes([swap_tag])
+        + variant_fields
+        + bytes([percent, input_index, output_index])
         + in_amount.to_bytes(8, "little")
         + out_amount.to_bytes(8, "little")
         + slippage_bps.to_bytes(2, "little")
@@ -55,7 +58,7 @@ def encode_route_data(
     )
 
 
-def build_case(*, shared=False, data=None, source_override=None, output_override=None, authority_override=None, source_mint_override=None, source_writable=True):
+def build_case(*, shared=False, data=None, source_override=None, output_override=None, authority_override=None, source_mint_override=None, source_writable=True, route_label="Raydium CLMM"):
     taker = Pubkey.new_unique()
     input_mint = Pubkey.new_unique()
     output_mint = Pubkey.new_unique()
@@ -168,7 +171,7 @@ def build_case(*, shared=False, data=None, source_override=None, output_override
         route_plan=(
             JupiterRouteStep(
                 amm_key=str(Pubkey.new_unique()),
-                label="Raydium CLMM",
+                label=route_label,
                 input_mint=str(input_mint),
                 output_mint=str(output_mint),
                 input_amount_raw=1_000,
@@ -339,3 +342,4 @@ def test_policy_rejects_unknown_variant_or_missing_label_mapping():
             allowed_swap_variants=("RaydiumClmm",),
             variant_to_label=(),
         )
+def test_decodes_whirlpool_v2_variant_option_layout():    data = encode_route_data(swap_tag=47, variant_fields=bytes([1, 0]))    order, validation, _, _ = build_case(data=data, route_label="Whirlpool")    result = decode((order, validation, "route", None))    assert result.route_plan[0].swap_variant == "WhirlpoolSwapV2"    assert result.route_plan[0].variant_fields == (True, ())def test_rejects_invalid_whirlpool_remaining_accounts_option_tag():    data = encode_route_data(swap_tag=47, variant_fields=bytes([1, 2]))    order, validation, _, _ = build_case(data=data, route_label="Whirlpool")    with pytest.raises(JupiterInstructionDecodeError, match="option tag is invalid"):        decode((order, validation, "route", None))def test_decodes_pump_fun_exact_in_variant():    data = encode_route_data(swap_tag=49)    order, validation, _, _ = build_case(data=data, route_label="Pump.Fun")    result = decode((order, validation, "route", None))    assert result.route_plan[0].swap_variant == "PumpdotfunWrappedBuy"    assert result.route_plan[0].dex_label == "Pump.Fun"
