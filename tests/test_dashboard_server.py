@@ -292,3 +292,36 @@ def test_dashboard_health_marks_old_pipeline_heartbeat_stale(tmp_path, monkeypat
     assert health["worker"]["stale"] is True
     assert health["worker"]["healthy"] is False
     assert health["worker"]["health_age_seconds"] >= 30
+
+
+def test_dashboard_health_exposes_candle_refresh_queue_and_retry_state(tmp_path):
+    database = make_database(tmp_path)
+    now_ms = int(time.time() * 1000)
+    with sqlite3.connect(database) as db:
+        db.execute("""
+            CREATE TABLE solana_candle_refresh_jobs (
+                mint TEXT NOT NULL, interval TEXT NOT NULL, pair_address TEXT NOT NULL,
+                status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                next_refresh_at_ms INTEGER NOT NULL, lease_until_ms INTEGER,
+                claimed_by_owner_id TEXT, claim_fencing_token INTEGER,
+                last_success_at_ms INTEGER, last_error TEXT, updated_at_ms INTEGER NOT NULL,
+                PRIMARY KEY(mint, interval)
+            )
+        """)
+        db.executemany("""
+            INSERT INTO solana_candle_refresh_jobs
+            (mint,interval,pair_address,status,consecutive_failures,
+             next_refresh_at_ms,last_success_at_ms,updated_at_ms)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, [
+            ("mint-a", "1m", "pool-a", "active", 0, now_ms, now_ms - 10_000, now_ms),
+            ("mint-b", "1m", "pool-b", "retry", 2, now_ms, now_ms - 20_000, now_ms),
+        ])
+    health = DashboardRepository(database).health()
+    assert health["candle_refresh"]["status"] == "degraded"
+    assert health["candle_refresh"]["total_jobs"] == 2
+    assert health["candle_refresh"]["retry_jobs"] == 1
+    assert health["candle_refresh"]["processing_jobs"] == 0
+    assert health["candle_refresh"]["consecutive_failures"] == 2
+    assert health["candle_refresh"]["last_success_age_seconds"] >= 0
