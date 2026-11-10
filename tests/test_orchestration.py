@@ -206,3 +206,31 @@ def test_lease_renewal_rejects_unbounded_ttl(tmp_path):
     with pytest.raises(ValueError, match="ttl_ms"):
         store.renew_lease("worker", fence, ttl_ms=900_000)
     assert store.release_lease("worker", fence)
+
+
+def test_audit_log_is_append_only_and_error_codes_are_allowlisted(tmp_path):
+    store = store_at(tmp_path / "audit.sqlite3")
+    fence = leased(store)
+    job = store.enqueue(idempotency_key="audit-key", job_type="scan",
+                        payload={}, now_ms=10_001)
+    attempt = store.start_attempt(job["run_id"], owner_id="worker-a",
+                                  fencing_token=fence, now_ms=10_002)
+    store.finish_attempt(job["run_id"], attempt["attempt"], owner_id="worker-a",
+                         fencing_token=fence, outcome="FAILED",
+                         error_code="SECRET_PROVIDER_RESPONSE",
+                         now_ms=10_003)
+    db = store._connect()
+    try:
+        row = db.execute(
+            "SELECT error_code FROM orchestration_jobs WHERE run_id=?",
+            (job["run_id"],),
+        ).fetchone()
+        assert row["error_code"] == "HANDLER_ERROR"
+        with pytest.raises(Exception, match="append-only"):
+            db.execute("UPDATE orchestration_audit SET detail_json='{}'")
+        db.rollback()
+        with pytest.raises(Exception, match="append-only"):
+            db.execute("DELETE FROM orchestration_audit")
+        db.rollback()
+    finally:
+        db.close()
