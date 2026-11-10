@@ -279,7 +279,7 @@ def test_dashboard_sol_wallet_endpoint_reports_native_lamports_and_pnl(tmp_path)
         created_at_ms=now_ms + 3,
     )
     wallet.process_market_price(
-        mint=unverified_mint, price_lamports=2_000, market_snapshot_id=4,
+        mint=unverified_mint, price_lamports=1_500, market_snapshot_id=4,
         created_at_ms=now_ms + 4,
     )
     unverified_state = DashboardRepository(database).sol_paper_wallet()
