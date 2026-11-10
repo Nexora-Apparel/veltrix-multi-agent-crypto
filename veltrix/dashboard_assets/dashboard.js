@@ -175,6 +175,22 @@
       badgeCell(row, (item.quality_flags || []).length ? "REVIEW" : "CLEAN",
         ["CLEAN"], ["REVIEW"]);
       textCell(row, date(item.retrieved_at));
+      row.classList.add("market-row-selectable");
+      row.tabIndex = 0;
+      row.setAttribute("aria-label", "Open live chart for " + (item.symbol || item.mint));
+      const openChart = () => {
+        $("chart-mint").value = item.mint;
+        $("chart-pair").value = "";
+        loadCandles();
+        $("token-terminal").scrollIntoView({behavior: "smooth", block: "center"});
+      };
+      row.addEventListener("click", openChart);
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openChart();
+        }
+      });
     }, "No market snapshots available.");
   }
 
@@ -353,6 +369,17 @@
       renderDecisions(decisions);
       renderConsensus(consensus);
       renderMarkets(markets);
+      if (!$("chart-mint").value.trim() && Array.isArray(markets)) {
+        const initialMarket = markets.find((item) =>
+          Number(item.selected_pool_liquidity_usd) >= 1000 &&
+          Number(item.selected_pool_volume_h1_usd) > 0 &&
+          (!Array.isArray(item.quality_flags) || item.quality_flags.length === 0)
+        );
+        if (initialMarket) {
+          $("chart-mint").value = initialMarket.mint;
+          loadCandles();
+        }
+      }
       renderEquityCurve(curve);
       renderCosts(costs);
       renderSolWallet(solWallet);
