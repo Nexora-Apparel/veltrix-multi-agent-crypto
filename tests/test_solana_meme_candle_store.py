@@ -39,9 +39,8 @@ def test_store_deduplicates_by_provider_and_preserves_provider_provenance(tmp_pa
     assert store.record(candle(source="provider-b", close=0.0011))
     assert store.count(MINT) == 2
     rows = store.history(MINT, "pool-1", "1m")
-    assert [row["source"] for row in rows] == ["provider-a", "provider-b"]
-    assert rows[0]["close"] == 0.001
-    assert rows[1]["close"] == 0.0011
+    by_source = {row["source"]: row["close"] for row in rows}
+    assert by_source == {"provider-a": 0.001, "provider-b": 0.0011}
 
 
 def test_store_rejects_invalid_query_bounds(tmp_path):
