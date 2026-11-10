@@ -20,8 +20,12 @@ itself is unavailable.
 - `VELTRIX_SOLANA_DISCOVERY_DB`: shared SQLite path or approved Turso URL.
 - `TURSO_AUTH_TOKEN`: required only when the shared DB URL is Turso.
 - `VELTRIX_PIPELINE_POLL_SECONDS`: 15–3600 seconds; default 60.
-- `PAPER_TRADING_ENABLED`: default false. Set true only for simulation using
-  the fenced paper worker; `LIVE_TRADING=true` is rejected by Phase 07.
+- `PAPER_TRADING_ENABLED`: default false. Set true only for the USD paper
+  simulation; `LIVE_TRADING=true` is rejected.
+- `SOL_PAPER_TRADING_ENABLED`: default false. Set true instead of the USD
+  flag to run the native lamport-denominated SOL simulation.
+- `PAPER_BALANCE_SOL`: starting simulated SOL balance; default 1.0 SOL. It
+  initializes the wallet once and never resets an existing ledger.
 - `VELTRIX_CANDLE_INTERVAL`: supported candle interval; default 1m.
 
 The dashboard remains read-only. Do not expose the dashboard without its
