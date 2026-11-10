@@ -68,7 +68,7 @@ class _ReadOnlyRemoteConnection:
         statement = sql.lstrip()
         while statement.startswith("--") or statement.startswith("/*"):
             if statement.startswith("--"):
-                newline = statement.find("\\n")
+                newline = statement.find("\n")
                 statement = "" if newline < 0 else statement[newline + 1:].lstrip()
             else:
                 end = statement.find("*/", 2)
