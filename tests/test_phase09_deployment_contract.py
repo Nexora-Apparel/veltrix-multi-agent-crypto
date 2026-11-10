@@ -153,3 +153,12 @@ def test_cloudflare_deployment_is_manual_pinned_and_main_only():
     assert "wrangler secret put VELTRIX_DASHBOARD_TOKEN" in workflow
     assert "wrangler deploy --config wrangler.jsonc" in workflow
     assert "wrangler deployments list --config wrangler.jsonc" in workflow
+
+
+def test_cloudflare_static_bundle_validation_is_deploy_free_and_pinned():
+    workflow = (ROOT / ".github" / "workflows" / "cloudflare-dashboard-validation.yml").read_text(encoding="utf-8")
+    assert "wrangler@4.160.0" in workflow
+    assert "wrangler deploy --dry-run --config wrangler.jsonc" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "CLOUDFLARE_API_TOKEN" not in workflow
+    assert "wrangler secret put" not in workflow
