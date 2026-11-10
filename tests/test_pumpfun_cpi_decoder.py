@@ -268,6 +268,15 @@ def build_case(*, version="v1", name="buy_exact_sol_in", direction="buy", data_o
         data=instruction_data,
         stack_height=2,
     )
+    global_snapshot = SimulatedAccountSnapshot(
+        address=global_pda,
+        owner=PUMP_PROGRAM_ID,
+        lamports=1_000_000,
+        executable=False,
+        rent_epoch=0,
+        data=global_account_data(fee_recipient, buyback_recipient),
+        context_slot=100,
+    )
     simulation = SimulationEvidence(
         message_sha256=digest,
         recent_blockhash="pump-blockhash",
@@ -287,6 +296,7 @@ def build_case(*, version="v1", name="buy_exact_sol_in", direction="buy", data_o
         inner_program_ids=(PUMP_PROGRAM_ID,),
         inner_instruction_count=1,
         inner_instructions=(inner,),
+        account_snapshots=(global_snapshot,),
     )
     route_gate = JupiterRouteProgramGateResult(
         passed=True,
@@ -301,10 +311,7 @@ def build_case(*, version="v1", name="buy_exact_sol_in", direction="buy", data_o
         route_pool_accounts_verified=1,
         parent_instruction_index=0,
     )
-    policy = PumpFunCpiPolicy(
-        max_slippage_bps=500,
-        allowed_fee_recipient_accounts=(fee_recipient, buyback_recipient),
-    )
+    policy = PumpFunCpiPolicy(max_slippage_bps=500)
     return order, validation, jupiter_instruction, simulation, route_gate, policy, instruction_data
 
 
