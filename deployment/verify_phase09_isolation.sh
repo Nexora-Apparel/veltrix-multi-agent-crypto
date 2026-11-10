@@ -62,9 +62,9 @@ dashboard_pid="$(unit_value "$DASHBOARD_UNIT" MainPID)"
   || fail "both services must be running for process identity checks"
 proc_id() {
   local pid="$1" field="$2"
-  # /proc/PID/status ID tuples are real, effective, saved-set, filesystem.
-  # The second field is the effective UID/GID used by permission checks.
-  awk -v field="$field" '$1 == field ":" { print $2; found=1 } END { if (!found) exit 1 }' "/proc/$pid/status"
+  # /proc/PID/status lines begin with "Uid:" or "Gid:", followed by
+  # real, effective, saved-set and filesystem IDs. Effective is awk field $3.
+  awk -v field="$field" '$1 == field ":" { print $3; found=1 } END { if (!found) exit 1 }' "/proc/$pid/status"
 }
 [[ "$(proc_id "$paper_pid" Uid)" == "$paper_uid" ]] || fail "paper process effective UID mismatch"
 [[ "$(proc_id "$dashboard_pid" Uid)" == "$dashboard_uid" ]] || fail "dashboard process effective UID mismatch"
