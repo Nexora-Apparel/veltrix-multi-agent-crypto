@@ -1,7 +1,6 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const tokenKey = "veltrix_dashboard_api_token";
   const money = (value) => new Intl.NumberFormat(undefined, {
     style: "currency", currency: "USD", maximumFractionDigits: 2
   }).format(Number(value || 0));
@@ -15,9 +14,7 @@
   let refreshing = false;
 
   async function api(path) {
-    const token = sessionStorage.getItem(tokenKey) || "";
-    const headers = token ? { Authorization: "Bearer " + token } : {};
-    const response = await fetch(path, { headers, cache: "no-store" });
+    const response = await fetch(path, { cache: "no-store" });
     if (response.status === 401) throw new Error("Dashboard access token required.");
     if (!response.ok) throw new Error("Dashboard request failed (" + response.status + ").");
     return response.json();
@@ -435,18 +432,6 @@
 
   $("refresh").addEventListener("click", refresh);
   $("load-candles").addEventListener("click", loadCandles);
-  $("save-token").addEventListener("click", () => {
-    const value = $("api-token").value.trim();
-    if (value) sessionStorage.setItem(tokenKey, value);
-    else sessionStorage.removeItem(tokenKey);
-    refresh();
-  });
-  $("clear-token").addEventListener("click", () => {
-    sessionStorage.removeItem(tokenKey);
-    $("api-token").value = "";
-    refresh();
-  });
-  $("api-token").value = sessionStorage.getItem(tokenKey) || "";
   refresh();
   window.setInterval(refresh, 15_000);
   window.setInterval(() => { if ($("chart-mint").value.trim() && $("chart-pair").value.trim()) loadCandles(); }, 15_000);
