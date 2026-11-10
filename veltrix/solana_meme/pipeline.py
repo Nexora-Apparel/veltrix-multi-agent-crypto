@@ -28,6 +28,7 @@ class SolanaPipelineStages:
     risk: RiskEvidenceBatchResult
     consensus: ConsensusBatchResult
     paper: PaperTradingBatchResult | None = None
+    sol_paper: PaperTradingBatchResult | None = None
     candle_refresh: CandleRefreshBatchResult | None = None
 
 
@@ -51,6 +52,8 @@ class OneShotSolanaPipeline:
         *,
         paper_worker: PaperTradingWorker | None = None,
         paper_enabled: bool = False,
+        sol_paper_worker: Any | None = None,
+        sol_paper_enabled: bool = False,
         candle_worker: SolanaCandleRefreshWorker | None = None,
         max_runtime_seconds: float = 180.0,
         lease_ttl_ms: int = 240_000,
@@ -58,6 +61,10 @@ class OneShotSolanaPipeline:
     ) -> None:
         if paper_enabled and paper_worker is None:
             raise ValueError("paper_enabled requires a transaction-fenced PaperTradingWorker")
+        if sol_paper_enabled and sol_paper_worker is None:
+            raise ValueError("sol_paper_enabled requires a fenced native SOL paper worker")
+        if paper_enabled and sol_paper_enabled:
+            raise ValueError("USD and native SOL paper execution cannot be enabled together")
         database_paths = {
             orchestration.database,
             discovery.store.database_path,
@@ -68,6 +75,8 @@ class OneShotSolanaPipeline:
         }
         if paper_worker is not None:
             database_paths.add(paper_worker.broker.db_path)
+        if sol_paper_worker is not None:
+            database_paths.add(sol_paper_worker.wallet.database_path)
         if candle_worker is not None:
             database_paths.add(candle_worker.database_path)
         if len(database_paths) != 1:
@@ -80,6 +89,8 @@ class OneShotSolanaPipeline:
         self.consensus = consensus
         self.paper_worker = paper_worker
         self.paper_enabled = paper_enabled
+        self.sol_paper_worker = sol_paper_worker
+        self.sol_paper_enabled = sol_paper_enabled
         self.candle_worker = candle_worker
         self.max_runtime_seconds = max_runtime_seconds
         self.lease_ttl_ms = lease_ttl_ms
@@ -100,6 +111,11 @@ class OneShotSolanaPipeline:
             if self.paper_enabled and self.paper_worker is not None
             else None
         )
+        sol_paper = (
+            self.sol_paper_worker.run_once(limit=25, context=context)
+            if self.sol_paper_enabled and self.sol_paper_worker is not None
+            else None
+        )
         return SolanaPipelineStages(
             discovery=discovery,
             enrichment=enrichment,
@@ -107,6 +123,7 @@ class OneShotSolanaPipeline:
             risk=risk,
             consensus=consensus,
             paper=paper,
+            sol_paper=sol_paper,
             candle_refresh=candle_refresh,
         )
 
@@ -129,6 +146,7 @@ class OneShotSolanaPipeline:
                     *( ["candle_refresh"] if self.candle_worker is not None else [] ),
                     "risk", "consensus",
                     *(["paper"] if self.paper_enabled else []),
+                    *(["sol_paper"] if self.sol_paper_enabled else []),
                 ],
                 "paper_enabled": self.paper_enabled,
                 "limits": {
@@ -139,6 +157,7 @@ class OneShotSolanaPipeline:
                     "risk": 5,
                     "consensus": 10,
                     **({"paper": 25} if self.paper_enabled else {}),
+                    **({"sol_paper": 25} if self.sol_paper_enabled else {}),
                 },
             },
             handler=handler,
@@ -163,6 +182,7 @@ def build_one_shot_pipeline(
     wallet_event_provider: Any | None = None,
     wallet_event_batch_provider: Any | None = None,
     paper_enabled: bool = False,
+    sol_paper_enabled: bool = False,
 ) -> OneShotSolanaPipeline:
     """Build production adapters without starting any long-lived supervisors.
 
@@ -214,13 +234,43 @@ def build_one_shot_pipeline(
 
     orchestration = OrchestrationStore(str(db_path))
     orchestration.initialize()
+    if paper_enabled and sol_paper_enabled:
+        raise ValueError("choose either USD paper trading or native SOL paper trading, not both")
     paper_worker = None
-    if paper_enabled:
+    sol_paper_worker = None
+    if paper_enabled or sol_paper_enabled:
         from .paper_runtime import build_runtime as build_paper_runtime
-        paper_worker = build_paper_runtime(
-            database_path=db_path,
-            clock_ms=clock_ms,
-        ).worker
+        validator = build_paper_runtime(database_path=db_path, clock_ms=clock_ms).worker
+        if paper_enabled:
+            paper_worker = validator
+        else:
+            import os
+            from decimal import Decimal, InvalidOperation
+            from ..providers.dexscreener import DexScreenerProvider
+            from .sol_paper_quote import SolanaPaperQuoteAdapter
+            from .sol_paper_trading import SolanaNativePaperTradingWorker
+            from .sol_paper_wallet import LAMPORTS_PER_SOL, SolanaPaperWallet
+            raw_balance = os.getenv("PAPER_BALANCE_SOL", "1.0")
+            try:
+                balance_sol = Decimal(raw_balance)
+            except (InvalidOperation, TypeError):
+                raise ValueError("PAPER_BALANCE_SOL must be a positive decimal") from None
+            if not balance_sol.is_finite() or balance_sol <= 0:
+                raise ValueError("PAPER_BALANCE_SOL must be a positive decimal")
+            balance_lamports = int(balance_sol * LAMPORTS_PER_SOL)
+            wallet = SolanaPaperWallet(
+                str(db_path), balance_lamports,
+                stop_loss_pct=validator.broker.stop_loss_pct,
+                trailing_pct=validator.broker.trailing_pct,
+                max_open_positions=validator.broker.max_positions,
+                max_portfolio_exposure_pct=validator.policy.max_portfolio_exposure_pct,
+            )
+            quote_adapter = SolanaPaperQuoteAdapter(
+                validator.market_store, DexScreenerProvider(), clock_ms=clock_ms,
+            )
+            sol_paper_worker = SolanaNativePaperTradingWorker(
+                validator, wallet, quote_adapter,
+            )
 
     return OneShotSolanaPipeline(
         orchestration,
@@ -231,5 +281,7 @@ def build_one_shot_pipeline(
         consensus_runtime.worker,
         paper_worker=paper_worker,
         paper_enabled=paper_enabled,
+        sol_paper_worker=sol_paper_worker,
+        sol_paper_enabled=sol_paper_enabled,
         candle_worker=candle_worker,
     )
