@@ -80,7 +80,7 @@ def test_sol_quote_rejects_stale_token_snapshot(tmp_path):
     store = MarketSnapshotStore(str(tmp_path / "quote.sqlite3"))
     store.record(market_snapshot())
     adapter = SolanaPaperQuoteAdapter(
-        store, FakeSolUsdProvider([sol_event(observed=NOW + 500)]), max_age_ms=100,
+        store, FakeSolUsdProvider([sol_event(observed=NOW + 950)]), max_age_ms=100,
         clock_ms=lambda: NOW + 1_000,
     )
     with pytest.raises(RuntimeError, match="token USD market observation is stale"):
