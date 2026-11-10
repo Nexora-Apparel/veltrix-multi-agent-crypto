@@ -20,6 +20,15 @@ class SolUsdMarketProvider(Protocol):
 
 
 @dataclass(frozen=True)
+class SolUsdObservation:
+    price_usd: Decimal
+    observed_at_ms: int
+    source: str
+    pair_address: str
+    method: str
+
+
+@dataclass(frozen=True)
 class SolanaPaperQuote:
     mint: str
     market_snapshot_id: int
@@ -32,6 +41,7 @@ class SolanaPaperQuote:
     token_source: str
     sol_source: str
     sol_usd_pair_address: str
+    sol_usd_method: str
 
 
 class SolanaPaperQuoteAdapter:
@@ -73,25 +83,44 @@ class SolanaPaperQuoteAdapter:
             raise ValueError(f"{name} must be finite and positive")
         return result
 
-    def _sol_usd(self, now_ms: int) -> MarketEvent:
-        events = self.sol_usd_provider.fetch_token_pairs("solana", [WSOL_MINT])
+    def _valid_event(self, event: object, now_ms: int) -> bool:
+        if not isinstance(event, MarketEvent):
+            return False
+        if not isinstance(event.pair_address, str) or not event.pair_address.strip():
+            return False
+        if (
+            isinstance(event.observed_at_ms, bool)
+            or not isinstance(event.observed_at_ms, int)
+            or not 0 < event.observed_at_ms <= now_ms
+            or now_ms - event.observed_at_ms > self.max_age_ms
+        ):
+            return False
+        if not isinstance(event.source, str) or not event.source.strip():
+            return False
+        try:
+            liquidity = self._decimal(event.liquidity_usd, "pool liquidity")
+            volume = self._decimal(event.volume_h1_usd, "pool hourly volume")
+        except ValueError:
+            return False
+        return (
+            liquidity >= Decimal(str(self.min_liquidity))
+            and volume >= Decimal(str(self.min_volume))
+        )
+
+    def _sol_usd(self, now_ms: int, token_mint: str) -> SolUsdObservation:
+        # Preferred source: a direct WSOL pool quoted in a stable asset.
+        direct_events = []
+        try:
+            direct_events = self.sol_usd_provider.fetch_token_pairs("solana", [WSOL_MINT])
+        except Exception:
+            direct_events = []
         eligible = []
-        for event in events:
-            if not isinstance(event, MarketEvent):
+        for event in direct_events:
+            if not self._valid_event(event, now_ms):
                 continue
             if event.chain != "solana" or event.token_address != WSOL_MINT:
                 continue
-            if not isinstance(event.pair_address, str) or not event.pair_address.strip():
-                continue
-            quote = (event.quote_token_symbol or "").upper()
-            if quote not in STABLE_QUOTES:
-                continue
-            if (
-                isinstance(event.observed_at_ms, bool)
-                or not isinstance(event.observed_at_ms, int)
-                or not 0 < event.observed_at_ms <= now_ms
-                or now_ms - event.observed_at_ms > self.max_age_ms
-            ):
+            if (event.quote_token_symbol or "").upper() not in STABLE_QUOTES:
                 continue
             try:
                 price = self._decimal(event.price_usd, "SOL/USD price")
@@ -99,14 +128,49 @@ class SolanaPaperQuoteAdapter:
                 volume = self._decimal(event.volume_h1_usd, "SOL/USD hourly volume")
             except ValueError:
                 continue
-            if liquidity < Decimal(str(self.min_liquidity)) or volume < Decimal(str(self.min_volume)):
-                continue
-            if not isinstance(event.source, str) or not event.source.strip():
-                continue
-            eligible.append((liquidity, volume, event))
-        if not eligible:
-            raise RuntimeError("no fresh, sufficiently liquid SOL/USD pool observation")
-        return max(eligible, key=lambda item: (item[0], item[1], item[2].observed_at_ms))[2]
+            eligible.append((liquidity, volume, event, price))
+        if eligible:
+            _, _, event, price = max(
+                eligible, key=lambda item: (item[0], item[1], item[2].observed_at_ms)
+            )
+            return SolUsdObservation(
+                price, event.observed_at_ms, event.source, event.pair_address,
+                "wsol_stable_pool",
+            )
+
+        # Fallback: derive SOL/USD from a fresh token/SOL pool where DexScreener
+        # supplies priceUsd and priceNative for the same exact observation.
+        if token_mint != WSOL_MINT:
+            try:
+                token_events = self.sol_usd_provider.fetch_token_pairs("solana", [token_mint])
+            except Exception:
+                token_events = []
+            native_eligible = []
+            for event in token_events:
+                if not self._valid_event(event, now_ms):
+                    continue
+                if event.chain != "solana" or event.token_address != token_mint:
+                    continue
+                if event.quote_token_address != WSOL_MINT:
+                    continue
+                try:
+                    token_price_usd = self._decimal(event.price_usd, "token USD price")
+                    token_price_sol = self._decimal(event.price_native, "token native price")
+                    liquidity = self._decimal(event.liquidity_usd, "pool liquidity")
+                    volume = self._decimal(event.volume_h1_usd, "pool hourly volume")
+                except ValueError:
+                    continue
+                sol_usd = token_price_usd / token_price_sol
+                native_eligible.append((liquidity, volume, event, sol_usd))
+            if native_eligible:
+                _, _, event, price = max(
+                    native_eligible, key=lambda item: (item[0], item[1], item[2].observed_at_ms)
+                )
+                return SolUsdObservation(
+                    price, event.observed_at_ms, event.source, event.pair_address,
+                    "token_sol_pair_ratio",
+                )
+        raise RuntimeError("no fresh, sufficiently liquid SOL/USD observation or token/SOL conversion")
 
     def quote(self, mint: str) -> SolanaPaperQuote:
         mint = canonical_mint(mint)
@@ -126,8 +190,8 @@ class SolanaPaperQuoteAdapter:
         if not isinstance(token_source, str) or not token_source.strip() or token_source == "unknown":
             raise RuntimeError("token USD market observation has no verified source provenance")
         token_usd = self._decimal(token.get("price_usd"), "token USD price")
-        sol_event = self._sol_usd(now_ms)
-        sol_usd = self._decimal(sol_event.price_usd, "SOL/USD price")
+        sol_observation = self._sol_usd(now_ms, mint)
+        sol_usd = sol_observation.price_usd
         lamports = int(
             (token_usd / sol_usd * Decimal(1_000_000_000)).to_integral_value(
                 rounding=ROUND_HALF_UP
@@ -143,8 +207,9 @@ class SolanaPaperQuoteAdapter:
             token_price_usd=token_usd,
             sol_price_usd=sol_usd,
             token_observed_at_ms=token_at,
-            sol_observed_at_ms=sol_event.observed_at_ms,
+            sol_observed_at_ms=sol_observation.observed_at_ms,
             token_source=token_source,
-            sol_source=sol_event.source,
-            sol_usd_pair_address=sol_event.pair_address,
+            sol_source=sol_observation.source,
+            sol_usd_pair_address=sol_observation.pair_address,
+            sol_usd_method=sol_observation.method,
         )
