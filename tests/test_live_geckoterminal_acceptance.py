@@ -5,8 +5,11 @@ GeckoTerminal pool address. This test never writes to a wallet or chain.
 """
 from __future__ import annotations
 
+import json
 import os
+import threading
 import time
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -14,7 +17,7 @@ from veltrix.solana_meme.candidates import canonical_mint
 from veltrix.solana_meme.geckoterminal_candles import GeckoTerminalCandleProvider
 from veltrix.solana_meme.candle_store import SolanaCandleStore
 from veltrix.solana_meme.candle_ingestion import SolanaCandleIngestion
-from veltrix.dashboard_server import DashboardRepository
+from veltrix.dashboard_server import build_server
 
 
 pytestmark = pytest.mark.skipif(
@@ -59,10 +62,27 @@ def test_live_geckoterminal_returns_valid_recent_ohlcv_and_reaches_dashboard(tmp
         assert 0 <= now_ms - candle["observed_at_ms"] <= 120_000
         assert candle["open_time_ms"] <= now_ms + 60_000
 
-    # Exercise the same persistence/read path consumed by the chart API.
-    chart_payload = DashboardRepository(database).candles(
-        mint=mint, pair_address=pool, interval=interval, limit=100
+    # Exercise the authenticated HTTP route consumed by dashboard.js.
+    token = "live-chart-acceptance-token-" + ("x" * 32)
+    server = build_server(
+        database_path=database, host="127.0.0.1", port=0, api_token=token
     )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        query = (
+            f"mint={mint}&pair={pool}&interval={interval}&limit=100"
+        )
+        request = Request(
+            f"http://127.0.0.1:{server.server_address[1]}/api/candles?{query}",
+            headers={"Authorization": "Bearer " + token},
+        )
+        with urlopen(request, timeout=5) as response:
+            chart_payload = json.loads(response.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
     assert chart_payload["count"] == len(candles)
     assert chart_payload["source"] == "geckoterminal"
     assert chart_payload["freshness"] == "fresh"
