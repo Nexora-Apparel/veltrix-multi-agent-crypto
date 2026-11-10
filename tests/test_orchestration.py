@@ -29,6 +29,9 @@ def test_global_lease_excludes_second_owner_and_fences_expired_owner(tmp_path):
     assert not store.renew_lease("worker-a", first, now_ms=12_001)
     assert not store.release_lease("worker-a", first)
     assert store.release_lease("worker-b", second)
+    third = store.acquire_lease("worker-c", now_ms=13_000, ttl_ms=2_000)
+    assert third == second + 1
+    assert store.release_lease("worker-c", third)
 
 
 def test_concurrent_lease_acquisition_has_one_winner(tmp_path):
