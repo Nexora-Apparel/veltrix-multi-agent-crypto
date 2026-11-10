@@ -79,6 +79,8 @@ proc_has_group() {
 }
 proc_has_group "$paper_pid" "$paper_secrets_gid" || fail "paper process lacks paper credential group"
 proc_has_group "$dashboard_pid" "$dashboard_secrets_gid" || fail "dashboard process lacks dashboard credential group"
+proc_has_group "$paper_pid" "$dashboard_secrets_gid" && fail "paper process has dashboard credential group"
+proc_has_group "$dashboard_pid" "$paper_secrets_gid" && fail "dashboard process has paper credential group"
 observer_groups="$(id -G veltrix-wallet-observer)"
 for forbidden_gid in "$db_gid" "$paper_secrets_gid" "$dashboard_secrets_gid"; do
   for observer_gid in $observer_groups; do
