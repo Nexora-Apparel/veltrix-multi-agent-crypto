@@ -41,10 +41,24 @@ class RunContext:
     fencing_token: int
     _assert_fence: Callable[[], None]
     _items: int = 0
+    owner_id: str | None = None
+    lease_name: str = "global-worker"
+    _assert_fence_in_transaction: Callable[[Any], None] | None = None
 
     def assert_fence(self) -> None:
         """Fail closed if this worker no longer owns the unexpired lease."""
         self._assert_fence()
+
+    def assert_fence_in_transaction(self, db: Any) -> None:
+        """Assert ownership using the caller's mutation transaction/connection.
+
+        This is the only fence check suitable for guarding a durable worker
+        mutation: the assertion and mutation must be committed or rolled back
+        together on this exact connection.
+        """
+        if db is None or self._assert_fence_in_transaction is None:
+            raise LeaseBusy("transaction-scoped fencing is not configured")
+        self._assert_fence_in_transaction(db)
 
     def checkpoint(self, *, items: int = 1) -> "RunContext":
         if isinstance(items, bool) or not isinstance(items, int) or items < 0:
@@ -165,6 +179,14 @@ class OrchestrationStore:
             self._assert_fence_in_transaction(db, owner_id, fencing_token, now, lease_name)
         finally:
             db.close()
+
+    def assert_fence_in_transaction(self, db: Any, owner_id: str,
+                                    fencing_token: int, *,
+                                    now_ms: int | None = None,
+                                    lease_name: str = "global-worker") -> None:
+        """Validate the active lease on a caller-owned transaction connection."""
+        now = self._now(now_ms)
+        self._assert_fence_in_transaction(db, owner_id, fencing_token, now, lease_name)
 
     @staticmethod
     def _audit(db, run_id: str | None, event_type: str, detail: dict, now: int):
@@ -436,6 +458,11 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
             job["run_id"], idempotency_key, attempt["attempt"], deadline,
             max_items, monotonic, fencing,
             lambda: store.assert_fence(owner, fencing),
+            owner_id=owner,
+            lease_name="global-worker",
+            _assert_fence_in_transaction=lambda db: store.assert_fence_in_transaction(
+                db, owner, fencing
+            ),
         )
         try:
             handler(context, payload)

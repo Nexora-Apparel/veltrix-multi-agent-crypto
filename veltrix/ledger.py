@@ -4,7 +4,7 @@ import math
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from .database import connect_database, ensure_database_parent, is_remote_database, row_factory_for
@@ -119,7 +119,7 @@ class PaperBroker:
 
     def record_consensus_outcome(
         self, decision_id, token, consensus_status, execution_status, reason,
-        *, created_at_ms, processed_at_ms=None,
+        *, created_at_ms, processed_at_ms=None, db=None,
     ):
         """Record a non-entry consensus outcome once; decision IDs are idempotency keys."""
         if not isinstance(decision_id, str) or not decision_id.strip():
@@ -137,8 +137,8 @@ class PaperBroker:
         processed = int(time.time() * 1000) if processed_at_ms is None else processed_at_ms
         if isinstance(processed, bool) or not isinstance(processed, int) or processed <= 0:
             raise ValueError("processed_at_ms must be a positive integer")
-        with self._connect() as db:
-            cursor = db.execute(
+        with (nullcontext(db) if db is not None else self._connect()) as connection:
+            cursor = connection.execute(
                 """INSERT OR IGNORE INTO paper_consensus_decisions
                 (decision_id,token,consensus_status,execution_status,reason,
                  created_at_ms,processed_at_ms)
@@ -148,7 +148,7 @@ class PaperBroker:
             )
             if cursor.rowcount != 1:
                 return {"status": "DUPLICATE", "decision_id": decision_id}
-            db.execute(
+            connection.execute(
                 "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
                 ("PAPER_DECISION_SKIPPED", json.dumps({
                     "decision_id": decision_id, "token": token,
@@ -164,7 +164,7 @@ class PaperBroker:
         execution_authorized=None, created_at_ms,
         fee_bps=100, slippage_bps=50, processed_at_ms=None,
         expected_market_snapshot_id=None, expected_risk_evidence_hash=None,
-        max_portfolio_exposure_pct=1.0,
+        max_portfolio_exposure_pct=1.0, db=None,
     ):
         """Atomically open a paper position and consume one approved consensus ID."""
         import math
@@ -201,8 +201,10 @@ class PaperBroker:
         slippage_cost = quantity * (fill - mark)
         total_debit = amount + fee
         trade_id = str(uuid.uuid4())
-        with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        external_connection = db is not None
+        with (nullcontext(db) if external_connection else self._connect()) as db:
+            if not external_connection:
+                db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
                 "SELECT execution_status FROM paper_consensus_decisions WHERE decision_id=?",
                 (decision_id,),
@@ -456,7 +458,7 @@ class PaperBroker:
 
     def process_market_price(
         self, token: str, price: float, *, fee_bps: float = 0.0,
-        slippage_bps: float = 0.0, decision_id=None,
+        slippage_bps: float = 0.0, decision_id=None, db=None,
     ):
         """Apply one-time 2x/3x partial exits and a 6% initial/trailing stop."""
         if (
@@ -469,8 +471,10 @@ class PaperBroker:
         fill_price = float(price) * (1 - slippage / 10_000)
         now = time.time()
         actions = []
-        with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        external_connection = db is not None
+        with (nullcontext(db) if external_connection else self._connect()) as db:
+            if not external_connection:
+                db.execute("BEGIN IMMEDIATE")
             pos = db.execute("SELECT * FROM positions WHERE token=?", (token,)).fetchone()
             if pos is None:
                 return actions

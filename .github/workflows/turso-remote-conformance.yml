@@ -13,7 +13,7 @@ concurrency:
 jobs:
   remote-db-conformance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -23,10 +23,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install the pinned remote DB driver and test runner
+      - name: Install application and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "git+https://github.com/tursodatabase/turso.git@367fe14dff049a665d5601a8c970b9f5640bfd6d#subdirectory=serverless/python" "pytest>=8,<9"
+          python -m pip install -r requirements.txt
+          python -m pip install "git+https://github.com/tursodatabase/turso.git@367fe14dff049a665d5601a8c970b9f5640bfd6d#subdirectory=serverless/python"
 
       - name: Require the dedicated disposable conformance database
         env:
@@ -42,12 +43,12 @@ jobs:
 
           url = urlsplit(os.environ["TURSO_CONFORMANCE_DATABASE_URL"])
           assert url.scheme == "libsql", "conformance URL must use libsql://"
-          assert url.hostname == "veltrix-h0-conformance.turso.io", "wrong disposable database host"
+          assert url.hostname == "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io", "wrong disposable database host"
           assert url.username is None and url.password is None, "URL credentials are forbidden"
           assert not url.query and not url.fragment and url.path in ("", "/"), "URL extras are forbidden"
           PY
 
-      - name: Run live DB-API, application schema and orchestration conformance
+      - name: Run live DB-API, schema, fencing, worker and pipeline conformance
         env:
           TURSO_CONFORMANCE_DATABASE_URL: ${{ secrets.TURSO_CONFORMANCE_DATABASE_URL }}
           TURSO_CONFORMANCE_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
@@ -56,4 +57,6 @@ jobs:
           python -m pytest -q -rs \
             tests/test_turso_remote_conformance.py \
             tests/test_turso_application_schema.py \
-            tests/test_turso_orchestration.py
+            tests/test_turso_orchestration.py \
+            tests/test_turso_worker_conformance.py \
+            tests/test_turso_pipeline_conformance.py

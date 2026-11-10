@@ -14,7 +14,7 @@ import pytest
 
 DATABASE_URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
 AUTH_TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
-EXPECTED_HOST = "veltrix-h0-conformance.turso.io"
+EXPECTED_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io"
 
 
 def _assert_disposable_target(url: str) -> None:

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .dexscreener import DexScreenerDiscovery
+from ..orchestration import RunContext
 from .launch_stream import LaunchStore, LaunchStreamManager
 
 LOGGER = logging.getLogger(__name__)
@@ -49,34 +50,49 @@ class SolanaDiscoveryEngine:
         self.poll_interval_seconds = float(poll_interval_seconds)
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
-    def poll_once(self) -> DiscoveryCycleResult:
-        """Fetch the bounded secondary feeds once and persist normalized leads."""
+    def poll_once(self, context: RunContext | None = None, *, limit: int = 25) -> DiscoveryCycleResult:
+        """Fetch one bounded secondary-feed batch and persist it under the run fence."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
+            raise ValueError("limit must be between 1 and 25")
         try:
             batch = self.secondary_source.fetch_candidates()
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
-            self.store.record_outage(
-                reason,
-                source=self.secondary_source.name,
-                occurred_at_ms=self.clock_ms(),
-            )
+            timestamp = self.clock_ms()
+            with self.store._connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                if context is not None:
+                    context.assert_fence_in_transaction(db)
+                self.store.record_outage_in_transaction(
+                    reason,
+                    source=self.secondary_source.name,
+                    occurred_at_ms=timestamp,
+                    db=db,
+                )
             return DiscoveryCycleResult(0, 0, (), ((self.secondary_source.name, reason),))
 
         timestamp = self.clock_ms()
-        for source in batch.successful_sources:
-            self.store.record_source_healthy(source, occurred_at_ms=timestamp)
-        for source, reason in batch.errors:
-            self.store.record_outage(
-                reason,
-                source=source,
-                occurred_at_ms=timestamp,
-            )
-        for candidate in batch.candidates:
-            self.store.record_candidate(candidate)
+        with self.store._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
+            for source in batch.successful_sources:
+                self.store.record_source_healthy_in_transaction(
+                    source, occurred_at_ms=timestamp, db=db
+                )
+            for source, reason in batch.errors:
+                self.store.record_outage_in_transaction(
+                    reason, source=source, occurred_at_ms=timestamp, db=db
+                )
+            selected_candidates = batch.candidates[:limit]
+            for candidate in selected_candidates:
+                if context is not None:
+                    context.checkpoint(items=1)
+                self.store.record_candidate_in_transaction(candidate, db)
 
         return DiscoveryCycleResult(
             candidates_received=len(batch.candidates),
-            candidates_stored=len(batch.candidates),
+            candidates_stored=len(selected_candidates),
             healthy_sources=batch.successful_sources,
             source_errors=batch.errors,
         )
