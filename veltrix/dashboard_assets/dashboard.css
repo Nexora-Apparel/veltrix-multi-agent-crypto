@@ -89,3 +89,7 @@ td{border-color:#30212a;color:#eee5ea}
 #token-candle-chart{width:100%;height:100%;overflow:visible}
 @media(max-width:760px){.token-chart-controls{grid-template-columns:1fr 1fr}.token-chart-controls button{min-height:40px}}
 @media(max-width:480px){.token-chart-controls{grid-template-columns:1fr}.candle-meta{flex-direction:column;gap:3px}.candle-chart-wrap{height:240px}}
+
+.sol-wallet-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 8px}
+#sol-wallet-note{margin:0;color:var(--muted);font-size:10px}
+@media(max-width:760px){.sol-wallet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
