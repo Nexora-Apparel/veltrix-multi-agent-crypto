@@ -62,3 +62,16 @@ Turso database and configure TLS/custom-domain routing at Cloudflare.
    observations exceed the freshness threshold.
 6. Paper tests use the existing simulated USD ledger; no wallet signer, RPC
    transaction submission, or live execution endpoint is present.
+
+
+## Ephemeral scheduled runner
+
+The public repository also contains
+`.github/workflows/solana-scheduled-pipeline.yml`, which runs one bounded cycle
+every five minutes on GitHub-hosted runners. It uses the same production Turso
+database, UTC-bucket idempotency, and fencing lease as the systemd runtime.
+The job is serialized by GitHub Actions concurrency and has a four-minute
+timeout. It is an alternative to an always-on host, not a second concurrent
+scheduler. Configure `VELTRIX_SOLANA_DISCOVERY_DB` and `TURSO_AUTH_TOKEN`
+repository secrets before enabling it. The optional `SOL_PAPER_TRADING_ENABLED`
+repository variable defaults to false; live execution is hard-disabled.
