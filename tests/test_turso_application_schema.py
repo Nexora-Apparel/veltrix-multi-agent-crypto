@@ -6,20 +6,37 @@ credentials at the production paper ledger.
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
 import pytest
 
 
-URL = os.getenv("TURSO_DATABASE_URL", "").strip()
-TOKEN = os.getenv("TURSO_AUTH_TOKEN", "").strip()
+URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
+TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
+EXPECTED_HOST = "veltrix-h0-conformance.turso.io"
+
+
+def _assert_disposable_target(url: str) -> None:
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "libsql"
+        or parsed.hostname != EXPECTED_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise RuntimeError(f"schema cleanup is restricted to {EXPECTED_HOST}")
 
 pytestmark = pytest.mark.skipif(
     not URL or not TOKEN,
-    reason="Turso disposable-database credentials are required",
+    reason="dedicated disposable Turso conformance credentials are required",
 )
 
 
 def test_core_paper_pipeline_stores_initialize_on_turso(monkeypatch):
+    _assert_disposable_target(URL)
     monkeypatch.setenv("TURSO_AUTH_TOKEN", TOKEN)
 
     import turso_serverless
