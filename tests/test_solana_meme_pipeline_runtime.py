@@ -50,3 +50,42 @@ def test_pipeline_runtime_stops_without_running_when_stop_is_set(tmp_path):
     stop = threading.Event()
     stop.set()
     runtime.run(stop)
+
+
+def test_pipeline_runtime_enables_native_sol_only_when_explicit(monkeypatch, tmp_path):
+    import veltrix.solana_meme.pipeline_runtime as runtime_module
+
+    calls = []
+    class Pipeline:
+        def run_once(self, *, idempotency_key):
+            return type("Result", (), {"job": {"status": "SUCCEEDED", "id": "native-sol-job"}})()
+
+    monkeypatch.setattr(runtime_module, "shared_database_path", lambda path=None: tmp_path / "native.sqlite3")
+    monkeypatch.setattr(
+        runtime_module, "build_one_shot_pipeline",
+        lambda **kwargs: calls.append(kwargs) or Pipeline(),
+    )
+    monkeypatch.setenv("SOL_PAPER_TRADING_ENABLED", "true")
+    monkeypatch.setenv("PAPER_TRADING_ENABLED", "false")
+    monkeypatch.setenv("LIVE_TRADING", "false")
+    runtime = runtime_module.build_runtime()
+    assert runtime.pipeline is not None
+    assert calls[-1]["sol_paper_enabled"] is True
+    assert calls[-1]["paper_enabled"] is False
+
+
+def test_pipeline_runtime_rejects_mixed_or_live_execution_modes(monkeypatch, tmp_path):
+    import veltrix.solana_meme.pipeline_runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "shared_database_path", lambda path=None: tmp_path / "mode.sqlite3")
+    monkeypatch.setenv("PAPER_TRADING_ENABLED", "true")
+    monkeypatch.setenv("SOL_PAPER_TRADING_ENABLED", "true")
+    monkeypatch.setenv("LIVE_TRADING", "false")
+    with pytest.raises(RuntimeError, match="only one paper ledger"):
+        runtime_module.build_runtime()
+
+    monkeypatch.setenv("PAPER_TRADING_ENABLED", "false")
+    monkeypatch.setenv("SOL_PAPER_TRADING_ENABLED", "false")
+    monkeypatch.setenv("LIVE_TRADING", "true")
+    with pytest.raises(RuntimeError, match="live execution is disabled"):
+        runtime_module.build_runtime()
