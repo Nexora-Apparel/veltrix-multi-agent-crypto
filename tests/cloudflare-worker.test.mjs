@@ -13,6 +13,9 @@ test("static assets are served with no-store cache policy", async () => {
   });
   assert.equal(await response.text(), "dashboard");
   assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.match(response.headers.get("content-security-policy"), /frame-ancestors 'none'/);
 });
 
 test("only GET requests and allowlisted API paths are accepted", async () => {
@@ -67,6 +70,35 @@ test("upstream redirects are rejected", async () => {
       VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
     });
     assert.equal(response.status, 502);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("API origin rejects embedded paths and credentials", async () => {
+  for (const origin of [
+    "https://api.example/internal",
+    "https://user:pass@api.example"
+  ]) {
+    const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+      VELTRIX_API_ORIGIN: origin,
+      VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
+    });
+    assert.equal(response.status, 503);
+  }
+});
+
+test("upstream transport failures return a bounded 502 response", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("network detail must not leak"); };
+  try {
+    const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+      VELTRIX_API_ORIGIN: "https://api.example",
+      VELTRIX_DASHBOARD_TOKEN: "x".repeat(32)
+    });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "API origin request failed" });
   } finally {
     globalThis.fetch = originalFetch;
   }
