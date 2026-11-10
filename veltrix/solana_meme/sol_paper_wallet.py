@@ -114,12 +114,25 @@ class SolanaPaperWallet:
             return "{}"
         if not isinstance(value, dict) or value.get("mint") != mint:
             raise ValueError("quote provenance must match the canonical mint")
-        for field in ("token_source", "sol_source", "sol_usd_pair_address", "sol_usd_method"):
+        for field in (
+            "token_source", "sol_source", "token_pair_address",
+            "sol_usd_pair_address", "sol_usd_method",
+        ):
             if not isinstance(value.get(field), str) or not value[field].strip():
                 raise ValueError(f"quote provenance requires {field}")
         for field in ("market_snapshot_id", "token_observed_at_ms", "sol_observed_at_ms"):
             _positive_int(value.get(field), field)
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        for field in ("token_price_usd", "sol_price_usd"):
+            try:
+                price = Decimal(str(value.get(field)))
+            except (InvalidOperation, ValueError):
+                raise ValueError(f"quote provenance requires a positive {field}") from None
+            if not price.is_finite() or price <= 0:
+                raise ValueError(f"quote provenance requires a positive {field}")
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if len(encoded) > 16_384:
+            raise ValueError("quote provenance exceeds the maximum audit record size")
+        return encoded
 
     def has_fill_key(self, idempotency_key: str) -> bool:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
