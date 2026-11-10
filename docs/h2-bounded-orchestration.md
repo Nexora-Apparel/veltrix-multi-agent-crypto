@@ -15,8 +15,10 @@ retry loop is created.
   terminal status and sanitized error code.
 - `orchestration_worker_lease`: one named global lease, owner ID, expiry and
   monotonically increasing fencing token. Acquisition is one atomic
-  conditional upsert inside a transaction. Renew/release require both owner
-  and fencing token; expired owners cannot renew or release a successor's lease.
+  conditional upsert inside a transaction. Release marks the row unowned rather
+  than deleting it, preserving the counter across clean hand-offs. Renew/release
+  require both owner and fencing token; expired owners cannot renew or release
+  a successor's lease.
 - `orchestration_audit`: append-only lifecycle events without payload bodies,
   credentials, provider response bodies or exception messages.
 - Reusing an idempotency key with a different job type or payload digest fails.
