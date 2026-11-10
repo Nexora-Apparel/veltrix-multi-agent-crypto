@@ -1,5 +1,5 @@
 const API_PATHS = new Set([
-  "/api/health", "/api/overview", "/api/positions", "/api/trades",
+  "/api/health", "/api/overview", "/api/positions", "/api/trades", "/api/sol-paper-wallet",
   "/api/decisions", "/api/consensus", "/api/markets",
   "/api/equity-curve", "/api/costs", "/api/candles", "/api/pool"
 ]);
