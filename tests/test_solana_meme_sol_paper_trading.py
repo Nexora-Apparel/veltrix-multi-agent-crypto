@@ -145,6 +145,7 @@ def test_native_sol_worker_opens_approved_decision_and_persists_quote_provenance
     fill = snap["fills"][0]
     assert fill["side"] == "BUY"
     assert fill["quote_provenance"]["sol_usd_pair_address"] == "sol-usdc-pool"
+    assert fill["quote_provenance"]["sol_usd_method"] == "wsol_stable_pool"
     assert fill["quote_provenance"]["market_snapshot_id"] == markets.latest(MINT)["id"]
 
     second = worker.run_once()
