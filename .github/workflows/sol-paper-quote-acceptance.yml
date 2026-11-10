@@ -9,6 +9,7 @@ on:
       - "veltrix/solana_meme/sol_paper_quote.py"
       - "veltrix/solana_meme/market_data.py"
       - "veltrix/solana_meme/market_store.py"
+      - "veltrix/providers/dexscreener.py"
   workflow_dispatch:
 
 permissions:
