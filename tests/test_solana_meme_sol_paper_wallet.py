@@ -110,7 +110,7 @@ def test_sol_wallet_partial_take_profits_and_trailing_stop_are_idempotent(tmp_pa
         fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_001_000,
     )
     assert first[0]["status"] == "PARTIALLY_CLOSED"
-    assert first[0]["quantity_sold"] == "50"
+    assert Decimal(first[0]["quantity_sold"]) == Decimal("50")
     assert wallet.process_market_price(
         mint=MINT, price_lamports=2_000_000, market_snapshot_id=10,
         fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_001_000,
@@ -120,7 +120,7 @@ def test_sol_wallet_partial_take_profits_and_trailing_stop_are_idempotent(tmp_pa
         mint=MINT, price_lamports=3_000_000, market_snapshot_id=11,
         fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_002_000,
     )
-    assert second[0]["quantity_sold"] == "25"
+    assert Decimal(second[0]["quantity_sold"]) == Decimal("25")
     assert wallet.snapshot()[ "open_positions" ][0]["quantity"] == "25"
 
     final = wallet.process_market_price(
