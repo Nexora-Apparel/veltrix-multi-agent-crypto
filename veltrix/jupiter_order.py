@@ -7,13 +7,13 @@ prepared for subsequent independent validation/simulation.
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 import math
 import time
 from typing import Any
 
 import requests
 from solders.message import MessageV0, to_bytes_versioned
-from solders.pubkey import Pubkey
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
