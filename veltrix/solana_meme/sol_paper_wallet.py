@@ -96,6 +96,18 @@ class SolanaPaperWallet:
                 (starting_balance_lamports, starting_balance_lamports, int(time.time() * 1000)),
             )
 
+    @staticmethod
+    def _decimal(value: object, name: str) -> Decimal:
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must be a finite non-negative decimal")
+        try:
+            result = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            raise ValueError(f"{name} must be a finite non-negative decimal") from None
+        if not result.is_finite() or result < 0:
+            raise ValueError(f"{name} must be a finite non-negative decimal")
+        return result
+
     def _connect(self):
         db = connect_database(self.database_path, timeout=15)
         db.row_factory = row_factory_for(self.database_path)
