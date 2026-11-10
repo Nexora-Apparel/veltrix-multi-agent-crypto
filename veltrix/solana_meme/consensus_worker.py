@@ -277,6 +277,8 @@ class ConsensusWorker:
         discovered = self._discover_jobs(now, context)
         claimed = self._claim(now, limit, context)
         recorded = unchanged = failed = 0
+        if context is not None and claimed:
+            context.checkpoint(items=len(claimed))
         wallet_events_by_mint = self._wallet_events_by_mint(claimed, now)
 
         for mint in claimed:
@@ -301,8 +303,6 @@ class ConsensusWorker:
                     wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
                     now_ms=self.clock_ms(),
                 )
-                if context is not None:
-                    context.checkpoint(items=1)
                 if self._succeed(decision, self.clock_ms(), context):
                     recorded += 1
                 else:
