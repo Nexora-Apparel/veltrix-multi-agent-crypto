@@ -33,6 +33,12 @@ def test_live_geckoterminal_returns_valid_recent_ohlcv_and_reaches_dashboard(tmp
     latency_ms = round((time.monotonic() - started) * 1000)
 
     assert candles, "GeckoTerminal returned no OHLCV observations for this pool"
+    assert [item.open_time_ms for item in candles] == sorted(
+        item.open_time_ms for item in candles
+    ), "provider candles must be ordered oldest to newest"
+    assert len({item.open_time_ms for item in candles}) == len(candles), (
+        "provider returned duplicate candle intervals"
+    )
     assert latency_ms < 15_000, f"provider latency too high: {latency_ms}ms"
     now_ms = time.time_ns() // 1_000_000
     for candle in candles:
@@ -58,6 +64,7 @@ def test_live_geckoterminal_returns_valid_recent_ohlcv_and_reaches_dashboard(tmp
     assert chart_payload["count"] == len(candles)
     assert chart_payload["source"] == "geckoterminal"
     assert chart_payload["freshness"] == "fresh"
+    assert chart_payload["observed_at_ms"] == candles[-1].observed_at_ms
     assert chart_payload["synthetic"] is False
     assert chart_payload["candles"][-1]["close"] == candles[-1].close
 
