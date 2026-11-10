@@ -60,6 +60,8 @@ class SolanaMarketSnapshot:
         canonical_mint(self.mint)
         if not isinstance(self.selected_pair_address, str) or not self.selected_pair_address.strip():
             raise ValueError("selected_pair_address is required")
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise ValueError("source provenance is required")
         for field in ("retrieved_at_ms", "response_received_at_ms"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
