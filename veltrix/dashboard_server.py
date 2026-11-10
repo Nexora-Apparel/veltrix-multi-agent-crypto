@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from .database import connect_database, is_remote_database, row_factory_for
 from .solana_meme.database import shared_database_path
 
 LOGGER = logging.getLogger("veltrix.dashboard")
@@ -52,13 +53,26 @@ class DashboardRepository:
     """Small read-only query layer over the shared Phase 03–07 SQLite database."""
 
     def __init__(self, database_path: str | Path, *, max_market_age_ms: int = 120_000):
-        self.database_path = Path(database_path).expanduser().resolve()
+        raw_database = str(database_path).strip()
+        if not raw_database:
+            raise ValueError("dashboard database path or URL is required")
+        self._remote_database = is_remote_database(raw_database)
+        self.database_path = raw_database if self._remote_database else Path(raw_database).expanduser().resolve()
         if isinstance(max_market_age_ms, bool) or not isinstance(max_market_age_ms, int) or max_market_age_ms < 1:
             raise ValueError("max_market_age_ms must be a positive integer")
         self.max_market_age_ms = max_market_age_ms
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
+        if self._remote_database:
+            db = connect_database(str(self.database_path), timeout=3)
+            db.row_factory = row_factory_for(str(self.database_path))
+            try:
+                db.execute("PRAGMA query_only=ON")
+                yield db
+            finally:
+                db.close()
+            return
         if not self.database_path.is_file():
             raise FileNotFoundError("shared VELTRIX SQLite database does not exist")
         uri = self.database_path.as_uri() + "?mode=ro"
