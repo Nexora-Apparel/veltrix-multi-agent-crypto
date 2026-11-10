@@ -385,6 +385,19 @@ def decode_jupiter_swap_instruction(
         message.sanitize()
         if str(message.recent_blockhash) != order.recent_blockhash:
             raise JupiterInstructionDecodeError("Jupiter order blockhash differs from the decoded message")
+        static_keys = tuple(str(key) for key in message.account_keys)
+        if validation.account_keys[:len(static_keys)] != static_keys:
+            raise JupiterInstructionDecodeError("validated static account keys differ from the decoded v0 message")
+        if validation.instruction_count != len(message.instructions):
+            raise JupiterInstructionDecodeError("validated instruction count differs from the decoded message")
+        message_program_ids = []
+        for compiled in message.instructions:
+            index = int(compiled.program_id_index)
+            if index < 0 or index >= len(validation.account_keys):
+                raise JupiterInstructionDecodeError("top-level program index is outside the validated account list")
+            message_program_ids.append(validation.account_keys[index])
+        if tuple(message_program_ids) != validation.program_ids:
+            raise JupiterInstructionDecodeError("validated top-level program IDs differ from the decoded message")
     except JupiterInstructionDecodeError:
         raise
     except Exception as exc:
