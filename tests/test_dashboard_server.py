@@ -120,6 +120,25 @@ def test_dashboard_remote_binding_requires_at_least_32_token_characters(tmp_path
     server.server_close()
 
 
+
+def test_dashboard_loopback_binding_also_requires_strong_token(tmp_path):
+    database = make_database(tmp_path)
+    for token in ("", "short", "x" * 31):
+        with pytest.raises(ValueError, match="at least 32 characters"):
+            build_server(
+                database_path=database,
+                host="127.0.0.1",
+                port=0,
+                api_token=token,
+            )
+
+
+def test_dashboard_missing_environment_token_fails_closed(tmp_path, monkeypatch):
+    database = make_database(tmp_path)
+    monkeypatch.delenv("VELTRIX_DASHBOARD_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="at least 32 characters"):
+        build_server(database_path=database, host="127.0.0.1", port=0)
+
 def test_dashboard_api_token_environment_variable_is_used(tmp_path, monkeypatch):
     database = make_database(tmp_path)
     monkeypatch.setenv("VELTRIX_DASHBOARD_TOKEN", "e" * 32)
