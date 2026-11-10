@@ -270,6 +270,10 @@ class DashboardRepository:
             positions = self._rows(
                 db, "SELECT * FROM solana_paper_positions ORDER BY opened_at_ms,mint"
             )
+            marks = (
+                self._rows(db, "SELECT * FROM solana_paper_marks")
+                if "solana_paper_marks" in tables else []
+            )
             fills = self._rows(
                 db, "SELECT * FROM solana_paper_fills ORDER BY created_at_ms DESC LIMIT 50"
             )
@@ -294,6 +298,54 @@ class DashboardRepository:
                 fill["quote_provenance"] = {"error": "malformed quote provenance"}
         realized_lamports = int(realized["total"] or 0)
         cash = int(account["cash_lamports"])
+        now_ms = time.time_ns() // 1_000_000
+        mark_by_mint = {row["mint"]: row for row in marks}
+        unrealized_lamports = 0
+        marked_market_value_lamports = 0
+        unmarked_positions = []
+        marked_positions = []
+        for position in positions:
+            mark = mark_by_mint.get(position["mint"])
+            mark_age_ms = (
+                now_ms - int(mark["observed_at_ms"]) if mark is not None else None
+            )
+            fresh = mark_age_ms is not None and 0 <= mark_age_ms <= 120_000
+            if fresh:
+                quantity = Decimal(position["quantity"])
+                market_value = int(
+                    (quantity * Decimal(int(mark["price_lamports"]))).to_integral_value()
+                )
+                pnl = market_value - int(position["cost_basis_lamports"])
+                unrealized_lamports += pnl
+                marked_market_value_lamports += market_value
+                try:
+                    mark_provenance = json.loads(mark.get("quote_provenance_json") or "{}")
+                except (TypeError, ValueError):
+                    mark_provenance = {}
+                marked_positions.append({
+                    **position,
+                    "mark_price_lamports": int(mark["price_lamports"]),
+                    "mark_observed_at_ms": int(mark["observed_at_ms"]),
+                    "mark_age_seconds": round(mark_age_ms / 1000, 1),
+                    "mark_source": mark_provenance.get("token_source"),
+                    "market_value_lamports": market_value,
+                    "unrealized_pnl_lamports": pnl,
+                    "mark_freshness": "fresh",
+                })
+            else:
+                unmarked_positions.append(position["mint"])
+                marked_positions.append({
+                    **position,
+                    "mark_price_lamports": None,
+                    "mark_observed_at_ms": None if mark is None else int(mark["observed_at_ms"]),
+                    "mark_age_seconds": None if mark_age_ms is None else round(mark_age_ms / 1000, 1),
+                    "mark_source": None,
+                    "market_value_lamports": None,
+                    "unrealized_pnl_lamports": None,
+                    "mark_freshness": "stale" if mark is not None else "unavailable",
+                })
+        equity_complete = not unmarked_positions
+        equity_lamports = cash + marked_market_value_lamports if equity_complete else None
         return {
             "configured": True,
             "unit": "SOL",
@@ -304,12 +356,15 @@ class DashboardRepository:
             "cash_sol": to_sol(cash),
             "realized_pnl_lamports": realized_lamports,
             "realized_pnl_sol": to_sol(realized_lamports),
-            "open_positions": positions,
+            "open_positions": marked_positions,
             "open_position_count": len(positions),
-            "unmarked_positions": [position["mint"] for position in positions],
-            "equity_lamports": None if positions else cash,
-            "equity_sol": None if positions else to_sol(cash),
-            "equity_complete": not positions,
+            "unmarked_positions": unmarked_positions,
+            "unrealized_pnl_lamports": unrealized_lamports if equity_complete else None,
+            "unrealized_pnl_sol": to_sol(unrealized_lamports) if equity_complete else None,
+            "equity_lamports": equity_lamports,
+            "equity_sol": to_sol(equity_lamports) if equity_lamports is not None else None,
+            "equity_complete": equity_complete,
+            "mark_max_age_seconds": 120,
             "fill_count": int(totals["total"] or 0),
             "entry_fills": int(totals["entries"] or 0),
             "exit_fills": int(totals["exits"] or 0),
