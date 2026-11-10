@@ -17,6 +17,7 @@ from .consensus_store import ConsensusStore
 from .market_store import MarketSnapshotStore
 from .candidates import canonical_mint
 from .risk_store import SolanaRiskEvidenceStore
+from ..orchestration import JobDeadlineExceeded, LeaseBusy, RunContext
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ class PaperTradingWorker:
     def _record_skip(
         self, decision: dict, now_ms: int, reason: str, *,
         blocked: bool = False, not_eligible: bool = False,
+        context: RunContext | None = None,
     ) -> str:
         decision_id = decision.get("decision_id")
         mint = decision.get("mint")
@@ -115,15 +117,31 @@ class PaperTradingWorker:
             mint = "unknown"
         if isinstance(created, bool) or not isinstance(created, int) or created <= 0:
             created = now_ms
-        result = self.broker.record_consensus_outcome(
-            decision_id,
-            mint,
-            str(decision.get("status") or "UNKNOWN"),
-            "BLOCKED" if blocked else ("NOT_ELIGIBLE" if not_eligible else "SKIPPED"),
-            reason,
-            created_at_ms=created,
-            processed_at_ms=now_ms,
-        )
+        if context is None:
+            result = self.broker.record_consensus_outcome(
+                decision_id,
+                mint,
+                str(decision.get("status") or "UNKNOWN"),
+                "BLOCKED" if blocked else ("NOT_ELIGIBLE" if not_eligible else "SKIPPED"),
+                reason,
+                created_at_ms=created,
+                processed_at_ms=now_ms,
+            )
+        else:
+            context.checkpoint(items=1)
+            with self.broker._connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                context.assert_fence_in_transaction(db)
+                result = self.broker.record_consensus_outcome(
+                    decision_id,
+                    mint,
+                    str(decision.get("status") or "UNKNOWN"),
+                    "BLOCKED" if blocked else ("NOT_ELIGIBLE" if not_eligible else "SKIPPED"),
+                    reason,
+                    created_at_ms=created,
+                    processed_at_ms=now_ms,
+                    db=db,
+                )
         return result["status"]
 
     def _validate_approval(self, decision: dict, now_ms: int) -> tuple[dict | None, str | None]:
@@ -246,7 +264,7 @@ class PaperTradingWorker:
             return None, "latest security evidence contains a blocking or unreviewed risk flag"
         return market, None
 
-    def _process_exits(self, now_ms: int) -> tuple[int, int]:
+    def _process_exits(self, now_ms: int, context: RunContext | None = None) -> tuple[int, int]:
         actions = errors = 0
         open_positions = self.broker.snapshot().get("open_positions", [])
         for position in open_positions:
@@ -269,25 +287,40 @@ class PaperTradingWorker:
                 errors += 1
                 continue
             try:
-                fills = self.broker.process_market_price(
-                    mint,
-                    float(price),
-                    fee_bps=self.policy.fee_bps,
-                    slippage_bps=self.policy.slippage_bps,
-                )
+                if context is None:
+                    fills = self.broker.process_market_price(
+                        mint,
+                        float(price),
+                        fee_bps=self.policy.fee_bps,
+                        slippage_bps=self.policy.slippage_bps,
+                    )
+                else:
+                    context.checkpoint(items=1)
+                    with self.broker._connect() as db:
+                        db.execute("BEGIN IMMEDIATE")
+                        context.assert_fence_in_transaction(db)
+                        fills = self.broker.process_market_price(
+                            mint,
+                            float(price),
+                            fee_bps=self.policy.fee_bps,
+                            slippage_bps=self.policy.slippage_bps,
+                            db=db,
+                        )
                 actions += len(fills)
+            except LeaseBusy:
+                raise
             except (ValueError, RuntimeError):
                 errors += 1
         return actions, errors
 
-    def run_once(self, *, limit: int = 25) -> PaperTradingBatchResult:
+    def run_once(self, *, limit: int = 25, context: RunContext | None = None) -> PaperTradingBatchResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 250:
             raise ValueError("limit must be between 1 and 250")
         now = self.clock_ms()
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("clock_ms must return a positive integer")
 
-        exit_fills, errors = self._process_exits(now)
+        exit_fills, errors = self._process_exits(now, context)
         # Only the latest decision per mint is actionable. Older approvals must
         # never be executed after a newer rejection or changed market snapshot.
         decisions = self.consensus_store.latest_all(limit=limit)
@@ -307,6 +340,7 @@ class PaperTradingWorker:
                     now,
                     f"consensus disposition: {decision.get('status') or 'UNKNOWN'}",
                     not_eligible=True,
+                    context=context,
                 )
                 if outcome == "DUPLICATE":
                     duplicates += 1
@@ -317,7 +351,8 @@ class PaperTradingWorker:
             market, reason = self._validate_approval(decision, now)
             if reason is not None or market is None:
                 outcome = self._record_skip(
-                    decision, now, reason or "paper approval validation failed", blocked=True
+                    decision, now, reason or "paper approval validation failed", blocked=True,
+                    context=context,
                 )
                 if outcome == "DUPLICATE":
                     duplicates += 1
@@ -332,22 +367,36 @@ class PaperTradingWorker:
                 and vote.get("agent") in {"scout", "whale", "sniper"}
                 and vote.get("stance") == "SUPPORT"
             ]
-            result = self.broker.open_position_from_consensus(
-                decision_id,
-                decision["mint"],
-                float(market["price_usd"]),
-                self.policy.position_usd,
-                "; ".join(reason for reason in agent_reasons if isinstance(reason, str)) or "Phase 06 consensus approval",
-                created_at_ms=decision["created_at_ms"],
-                paper_review_eligible=decision["paper_review_eligible"],
-                execution_authorized=decision["execution_authorized"],
-                fee_bps=self.policy.fee_bps,
-                slippage_bps=self.policy.slippage_bps,
-                processed_at_ms=now,
-                expected_market_snapshot_id=market["id"],
-                expected_risk_evidence_hash=decision["risk_evidence_hash"],
-                max_portfolio_exposure_pct=self.policy.max_portfolio_exposure_pct,
-            )
+            open_args = {
+                "created_at_ms": decision["created_at_ms"],
+                "paper_review_eligible": decision["paper_review_eligible"],
+                "execution_authorized": decision["execution_authorized"],
+                "fee_bps": self.policy.fee_bps,
+                "slippage_bps": self.policy.slippage_bps,
+                "processed_at_ms": now,
+                "expected_market_snapshot_id": market["id"],
+                "expected_risk_evidence_hash": decision["risk_evidence_hash"],
+                "max_portfolio_exposure_pct": self.policy.max_portfolio_exposure_pct,
+            }
+            if context is None:
+                result = self.broker.open_position_from_consensus(
+                    decision_id, decision["mint"], float(market["price_usd"]),
+                    self.policy.position_usd,
+                    "; ".join(reason for reason in agent_reasons if isinstance(reason, str)) or "Phase 06 consensus approval",
+                    **open_args,
+                )
+            else:
+                context.checkpoint(items=1)
+                with self.broker._connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    context.assert_fence_in_transaction(db)
+                    result = self.broker.open_position_from_consensus(
+                        decision_id, decision["mint"], float(market["price_usd"]),
+                        self.policy.position_usd,
+                        "; ".join(reason for reason in agent_reasons if isinstance(reason, str)) or "Phase 06 consensus approval",
+                        db=db,
+                        **open_args,
+                    )
             if result["status"] == "OPENED":
                 opened += 1
             elif result["status"] == "DUPLICATE":
