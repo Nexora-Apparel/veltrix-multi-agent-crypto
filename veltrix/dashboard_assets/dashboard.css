@@ -77,3 +77,15 @@ td{border-color:#30212a;color:#eee5ea}
   .mobile-nav a.active{background:linear-gradient(145deg,#54213b,#351626);color:#ff4c91;box-shadow:inset 0 0 0 1px #71314e}
   .footer{padding-bottom:90px}
 }
+
+.token-chart-panel{scroll-margin-top:82px}
+.token-chart-controls{display:grid;grid-template-columns:minmax(180px,1.4fr) minmax(180px,1.4fr) minmax(110px,.7fr) auto;gap:9px}
+.token-chart-controls input,.token-chart-controls select{
+  min-width:0;width:100%;background:#100b0f;border:1px solid #49303c;
+  border-radius:9px;padding:10px 11px;color:#f5f1f4;font:inherit;font-size:12px
+}
+.candle-meta{display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:10px;margin:13px 0 4px}
+.candle-chart-wrap{height:300px}
+#token-candle-chart{width:100%;height:100%;overflow:visible}
+@media(max-width:760px){.token-chart-controls{grid-template-columns:1fr 1fr}.token-chart-controls button{min-height:40px}}
+@media(max-width:480px){.token-chart-controls{grid-template-columns:1fr}.candle-meta{flex-direction:column;gap:3px}.candle-chart-wrap{height:240px}}
