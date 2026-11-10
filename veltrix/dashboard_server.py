@@ -113,7 +113,23 @@ class DashboardRepository:
                 """).fetchone()
                 if row is not None:
                     worker = dict(row)
-                    worker["healthy"] = worker["status"] == "healthy"
+                    reported_status = worker["status"]
+                    updated_at_ms = int(worker["updated_at_ms"])
+                    age_seconds = max(0.0, (int(time.time() * 1000) - updated_at_ms) / 1000)
+                    try:
+                        stale_after_seconds = float(os.getenv("VELTRIX_PIPELINE_STALE_AFTER_SECONDS", "300"))
+                    except ValueError:
+                        stale_after_seconds = 300.0
+                    if not math.isfinite(stale_after_seconds) or stale_after_seconds < 30:
+                        stale_after_seconds = 300.0
+                    stale = age_seconds > stale_after_seconds
+                    worker["reported_status"] = reported_status
+                    worker["health_age_seconds"] = round(age_seconds, 1)
+                    worker["stale_after_seconds"] = stale_after_seconds
+                    worker["stale"] = stale
+                    if stale:
+                        worker["status"] = "stale"
+                    worker["healthy"] = reported_status == "healthy" and not stale
                     worker["last_success_at"] = _iso_from_ms(worker.pop("last_success_at_ms"))
                     worker["last_started_at"] = _iso_from_ms(worker.pop("last_started_at_ms"))
                     worker["last_finished_at"] = _iso_from_ms(worker.pop("last_finished_at_ms"))
