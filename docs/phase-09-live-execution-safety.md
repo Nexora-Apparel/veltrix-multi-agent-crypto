@@ -203,3 +203,17 @@ Implemented in `veltrix/jupiter_order.py` with mocked API and transaction fixtur
 - This is order intake only. It does not construct an approved `TransactionIntent`, decode Jupiter/DEX instruction semantics, call Jupiter `/execute`, request a Phantom signature, or broadcast.
 
 The next required component is a Jupiter/DEX-specific semantic parser. Until that exists, the returned transaction remains untrusted and cannot pass the complete execution preflight.
+
+
+### 09.12 — Jupiter DEX program registry and simulated CPI trace
+
+Implemented in `veltrix/jupiter_program_trace.py`, with RPC trace capture in `veltrix/solana_rpc_simulation.py` and adversarial registry/gate tests.
+
+- Fetches Jupiter's Swap API V2 `/program-id-to-label` mapping, validates every program ID and label, timestamps the snapshot, and hashes the normalized registry.
+- The RPC simulation request now asks for inner instructions and resolves each inner `programIdIndex` against the same validated static+loaded account-key order. The simulation evidence records top-level and inner CPI program IDs.
+- The route gate binds the exact Jupiter order message digest, taker/fee payer, recent blockhash, last-valid block height, simulation response, route labels and program trace.
+- DEX and Jupiter program IDs must be locally pinned in policy. Jupiter's label registry is descriptive metadata, not a trust root; a label alone cannot authorize a program.
+- Every route label must map to a locally pinned DEX program ID and that ID must appear in the simulated inner-CPI trace. Every top-level and inner program ID must be in the standard-program, pinned-Jupiter, or pinned-DEX allowlist.
+- Missing inner-instruction evidence, unknown programs, stale registry snapshots, unpinned DEX IDs, and route/trace mismatches fail closed.
+- This gate does not decode DEX instruction payloads, prove CPI account semantics, or verify input/output token balance deltas. It is a program-trace allowlist stage, not final swap approval. DEX-specific instruction decoders and quote-to-balance-effect checks remain mandatory.
+- Program IDs still require independent review and explicit pinning before a route can pass. No signing, Jupiter `/execute`, wallet signature request, or broadcast is implemented.

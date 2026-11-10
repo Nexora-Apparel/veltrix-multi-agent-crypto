@@ -5,7 +5,7 @@ import dataclasses
 import pytest
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
-from solders.message import Message, MessageV0, to_bytes_versioned
+from solders.message import Message, MessageV0, from_bytes_versioned, to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.address_lookup_table_account import AddressLookupTableAccount
 from solders.signature import Signature
@@ -80,6 +80,7 @@ class FakeSession:
                     "err": None,
                     "unitsConsumed": 120_000,
                     "accounts": self.fixture["post_accounts"],
+                    "innerInstructions": self.fixture.get("inner_instructions", []),
                 },
             }
         elif method == "getGenesisHash":
@@ -478,6 +479,54 @@ def test_rejects_deactivated_lookup_table_before_simulation():
     ]
     data["lookup_table_info"] = table_info
     with pytest.raises(Exception, match="deactivated"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+        )
+
+
+def test_captures_inner_cpi_program_ids_from_simulation_trace():
+    raw, intent, tx_policy, expected, data = fixture()
+    program = intent.instructions[0].program_id
+    # The compiled program account is present in the validated static account list.
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(program)
+    data["inner_instructions"] = [
+        {
+            "index": 0,
+            "instructions": [
+                {"programIdIndex": program_index, "accounts": [], "data": "", "stackHeight": 1}
+            ],
+        }
+    ]
+    result = adapter(FakeSession(data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+    )
+    assert result.evidence.top_level_program_ids == result.validation.program_ids
+    assert result.evidence.inner_program_ids == (program,)
+    assert result.evidence.inner_instruction_count == 1
+
+
+def test_rejects_inner_cpi_program_index_outside_validated_account_list():
+    raw, intent, tx_policy, expected, data = fixture()
+    data["inner_instructions"] = [
+        {
+            "index": 0,
+            "instructions": [
+                {"programIdIndex": 255, "accounts": [], "data": "", "stackHeight": 1}
+            ],
+        }
+    ]
+    with pytest.raises(SolanaRpcAdapterError, match="outside the resolved account list"):
         adapter(FakeSession(data)).simulate(
             raw,
             intent=intent,

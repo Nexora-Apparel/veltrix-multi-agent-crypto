@@ -134,6 +134,7 @@ class TransactionValidationResult:
     required_signers: tuple[str, ...]
     program_ids: tuple[str, ...]
     instruction_count: int
+    account_keys: tuple[str, ...] = ()
 
 
 def _is_writable(message: object, index: int, account_count: int) -> bool:
@@ -354,4 +355,5 @@ def validate_transaction_message(
         required_signers=actual_signers,
         program_ids=tuple(actual_program_ids),
         instruction_count=len(instructions),
+        account_keys=account_keys,
     )
