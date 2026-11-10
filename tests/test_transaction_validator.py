@@ -80,9 +80,10 @@ def test_rejects_empty_or_mutable_message(raw):
 
 def test_rejects_fee_payer_mismatch():
     message, intent, policy = fixture_message()
+    wrong_payer = str(Pubkey.new_unique())
     wrong = TransactionIntent(
-        fee_payer=str(Pubkey.new_unique()),
-        required_signers=intent.required_signers,
+        fee_payer=wrong_payer,
+        required_signers=(wrong_payer,),
         recent_blockhash=intent.recent_blockhash,
         instructions=intent.instructions,
     )
@@ -174,9 +175,31 @@ def test_rejects_extra_required_signer():
 
 def test_rejects_instruction_count_change():
     message, intent, policy = fixture_message()
-    wrong = TransactionIntent(intent.fee_payer, intent.required_signers, intent.recent_blockhash, ())
-    with pytest.raises(TransactionValidationError, match="instructions"):
-        validate_transaction_message(to_bytes_versioned(message), intent=wrong, policy=policy)
+    original = intent.instructions[0]
+    program = Pubkey.from_string(original.program_id)
+    metas = [
+        AccountMeta(Pubkey.from_string(a.public_key), a.is_signer, a.is_writable)
+        for a in original.accounts
+    ]
+    blockhash = Hash.new_unique()
+    duplicate_instruction = Instruction(program, original.data, metas)
+    two_instruction_message = Message.new_with_blockhash(
+        [duplicate_instruction, duplicate_instruction],
+        Pubkey.from_string(intent.fee_payer),
+        blockhash,
+    )
+    updated_intent = TransactionIntent(
+        intent.fee_payer,
+        intent.required_signers,
+        str(blockhash),
+        (original,),
+    )
+    with pytest.raises(TransactionValidationError, match="instruction count"):
+        validate_transaction_message(
+            to_bytes_versioned(two_instruction_message),
+            intent=updated_intent,
+            policy=policy,
+        )
 
 
 def test_rejects_message_over_size_limit():
