@@ -4,6 +4,7 @@
   "main": "cloudflare/worker.js",
   "compatibility_date": "2026-11-10",
   "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "directory": "./veltrix/dashboard_assets",
     "binding": "ASSETS",
