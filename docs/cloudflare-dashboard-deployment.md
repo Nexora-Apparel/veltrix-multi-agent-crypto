@@ -33,10 +33,18 @@ npx wrangler secret put VELTRIX_DASHBOARD_TOKEN
 npx wrangler deploy
 ```
 
-Bind a custom domain in Cloudflare after the deployment is verified. Enable
-HTTPS-only mode and strict TLS to the origin. Restrict origin ingress to
-Cloudflare where the hosting provider supports it. Do not expose the origin
-token in Pages build variables or frontend code.
+The API origin can be terminated with the supplied `deployment/Caddyfile`.
+Set `VELTRIX_API_DOMAIN` to a dedicated hostname, point its DNS record at the
+API host, install Caddy, and load the Caddyfile. Caddy exposes only `/api/*`
+and proxies it to the Python server bound on loopback port 8765; every other
+path returns 404. The bearer header is forwarded unchanged to the Python
+authentication boundary. Verify Caddy has issued a valid certificate before
+setting `VELTRIX_API_ORIGIN=https://<api-hostname>` in Worker secrets.
+
+Bind the dashboard custom domain in Cloudflare after the Worker deployment is
+verified. Enable HTTPS-only mode and strict TLS to the origin. Restrict origin
+ingress to Cloudflare where the hosting provider supports it. Do not expose
+the origin token in Pages build variables or frontend code.
 
 ## API proxy controls
 
