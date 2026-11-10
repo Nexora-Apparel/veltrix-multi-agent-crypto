@@ -447,7 +447,7 @@ def decode_jupiter_swap_instruction(
         if account_keys[4] == account_keys[5]:
             raise JupiterInstructionDecodeError("shared route program source and destination token accounts must differ")
     for position in optional_positions:
-        _assert_account(validation, account_indexes[position], SYSTEM_PROGRAM_ID, signer=False, writable=False, role="unsupported optional fee/Token-2022 account")
+        _assert_account(validation, account_indexes[position], SYSTEM_PROGRAM_ID, signer=False, writable=True, role="unsupported optional fee/Token-2022 account")
 
     route_plan, in_amount, quoted_out_amount, slippage_bps, platform_fee_bps, shared_route_id = _decode_route_data(
         data,
