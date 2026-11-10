@@ -35,3 +35,10 @@ def test_remote_database_requires_exact_explicit_turso_endpoint(monkeypatch):
 
     with pytest.raises(ValueError, match="approved Turso endpoint"):
         connect_database("https://example.invalid/database")
+
+def test_remote_libsql_host_must_be_a_turso_domain(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "test-only-token")
+    with pytest.raises(ValueError, match="approved Turso endpoint"):
+        connect_database("libsql://attacker.example")
