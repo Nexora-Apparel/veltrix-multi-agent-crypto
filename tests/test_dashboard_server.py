@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import threading
+import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -264,3 +265,30 @@ def test_dashboard_remote_database_adapter_remains_query_only(monkeypatch, tmp_p
     with repository._connect() as db:
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             db.execute("CREATE TABLE dashboard_write_must_fail(id INTEGER)")
+
+
+def test_dashboard_health_marks_old_pipeline_heartbeat_stale(tmp_path, monkeypatch):
+    database = make_database(tmp_path)
+    now_ms = int(time.time() * 1000)
+    with sqlite3.connect(database) as db:
+        db.execute("""
+            CREATE TABLE solana_pipeline_health (
+                id INTEGER PRIMARY KEY, status TEXT NOT NULL,
+                last_started_at_ms INTEGER, last_finished_at_ms INTEGER,
+                last_success_at_ms INTEGER, last_duration_ms INTEGER,
+                last_job_id TEXT, last_error TEXT,
+                consecutive_failures INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
+            )
+        """)
+        db.execute("""
+            INSERT INTO solana_pipeline_health
+            VALUES (1,'healthy',?,?,?,?,?,?,0,?)
+        """, (now_ms - 60_000, now_ms - 59_000, now_ms - 59_000,
+              1000, "job-1", None, now_ms - 60_000))
+    monkeypatch.setenv("VELTRIX_PIPELINE_STALE_AFTER_SECONDS", "30")
+    health = DashboardRepository(database).health()
+    assert health["worker"]["reported_status"] == "healthy"
+    assert health["worker"]["status"] == "stale"
+    assert health["worker"]["stale"] is True
+    assert health["worker"]["healthy"] is False
+    assert health["worker"]["health_age_seconds"] >= 30
