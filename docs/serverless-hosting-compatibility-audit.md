@@ -153,6 +153,9 @@ The official `turso_serverless` Python source was inspected after the initial au
 
 Consequently, the next implementation task is a disposable-database H0 conformance spike, not a production data migration. The test must specifically exercise the repository's actual `sqlite3.Row` access patterns through the driver's row factory, multi-statement transactions, rollback, `BEGIN IMMEDIATE` lease claims, duplicate/idempotency constraints, and the existing store initialization SQL.
 
+
+**Packaging note:** the inspected Python driver source is present in the official Turso repository, but a separately published PyPI release was not verified during this audit. The H0 workflow therefore installs the Python subdirectory from the reviewed upstream Git commit `367fe14dff049a665d5601a8c970b9f5640bfd6d`, rather than assuming a PyPI release exists. This upstream dependency remains pinned and must be reviewed before updating.
+
 ## 6. Migration safety protocol
 
 1. Stop local writers before taking the source backup.
