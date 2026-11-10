@@ -75,5 +75,5 @@ def test_live_geckoterminal_returns_valid_recent_ohlcv_and_reaches_dashboard(tmp
         f"mint={mint} pool={pool} interval={interval} "
         f"candles={len(candles)} inserted={result.inserted} "
         f"chart_count={chart_payload['count']} latency_ms={latency_ms} "
-        f"latest_open_ms={candles[-1].open_time_ms}"
+        f"latest_open_ms={candles[-1]["open_time_ms"]}"
     )
