@@ -131,9 +131,10 @@ After the API origin and secrets are provisioned, verify in this order:
 `.github/workflows/deploy-dashboard-cloudflare.yml` provides a manual
 production deployment path. It is intentionally restricted to `main`; it
 will fail closed when manually dispatched from a feature branch. It pins
-Wrangler to `4.160.0`, checks the origin and bearer-token format, stores the
-two Worker secrets with `wrangler secret put`, and deploys the static assets
-and Worker configuration. It does not create a public `workers.dev` URL,
+Wrangler to `4.160.0`, checks the origin and bearer-token format, requires a connected read-only
+database, complete paper-ledger schema, disabled live execution and a fresh
+healthy pipeline-worker heartbeat, stores the two Worker secrets with
+`wrangler secret put`, and deploys the static assets and Worker configuration. It does not create a public `workers.dev` URL,
 custom-domain route, or Cloudflare Access policy.
 
 Configure these repository secrets only after the API origin is live and
