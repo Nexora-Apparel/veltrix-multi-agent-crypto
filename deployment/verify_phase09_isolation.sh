@@ -38,6 +38,21 @@ paper_rw="$(unit_value "$PAPER_UNIT" ReadWritePaths)"
 dashboard_ro="$(unit_value "$DASHBOARD_UNIT" ReadOnlyPaths)"
 [[ "$paper_rw" == *"/var/lib/veltrix"* ]] || fail "paper writable state path missing"
 [[ "$dashboard_ro" == *"/var/lib/veltrix"* ]] || fail "dashboard read-only state path missing"
+# Inspect the effective systemd properties, not only the unit files. Fail
+# closed if a host's systemd does not expose the expected sandbox settings.
+for unit in "$PAPER_UNIT" "$DASHBOARD_UNIT"; do
+  for property in NoNewPrivileges PrivateTmp ProtectHome ProtectKernelTunables ProtectKernelModules ProtectControlGroups RestrictSUIDSGID LockPersonality; do
+    [[ "$(unit_value "$unit" "$property")" == yes ]] || fail "$unit must enforce $property=yes"
+  done
+  [[ "$(unit_value "$unit" ProtectSystem)" == strict ]] || fail "$unit must enforce ProtectSystem=strict"
+  [[ -z "$(unit_value "$unit" CapabilityBoundingSet)" ]] || fail "$unit must have an empty capability bounding set"
+  [[ -z "$(unit_value "$unit" AmbientCapabilities)" ]] || fail "$unit must have no ambient capabilities"
+  [[ "$(unit_value "$unit" RestrictAddressFamilies)" == "AF_UNIX AF_INET AF_INET6" ]] || fail "$unit address-family restriction mismatch"
+done
+[[ "$(unit_value "$PAPER_UNIT" Environment)" == *"LIVE_TRADING=false"* ]] || fail "paper unit must explicitly set LIVE_TRADING=false"
+[[ "$(unit_value "$PAPER_UNIT" Environment)" == *"PAPER_TRADING_ENABLED=true"* ]] || fail "paper unit must explicitly enable paper-only processing"
+pass "effective systemd sandbox, capability, address-family and paper-only properties match"
+
 pass "systemd identities and database mount policies match"
 
 # Confirm effective credentials of the running processes, not only unit config.
