@@ -10,6 +10,7 @@ from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 from veltrix.solana_meme.risk_worker import SolanaRiskEvidenceWorker
+from veltrix.orchestration import LeaseBusy, OrchestrationStore, RunContext, run_once
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -47,9 +48,12 @@ class FakeCollector:
         self.fail = fail
         self.errors = errors
         self.calls = []
+        self.on_collect = None
 
     def collect(self, mint, now_ms=None):
         self.calls.append((mint, now_ms))
+        if self.on_collect is not None:
+            self.on_collect()
         if self.fail:
             raise RuntimeError("risk provider offline")
         return SolanaRiskEvidenceCollector(
@@ -200,3 +204,43 @@ def test_risk_worker_rejects_invalid_configuration(tmp_path, kwargs):
         SolanaRiskEvidenceWorker(
             launches, markets, FakeCollector(Clock(10_000)), risks, **kwargs
         )
+
+
+def test_risk_worker_pipeline_fences_and_commits_report_with_job_state(tmp_path):
+    launches, _, risk_store, _, worker, _ = setup_worker(tmp_path)
+    orchestration = OrchestrationStore(str(launches.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(context=context)
+        assert result.recorded == 1
+
+    result = run_once(
+        orchestration, idempotency_key="risk-evidence-window-1",
+        job_type="risk_evidence", payload={}, handler=handler,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert risk_store.count(MINT) == 1
+    assert worker.status()["processing"] == 0
+
+
+def test_risk_worker_rejects_replaced_claim_after_collection(tmp_path):
+    launches, _, risk_store, collector, worker, _ = setup_worker(tmp_path)
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: None,
+    )
+
+    def replace_claim():
+        with worker._connect() as db:
+            db.execute(
+                "UPDATE solana_risk_evidence_jobs SET claim_fencing_token=8 WHERE mint=?",
+                (MINT,),
+            )
+
+    collector.on_collect = replace_claim
+    with pytest.raises(LeaseBusy, match="row claim"):
+        worker.run_once(context=context)
+    assert risk_store.count(MINT) == 0
+    assert worker.status()["processing"] == 1
