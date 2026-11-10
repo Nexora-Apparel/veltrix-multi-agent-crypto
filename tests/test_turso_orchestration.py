@@ -41,6 +41,11 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
                                     now_ms=1_001_005) == "SUCCEEDED"
         assert store.get_job(job["run_id"])["status"] == "SUCCEEDED"
         assert store.release_lease("h2-worker-a", fence)
+        next_fence = store.acquire_lease(
+            "h2-worker-b", now_ms=1_002_001, ttl_ms=10_000
+        )
+        assert next_fence == fence + 1
+        assert store.release_lease("h2-worker-b", next_fence)
     finally:
         import turso_serverless
         db = turso_serverless.connect(URL, auth_token=TOKEN)
