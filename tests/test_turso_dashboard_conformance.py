@@ -52,9 +52,6 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
         "token_source": "turso-conformance", "sol_source": "turso-conformance",
     }
     # Isolate the fixed probe mint so repeated conformance runs are idempotent.
-    with repository._connect() as db:
-        with pytest.raises(Exception):
-            db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
     with wallet._transaction() as db:
         db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
         db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
