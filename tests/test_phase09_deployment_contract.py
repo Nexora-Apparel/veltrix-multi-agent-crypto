@@ -176,3 +176,12 @@ def test_dashboard_browser_never_collects_or_stores_service_bearer_token():
     assert "sessionStorage" not in js
     assert "Authorization:" not in js
     assert 'fetch(path, { cache: "no-store" })' in js
+
+
+def test_cloudflare_deployment_requires_fresh_healthy_worker_and_readonly_database():
+    workflow = (ROOT / ".github" / "workflows" / "deploy-dashboard-cloudflare.yml").read_text(encoding="utf-8")
+    assert 'payload.get("database_read_only") is not True' in workflow
+    assert 'payload.get("live_execution") is not False' in workflow
+    assert 'payload.get("missing_paper_tables") != []' in workflow
+    assert 'worker.get("healthy") is not True' in workflow
+    assert 'worker.get("stale") is True' in workflow
