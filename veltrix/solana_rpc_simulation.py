@@ -20,6 +20,7 @@ from solders.transaction import VersionedTransaction
 
 from veltrix.simulation_gate import (
     ExpectedTokenDelta,
+    SimulatedAccountSnapshot,
     SimulatedInnerInstruction,
     SimulatedTokenBalance,
     SimulationEvidence,
@@ -230,6 +231,37 @@ class SolanaRpcSimulationAdapter:
         amount = int.from_bytes(raw[64:72], "little", signed=False)
         return program_owner, mint, owner, amount
 
+    @staticmethod
+    def _account_snapshot(info: object, address: str, context_slot: int) -> SimulatedAccountSnapshot:
+        if not isinstance(info, dict):
+            raise SolanaRpcAdapterError("requested account snapshot is missing")
+        owner = info.get("owner")
+        lamports = info.get("lamports")
+        executable = info.get("executable")
+        rent_epoch = info.get("rentEpoch")
+        raw_data = info.get("data")
+        if not isinstance(owner, str) or not isinstance(executable, bool):
+            raise SolanaRpcAdapterError("account snapshot owner or executable flag is malformed")
+        if isinstance(lamports, bool) or not isinstance(lamports, int) or lamports < 0:
+            raise SolanaRpcAdapterError("account snapshot lamports are malformed")
+        if isinstance(rent_epoch, bool) or not isinstance(rent_epoch, int) or rent_epoch < 0:
+            raise SolanaRpcAdapterError("account snapshot rentEpoch is malformed")
+        if not isinstance(raw_data, list) or len(raw_data) != 2 or raw_data[1] != "base64" or not isinstance(raw_data[0], str):
+            raise SolanaRpcAdapterError("account snapshot data is not base64 encoded")
+        try:
+            data = base64.b64decode(raw_data[0], validate=True)
+        except Exception as exc:
+            raise SolanaRpcAdapterError("account snapshot data contains invalid base64") from exc
+        return SimulatedAccountSnapshot(
+            address=address,
+            owner=owner,
+            lamports=lamports,
+            executable=executable,
+            rent_epoch=rent_epoch,
+            data=data,
+            context_slot=context_slot,
+        )
+
     def simulate(
         self,
         message_bytes: bytes,
@@ -239,6 +271,7 @@ class SolanaRpcSimulationAdapter:
         expected_token_deltas: tuple[ExpectedTokenDelta, ...],
         minimum_context_slot: int,
         last_valid_block_height: int,
+        additional_account_snapshots: tuple[str, ...] = (),
     ) -> RpcSimulationResult:
         """Validate and simulate the exact message; return normalized evidence.
 
@@ -259,16 +292,24 @@ class SolanaRpcSimulationAdapter:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise SolanaRpcAdapterError(f"{name} must be a non-negative integer")
 
-        addresses = [item.token_account for item in expected_token_deltas]
-        if len(addresses) != len(set(addresses)):
+        token_addresses = [item.token_account for item in expected_token_deltas]
+        if len(token_addresses) != len(set(token_addresses)):
             raise SolanaRpcAdapterError("expected token-account addresses must be unique")
+        if not isinstance(additional_account_snapshots, tuple) or len(additional_account_snapshots) > MAX_ADDITIONAL_ACCOUNT_SNAPSHOTS:
+            raise SolanaRpcAdapterError("additional account snapshots must be a bounded immutable tuple")
+        if any(not isinstance(address, str) for address in additional_account_snapshots):
+            raise SolanaRpcAdapterError("additional account snapshot addresses must be strings")
+        snapshot_addresses = list(additional_account_snapshots)
+        if len(snapshot_addresses) != len(set(snapshot_addresses)) or set(snapshot_addresses) & set(token_addresses):
+            raise SolanaRpcAdapterError("additional account snapshot addresses must be unique and separate from token accounts")
+        addresses = token_addresses + snapshot_addresses
 
         from solders.pubkey import Pubkey
         for address in addresses:
             try:
                 Pubkey.from_string(address)
             except Exception as exc:
-                raise SolanaRpcAdapterError("expected token-account address is not a valid Solana public key") from exc
+                raise SolanaRpcAdapterError("requested account address is not a valid Solana public key") from exc
 
         genesis = self._rpc("getGenesisHash", [])
         if genesis != self.expected_genesis_hash:
@@ -324,10 +365,15 @@ class SolanaRpcSimulationAdapter:
         pre_accounts = pre_result.get("value")
         if not isinstance(pre_accounts, list) or len(pre_accounts) != len(addresses):
             raise SolanaRpcAdapterError("getMultipleAccounts returned an incomplete account list")
+        token_count = len(token_addresses)
         pre_balances = {
             address: self._token_balance(info, address)
-            for address, info in zip(addresses, pre_accounts)
+            for address, info in zip(token_addresses, pre_accounts[:token_count])
         }
+        pre_snapshots = tuple(
+            self._account_snapshot(info, address, pre_slot)
+            for address, info in zip(snapshot_addresses, pre_accounts[token_count:])
+        )
 
         try:
             message = from_bytes_versioned(message_bytes)
@@ -405,7 +451,7 @@ class SolanaRpcSimulationAdapter:
             raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state token accounts")
 
         token_balances = []
-        for address, post_info in zip(addresses, post_accounts):
+        for address, post_info in zip(token_addresses, post_accounts[:token_count]):
             pre_program, pre_mint, pre_owner, pre_amount = pre_balances[address]
             post_program, post_mint, post_owner, post_amount = self._token_balance(post_info, address)
             if (pre_program, pre_mint, pre_owner) != (post_program, post_mint, post_owner):
@@ -418,6 +464,12 @@ class SolanaRpcSimulationAdapter:
                 post_amount_raw=post_amount,
                 token_program_id=pre_program,
             ))
+        post_snapshots = tuple(
+            self._account_snapshot(info, address, simulation_slot)
+            for address, info in zip(snapshot_addresses, post_accounts[token_count:])
+        )
+        if pre_snapshots != post_snapshots:
+            raise SolanaRpcAdapterError("account snapshot changed between pre-state and simulated post-state")
 
         fee_result = self._rpc(
             "getFeeForMessage",
@@ -456,5 +508,6 @@ class SolanaRpcSimulationAdapter:
             inner_program_ids=inner_program_ids,
             inner_instruction_count=len(inner_program_ids),
             inner_instructions=tuple(inner_instructions),
+            account_snapshots=post_snapshots,
         )
         return RpcSimulationResult(validation=validation, evidence=evidence)
