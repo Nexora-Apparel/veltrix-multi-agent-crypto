@@ -3,6 +3,7 @@ import dataclasses
 import hashlib
 import json
 import pytest
+from solders.pubkey import Pubkey
 
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_program_trace import (
@@ -16,9 +17,9 @@ from veltrix.transaction_validator import TransactionValidationResult
 
 
 def fixture():
-    taker = "taker-public-key"
-    jupiter_program = "jupiter-program-id"
-    dex_program = "raydium-program-id"
+    taker = str(Pubkey.new_unique())
+    jupiter_program = str(Pubkey.new_unique())
+    dex_program = str(Pubkey.new_unique())
     message = b"exact-order-message"
     digest = hashlib.sha256(message).hexdigest()
     route = JupiterRouteStep(
@@ -130,7 +131,7 @@ def test_accepts_order_route_when_simulated_cpi_trace_matches_jupiter_registry()
     result = evaluate()
     assert result.passed is True
     assert result.route_labels == ("Raydium CLMM",)
-    assert result.dex_program_ids == ("raydium-program-id",)
+    assert result.dex_program_ids == registry.program_ids_for_label("Raydium CLMM")
 
 
 def test_rejects_unapproved_route_label():
@@ -203,7 +204,7 @@ def test_rejects_nonmatching_fee_payer_or_blockhash():
 
 def test_rejects_inner_program_missing_from_validated_accounts():
     order, validation, simulation, gate, registry, policy = fixture()
-    validation = dataclasses.replace(validation, account_keys=("taker-public-key", "jupiter-program-id"))
+    validation = dataclasses.replace(validation, account_keys=(validation.fee_payer, validation.program_ids[0]))
     with pytest.raises(JupiterProgramTraceError, match="absent from validated account keys"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
