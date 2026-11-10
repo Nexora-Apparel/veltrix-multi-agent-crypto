@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Test Worker proxy security and route allowlist
+        run: node --test tests/cloudflare_worker.test.mjs
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.160.0
       - name: Bundle Worker and static dashboard without deploying
