@@ -463,7 +463,7 @@ def test_resolves_active_v0_lookup_table_and_simulates_exact_message():
     )
     assert result.validation.message_sha256
     assert result.evidence.context_slot == 500
-    assert result.evidence.verified_token_account_count if hasattr(result.evidence, "verified_token_account_count") else True
+    assert len(result.evidence.token_balances) == 2
 
 
 def test_rejects_deactivated_lookup_table_before_simulation():
