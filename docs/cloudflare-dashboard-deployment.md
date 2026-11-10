@@ -124,3 +124,30 @@ After the API origin and secrets are provisioned, verify in this order:
 5. `GET /api/sol-paper-wallet` returns integer-lamport balances and P&L.
 6. Browser/API write methods and unlisted routes return 405/404.
 7. Restart the pipeline runner and verify ledger, candles, and job state persist.
+
+
+## Guarded GitHub Actions deployment
+
+`.github/workflows/deploy-dashboard-cloudflare.yml` provides a manual
+production deployment path. It is intentionally restricted to `main`; it
+will fail closed when manually dispatched from a feature branch. It pins
+Wrangler to `4.160.0`, checks the origin and bearer-token format, stores the
+two Worker secrets with `wrangler secret put`, and deploys the static assets
+and Worker configuration. It does not create a public `workers.dev` URL,
+custom-domain route, or Cloudflare Access policy.
+
+Configure these repository secrets only after the API origin is live and
+reachable over HTTPS:
+
+- `CLOUDFLARE_API_TOKEN`: scoped to the required Workers deployment and
+  secret-management permissions for the target account.
+- `CLOUDFLARE_ACCOUNT_ID`: target Cloudflare account identifier.
+- `VELTRIX_API_ORIGIN`: HTTPS origin only, with no path or credentials.
+- `VELTRIX_DASHBOARD_TOKEN`: random bearer token of at least 32 characters,
+  identical to the Python dashboard's `VELTRIX_DASHBOARD_TOKEN`.
+
+After deployment, attach the intended custom hostname, configure Cloudflare
+Access to require authentication, and verify the Access challenge before
+considering the dashboard public-facing. The API origin must separately run
+behind HTTPS and accept only authenticated API requests. A successful Worker
+deployment alone is not an end-to-end production acceptance.
