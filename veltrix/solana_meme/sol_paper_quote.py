@@ -22,6 +22,7 @@ class SolUsdMarketProvider(Protocol):
 @dataclass(frozen=True)
 class SolanaPaperQuote:
     mint: str
+    market_snapshot_id: int
     price_lamports: int
     token_price_usd: Decimal
     sol_price_usd: Decimal
@@ -135,6 +136,7 @@ class SolanaPaperQuoteAdapter:
             raise RuntimeError("converted token price is below one lamport")
         return SolanaPaperQuote(
             mint=mint,
+            market_snapshot_id=int(token["id"]),
             price_lamports=lamports,
             token_price_usd=token_usd,
             sol_price_usd=sol_usd,
