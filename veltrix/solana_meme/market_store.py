@@ -5,7 +5,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from ..database import connect_database, ensure_database_parent, row_factory_for
 from .market_data import SolanaMarketSnapshot
