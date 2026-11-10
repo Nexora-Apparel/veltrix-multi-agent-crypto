@@ -97,6 +97,13 @@ class SolanaPaperWallet:
                 );
                 CREATE INDEX IF NOT EXISTS idx_solana_paper_fills_time
                     ON solana_paper_fills(created_at_ms DESC);
+                CREATE TABLE IF NOT EXISTS solana_paper_marks (
+                    mint TEXT PRIMARY KEY,
+                    price_lamports INTEGER NOT NULL,
+                    market_snapshot_id INTEGER,
+                    observed_at_ms INTEGER NOT NULL,
+                    quote_provenance_json TEXT NOT NULL DEFAULT '{}'
+                );
             """)
             fill_columns = {row["name"] for row in db.execute("PRAGMA table_info(solana_paper_fills)").fetchall()}
             if "quote_provenance_json" not in fill_columns:
@@ -161,6 +168,27 @@ class SolanaPaperWallet:
         if not is_remote_database(self.database_path):
             db.execute("PRAGMA foreign_keys=ON")
         return db
+
+    @staticmethod
+    def _upsert_mark(
+        db, *, mint: str, price_lamports: int, market_snapshot_id: int | None,
+        observed_at_ms: int, quote_provenance_json: str,
+    ) -> None:
+        _positive_int(price_lamports, "mark_price_lamports")
+        _positive_int(observed_at_ms, "mark_observed_at_ms")
+        if market_snapshot_id is not None:
+            _positive_int(market_snapshot_id, "mark_market_snapshot_id")
+        db.execute(
+            """INSERT INTO solana_paper_marks
+               (mint,price_lamports,market_snapshot_id,observed_at_ms,quote_provenance_json)
+               VALUES(?,?,?,?,?)
+               ON CONFLICT(mint) DO UPDATE SET
+                 price_lamports=excluded.price_lamports,
+                 market_snapshot_id=excluded.market_snapshot_id,
+                 observed_at_ms=excluded.observed_at_ms,
+                 quote_provenance_json=excluded.quote_provenance_json""",
+            (mint, price_lamports, market_snapshot_id, observed_at_ms, quote_provenance_json),
+        )
 
     @contextmanager
     def _transaction(self):
@@ -365,6 +393,22 @@ class SolanaPaperWallet:
                 (fill_id, idempotency_key, mint, "SELL", str(sold_qty), price_lamports,
                  notional, fee_lamports, pnl, created_at_ms, provenance_json),
             )
+            if remaining_qty <= 0:
+                db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
+            else:
+                observed_at = (
+                    quote_provenance.get("token_observed_at_ms", created_at_ms)
+                    if isinstance(quote_provenance, dict) else created_at_ms
+                )
+                snapshot_id = (
+                    quote_provenance.get("market_snapshot_id")
+                    if isinstance(quote_provenance, dict) else None
+                )
+                self._upsert_mark(
+                    db, mint=mint, price_lamports=price_lamports,
+                    market_snapshot_id=snapshot_id, observed_at_ms=observed_at,
+                    quote_provenance_json=provenance_json,
+                )
         return {"status": "CLOSED" if remaining_qty <= 0 else "PARTIALLY_CLOSED",
                 "fill_id": fill_id, "realized_pnl_lamports": pnl,
                 "proceeds_lamports": proceeds, "fee_lamports": fee_lamports}
@@ -396,6 +440,15 @@ class SolanaPaperWallet:
             ).fetchone()
             if position is None:
                 return []
+            observed_at = (
+                quote_provenance.get("token_observed_at_ms", created_at_ms)
+                if isinstance(quote_provenance, dict) else created_at_ms
+            )
+            self._upsert_mark(
+                db, mint=mint, price_lamports=price_lamports,
+                market_snapshot_id=market_snapshot_id, observed_at_ms=observed_at,
+                quote_provenance_json=provenance_json,
+            )
             state = db.execute(
                 "SELECT * FROM solana_paper_position_state WHERE mint=?", (mint,)
             ).fetchone()
