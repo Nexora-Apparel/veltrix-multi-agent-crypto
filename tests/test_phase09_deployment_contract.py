@@ -112,3 +112,15 @@ def test_api_origin_reverse_proxy_exposes_only_authenticated_api_paths():
     assert "Authorization {http.request.header.Authorization}" in proxy
     assert 'respond "not found" 404' in proxy
     assert "Strict-Transport-Security" in proxy
+
+
+def test_ephemeral_scheduler_uses_shared_turso_and_fenced_five_minute_cycles():
+    workflow = (ROOT / ".github" / "workflows" / "solana-scheduled-pipeline.yml").read_text(encoding="utf-8")
+    assert 'cron: "*/5 * * * *"' in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "VELTRIX_SOLANA_DISCOVERY_DB" in workflow
+    assert "TURSO_AUTH_TOKEN" in workflow
+    assert "VELTRIX_PIPELINE_POLL_SECONDS: \"300\"" in workflow
+    assert 'LIVE_TRADING: "false"' in workflow
+    assert "python -m veltrix.solana_meme.pipeline_once" in workflow
+    assert "timeout-minutes: 4" in workflow
