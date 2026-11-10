@@ -204,3 +204,16 @@ def test_native_sol_dashboard_exposes_open_positions_freshness_and_unrealized_pn
     assert "function renderSolPositions(rows)" in js
     assert 'renderSolPositions(data.open_positions || [])' in js
     assert 'data.unrealized_pnl_sol' in js
+
+
+def test_cloudflare_worker_requires_service_auth_to_access_tunnel_origin():
+    worker = (ROOT / "cloudflare" / "worker.js").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "deploy-dashboard-cloudflare.yml").read_text(encoding="utf-8")
+    assert "CF_ACCESS_CLIENT_ID" in worker
+    assert "CF_ACCESS_CLIENT_SECRET" in worker
+    assert "CF-Access-Client-Id" in worker
+    assert "CF-Access-Client-Secret" in worker
+    assert "secrets.CF_ACCESS_CLIENT_ID" in workflow
+    assert "secrets.CF_ACCESS_CLIENT_SECRET" in workflow
+    assert "wrangler secret put CF_ACCESS_CLIENT_ID" in workflow
+    assert "wrangler secret put CF_ACCESS_CLIENT_SECRET" in workflow
