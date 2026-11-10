@@ -1,0 +1,45 @@
+name: GeckoTerminal OHLCV acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mint:
+        description: Canonical Solana token mint
+        required: true
+        type: string
+      pool:
+        description: GeckoTerminal Solana pool address for that mint
+        required: true
+        type: string
+      interval:
+        description: Candle interval
+        required: true
+        default: 1m
+        type: choice
+        options: [1m, 5m, 15m, 1h, 4h, 1d]
+
+permissions:
+  contents: read
+
+jobs:
+  live-read-only-ohlcv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/veltrix-trading-terminal
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Validate live GeckoTerminal OHLCV
+        env:
+          VELTRIX_LIVE_GECKOTERMINAL_TEST: "1"
+          VELTRIX_ACCEPTANCE_SOLANA_MINT: ${{ inputs.mint }}
+          VELTRIX_ACCEPTANCE_SOLANA_POOL: ${{ inputs.pool }}
+          VELTRIX_ACCEPTANCE_CANDLE_INTERVAL: ${{ inputs.interval }}
+        run: pytest -q -s tests/test_live_geckoterminal_acceptance.py
