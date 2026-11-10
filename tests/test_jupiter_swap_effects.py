@@ -6,7 +6,6 @@ from solders.pubkey import Pubkey
 
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_swap_effects import (
-    ASSOCIATED_TOKEN_PROGRAM_ID,
     CLASSIC_TOKEN_PROGRAM_ID,
     JupiterSwapEffectError,
     JupiterSwapEffectPolicy,
