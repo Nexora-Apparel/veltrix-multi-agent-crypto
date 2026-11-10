@@ -41,6 +41,13 @@ export default {
     if (!env.VELTRIX_API_ORIGIN || !env.VELTRIX_DASHBOARD_TOKEN) {
       return json(503, { error: "API proxy is not configured" });
     }
+    if (
+      typeof env.VELTRIX_DASHBOARD_TOKEN !== "string" ||
+      env.VELTRIX_DASHBOARD_TOKEN.length < 32 ||
+      env.VELTRIX_DASHBOARD_TOKEN.trim() !== env.VELTRIX_DASHBOARD_TOKEN
+    ) {
+      return json(503, { error: "API proxy authentication is not configured securely" });
+    }
 
     let origin;
     try {
