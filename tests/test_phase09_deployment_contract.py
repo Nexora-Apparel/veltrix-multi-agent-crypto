@@ -252,3 +252,9 @@ def test_phase09_isolation_verifies_cloudflared_identity_and_secret_separation()
     assert 'runuser -u cloudflared -- test -r "$PIPELINE_ENV"' in script
     assert 'runuser -u cloudflared -- test -r "$DASHBOARD_ENV"' in script
     assert 'tunnel process has database or secret-group access' in script
+
+
+def test_cloudflare_deployment_enforces_strong_access_service_secret():
+    workflow = (ROOT / ".github" / "workflows" / "deploy-dashboard-cloudflare.yml").read_text(encoding="utf-8")
+    assert '${#CF_ACCESS_CLIENT_SECRET}' in workflow
+    assert 'ge 32' in workflow
