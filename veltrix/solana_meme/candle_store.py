@@ -50,6 +50,22 @@ class SolanaCandleStore:
         finally:
             db.close()
 
+    @staticmethod
+    def record_in_transaction(candle: SolanaCandle, db: sqlite3.Connection) -> bool:
+        if not isinstance(candle, SolanaCandle):
+            raise TypeError("candle must be a validated SolanaCandle")
+        cursor = db.execute("""
+            INSERT OR IGNORE INTO solana_ohlcv_candles
+            (mint,pair_address,interval,open_time_ms,open,high,low,close,
+             volume,source,observed_at_ms,is_closed)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            candle.mint,candle.pair_address,candle.interval,candle.open_time_ms,
+            candle.open,candle.high,candle.low,candle.close,candle.volume,
+            candle.source,candle.observed_at_ms,int(candle.is_closed),
+        ))
+        return cursor.rowcount == 1
+
     def record(self, candle: SolanaCandle) -> bool:
         if not isinstance(candle, SolanaCandle):
             raise TypeError("candle must be a validated SolanaCandle")
