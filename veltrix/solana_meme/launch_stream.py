@@ -151,6 +151,94 @@ class LaunchStore:
                 (candidate.discovered_at_ms, candidate.source),
             )
 
+    def record_candidate_in_transaction(self, candidate: SolanaCandidate, db: Any) -> None:
+        """Persist a candidate on a caller-owned transaction connection."""
+        if not isinstance(candidate, SolanaCandidate):
+            raise TypeError("only validated SolanaCandidate values can be stored")
+        if db is None or not callable(getattr(db, "execute", None)):
+            raise TypeError("db must be an open database connection")
+        sources = sorted(set(candidate.sources or (candidate.source,)))
+        row = db.execute(
+            "SELECT first_seen_at_ms, latest_seen_at_ms, primary_source, sources_json "
+            "FROM solana_launch_candidates WHERE mint = ?",
+            (candidate.mint,),
+        ).fetchone()
+        if row is None:
+            db.execute(
+                """INSERT INTO solana_launch_candidates
+                (mint, first_seen_at_ms, latest_seen_at_ms, primary_source, sources_json)
+                VALUES (?, ?, ?, ?, ?)""",
+                (candidate.mint, candidate.discovered_at_ms,
+                 candidate.discovered_at_ms, candidate.source, json.dumps(sources)),
+            )
+        else:
+            merged_sources = sorted(set(json.loads(row["sources_json"])) | set(sources))
+            is_newer = candidate.discovered_at_ms >= row["latest_seen_at_ms"]
+            db.execute(
+                """UPDATE solana_launch_candidates
+                SET first_seen_at_ms = ?, latest_seen_at_ms = ?,
+                    primary_source = ?, sources_json = ?
+                WHERE mint = ?""",
+                (
+                    min(row["first_seen_at_ms"], candidate.discovered_at_ms),
+                    max(row["latest_seen_at_ms"], candidate.discovered_at_ms),
+                    candidate.source if is_newer else row["primary_source"],
+                    json.dumps(merged_sources),
+                    candidate.mint,
+                ),
+            )
+        db.execute(
+            "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) VALUES (?, ?, ?)",
+            ("candidate_observed", candidate.discovered_at_ms,
+             json.dumps({"mint": candidate.mint, "source": candidate.source})),
+        )
+        db.execute(
+            "UPDATE launch_feed_outages SET ended_at_ms = ? WHERE source = ? AND ended_at_ms IS NULL",
+            (candidate.discovered_at_ms, candidate.source),
+        )
+
+    def record_outage_in_transaction(
+        self, reason: str, *, source: str, occurred_at_ms: int, db: Any
+    ) -> None:
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("outage reason is required")
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("source identity is required")
+        timestamp = self._timestamp(occurred_at_ms)
+        clean_reason, clean_source = reason.strip()[:500], source.strip()
+        active = db.execute(
+            "SELECT id FROM launch_feed_outages WHERE source=? AND ended_at_ms IS NULL LIMIT 1",
+            (clean_source,),
+        ).fetchone()
+        if active is None:
+            db.execute(
+                "INSERT INTO launch_feed_outages(source, started_at_ms, reason) VALUES (?, ?, ?)",
+                (clean_source, timestamp, clean_reason),
+            )
+        db.execute(
+            "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) VALUES (?, ?, ?)",
+            ("feed_outage", timestamp,
+             json.dumps({"source": clean_source, "reason": clean_reason})),
+        )
+
+    def record_source_healthy_in_transaction(
+        self, source: str, *, occurred_at_ms: int, db: Any
+    ) -> None:
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("source identity is required")
+        timestamp = self._timestamp(occurred_at_ms)
+        clean_source = source.strip()
+        cursor = db.execute(
+            "UPDATE launch_feed_outages SET ended_at_ms=? WHERE source=? AND ended_at_ms IS NULL",
+            (timestamp, clean_source),
+        )
+        if cursor.rowcount:
+            db.execute(
+                "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) VALUES (?, ?, ?)",
+                ("feed_source_healthy", timestamp,
+                 json.dumps({"source": clean_source})),
+            )
+
     def record_event(
         self,
         event_type: str,
