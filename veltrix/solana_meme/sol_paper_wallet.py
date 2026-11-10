@@ -227,6 +227,7 @@ class SolanaPaperWallet:
             ).fetchall()
         unrealized = 0
         position_rows = []
+        unmarked_positions = []
         for row in positions:
             mark = marks.get(row["mint"])
             qty = Decimal(row["quantity"])
@@ -237,6 +238,8 @@ class SolanaPaperWallet:
                 market_value = int((qty * mark).to_integral_value(rounding=ROUND_DOWN))
                 pnl = market_value - int(row["cost_basis_lamports"])
                 unrealized += pnl
+            else:
+                unmarked_positions.append(row["mint"])
             position_rows.append({
                 **dict(row), "mark_price_lamports": mark,
                 "market_value_lamports": market_value, "unrealized_pnl_lamports": pnl,
@@ -248,9 +251,14 @@ class SolanaPaperWallet:
             "cash_lamports": int(account["cash_lamports"]),
             "open_positions": position_rows,
             "realized_pnl_lamports": realized,
-            "unrealized_pnl_lamports": unrealized,
-            "equity_lamports": int(account["cash_lamports"]) + sum(
-                int(x["market_value_lamports"] or 0) for x in position_rows
+            "unrealized_pnl_lamports": unrealized if not unmarked_positions else None,
+            "equity_lamports": (
+                int(account["cash_lamports"]) + sum(
+                    int(x["market_value_lamports"]) for x in position_rows
+                )
+                if not unmarked_positions else None
             ),
+            "equity_complete": not unmarked_positions,
+            "unmarked_positions": unmarked_positions,
             "fills": [dict(x) for x in fills],
         }
