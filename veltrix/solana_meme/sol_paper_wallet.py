@@ -301,6 +301,7 @@ class SolanaPaperWallet:
         if remaining_quantity <= 0:
             db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (position["mint"],))
             db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (position["mint"],))
+            db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (position["mint"],))
         else:
             db.execute(
                 """UPDATE solana_paper_positions
