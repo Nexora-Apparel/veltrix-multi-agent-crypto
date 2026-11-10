@@ -36,10 +36,12 @@ def pda(seeds, program):
 
 def encode(name, *values):
     discriminator = next(key for key, spec in PUMP_INSTRUCTION_DISCRIMINATORS.items() if spec[0] == name)
-    return discriminator + b"".join(
-        value.to_bytes(8, "little") if isinstance(value, int) else bytes([value])
-        for value in values
-    )
+    payload = values[:2][0].to_bytes(8, "little") + values[:2][1].to_bytes(8, "little")
+    if name in {"buy", "buy_exact_sol_in"}:
+        payload += bytes([values[2], values[3]])
+    elif name in {"buy_v2", "buy_exact_quote_in_v2", "buy_v3", "buy_exact_quote_in_v3"}:
+        payload += bytes([values[2]])
+    return discriminator + payload
 
 
 def build_case(*, version="v1", name="buy_exact_sol_in", direction="buy", data_override=None):
