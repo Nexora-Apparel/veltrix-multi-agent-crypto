@@ -147,10 +147,14 @@ reachable over HTTPS:
 - `VELTRIX_API_ORIGIN`: HTTPS origin only, with no path or credentials.
 - `VELTRIX_DASHBOARD_TOKEN`: random bearer token of at least 32 characters,
   identical to the Python dashboard's `VELTRIX_DASHBOARD_TOKEN`.
+- `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`: a dedicated Cloudflare
+  Access service token allowed by the API-origin Service Auth policy.
 
-After deployment, attach the intended custom hostname, configure Cloudflare
-Access to require authentication, and verify the Access challenge before
-considering the dashboard public-facing. The API origin must separately run
+After deployment, attach the intended dashboard hostname and require human
+Cloudflare Access authentication. Publish the Python API origin through the
+loopback-only Cloudflare Tunnel described in
+`docs/cloudflare-tunnel-origin.md`; protect that API hostname with a Service
+Auth policy and the dedicated Worker service token. The API origin must separately run
 behind HTTPS and accept only authenticated API requests. A successful Worker
 deployment alone is not an end-to-end production acceptance.
 
