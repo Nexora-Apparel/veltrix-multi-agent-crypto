@@ -257,7 +257,7 @@ def test_dashboard_remote_database_adapter_remains_query_only(monkeypatch, tmp_p
     database = make_database(tmp_path)
     monkeypatch.setattr(
         dashboard_module, "connect_database",
-        lambda _path, timeout=3: sqlite3.connect(database, timeout=timeout),
+        lambda _path, timeout=3, auth_token=None: sqlite3.connect(database, timeout=timeout),
     )
     monkeypatch.setattr(dashboard_module, "row_factory_for", lambda _path: sqlite3.Row)
     repository = DashboardRepository("libsql://example.aws-eu-central-1.turso.io")
