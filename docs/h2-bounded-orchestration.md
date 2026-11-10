@@ -32,7 +32,11 @@ retry loop is created.
 `run_once` accepts a deadline of 1–240 seconds and a work budget of 1–10,000
 items. The lease must outlive the configured deadline by at least 15 seconds.
 Handlers must call `context.checkpoint()` at bounded work boundaries and
-reassign nothing: the context tracks consumed items in place.
+call `context.assert_fence()` immediately before each externally visible side
+effect. Both operations verify the current lease; the context tracks consumed
+items in place. Any downstream database mutation must independently include
+the owner and fencing token in its own transaction. A checkpoint cannot stop a
+handler that ignores the contract or is blocked inside external I/O.
 
 The deadline is cooperative, not an OS-level kill switch. It cannot interrupt a
 Python handler blocked inside an external call. Provider HTTP/WebSocket calls
