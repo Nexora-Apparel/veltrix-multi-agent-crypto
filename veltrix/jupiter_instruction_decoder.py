@@ -11,11 +11,9 @@ from dataclasses import dataclass
 import hashlib
 
 from solders.message import MessageV0, from_bytes_versioned
-from solders.pubkey import Pubkey
 
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.jupiter_swap_effects import (
-    ASSOCIATED_TOKEN_PROGRAM_ID,
     CLASSIC_TOKEN_PROGRAM_ID,
     derive_associated_token_address,
 )
