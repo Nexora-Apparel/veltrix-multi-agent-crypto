@@ -11,7 +11,11 @@ from .candidates import canonical_mint
 from .market_store import MarketSnapshotStore
 
 WSOL_MINT = "So11111111111111111111111111111111111111112"
-STABLE_QUOTES = {"USD", "USDC", "USDT"}
+# Trust only canonical Solana stablecoin mints. A symbol alone is spoofable.
+STABLE_QUOTE_MINTS = {
+    "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v",
+    "USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+}
 
 
 class SolUsdMarketProvider(Protocol):
@@ -123,7 +127,12 @@ class SolanaPaperQuoteAdapter:
                 continue
             if event.chain != "solana" or event.token_address != WSOL_MINT:
                 continue
-            if (event.quote_token_symbol or "").upper() not in STABLE_QUOTES:
+            quote_symbol = (event.quote_token_symbol or "").upper()
+            expected_quote_mint = STABLE_QUOTE_MINTS.get(quote_symbol)
+            if (
+                expected_quote_mint is None
+                or event.quote_token_address != expected_quote_mint
+            ):
                 continue
             try:
                 price = self._decimal(event.price_usd, "SOL/USD price")
