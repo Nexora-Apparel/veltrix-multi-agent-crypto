@@ -249,11 +249,11 @@ class SolanaRiskEvidenceWorker:
         discovered = self._discover_jobs(now, context)
         claimed = self._claim(now, limit, context)
         recorded = failed = 0
+        if context is not None and claimed:
+            context.checkpoint(items=len(claimed))
         for mint in claimed:
             try:
                 report = self.collector.collect(mint, now_ms=self.clock_ms())
-                if context is not None:
-                    context.checkpoint(items=1)
                 self._succeed(report, self.clock_ms(), context)
                 recorded += 1
             except Exception as exc:
