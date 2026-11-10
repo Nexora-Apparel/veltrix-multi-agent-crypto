@@ -28,7 +28,7 @@ def market_snapshot():
         symbol="TEST", price_usd=0.50, liquidity_usd=200_000,
         volume_h1_usd=50_000, price_change_m5_pct=1.0,
         observed_at_ms=NOW - 1_000, pair_created_at_ms=NOW - 10_000,
-        source="dexscreener", quote_token_symbol="SOL",
+        source="dexscreener", dex_id="raydium", quote_token_symbol="SOL",
     )
     return SolanaMarketData(
         provider=type("P", (), {"fetch_token_pairs": lambda self, chain, mints: [event]})(),
