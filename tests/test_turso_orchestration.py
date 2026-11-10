@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from urllib.parse import urlsplit
 
 import pytest
@@ -80,6 +81,41 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
         )
         assert next_fence == fence + 1
         assert store.release_lease("h2-worker-b", next_fence)
+
+        barrier = threading.Barrier(3)
+        outcomes = []
+        outcomes_lock = threading.Lock()
+
+        def contender(owner):
+            contender_store = OrchestrationStore(URL)
+            barrier.wait()
+            try:
+                result = ("won", contender_store.acquire_lease(
+                    owner, now_ms=1_003_000, ttl_ms=10_000,
+                    lease_name="remote-race",
+                ))
+            except LeaseBusy:
+                result = ("busy", None)
+            with outcomes_lock:
+                outcomes.append((owner, result))
+
+        threads = [
+            threading.Thread(target=contender, args=("race-a",)),
+            threading.Thread(target=contender, args=("race-b",)),
+        ]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(timeout=20)
+        assert all(not thread.is_alive() for thread in threads)
+        assert sum(result[0] == "won" for _, result in outcomes) == 1
+        assert sum(result[0] == "busy" for _, result in outcomes) == 1
+        winner = next(owner for owner, result in outcomes if result[0] == "won")
+        winner_fence = next(result[1] for _, result in outcomes if result[0] == "won")
+        assert OrchestrationStore(URL).release_lease(
+            winner, winner_fence, lease_name="remote-race"
+        )
     finally:
         import turso_serverless
 
@@ -89,6 +125,7 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
                 "orchestration_audit",
                 "orchestration_worker_lease",
                 "orchestration_jobs",
+                "orchestration_remote_race_lease",
             ):
                 db.execute(f'DROP TABLE IF EXISTS "{table}"')
             db.commit()
