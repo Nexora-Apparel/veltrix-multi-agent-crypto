@@ -149,3 +149,43 @@ def test_sol_wallet_initial_stop_closes_position_and_records_loss(tmp_path):
     assert exits[0]["status"] == "CLOSED"
     assert exits[0]["realized_pnl_lamports"] < 0
     assert wallet.snapshot()["open_positions"] == []
+
+
+def test_sol_wallet_rejects_incomplete_or_invalid_quote_audit_provenance(tmp_path):
+    wallet = SolanaPaperWallet(str(tmp_path / "sol-provenance.sqlite3"), 1_000_000_000)
+    provenance = {
+        "mint": MINT,
+        "market_snapshot_id": 1,
+        "token_pair_address": "token-pool",
+        "sol_usd_pair_address": "sol-usdc-pool",
+        "sol_usd_method": "wsol_stable_pool",
+        "token_price_usd": "0.001",
+        "sol_price_usd": "150.25",
+        "token_observed_at_ms": 1_800_000_000_000,
+        "sol_observed_at_ms": 1_800_000_000_000,
+        "token_source": "dexscreener",
+        "sol_source": "dexscreener",
+    }
+    for key, invalid in (
+        ("token_pair_address", ""),
+        ("sol_usd_pair_address", ""),
+        ("token_price_usd", "0"),
+        ("sol_price_usd", "NaN"),
+        ("market_snapshot_id", 0),
+    ):
+        broken = {**provenance, key: invalid}
+        with pytest.raises(ValueError, match="quote provenance"):
+            wallet.open_position(
+                idempotency_key="bad-" + key, mint=MINT, quantity=1,
+                price_lamports=1_000, fee_lamports=0,
+                created_at_ms=1_800_000_000_001, quote_provenance=broken,
+            )
+
+    with pytest.raises(ValueError, match="audit record size"):
+        wallet.open_position(
+            idempotency_key="oversized", mint=MINT, quantity=1,
+            price_lamports=1_000, fee_lamports=0,
+            created_at_ms=1_800_000_000_001,
+            quote_provenance={**provenance, "extra": "x" * 20_000},
+        )
+    assert wallet.snapshot()["fills"] == []
