@@ -4,7 +4,7 @@ import hashlib
 import pytest
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
-from solders.message import MessageV0, to_bytes_versioned
+from solders.message import MessageV0, from_bytes_versioned, to_bytes_versioned
 from solders.pubkey import Pubkey
 
 from veltrix.jupiter_instruction_decoder import (
@@ -55,7 +55,7 @@ def encode_route_data(
     )
 
 
-def build_case(*, shared=False, data=None, source_override=None, output_override=None, authority_override=None, source_writable=True):
+def build_case(*, shared=False, data=None, source_override=None, output_override=None, authority_override=None, source_mint_override=None, source_writable=True):
     taker = Pubkey.new_unique()
     input_mint = Pubkey.new_unique()
     output_mint = Pubkey.new_unique()
@@ -81,7 +81,7 @@ def build_case(*, shared=False, data=None, source_override=None, output_override
             AccountMeta(program_source, False, True),
             AccountMeta(program_destination, False, True),
             AccountMeta(destination_account, False, True),
-            AccountMeta(input_mint, False, False),
+            AccountMeta(source_mint_override or input_mint, False, False),
             AccountMeta(output_mint, False, False),
             AccountMeta(system_program, False, False),
             AccountMeta(system_program, False, False),
@@ -265,29 +265,64 @@ def test_rejects_source_account_privilege_escalation_or_downgrade():
 
 
 def test_rejects_shared_route_with_wrong_source_mint():
-    order, validation, _, _ = build_case(shared=True)
-    # Alter the expected order input mint; the encoded source mint remains the original.
-    changed = dataclasses.replace(order, input_mint=str(Pubkey.new_unique()))
+    order, validation, _, _ = build_case(shared=True, source_mint_override=Pubkey.new_unique())
     with pytest.raises(JupiterInstructionDecodeError, match="source mint account key"):
-        decode((changed, validation, "sharedAccountsRoute", None))
+        decode((order, validation, "sharedAccountsRoute", None))
 
 
 def test_rejects_transaction_with_multiple_jupiter_instructions():
-    order, validation, _, message_bytes = build_case()
-    # The validator result is for the original message; duplicate Jupiter invocation is caught by the message count.
-    message = MessageV0.try_compile(
+    order, validation, _, _ = build_case()
+    original_message = from_bytes_versioned(order.message_bytes)
+    compiled = original_message.instructions[0]
+    static_keys = tuple(original_message.account_keys)
+    header = original_message.header
+    required = int(header.num_required_signatures)
+    readonly_signed = int(header.num_readonly_signed_accounts)
+    readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+    def writable(index):
+        if index < required:
+            return index < required - readonly_signed
+        return index < len(static_keys) - readonly_unsigned
+    metas = [
+        AccountMeta(
+            Pubkey.from_string(static_keys[int(index)]),
+            original_message.is_signer(int(index)),
+            writable(int(index)),
+        )
+        for index in bytes(compiled.accounts)
+    ]
+    duplicate_message = MessageV0.try_compile(
         Pubkey.from_string(order.taker),
         [
-            Instruction(Pubkey.from_string(JUPITER_V6_PROGRAM_ID), encode_route_data(), []),
-            Instruction(Pubkey.from_string(JUPITER_V6_PROGRAM_ID), encode_route_data(), []),
+            Instruction(Pubkey.from_string(JUPITER_V6_PROGRAM_ID), bytes(compiled.data), metas),
+            Instruction(Pubkey.from_string(JUPITER_V6_PROGRAM_ID), bytes(compiled.data), metas),
         ],
         [],
         Hash.from_string(order.recent_blockhash),
     )
-    changed_bytes = to_bytes_versioned(message)
-    changed = dataclasses.replace(order, message_bytes=changed_bytes)
-    with pytest.raises(JupiterInstructionDecodeError, match="digests differ"):
-        decode((changed, validation, "route", changed_bytes))
+    changed_bytes = to_bytes_versioned(duplicate_message)
+    changed_order = dataclasses.replace(order, message_bytes=changed_bytes)
+    changed_keys = tuple(str(key) for key in duplicate_message.account_keys)
+    changed_header = duplicate_message.header
+    changed_required = int(changed_header.num_required_signatures)
+    changed_readonly_signed = int(changed_header.num_readonly_signed_accounts)
+    changed_readonly_unsigned = int(changed_header.num_readonly_unsigned_accounts)
+    def changed_writable(index):
+        if index < changed_required:
+            return index < changed_required - changed_readonly_signed
+        return index < len(changed_keys) - changed_readonly_unsigned
+    changed_validation = dataclasses.replace(
+        validation,
+        message_sha256=hashlib.sha256(changed_bytes).hexdigest(),
+        message_size=len(changed_bytes),
+        program_ids=(JUPITER_V6_PROGRAM_ID, JUPITER_V6_PROGRAM_ID),
+        instruction_count=2,
+        account_keys=changed_keys,
+        account_signers=tuple(duplicate_message.is_signer(i) for i in range(len(changed_keys))),
+        account_writable=tuple(changed_writable(i) for i in range(len(changed_keys))),
+    )
+    with pytest.raises(JupiterInstructionDecodeError, match="exactly one top-level"):
+        decode((changed_order, changed_validation, "route", changed_bytes))
 
 
 def test_rejects_slippage_mismatch_with_api_order():
