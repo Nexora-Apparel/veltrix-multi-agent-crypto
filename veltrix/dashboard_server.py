@@ -316,6 +316,8 @@ class DashboardRepository:
                 )
             except (TypeError, ValueError):
                 mark_provenance = {}
+            if not isinstance(mark_provenance, dict):
+                mark_provenance = {}
             source = mark_provenance.get("token_source")
             provenance_valid = (
                 isinstance(source, str) and bool(source.strip())
