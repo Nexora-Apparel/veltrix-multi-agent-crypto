@@ -280,7 +280,7 @@ def test_rejects_pool_not_present_in_dex_cpi_accounts():
     order, validation, jupiter_instruction, simulation, gate, registry, policy = fixture()
     simulation = dataclasses.replace(
         simulation,
-        inner_instructions=(dataclasses.replace(simulation.inner_instructions[0], account_keys=()),),
+        inner_instructions=(dataclasses.replace(simulation.inner_instructions[0], account_keys=(jupiter_instruction.input_token_account, jupiter_instruction.output_token_account)),),
     )
     with pytest.raises(JupiterProgramTraceError, match="does not bind route pool"):
         evaluate((order, validation, jupiter_instruction, simulation, gate, registry, policy))
