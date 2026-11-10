@@ -22,7 +22,7 @@ jobs:
       - name: Check out reviewed H1.1/H2/H3 integration commit
         uses: actions/checkout@v4
         with:
-          ref: 796bf108fa2e70c312de12094119a5bf8c90c65c
+          ref: 021d3e6c01fc5a27dc8f5faeca2b6f9859b08ed5
 
       - name: Set up Python
         uses: actions/setup-python@v5
