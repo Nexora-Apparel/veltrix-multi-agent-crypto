@@ -44,8 +44,10 @@ token-price-USD divided by token-price-SOL from the same provider observation.
 Acceptance requirements:
 - Token USD snapshot and SOL/USD observation must both be no older than the
   configured maximum age and cannot be future-dated.
-- SOL/USD observations must be WSOL token pairs quoted in USD, USDC or USDT,
-  with a non-empty provider source, sufficient liquidity and hourly volume.
+- SOL/USD observations must be WSOL token pairs quoted in the canonical
+  Solana USDC or USDT mint (not a symbol-only match), with a non-empty provider
+  source, sufficient liquidity and hourly volume. Unknown tokens labelled
+  `USD`, spoofed stablecoin symbols and unverified quote mints are rejected.
 - The most liquid eligible stable-quoted WSOL pool is preferred. If that
   endpoint has no eligible pool, a token/WSOL pair may be used only when its
   quote mint is the canonical WSOL mint and the provider supplies a valid
@@ -61,6 +63,10 @@ and persist quote provenance with each fill.
 
 
 # Native SOL consensus paper worker
+
+The quote audit record validates both token and SOL sources, pool addresses,
+positive USD marks, observation timestamps and market snapshot ID before a
+fill can be committed.
 
 The native SOL paper worker reuses the Phase 06 approval validator and persists
 fills in the separate lamport-native wallet. It refuses to proceed unless the
