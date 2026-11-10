@@ -175,6 +175,10 @@ def evaluate_execution_preflight(
         isinstance(risk_report.mint_supply_raw, bool)
         or not isinstance(risk_report.mint_supply_raw, int)
         or risk_report.mint_supply_raw <= 0
+        or isinstance(risk_report.total_supply_raw, bool)
+        or not isinstance(risk_report.total_supply_raw, int)
+        or isinstance(risk_report.observed_holder_balance_raw, bool)
+        or not isinstance(risk_report.observed_holder_balance_raw, int)
         or risk_report.total_supply_raw != risk_report.mint_supply_raw
         or risk_report.observed_holder_balance_raw != risk_report.mint_supply_raw
     ):
@@ -208,7 +212,7 @@ def evaluate_execution_preflight(
     if blocked:
         raise ExecutionPreflightError("risk report contains blocked high-severity flags")
 
-    if not semantic.token_transfers:
+    if not isinstance(semantic.token_transfers, tuple) or not semantic.token_transfers:
         raise ExecutionPreflightError("at least one approved classic SPL token transfer is required")
     if any(item.mint != policy.expected_mint for item in semantic.token_transfers):
         raise ExecutionPreflightError("semantic token transfer references an unexpected mint")
