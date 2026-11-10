@@ -444,7 +444,11 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
                 job["run_id"], attempt["attempt"], owner_id=owner,
                 fencing_token=fencing, outcome="SUCCEEDED",
             )
-        except RetryableJobError as exc:
+        except LeaseBusy:
+            # A lost lease is not a job failure. Leave RUNNING for a fenced
+            # recovery pass by the next lease owner.
+            raise
+        except (RetryableJobError, JobDeadlineExceeded) as exc:
             status = store.finish_attempt(
                 job["run_id"], attempt["attempt"], owner_id=owner,
                 fencing_token=fencing, outcome="RETRYABLE",
