@@ -125,7 +125,6 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
                 "orchestration_audit",
                 "orchestration_worker_lease",
                 "orchestration_jobs",
-                "orchestration_remote_race_lease",
             ):
                 db.execute(f'DROP TABLE IF EXISTS "{table}"')
             db.commit()
