@@ -57,9 +57,11 @@ Run as root. These commands are idempotent for existing groups and users:
 getent group veltrix-db >/dev/null || groupadd --system veltrix-db
 getent group veltrix-paper-secrets >/dev/null || groupadd --system veltrix-paper-secrets
 getent group veltrix-dashboard-secrets >/dev/null || groupadd --system veltrix-dashboard-secrets
+getent group veltrix-worker-secrets >/dev/null || groupadd --system veltrix-worker-secrets
 
 id veltrix-paper >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid veltrix-db veltrix-paper
 id veltrix-dashboard >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid veltrix-db veltrix-dashboard
+id veltrix-worker >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid veltrix-db veltrix-worker
 id veltrix-wallet-observer >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin veltrix-wallet-observer
 ```
 
