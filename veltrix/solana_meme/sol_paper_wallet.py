@@ -426,6 +426,7 @@ class SolanaPaperWallet:
                 result = self._sell_in_transaction(
                     db, position, idempotency_key=key, fill_price=fill_price,
                     fee_bps=fee_rate, fraction=Decimal("0.5"), created_at_ms=created_at_ms,
+                    quote_provenance_json=provenance_json,
                 )
                 db.execute(
                     "UPDATE solana_paper_position_state SET hit_2x=1 WHERE mint=?",
@@ -444,9 +445,9 @@ class SolanaPaperWallet:
             realized_row = db.execute(
                 "SELECT COALESCE(SUM(realized_pnl_lamports),0) AS total FROM solana_paper_fills"
             ).fetchone()
-            fills = db.execute(
+            fills = [dict(row) for row in db.execute(
                 "SELECT * FROM solana_paper_fills ORDER BY created_at_ms DESC LIMIT 100"
-            ).fetchall()
+            ).fetchall()]
         unrealized = 0
         position_rows = []
         unmarked_positions = []
