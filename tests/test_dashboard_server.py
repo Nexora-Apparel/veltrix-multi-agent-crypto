@@ -228,20 +228,44 @@ def test_dashboard_sol_wallet_endpoint_reports_native_lamports_and_pnl(tmp_path)
     assert before["cash_lamports"] == 2 * LAMPORTS_PER_SOL
     assert before["equity_complete"] is True
 
+    import time
     mint = "So11111111111111111111111111111111111111112"
+    now_ms = time.time_ns() // 1_000_000
+    provenance = {
+        "mint": mint, "market_snapshot_id": 2,
+        "token_pair_address": "token-pool",
+        "sol_usd_pair_address": "sol-usdc-pool",
+        "sol_usd_method": "wsol_stable_pool",
+        "token_price_usd": "0.001", "sol_price_usd": "100",
+        "token_observed_at_ms": now_ms, "sol_observed_at_ms": now_ms,
+        "token_source": "dexscreener", "sol_source": "dexscreener",
+    }
     wallet.open_position(
         idempotency_key="dashboard-entry", mint=mint, quantity=10,
         price_lamports=1_000_000, fee_lamports=100_000,
-        created_at_ms=1_800_000_000_000,
+        created_at_ms=now_ms, quote_provenance=provenance,
     )
     open_state = DashboardRepository(database).sol_paper_wallet()
     assert open_state["open_position_count"] == 1
     assert open_state["equity_lamports"] is None
     assert open_state["equity_complete"] is False
 
+    wallet.process_market_price(
+        mint=mint, price_lamports=1_500_000, market_snapshot_id=2,
+        created_at_ms=now_ms + 1, quote_provenance=provenance,
+    )
+    marked_state = DashboardRepository(database).sol_paper_wallet()
+    assert marked_state["equity_complete"] is True
+    assert marked_state["unmarked_positions"] == []
+    assert marked_state["unrealized_pnl_lamports"] == 4_900_000
+    assert marked_state["open_positions"][0]["mark_source"] == "dexscreener"
+    assert marked_state["open_positions"][0]["mark_freshness"] == "fresh"
+
+    exit_provenance = {**provenance, "market_snapshot_id": 3}
     wallet.close_position(
         idempotency_key="dashboard-exit", mint=mint, price_lamports=2_000_000,
-        fee_lamports=100_000, created_at_ms=1_800_000_001_000,
+        fee_lamports=100_000, created_at_ms=now_ms + 2,
+        quote_provenance=exit_provenance,
     )
     closed = DashboardRepository(database).sol_paper_wallet()
     assert closed["open_position_count"] == 0
