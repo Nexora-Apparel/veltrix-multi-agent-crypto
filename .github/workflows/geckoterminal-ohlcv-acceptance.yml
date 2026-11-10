@@ -1,15 +1,23 @@
 name: GeckoTerminal OHLCV acceptance
 
 on:
+  push:
+    branches: [work/veltrix-trading-terminal]
+    paths:
+      - ".github/workflows/geckoterminal-ohlcv-acceptance.yml"
+      - "tests/test_live_geckoterminal_acceptance.py"
+      - "veltrix/solana_meme/geckoterminal_candles.py"
   workflow_dispatch:
     inputs:
       mint:
         description: Canonical Solana token mint
         required: true
+        default: So11111111111111111111111111111111111111112
         type: string
       pool:
         description: GeckoTerminal Solana pool address for that mint
         required: true
+        default: 58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2
         type: string
       interval:
         description: Candle interval
@@ -39,7 +47,7 @@ jobs:
       - name: Validate live GeckoTerminal OHLCV
         env:
           VELTRIX_LIVE_GECKOTERMINAL_TEST: "1"
-          VELTRIX_ACCEPTANCE_SOLANA_MINT: ${{ inputs.mint }}
-          VELTRIX_ACCEPTANCE_SOLANA_POOL: ${{ inputs.pool }}
-          VELTRIX_ACCEPTANCE_CANDLE_INTERVAL: ${{ inputs.interval }}
+          VELTRIX_ACCEPTANCE_SOLANA_MINT: ${{ inputs.mint || 'So11111111111111111111111111111111111111112' }}
+          VELTRIX_ACCEPTANCE_SOLANA_POOL: ${{ inputs.pool || '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2' }}
+          VELTRIX_ACCEPTANCE_CANDLE_INTERVAL: ${{ inputs.interval || '1m' }}
         run: pytest -q -s tests/test_live_geckoterminal_acceptance.py
