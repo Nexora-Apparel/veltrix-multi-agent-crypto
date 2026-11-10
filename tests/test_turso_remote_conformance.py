@@ -11,12 +11,12 @@ import uuid
 import pytest
 
 
-DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "").strip()
-AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "").strip()
+DATABASE_URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
+AUTH_TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
 
 pytestmark = pytest.mark.skipif(
     not DATABASE_URL or not AUTH_TOKEN,
-    reason="TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required for live conformance",
+    reason="TURSO_CONFORMANCE_DATABASE_URL and TURSO_CONFORMANCE_AUTH_TOKEN are required for live conformance",
 )
 
 
