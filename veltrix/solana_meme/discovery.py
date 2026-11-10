@@ -50,8 +50,10 @@ class SolanaDiscoveryEngine:
         self.poll_interval_seconds = float(poll_interval_seconds)
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
-    def poll_once(self, context: RunContext | None = None) -> DiscoveryCycleResult:
+    def poll_once(self, context: RunContext | None = None, *, limit: int = 25) -> DiscoveryCycleResult:
         """Fetch one bounded secondary-feed batch and persist it under the run fence."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
+            raise ValueError("limit must be between 1 and 25")
         try:
             batch = self.secondary_source.fetch_candidates()
         except Exception as exc:
@@ -82,14 +84,15 @@ class SolanaDiscoveryEngine:
                 self.store.record_outage_in_transaction(
                     reason, source=source, occurred_at_ms=timestamp, db=db
                 )
-            for candidate in batch.candidates:
+            selected_candidates = batch.candidates[:limit]
+            for candidate in selected_candidates:
                 if context is not None:
                     context.checkpoint(items=1)
                 self.store.record_candidate_in_transaction(candidate, db)
 
         return DiscoveryCycleResult(
             candidates_received=len(batch.candidates),
-            candidates_stored=len(batch.candidates),
+            candidates_stored=len(selected_candidates),
             healthy_sources=batch.successful_sources,
             source_errors=batch.errors,
         )
