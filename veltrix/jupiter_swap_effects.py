@@ -133,6 +133,8 @@ def evaluate_jupiter_swap_effects(
     if isinstance(now_epoch_ms, bool) or not isinstance(now_epoch_ms, int) or now_epoch_ms <= 0:
         raise JupiterSwapEffectError("now_epoch_ms must be a positive integer")
 
+    if not isinstance(order.message_bytes, bytes) or not order.message_bytes:
+        raise JupiterSwapEffectError("Jupiter order message bytes are missing")
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if digest != validation.message_sha256 or digest != simulation.message_sha256 or digest != simulation_gate.message_sha256:
         raise JupiterSwapEffectError("order, validation and simulation message digests differ")
@@ -142,9 +144,20 @@ def evaluate_jupiter_swap_effects(
         raise JupiterSwapEffectError("simulation blockhash differs from Jupiter order")
     if simulation.last_valid_block_height != order.last_valid_block_height:
         raise JupiterSwapEffectError("simulation last-valid block height differs from Jupiter order")
-    if simulation.response_id != simulation_gate.response_id or simulation.provider_id != simulation_gate.provider_id:
+    if (
+        simulation.response_id != simulation_gate.response_id
+        or simulation.provider_id != simulation_gate.provider_id
+        or simulation.context_slot != simulation_gate.context_slot
+        or simulation.units_consumed != simulation_gate.units_consumed
+        or simulation.fee_lamports != simulation_gate.fee_lamports
+    ):
         raise JupiterSwapEffectError("simulation evidence and gate result refer to different RPC responses")
-    if order.observed_at_epoch_ms <= 0 or order.observed_at_epoch_ms > now_epoch_ms + policy.max_future_skew_ms:
+    if (
+        isinstance(order.observed_at_epoch_ms, bool)
+        or not isinstance(order.observed_at_epoch_ms, int)
+        or order.observed_at_epoch_ms <= 0
+        or order.observed_at_epoch_ms > now_epoch_ms + policy.max_future_skew_ms
+    ):
         raise JupiterSwapEffectError("Jupiter order observation timestamp is invalid or future-dated")
     if now_epoch_ms - order.observed_at_epoch_ms > policy.max_order_age_ms:
         raise JupiterSwapEffectError("Jupiter order quote is stale")
@@ -156,6 +169,8 @@ def evaluate_jupiter_swap_effects(
     expected = build_expected_jupiter_token_deltas(order)
     expected_by_address = {item.token_account: item for item in expected}
     actual_by_address = {item.token_account: item for item in simulation.token_balances}
+    if len(actual_by_address) != len(simulation.token_balances):
+        raise JupiterSwapEffectError("simulation contains duplicate user token-account records")
     if set(expected_by_address) != set(actual_by_address):
         raise JupiterSwapEffectError("simulation did not capture exactly the taker's input and output associated token accounts")
 
