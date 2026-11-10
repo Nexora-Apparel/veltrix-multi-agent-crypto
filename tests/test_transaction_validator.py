@@ -240,9 +240,17 @@ def test_rejects_v0_message_with_address_lookup_table():
         validate_transaction_message(to_bytes_versioned(message), intent=intent, policy=policy)
 
 
-def test_policy_rejects_attempt_to_enable_lookup_tables():
-    with pytest.raises(TransactionValidationError, match="disabled"):
-        TransactionValidationPolicy(allowed_program_ids=(), allow_address_lookup_tables=True)
+def test_policy_requires_explicit_boolean_for_lookup_table_opt_in():
+    policy = TransactionValidationPolicy(
+        allowed_program_ids=("program-id",),
+        allow_address_lookup_tables=True,
+    )
+    assert policy.allow_address_lookup_tables is True
+    with pytest.raises(TransactionValidationError, match="must be a boolean"):
+        TransactionValidationPolicy(
+            allowed_program_ids=("program-id",),
+            allow_address_lookup_tables="true",
+        )
 
 
 def test_intent_requires_fee_payer_to_be_signer():
