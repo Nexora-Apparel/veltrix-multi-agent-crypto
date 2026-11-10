@@ -170,9 +170,13 @@ def test_preserves_v0_message_with_address_lookup_table_for_next_validation_laye
 )
 def test_rejects_unsafe_order_metadata(field, value, message):
     body, _, _ = order_fixture()
+    requested_taker = body["taker"]
     body[field] = value
     with pytest.raises(JupiterOrderIntakeError, match=message):
-        request(body)
+        client(body).order_exact_in(
+            body["inputMint"], body["outputMint"], 1_000_000,
+            taker=requested_taker, policy=JupiterOrderPolicy(),
+        )
 
 
 def test_rejects_invalid_base64_transaction():
