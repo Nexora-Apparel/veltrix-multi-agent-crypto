@@ -158,3 +158,19 @@ Implemented in `veltrix/execution_preflight.py` with adversarial coverage in `te
 - The semantic decoder is currently limited to direct classic SPL Token transfers; DEX swap transactions remain unsupported.
 
 No live execution path is introduced. Paper trading remains separate and unchanged.
+
+
+### 09.9 — read-only Jupiter Swap API V2 quote intake
+
+Implemented in `veltrix/jupiter_quote.py` with adversarial coverage in `tests/test_jupiter_quote.py`.
+
+- Uses Jupiter's current Swap API V2 `GET /swap/v2/order` quote path.
+- Intentionally omits `taker`, so the response must contain no transaction payload and no taker binding. This is quote intake only.
+- Supports optional `JUPITER_API_KEY`; keyless requests are lower-rate prototype requests. Production rate limits require the API key.
+- Validates exact input/output mints, raw input amount, minimum output threshold, route router, route-step public keys/labels/amounts, price impact, fees, and quote identifiers.
+- Preserves router and route-plan metadata for subsequent program allowlisting and semantic review.
+- No order execution, signing, wallet connection, Phantom interaction, Jupiter `/execute`, or RPC transaction submission is implemented.
+- Jupiter's managed `/order` + `/execute` path is the intended future integration direction. The current transaction validator still rejects lookup tables and v1 messages; transaction payload intake remains blocked until those message versions and address resolution are independently implemented and tested.
+- Axiom remains an optional manual monitoring/trading terminal, not an execution dependency of this adapter.
+
+No live trading capability is added.
