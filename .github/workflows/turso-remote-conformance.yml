@@ -13,7 +13,7 @@ concurrency:
 jobs:
   remote-db-conformance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
           assert not url.query and not url.fragment and url.path in ("", "/"), "URL extras are forbidden"
           PY
 
-      - name: Run live DB-API, application schema and orchestration conformance
+      - name: Run live DB-API, schema, fencing, worker and pipeline conformance
         env:
           TURSO_CONFORMANCE_DATABASE_URL: ${{ secrets.TURSO_CONFORMANCE_DATABASE_URL }}
           TURSO_CONFORMANCE_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
@@ -58,4 +58,5 @@ jobs:
             tests/test_turso_remote_conformance.py \
             tests/test_turso_application_schema.py \
             tests/test_turso_orchestration.py \
-            tests/test_turso_worker_conformance.py
+            tests/test_turso_worker_conformance.py \
+            tests/test_turso_pipeline_conformance.py
