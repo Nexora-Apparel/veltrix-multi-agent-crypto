@@ -38,12 +38,14 @@ def test_live_dexscreener_sol_quote_converts_real_bonk_market_to_lamports(tmp_pa
     assert quote.token_observed_at_ms <= int(time.time() * 1000)
     assert quote.sol_observed_at_ms <= int(time.time() * 1000)
     assert quote.sol_usd_pair_address
+    assert quote.sol_usd_method in {"wsol_stable_pool", "token_sol_pair_ratio"}
     print(
         "LIVE_SOL_PAPER_QUOTE_ACCEPTANCE "
         f"token_price_usd={quote.token_price_usd} "
         f"sol_price_usd={quote.sol_price_usd} "
         f"price_lamports={quote.price_lamports} "
         f"sol_pool={quote.sol_usd_pair_address} "
+        f"conversion_method={quote.sol_usd_method} "
         f"token_observed_at_ms={quote.token_observed_at_ms} "
         f"sol_observed_at_ms={quote.sol_observed_at_ms}"
     )
