@@ -1,7 +1,6 @@
 """Scheduled refresh of timestamped Solana market intelligence."""
 from __future__ import annotations
 
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -41,7 +40,7 @@ class MarketRefreshWorker:
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if launch_store.database_path != market_store.database_path:
-            raise ValueError("launch and market stores must share one persistent SQLite database")
+            raise ValueError("launch and market stores must share one persistent database")
         if getattr(launch_store, "_uri", False):
             raise ValueError("market refresh requires a persistent SQLite database")
         for name, value in (
