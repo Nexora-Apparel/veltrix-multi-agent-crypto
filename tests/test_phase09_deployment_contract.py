@@ -102,3 +102,13 @@ def test_host_verifier_checks_distinct_mount_namespaces_and_kernel_mount_flags()
     assert '*,rw,*)' in script
     assert '*,ro,*)' in script
 
+
+
+def test_api_origin_reverse_proxy_exposes_only_authenticated_api_paths():
+    proxy = (ROOT / "deployment" / "Caddyfile").read_text(encoding="utf-8")
+    assert "{$VELTRIX_API_DOMAIN}" in proxy
+    assert "@api path /api/*" in proxy
+    assert "reverse_proxy 127.0.0.1:8765" in proxy
+    assert "Authorization {http.request.header.Authorization}" in proxy
+    assert 'respond "not found" 404' in proxy
+    assert "Strict-Transport-Security" in proxy
