@@ -6,7 +6,9 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
+
+from ..database import connect_database, row_factory_for
 
 from .launch_stream import LaunchStore
 from .market_data import MarketDataBatch, MarketDataUnavailable, SolanaMarketData
@@ -67,9 +69,9 @@ class CandidateEnrichmentWorker:
         self._initialize()
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.database_path, timeout=10)
-        db.row_factory = sqlite3.Row
+    def _connect(self) -> Iterator[Any]:
+        db = connect_database(self.database_path, timeout=10)
+        db.row_factory = row_factory_for(self.database_path)
         try:
             yield db
             db.commit()
