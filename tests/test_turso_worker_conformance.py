@@ -190,6 +190,7 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
         decision = ConsensusEngine().evaluate(
             MarketEvidence.from_store_row(market_row),
             RiskEvidence.from_store_payload(risk_payload),
+            history=(),  # Isolated conformance mint has no prior snapshots.
             now_ms=now,
         )
         decisions.record(decision)
