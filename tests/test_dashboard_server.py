@@ -335,3 +335,44 @@ def test_dashboard_health_exposes_candle_refresh_queue_and_retry_state(tmp_path)
     assert health["candle_refresh"]["processing_jobs"] == 0
     assert health["candle_refresh"]["consecutive_failures"] == 2
     assert health["candle_refresh"]["last_success_age_seconds"] >= 0
+
+
+def test_native_sol_wallet_http_route_is_authenticated_and_get_only(tmp_path):
+    from veltrix.solana_meme.sol_paper_wallet import SolanaPaperWallet, LAMPORTS_PER_SOL
+
+    database = make_database(tmp_path)
+    SolanaPaperWallet(database, 2 * LAMPORTS_PER_SOL)
+    token = "w" * 40
+    server = build_server(
+        database_path=database, host="127.0.0.1", port=0, api_token=token
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with pytest.raises(HTTPError) as denied:
+            urlopen(base + "/api/sol-paper-wallet")
+        assert denied.value.code == 401
+
+        request = Request(
+            base + "/api/sol-paper-wallet",
+            headers={"Authorization": "Bearer " + token},
+        )
+        wallet = json.loads(urlopen(request).read())
+        assert wallet["configured"] is True
+        assert wallet["starting_balance_lamports"] == 2 * LAMPORTS_PER_SOL
+        assert wallet["live_execution"] is False
+
+        request = Request(
+            base + "/api/sol-paper-wallet",
+            data=b"{}",
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as write_denied:
+            urlopen(request)
+        assert write_denied.value.code == 405
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
