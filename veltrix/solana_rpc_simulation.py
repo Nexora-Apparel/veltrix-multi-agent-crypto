@@ -43,6 +43,8 @@ MAX_TRACKED_TOKEN_ACCOUNTS = 100
 
 
 class SolanaRpcAdapterError(RuntimeError):
+    pass
+
 
 _BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _BASE58_INDEX = {character: index for index, character in enumerate(_BASE58_ALPHABET)}
