@@ -17,7 +17,7 @@ function env(overrides = {}) {
     VELTRIX_API_ORIGIN: ORIGIN,
     VELTRIX_DASHBOARD_TOKEN: TOKEN,
     CF_ACCESS_CLIENT_ID: "veltrix-origin-token.access",
-    CF_ACCESS_CLIENT_SECRET: "cloudflare-access-secret",
+    CF_ACCESS_CLIENT_SECRET: "cloudflare-access-secret-123456789012345678901234567890",
     ASSETS: { fetch: async () => new Response("static dashboard") },
     ...overrides,
   };
@@ -50,7 +50,7 @@ test("proxies an allowlisted GET with server-side bearer token", async () => {
   assert.equal(captured.options.method, "GET");
   assert.equal(captured.options.headers.get("authorization"), "Bearer " + TOKEN);
   assert.equal(captured.options.headers.get("cf-access-client-id"), "veltrix-origin-token.access");
-  assert.equal(captured.options.headers.get("cf-access-client-secret"), "cloudflare-access-secret");
+  assert.equal(captured.options.headers.get("cf-access-client-secret"), "cloudflare-access-secret-123456789012345678901234567890");
   assert.equal(captured.options.redirect, "manual");
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
