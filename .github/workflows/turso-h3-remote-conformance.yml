@@ -1,6 +1,10 @@
 name: Turso H3 pipeline and worker conformance
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/turso-h3-remote-conformance.yml"
   workflow_dispatch:
 
 permissions:
