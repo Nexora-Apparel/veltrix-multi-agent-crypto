@@ -45,6 +45,15 @@ def test_dashboard_unit_is_distinct_and_database_read_only():
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
     assert "ReadWritePaths=" not in unit
+    for directive in (
+        "NoNewPrivileges=true", "PrivateTmp=true", "ProtectHome=true",
+        "ProtectSystem=strict", "ProtectKernelTunables=true",
+        "ProtectKernelModules=true", "ProtectControlGroups=true",
+        "RestrictSUIDSGID=true", "LockPersonality=true",
+        "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+        "AmbientCapabilities=", "CapabilityBoundingSet=",
+    ):
+        assert directive in unit
 
 
 def test_process_isolation_document_keeps_observer_and_signer_unimplemented():
