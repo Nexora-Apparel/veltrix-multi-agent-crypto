@@ -74,6 +74,7 @@ It must not be granted membership in the database or service-secret groups.
 install -d -o root -g root -m 0750 /etc/veltrix
 install -o root -g veltrix-paper-secrets -m 0640 /dev/null /etc/veltrix/paper.env
 install -o root -g veltrix-dashboard-secrets -m 0640 /dev/null /etc/veltrix/dashboard.env
+install -o root -g veltrix-worker-secrets -m 0640 /dev/null /etc/veltrix/pipeline.env
 ```
 
 Populate `paper.env` with only the provider credentials and configuration
@@ -88,12 +89,13 @@ commit it, place it in a URL, or send it through chat.
 Verify ownership and modes without printing file contents:
 
 ```sh
-stat -c '%U:%G:%a %n' /etc/veltrix/paper.env /etc/veltrix/dashboard.env
+stat -c '%U:%G:%a %n' /etc/veltrix/paper.env /etc/veltrix/dashboard.env /etc/veltrix/pipeline.env
 ```
 
 Expected:
 - `root:veltrix-paper-secrets:640`
 - `root:veltrix-dashboard-secrets:640`
+- `root:veltrix-worker-secrets:640`
 
 ## 3. Verify application and database paths
 
@@ -113,15 +115,17 @@ a blind recursive ownership change.
 From the checked-out repository revision:
 
 ```sh
+install -o root -g root -m 0644 deployment/systemd/veltrix-pipeline.service /etc/systemd/system/veltrix-pipeline.service
 install -o root -g root -m 0644 deployment/systemd/veltrix-paper.service /etc/systemd/system/veltrix-paper.service
 install -o root -g root -m 0644 deployment/systemd/veltrix-dashboard.service /etc/systemd/system/veltrix-dashboard.service
-systemd-analyze verify /etc/systemd/system/veltrix-paper.service /etc/systemd/system/veltrix-dashboard.service
+systemd-analyze verify /etc/systemd/system/veltrix-pipeline.service /etc/systemd/system/veltrix-paper.service /etc/systemd/system/veltrix-dashboard.service
 systemctl daemon-reload
 ```
 
 Inspect the resolved unit properties before starting either service:
 
 ```sh
+systemctl cat veltrix-pipeline.service
 systemctl cat veltrix-paper.service
 systemctl cat veltrix-dashboard.service
 ```
@@ -131,7 +135,23 @@ loopback bind, and sandboxing settings match the actual host layout. Do not
 remove `ProtectSystem`, `NoNewPrivileges`, `ReadOnlyPaths`,
 `InaccessiblePaths`, or the bounded write-path controls to make startup pass.
 
-## 5. Start paper and dashboard services
+The fenced intelligence pipeline is the upstream producer for discovery,
+market snapshots, OHLCV candles, risk evidence and consensus. Start it before
+the dashboard is used for live monitoring:
+
+```sh
+systemctl enable --now veltrix-pipeline.service
+systemctl status veltrix-pipeline.service
+journalctl -u veltrix-pipeline.service -f
+```
+
+Check authenticated `GET /api/health` for `worker.status=healthy` and a
+recent `last_success_at`. The dashboard process is read-only and must not
+write to the ledger. The pipeline service and paper stage share the same
+persistent database; keep the explicit paper opt-in disabled until the
+simulation test gates have passed.
+
+## 5. Start pipeline, paper, and dashboard services
 
 Only start the paper runtime if paper operation is intentionally enabled and
 the operator has confirmed the provider configuration and database path.
