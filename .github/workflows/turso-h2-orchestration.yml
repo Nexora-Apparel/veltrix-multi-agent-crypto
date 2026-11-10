@@ -18,7 +18,7 @@ jobs:
       - name: Check out reviewed H2 orchestration commit
         uses: actions/checkout@v4
         with:
-          ref: 29baf9ac0080a1d6318e47e519826fa85097080b
+          ref: a113bc0bdedf26da3da3f77630dd98e569d89dd5
 
       - name: Set up Python
         uses: actions/setup-python@v5
