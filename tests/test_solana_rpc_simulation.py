@@ -5,7 +5,7 @@ import dataclasses
 import pytest
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
-from solders.message import Message, MessageV0, to_bytes_versioned
+from solders.message import Message, MessageV0, from_bytes_versioned, to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.address_lookup_table_account import AddressLookupTableAccount
 from solders.signature import Signature
