@@ -473,6 +473,23 @@ def make_handler(repository: DashboardRepository, *, api_token: str = ""):
                 self._json(401, {"error": "unauthorized"})
                 return
             path = urlsplit(self.path).path
+            if path == "/api/pool":
+                query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+                try:
+                    from .solana_meme.pool_resolver import (
+                        PoolResolutionUnavailable, SolanaPoolResolver,
+                    )
+                    mint = query.get("mint", [""])[0]
+                    resolved = SolanaPoolResolver().resolve(mint)
+                    self._json(200, resolved.as_dict())
+                except ValueError as exc:
+                    self._json(400, {"error": str(exc)})
+                except PoolResolutionUnavailable as exc:
+                    self._json(422, {"error": str(exc), "pool": None})
+                except Exception:
+                    LOGGER.exception("Solana pool resolution failed")
+                    self._json(503, {"error": "pool resolution unavailable"})
+                return
             if path == "/api/candles":
                 query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
                 try:
