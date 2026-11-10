@@ -180,9 +180,8 @@ def test_rejects_wrong_mint_or_owner_even_when_amount_matches():
 
 def test_rejects_duplicate_simulated_balance_records():
     _, _, _, evidence, _ = valid_fixture()
-    changed = dataclasses.replace(evidence, token_balances=evidence.token_balances + (evidence.token_balances[0],))
     with pytest.raises(SimulationGateError, match="duplicate"):
-        evaluate(changed)
+        dataclasses.replace(evidence, token_balances=evidence.token_balances + (evidence.token_balances[0],))
 
 
 def test_rejects_duplicate_expected_balance_records():
