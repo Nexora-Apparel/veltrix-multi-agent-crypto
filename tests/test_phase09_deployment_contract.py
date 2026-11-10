@@ -185,3 +185,11 @@ def test_cloudflare_deployment_requires_fresh_healthy_worker_and_readonly_databa
     assert 'payload.get("missing_paper_tables") != []' in workflow
     assert 'worker.get("healthy") is not True' in workflow
     assert 'worker.get("stale") is True' in workflow
+
+
+def test_cloudflare_deployment_requires_recent_successful_candle_ingestion():
+    workflow = (ROOT / ".github" / "workflows" / "deploy-dashboard-cloudflare.yml").read_text(encoding="utf-8")
+    assert 'candle_refresh.get("status") == "degraded"' in workflow
+    assert 'candle_refresh.get("retry_jobs", 0)' in workflow
+    assert 'candle_refresh.get("last_success_age_seconds")' in workflow
+    assert "candle_age > 300" in workflow
