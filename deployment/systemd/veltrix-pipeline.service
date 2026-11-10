@@ -1,0 +1,39 @@
+[Unit]
+Description=VELTRIX fenced Solana intelligence and paper pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=veltrix-worker
+Group=veltrix-db
+SupplementaryGroups=veltrix-worker-secrets
+WorkingDirectory=/opt/veltrix/app
+EnvironmentFile=-/etc/veltrix/pipeline.env
+Environment=LIVE_TRADING=false
+Environment=PAPER_TRADING_ENABLED=false
+Environment=VELTRIX_PIPELINE_POLL_SECONDS=60
+Environment=VELTRIX_SOLANA_DISCOVERY_DB=/var/lib/veltrix/solana_discovery.sqlite3
+UMask=0007
+StateDirectory=veltrix
+StateDirectoryMode=2770
+ExecStart=/opt/veltrix/venv/bin/python -m veltrix.solana_meme.pipeline_runtime
+Restart=always
+RestartSec=10
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/veltrix
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
