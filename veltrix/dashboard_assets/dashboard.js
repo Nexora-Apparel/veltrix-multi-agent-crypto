@@ -320,11 +320,21 @@
       renderMarkets(markets);
       renderEquityCurve(curve);
       renderCosts(costs);
-      $("health-led").className = "status-led";
-      $("health-label").textContent = health.database === "connected"
-        ? "Database connected · read-only" : "Database health requires review";
-      $("health-detail").textContent = "Live execution: disabled · Missing paper tables: " +
-        (health.missing_paper_tables || []).join(", ") || "None";
+      const worker = health.worker || { status: "not_configured", healthy: false };
+      const workerHealthy = worker.healthy === true;
+      const workerState = worker.status || "unknown";
+      $("health-led").className = "status-led" + (workerHealthy ? "" : " bad");
+      $("health-label").textContent = "Database connected · worker " + workerState;
+      const workerMeta = worker.last_success_at
+        ? " · Last success " + date(worker.last_success_at)
+        : " · No successful worker cycle recorded";
+      const workerError = worker.last_error ? " · Last error " + worker.last_error : "";
+      $("health-detail").textContent =
+        "Live execution: disabled · Worker failures: " +
+        number(worker.consecutive_failures || 0, 0) +
+        " · Last duration: " + number(worker.last_duration_ms || 0, 0) + " ms" +
+        workerMeta + workerError +
+        " · Missing paper tables: " + ((health.missing_paper_tables || []).join(", ") || "none");
       $("last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
     } catch (error) {
       $("health-led").className = "status-led bad";
