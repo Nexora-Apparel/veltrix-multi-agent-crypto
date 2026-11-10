@@ -1,0 +1,63 @@
+name: Turso H3 pipeline and worker conformance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-turso-h3-conformance
+  cancel-in-progress: false
+
+jobs:
+  remote-db-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out reviewed H1.1/H2/H3 integration commit
+        uses: actions/checkout@v4
+        with:
+          ref: 796bf108fa2e70c312de12094119a5bf8c90c65c
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install application and pinned Turso test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-turso.txt "pytest>=8,<9"
+
+      - name: Require the dedicated disposable conformance database
+        env:
+          TURSO_CONFORMANCE_DATABASE_URL: ${{ secrets.TURSO_CONFORMANCE_DATABASE_URL }}
+          TURSO_CONFORMANCE_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$TURSO_CONFORMANCE_DATABASE_URL"
+          test -n "$TURSO_CONFORMANCE_AUTH_TOKEN"
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          url = urlsplit(os.environ["TURSO_CONFORMANCE_DATABASE_URL"])
+          assert url.scheme == "libsql", "conformance URL must use libsql://"
+          assert url.hostname == "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io", "wrong disposable database host"
+          assert url.username is None and url.password is None, "URL credentials are forbidden"
+          assert not url.query and not url.fragment and url.path in ("", "/"), "URL extras are forbidden"
+          PY
+
+      - name: Run remote DB-API, schema, orchestration, worker and pipeline conformance
+        env:
+          TURSO_CONFORMANCE_DATABASE_URL: ${{ secrets.TURSO_CONFORMANCE_DATABASE_URL }}
+          TURSO_CONFORMANCE_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_CONFORMANCE_AUTH_TOKEN }}
+        run: |
+          python -m pytest -q -rs \
+            tests/test_turso_remote_conformance.py \
+            tests/test_turso_application_schema.py \
+            tests/test_turso_orchestration.py \
+            tests/test_turso_worker_conformance.py \
+            tests/test_turso_pipeline_conformance.py
