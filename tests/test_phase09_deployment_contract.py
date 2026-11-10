@@ -22,6 +22,15 @@ def test_paper_unit_has_dedicated_identity_and_bounded_writable_state():
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
     assert "CapabilityBoundingSet=" in unit
+    for directive in (
+        "NoNewPrivileges=true", "PrivateTmp=true", "ProtectHome=true",
+        "ProtectSystem=strict", "ProtectKernelTunables=true",
+        "ProtectKernelModules=true", "ProtectControlGroups=true",
+        "RestrictSUIDSGID=true", "LockPersonality=true",
+        "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+        "AmbientCapabilities=",
+    ):
+        assert directive in unit
 
 
 def test_dashboard_unit_is_distinct_and_database_read_only():
