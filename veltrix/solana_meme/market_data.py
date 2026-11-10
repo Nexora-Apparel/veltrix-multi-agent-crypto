@@ -358,8 +358,8 @@ class SolanaMarketData:
         canonical_mints = list(dict.fromkeys(canonical_mint(mint) for mint in mints))
         if not canonical_mints:
             return MarketDataBatch({}, {})
-        retrieved = self.clock_ms() if now_ms is None else now_ms
-        if isinstance(retrieved, bool) or not isinstance(retrieved, int) or retrieved <= 0:
+        requested_at = self.clock_ms() if now_ms is None else now_ms
+        if isinstance(requested_at, bool) or not isinstance(requested_at, int) or requested_at <= 0:
             raise ValueError("now_ms must be a positive integer")
         try:
             events = self.provider.fetch_token_pairs("solana", canonical_mints)
@@ -367,6 +367,12 @@ class SolanaMarketData:
             raise MarketDataUnavailable(str(exc)) from exc
         if not isinstance(events, (list, tuple)):
             raise MarketDataUnavailable("market provider returned an invalid event collection")
+        # Provider observations are timestamped when the response arrives. A
+        # pre-request clock sample makes every valid observation appear
+        # future-dated by the request latency. Validate against post-response time.
+        retrieved = self.clock_ms() if now_ms is None else now_ms
+        if isinstance(retrieved, bool) or not isinstance(retrieved, int) or retrieved <= 0:
+            raise ValueError("clock_ms must return a positive integer")
 
         grouped: dict[str, list[MarketEvent]] = {mint: [] for mint in canonical_mints}
         for event in events:
