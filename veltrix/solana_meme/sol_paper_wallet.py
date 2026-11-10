@@ -297,7 +297,7 @@ class SolanaPaperWallet:
     def close_position(
         self, *, idempotency_key: str, mint: str, price_lamports: int,
         fee_lamports: int, created_at_ms: int, context=None,
-        fraction: object = Decimal("1"),
+        fraction: object = Decimal("1"), quote_provenance: dict | None = None,
     ) -> dict:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
@@ -307,6 +307,7 @@ class SolanaPaperWallet:
             raise ValueError("fee_lamports must be a non-negative SQLite integer")
         _positive_int(created_at_ms, "created_at_ms")
         part = _quantity(fraction)
+        provenance_json = self._validate_quote_provenance(quote_provenance, mint)
         if part > 1:
             raise ValueError("fraction must be at most one")
         if context is not None:
@@ -358,10 +359,11 @@ class SolanaPaperWallet:
             db.execute(
                 """INSERT INTO solana_paper_fills
                    (fill_id,idempotency_key,mint,side,quantity,price_lamports,
-                    notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms,
+                    quote_provenance_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (fill_id, idempotency_key, mint, "SELL", str(sold_qty), price_lamports,
-                 notional, fee_lamports, pnl, created_at_ms),
+                 notional, fee_lamports, pnl, created_at_ms, provenance_json),
             )
         return {"status": "CLOSED" if remaining_qty <= 0 else "PARTIALLY_CLOSED",
                 "fill_id": fill_id, "realized_pnl_lamports": pnl,
