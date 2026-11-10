@@ -204,15 +204,14 @@ def test_market_refresh_rejects_replaced_row_claim_after_provider_read(tmp_path)
         owner_id="worker-a",
         _assert_fence_in_transaction=lambda db: None,
     )
-    worker._discover_jobs(10_000, context)
-    # Make the refresh due and establish a claim under this run's identity.
-    worker._claim(10_000, 1, context)
-    provider.on_fetch = lambda: (
-        worker._connect().__enter__().execute(
-            "UPDATE solana_market_refresh_jobs SET claim_fencing_token=10 WHERE mint=?",
-            (MINT,),
-        )
-    )
+    def replace_claim_after_provider_read():
+        with worker._connect() as db:
+            db.execute(
+                "UPDATE solana_market_refresh_jobs SET claim_fencing_token=10 WHERE mint=?",
+                (MINT,),
+            )
+
+    provider.on_fetch = replace_claim_after_provider_read
     with pytest.raises(LeaseBusy, match="row claim"):
         worker.run_once(context=context)
     assert store.count(MINT) == 1
