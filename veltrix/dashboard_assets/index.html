@@ -140,12 +140,7 @@
       <div id="trades-empty" class="empty-state">No paper fills recorded.</div>
     </section>
 
-    <details class="access-panel">
-      <summary>Remote dashboard access</summary>
-      <p>When the server is bound beyond localhost, requests require a bearer token. Use HTTPS through a trusted reverse proxy for remote access.</p>
-      <div class="token-entry"><input id="api-token" type="password" autocomplete="off" placeholder="Dashboard API token"><button id="save-token" class="button" type="button">Save in this session</button><button id="clear-token" class="button button-quiet" type="button">Clear</button></div>
-      <small>Token is kept in this browser tab's session storage only.</small>
-    </details>
+    <p class="panel-note">Remote access is routed through the authenticated server-side API proxy. Browser clients never store the service bearer token.</p>
   </main>
 
 
