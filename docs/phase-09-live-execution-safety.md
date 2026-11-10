@@ -217,3 +217,18 @@ Implemented in `veltrix/jupiter_program_trace.py`, with RPC trace capture in `ve
 - Missing inner-instruction evidence, unknown programs, stale registry snapshots, unpinned DEX IDs, and route/trace mismatches fail closed.
 - This gate does not decode DEX instruction payloads, prove CPI account semantics, or verify input/output token balance deltas. It is a program-trace allowlist stage, not final swap approval. DEX-specific instruction decoders and quote-to-balance-effect checks remain mandatory.
 - Program IDs still require independent review and explicit pinning before a route can pass. No signing, Jupiter `/execute`, wallet signature request, or broadcast is implemented.
+
+
+### 09.13 — Jupiter quote-to-user-balance effect gate
+
+Implemented in `veltrix/jupiter_swap_effects.py`, with classic-token program ownership preserved by the RPC simulation adapter.
+
+- Derives the taker's classic SPL Associated Token Accounts for the order input and output mints.
+- Produces exact expected deltas for SimulationGate: input ATA decreases by the exact `inAmount`; output ATA increases by the exact quoted `outAmount`.
+- Requires exactly those two pre-existing user ATAs, with matching owner/mint and classic SPL Token program ownership.
+- Requires exact message digest, taker fee payer, recent blockhash, last-valid height, RPC response identity, slot, compute and fee evidence.
+- Rejects stale orders, Token-2022, missing/extra/duplicate account snapshots, wrong mint/owner, mismatched spend, or output differing from the exact quote (and therefore also enforces the minimum output threshold).
+- This is deliberately conservative: it supports only swaps whose input and output effects land in pre-existing classic SPL ATAs. Native SOL wrapping/temporary WSOL accounts, ATA creation, transfer-fee tokens and Token-2022 remain unsupported.
+- The effect gate does not decode DEX instructions or authorize signing. It must be combined with the pinned program trace gate, semantic instruction policy, risk preflight, and operator authorization.
+
+No Jupiter `/execute`, Phantom signing, transaction submission, or live execution is introduced.
