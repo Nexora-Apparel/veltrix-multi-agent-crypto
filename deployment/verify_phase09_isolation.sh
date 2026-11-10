@@ -8,7 +8,7 @@ pass() { printf 'PASS: %s\n' "$*"; }
 require() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
 [[ "${EUID}" -eq 0 ]] || fail "run as root"
-for command in systemctl getent id stat runuser nsenter awk cut; do require "$command"; done
+for command in systemctl getent id stat runuser nsenter awk cut findmnt readlink; do require "$command"; done
 
 DB="${VELTRIX_SOLANA_DISCOVERY_DB:-/var/lib/veltrix/solana_discovery.sqlite3}"
 PAPER_ENV=/etc/veltrix/paper.env
@@ -82,6 +82,22 @@ paper_pid="$(unit_value "$PAPER_UNIT" MainPID)"
 dashboard_pid="$(unit_value "$DASHBOARD_UNIT" MainPID)"
 [[ "$paper_pid" =~ ^[1-9][0-9]*$ && "$dashboard_pid" =~ ^[1-9][0-9]*$ ]] \
   || fail "both services must be running for namespace checks"
+
+# Prove the services run in distinct mount namespaces and that the kernel
+# reports the database mount writable for paper but read-only for dashboard.
+host_mount_ns="$(readlink /proc/1/ns/mnt)"
+paper_mount_ns="$(readlink "/proc/$paper_pid/ns/mnt")"
+dashboard_mount_ns="$(readlink "/proc/$dashboard_pid/ns/mnt")"
+[[ "$paper_mount_ns" != "$host_mount_ns" ]] || fail "paper service shares the host mount namespace"
+[[ "$dashboard_mount_ns" != "$host_mount_ns" ]] || fail "dashboard service shares the host mount namespace"
+[[ "$paper_mount_ns" != "$dashboard_mount_ns" ]] || fail "paper and dashboard share a mount namespace"
+pass "paper and dashboard use distinct non-host mount namespaces"
+
+paper_mount_options="$(nsenter -t "$paper_pid" -m -- findmnt --noheadings --output OPTIONS --target "$DB")"
+dashboard_mount_options="$(nsenter -t "$dashboard_pid" -m -- findmnt --noheadings --output OPTIONS --target "$DB")"
+case ",$paper_mount_options," in *,rw,*) ;; *) fail "paper database mount is not effectively read-write: $paper_mount_options" ;; esac
+case ",$dashboard_mount_options," in *,ro,*) ;; *) fail "dashboard database mount is not effectively read-only: $dashboard_mount_options" ;; esac
+pass "kernel mount options confirm paper=rw and dashboard=ro"
 
 # Check access from inside the dashboard's actual systemd mount namespace.
 nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test -r "$DB" \

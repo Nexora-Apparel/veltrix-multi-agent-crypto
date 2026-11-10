@@ -87,3 +87,15 @@ def test_host_preflight_is_read_only_and_checks_systemd_prerequisites():
     assert "preflight is read-only" in script
     for forbidden in ("useradd ", "groupadd ", "chown ", "chmod ", "systemctl enable", "systemctl start"):
         assert forbidden not in script
+
+def test_host_verifier_checks_distinct_mount_namespaces_and_kernel_mount_flags():
+    script = (ROOT / "deployment" / "verify_phase09_isolation.sh").read_text(encoding="utf-8")
+    assert 'readlink "/proc/$paper_pid/ns/mnt"' in script
+    assert 'readlink "/proc/$dashboard_pid/ns/mnt"' in script
+    assert '"$paper_mount_ns" != "$host_mount_ns"' in script
+    assert '"$dashboard_mount_ns" != "$host_mount_ns"' in script
+    assert '"$paper_mount_ns" != "$dashboard_mount_ns"' in script
+    assert 'findmnt --noheadings --output OPTIONS --target "$DB"' in script
+    assert '*,rw,*)' in script
+    assert '*,ro,*)' in script
+
