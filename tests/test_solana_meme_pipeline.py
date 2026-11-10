@@ -217,3 +217,46 @@ def test_optional_paper_stage_runs_after_consensus_under_same_fence(tmp_path):
     assert result.stages.paper.skipped_decisions == 1
     assert broker.snapshot()["open_positions"] == []
     assert broker.paper_decisions(limit=1)[0]["execution_status"] == "NOT_ELIGIBLE"
+
+
+def test_one_shot_pipeline_runs_native_sol_paper_after_consensus(tmp_path):
+    from veltrix.solana_meme.paper_trading import PaperTradingBatchResult
+
+    base, *_ = build_pipeline(tmp_path)
+    expected = PaperTradingBatchResult(1, 1, 0, 0, 0, 0, 0)
+
+    class NativeSolPaper:
+        wallet = SimpleNamespace(database_path=base.orchestration.database)
+
+        def run_once(self, *, limit, context):
+            assert limit == 25
+            assert context is not None
+            return expected
+
+    pipeline = OneShotSolanaPipeline(
+        base.orchestration, base.discovery, base.enrichment,
+        base.market_refresh, base.risk, base.consensus,
+        sol_paper_worker=NativeSolPaper(), sol_paper_enabled=True,
+    )
+    result = pipeline.run_once(idempotency_key="native-sol-paper-stage")
+    assert result.job["status"] == "SUCCEEDED"
+    assert result.stages.sol_paper == expected
+
+
+def test_pipeline_rejects_simultaneous_usd_and_sol_paper_modes(tmp_path):
+    from veltrix.solana_meme.paper_trading import PaperTradingBatchResult
+
+    base, *_ = build_pipeline(tmp_path)
+    class NativeSolPaper:
+        wallet = SimpleNamespace(database_path=base.orchestration.database)
+        def run_once(self, *, limit, context):
+            return PaperTradingBatchResult(0, 0, 0, 0, 0, 0, 0)
+
+    with pytest.raises(ValueError, match="cannot be enabled together"):
+        OneShotSolanaPipeline(
+            base.orchestration, base.discovery, base.enrichment,
+            base.market_refresh, base.risk, base.consensus,
+            paper_worker=SimpleNamespace(broker=SimpleNamespace(db_path=base.orchestration.database)),
+            paper_enabled=True, sol_paper_worker=NativeSolPaper(),
+            sol_paper_enabled=True,
+        )
