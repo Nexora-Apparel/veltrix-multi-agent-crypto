@@ -186,8 +186,13 @@ class OrchestrationStore:
                       lease_name: str = "global-worker") -> bool:
         db = self._connect()
         try:
+            # Retain the row so the fencing counter survives a clean release.
+            # Deleting it would reset the next owner's token to 1 and violate
+            # the monotonic fencing invariant across normal worker hand-offs.
             cursor = db.execute(
-                "DELETE FROM orchestration_worker_lease WHERE lease_name=? AND owner_id=? AND fencing_token=?",
+                """UPDATE orchestration_worker_lease
+                   SET owner_id='', expires_at_ms=0
+                   WHERE lease_name=? AND owner_id=? AND fencing_token=?""",
                 (lease_name, owner_id, fencing_token),
             )
             db.commit()
