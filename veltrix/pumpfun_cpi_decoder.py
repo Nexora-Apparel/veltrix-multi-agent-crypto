@@ -26,6 +26,7 @@ from veltrix.transaction_validator import TransactionValidationResult
 PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMP_FEE_PROGRAM_ID = "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ"
 PUMP_GLOBAL_DISCRIMINATOR = bytes([167, 232, 232, 177, 200, 108, 114, 127])
+PUMP_GLOBAL_ACCOUNT = str(Pubkey.find_program_address([b"global"], Pubkey.from_string(PUMP_PROGRAM_ID))[0])
 SYSTEM_PROGRAM_ID = "11111111111111111111111111111111"
 WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
 
@@ -187,7 +188,7 @@ def decode_pumpfun_global_config(
 ) -> PumpFunGlobalConfigSnapshot:
     if not isinstance(snapshot, SimulatedAccountSnapshot):
         raise PumpFunCpiDecodeError("same-slot Pump.fun Global account snapshot is required")
-    global_address = _pda((b"global",), PUMP_PROGRAM_ID)
+    global_address = PUMP_GLOBAL_ACCOUNT
     if snapshot.address != global_address:
         raise PumpFunCpiDecodeError("Pump.fun Global snapshot address is not the pinned Global PDA")
     if snapshot.owner != PUMP_PROGRAM_ID or snapshot.executable:
@@ -345,7 +346,6 @@ def _decode_pump_accounts(
     version: str,
     order: JupiterOrderTransaction,
     amm_key: str,
-    policy: PumpFunCpiPolicy,
     global_config: PumpFunGlobalConfigSnapshot,
 ) -> tuple[str, str]:
     direction = "buy" if name.startswith("buy") else "sell"
@@ -485,7 +485,7 @@ def decode_pumpfun_route_cpis(
         raise PumpFunCpiDecodeError("Pump.fun decoder inputs refer to different transaction messages")
     if PUMP_PROGRAM_ID not in route_gate.dex_program_ids:
         raise PumpFunCpiDecodeError("Pump.fun program is not part of the locally pinned Jupiter route")
-    global_address = _pda((b"global",), PUMP_PROGRAM_ID)
+    global_address = PUMP_GLOBAL_ACCOUNT
     global_snapshots = [item for item in simulation.account_snapshots if item.address == global_address]
     if len(global_snapshots) != 1:
         raise PumpFunCpiDecodeError("exactly one same-slot Pump.fun Global account snapshot is required")
@@ -535,7 +535,6 @@ def decode_pumpfun_route_cpis(
             version=version,
             order=order,
             amm_key=route.amm_key,
-            policy=policy,
             global_config=global_config,
         )
         if policy.require_partial_fill_disabled and partial_fill:
