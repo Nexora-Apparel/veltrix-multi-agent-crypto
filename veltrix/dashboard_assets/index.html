@@ -21,7 +21,7 @@
   </header>
 
   <main class="shell">
-    <section class="page-heading">
+    <section class="page-heading" id="home">
       <div>
         <p class="eyebrow">PHASE 08 / ANALYTICS</p>
         <h1>Paper trading overview</h1>
@@ -38,7 +38,7 @@
       <p id="health-detail">Read-only data access · No order controls</p>
     </section>
 
-    <section class="metrics-grid" id="metrics">
+    <section class="metrics-grid" id="wallet">
       <article class="metric-card"><span>Portfolio equity</span><strong id="equity">$—</strong><small id="return">— total return</small></article>
       <article class="metric-card"><span>Available cash</span><strong id="cash">$—</strong><small>Virtual account balance</small></article>
       <article class="metric-card"><span>Realized P&amp;L</span><strong id="realized">$—</strong><small id="closed-fills">— exit fills</small></article>
@@ -79,19 +79,19 @@
       <div id="decisions-empty" class="empty-state">No paper decisions recorded.</div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="agents">
       <div class="panel-heading"><div><p class="eyebrow">MULTI-AGENT</p><h2>Consensus activity</h2><p class="panel-note">Latest persisted Scout, Whale, Sniper and Shield dispositions.</p></div></div>
       <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Disposition</th><th>Support</th><th>Paper review</th><th>Reason</th></tr></thead><tbody id="consensus-body"></tbody></table></div>
       <div id="consensus-empty" class="empty-state">No consensus decisions recorded.</div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="discover">
       <div class="panel-heading"><div><p class="eyebrow">MARKET INTELLIGENCE</p><h2>Latest Solana snapshots</h2></div><span class="count-pill" id="market-count">0</span></div>
       <div class="table-scroll"><table><thead><tr><th>Token</th><th>Price</th><th>Liquidity</th><th>1h volume</th><th>5m change</th><th>Quality</th><th>Updated</th></tr></thead><tbody id="markets-body"></tbody></table></div>
       <div id="markets-empty" class="empty-state">No market snapshots available.</div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="trades">
       <div class="panel-heading"><div><p class="eyebrow">LEDGER HISTORY</p><h2>Recent fills</h2></div><span class="count-pill">Last 100</span></div>
       <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Fill price</th><th>Notional</th><th>Realized P&amp;L</th><th>Fee</th><th>Slippage</th></tr></thead><tbody id="trades-body"></tbody></table></div>
       <div id="trades-empty" class="empty-state">No paper fills recorded.</div>
@@ -104,6 +104,15 @@
       <small>Token is kept in this browser tab's session storage only.</small>
     </details>
   </main>
+
+
+  <nav class="mobile-nav" aria-label="Primary navigation">
+    <a href="#home" class="active"><span aria-hidden="true">⌂</span><small>Home</small></a>
+    <a href="#trades"><span aria-hidden="true">↕</span><small>Trades</small></a>
+    <a href="#agents"><span aria-hidden="true">✦</span><small>Agents</small></a>
+    <a href="#wallet"><span aria-hidden="true">▣</span><small>Wallet</small></a>
+    <a href="#discover"><span aria-hidden="true">⌕</span><small>Search</small></a>
+  </nav>
 
   <footer class="footer">
     <span>VELTRIX / READ-ONLY ANALYTICS</span>
