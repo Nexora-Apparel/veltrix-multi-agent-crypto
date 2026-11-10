@@ -3,7 +3,8 @@ import dataclasses
 import pytest
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
-from solders.message import Message, to_bytes_versioned
+from solders.message import Message, MessageV0, to_bytes_versioned
+from solders.address_lookup_table_account import AddressLookupTableAccount
 from solders.pubkey import Pubkey
 
 from veltrix.semantic_transfer_decoder import (
@@ -18,6 +19,8 @@ from veltrix.semantic_transfer_decoder import (
     decode_transaction_semantics,
 )
 from veltrix.transaction_validator import (
+    ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+    ResolvedLookupTable,
     AccountExpectation,
     InstructionExpectation,
     TransactionIntent,
@@ -276,3 +279,114 @@ def test_rejects_mismatched_structural_validation_result():
             raw, intent=intent, validation=wrong, transaction_policy=tx_policy,
             policy=policy, expected_token_transfers=(), expected_native_transfers=(),
         )
+
+
+def test_decodes_direct_spl_transfer_with_verified_v0_lookup_accounts():
+    payer = Pubkey.new_unique()
+    source = Pubkey.new_unique()
+    mint = Pubkey.new_unique()
+    destination = Pubkey.new_unique()
+    table_key = Pubkey.new_unique()
+    blockhash = Hash.new_unique()
+    table_account = AddressLookupTableAccount(
+        key=table_key,
+        addresses=[source, mint, destination],
+    )
+    data = bytes([12]) + (250).to_bytes(8, "little") + bytes([6])
+    instruction = Instruction(
+        Pubkey.from_string(TOKEN_PROGRAM_ID),
+        data,
+        [
+            AccountMeta(source, False, True),
+            AccountMeta(mint, False, False),
+            AccountMeta(destination, False, True),
+            AccountMeta(payer, True, True),
+        ],
+    )
+    message = MessageV0.try_compile(payer, [instruction], [table_account], blockhash)
+    raw = to_bytes_versioned(message)
+    static_keys = tuple(str(key) for key in message.account_keys)
+    loaded_writable, loaded_readonly = [], []
+    for lookup in message.address_table_lookups:
+        loaded_writable.extend(str(table_account.addresses[i]) for i in bytes(lookup.writable_indexes))
+        loaded_readonly.extend(str(table_account.addresses[i]) for i in bytes(lookup.readonly_indexes))
+    account_keys = static_keys + tuple(loaded_writable) + tuple(loaded_readonly)
+    static_count = len(static_keys)
+
+    def writable(index):
+        if index < static_count:
+            header = message.header
+            required = int(header.num_required_signatures)
+            readonly_signed = int(header.num_readonly_signed_accounts)
+            readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+            if index < required:
+                return index < required - readonly_signed
+            return index < static_count - readonly_unsigned
+        return index < static_count + len(loaded_writable)
+
+    compiled = message.instructions[0]
+    program_id = str(account_keys[int(compiled.program_id_index)])
+    intent = TransactionIntent(
+        fee_payer=str(payer),
+        required_signers=tuple(
+            key for index, key in enumerate(static_keys) if message.is_signer(index)
+        ),
+        recent_blockhash=str(blockhash),
+        instructions=(
+            InstructionExpectation(
+                program_id,
+                tuple(
+                    AccountExpectation(
+                        account_keys[int(index)],
+                        message.is_signer(int(index)) if int(index) < static_count else False,
+                        writable(int(index)),
+                    )
+                    for index in bytes(compiled.accounts)
+                ),
+                bytes(compiled.data),
+            ),
+        ),
+    )
+    tx_policy = TransactionValidationPolicy(
+        allowed_program_ids=(program_id,),
+        allow_address_lookup_tables=True,
+    )
+    resolved = ResolvedLookupTable(
+        table_address=str(table_key),
+        owner_program_id=ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+        addresses=tuple(str(key) for key in table_account.addresses),
+        deactivation_slot=(1 << 64) - 1,
+        last_extended_slot=50,
+        context_slot=100,
+    )
+    validation = validate_transaction_message(
+        raw,
+        intent=intent,
+        policy=tx_policy,
+        resolved_lookup_tables=(resolved,),
+        current_slot=100,
+        minimum_context_slot=90,
+    )
+    semantic_policy = SemanticDecodePolicy(
+        max_native_lamports_per_transaction=1_000_000,
+        max_token_amount_raw_per_mint=1_000_000,
+        max_compute_units=1_000_000,
+        max_compute_unit_price_micro_lamports=10_000,
+    )
+    expected = ExpectedTokenTransfer(
+        str(source), str(mint), str(destination), str(payer), 250, 6
+    )
+    result = decode_transaction_semantics(
+        raw,
+        intent=intent,
+        validation=validation,
+        transaction_policy=tx_policy,
+        policy=semantic_policy,
+        expected_token_transfers=(expected,),
+        expected_native_transfers=(),
+        resolved_lookup_tables=(resolved,),
+        current_slot=100,
+        minimum_context_slot=90,
+    )
+    assert result.token_transfers[0].amount_raw == 250
+    assert result.token_transfers[0].mint == str(mint)
