@@ -533,3 +533,20 @@ def test_paper_broker_external_transaction_rolls_back_entry_and_decision(tmp_pat
     assert broker.snapshot()["cash"] == pytest.approx(cash_before)
     assert broker.snapshot()["open_positions"] == []
     assert broker.has_consensus_decision(decision.decision_id) is None
+
+
+def test_paper_exit_mutation_is_fenced_inside_broker_transaction(tmp_path):
+    markets, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    assert worker.run_once().opened_positions == 1
+    markets.record(market_snapshot(NOW + 1, price=0.0021))
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: (_ for _ in ()).throw(
+            LeaseBusy("global lease lost")
+        ),
+    )
+    with pytest.raises(LeaseBusy, match="global lease lost"):
+        worker.run_once(context=context)
+    assert broker.totals()["closed_sell_fills"] == 0
+    assert len(broker.snapshot()["open_positions"]) == 1
