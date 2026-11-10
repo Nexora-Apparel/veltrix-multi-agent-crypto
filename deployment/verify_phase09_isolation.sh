@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Read-only verification of the installed Phase 09 systemd isolation profile.
-# Run as root after installing and starting both service units.
+# Run as root after installing and starting the pipeline, dashboard and tunnel units.
 set -Eeuo pipefail
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -16,19 +16,23 @@ DASHBOARD_ENV=/etc/veltrix/dashboard.env
 PIPELINE_UNIT=veltrix-pipeline.service
 PAPER_UNIT=veltrix-paper.service
 DASHBOARD_UNIT=veltrix-dashboard.service
+TUNNEL_UNIT=cloudflared-veltrix.service
 
-for user in veltrix-worker veltrix-dashboard veltrix-wallet-observer; do
+for user in veltrix-worker veltrix-dashboard veltrix-wallet-observer cloudflared; do
   getent passwd "$user" >/dev/null || fail "missing service account: $user"
 done
 pipeline_uid="$(id -u veltrix-worker)"
 dashboard_uid="$(id -u veltrix-dashboard)"
 observer_uid="$(id -u veltrix-wallet-observer)"
-[[ "$pipeline_uid" != "$dashboard_uid" && "$pipeline_uid" != "$observer_uid" && "$dashboard_uid" != "$observer_uid" ]] \
-  || fail "pipeline, dashboard and observer UIDs must all be distinct"
-pass "pipeline, dashboard and observer use distinct service UIDs"
+tunnel_uid="$(id -u cloudflared)"
+[[ "$pipeline_uid" != "$dashboard_uid" && "$pipeline_uid" != "$observer_uid" && \
+   "$dashboard_uid" != "$observer_uid" && "$tunnel_uid" != "$pipeline_uid" && \
+   "$tunnel_uid" != "$dashboard_uid" && "$tunnel_uid" != "$observer_uid" ]] \
+  || fail "pipeline, dashboard, observer and tunnel UIDs must all be distinct"
+pass "pipeline, dashboard, observer and tunnel use distinct service UIDs"
 
 unit_value() { systemctl show "$1" --property="$2" --value; }
-for unit in "$PIPELINE_UNIT" "$DASHBOARD_UNIT"; do
+for unit in "$PIPELINE_UNIT" "$DASHBOARD_UNIT" "$TUNNEL_UNIT"; do
   systemctl is-active --quiet "$unit" || fail "$unit must be active"
 done
 if systemctl is-active --quiet "$PAPER_UNIT"; then
@@ -38,6 +42,10 @@ fi
 [[ "$(unit_value "$PIPELINE_UNIT" Group)" == veltrix-db ]] || fail "pipeline unit Group mismatch"
 [[ "$(unit_value "$DASHBOARD_UNIT" User)" == veltrix-dashboard ]] || fail "dashboard unit User mismatch"
 [[ "$(unit_value "$DASHBOARD_UNIT" Group)" == veltrix-db ]] || fail "dashboard unit Group mismatch"
+[[ "$(unit_value "$TUNNEL_UNIT" User)" == cloudflared ]] || fail "tunnel unit User mismatch"
+[[ "$(unit_value "$TUNNEL_UNIT" Group)" == cloudflared ]] || fail "tunnel unit Group mismatch"
+tunnel_ro="$(unit_value "$TUNNEL_UNIT" ReadOnlyPaths)"
+[[ "$tunnel_ro" == *"/etc/cloudflared"* ]] || fail "tunnel credentials/config must be read-only"
 pipeline_rw="$(unit_value "$PIPELINE_UNIT" ReadWritePaths)"
 dashboard_ro="$(unit_value "$DASHBOARD_UNIT" ReadOnlyPaths)"
 [[ "$pipeline_rw" == *"/var/lib/veltrix"* ]] || fail "pipeline writable state path missing"
@@ -47,19 +55,24 @@ pass "pipeline/dashboard identities and database mount policies match"
 # Confirm effective credentials of the running processes, not only unit config.
 pipeline_pid="$(unit_value "$PIPELINE_UNIT" MainPID)"
 dashboard_pid="$(unit_value "$DASHBOARD_UNIT" MainPID)"
-[[ "$pipeline_pid" =~ ^[1-9][0-9]*$ && "$dashboard_pid" =~ ^[1-9][0-9]*$ ]] \
-  || fail "pipeline and dashboard processes must be running for identity checks"
+tunnel_pid="$(unit_value "$TUNNEL_UNIT" MainPID)"
+[[ "$pipeline_pid" =~ ^[1-9][0-9]*$ && "$dashboard_pid" =~ ^[1-9][0-9]*$ && \
+   "$tunnel_pid" =~ ^[1-9][0-9]*$ ]] \
+  || fail "pipeline, dashboard and tunnel processes must be running for identity checks"
 proc_id() {
   local pid="$1" field="$2"
   awk -v field="$field" '$1 == field ":" { print $3; found=1 } END { if (!found) exit 1 }' "/proc/$pid/status"
 }
 [[ "$(proc_id "$pipeline_pid" Uid)" == "$pipeline_uid" ]] || fail "pipeline process effective UID mismatch"
 [[ "$(proc_id "$dashboard_pid" Uid)" == "$dashboard_uid" ]] || fail "dashboard process effective UID mismatch"
+[[ "$(proc_id "$tunnel_pid" Uid)" == "$tunnel_uid" ]] || fail "tunnel process effective UID mismatch"
 db_gid="$(getent group veltrix-db | cut -d: -f3)"
 pipeline_secrets_gid="$(getent group veltrix-worker-secrets | cut -d: -f3)"
 dashboard_secrets_gid="$(getent group veltrix-dashboard-secrets | cut -d: -f3)"
 [[ "$(proc_id "$pipeline_pid" Gid)" == "$db_gid" ]] || fail "pipeline process effective GID mismatch"
 [[ "$(proc_id "$dashboard_pid" Gid)" == "$db_gid" ]] || fail "dashboard process effective GID mismatch"
+tunnel_gid="$(getent group cloudflared | cut -d: -f3)"
+[[ "$(proc_id "$tunnel_pid" Gid)" == "$tunnel_gid" ]] || fail "tunnel process effective GID mismatch"
 proc_has_group() {
   local pid="$1" gid="$2"
   awk -v gid="$gid" '$1 == "Groups:" { for (i=2; i<=NF; i++) if ($i == gid) found=1 } END { exit !found }' "/proc/$pid/status"
@@ -68,6 +81,9 @@ proc_has_group "$pipeline_pid" "$pipeline_secrets_gid" || fail "pipeline process
 ! proc_has_group "$pipeline_pid" "$dashboard_secrets_gid" || fail "pipeline process has dashboard credential access"
 ! proc_has_group "$dashboard_pid" "$pipeline_secrets_gid" || fail "dashboard process has provider credential access"
 proc_has_group "$dashboard_pid" "$dashboard_secrets_gid" || fail "dashboard process lacks dashboard credential group"
+for forbidden_gid in "$db_gid" "$pipeline_secrets_gid" "$dashboard_secrets_gid"; do
+  ! proc_has_group "$tunnel_pid" "$forbidden_gid" || fail "tunnel process has database or secret-group access"
+done
 observer_groups="$(id -G veltrix-wallet-observer)"
 for forbidden_gid in "$db_gid" "$pipeline_secrets_gid" "$dashboard_secrets_gid"; do
   for observer_gid in $observer_groups; do
@@ -88,7 +104,14 @@ fi
   || fail "pipeline.env must be root:veltrix-worker-secrets mode 0640"
 [[ "$(stat -c '%U:%G:%a' "$DASHBOARD_ENV")" == "root:veltrix-dashboard-secrets:640" ]] \
   || fail "dashboard.env must be root:veltrix-dashboard-secrets mode 0640"
-pass "pipeline and dashboard environment files have separate root-owned credential groups"
+[[ "$(stat -c '%U:%G:%a' /etc/cloudflared/config.yml)" == "root:cloudflared:640" ]] \
+  || fail "cloudflared config must be root:cloudflared mode 0640"
+if [[ "$REMOTE_DB" == false ]]; then
+  ! runuser -u cloudflared -- test -r "$DB" || fail "tunnel user can read the paper database"
+fi
+! runuser -u cloudflared -- test -r "$PIPELINE_ENV" || fail "tunnel user can read pipeline secrets"
+! runuser -u cloudflared -- test -r "$DASHBOARD_ENV" || fail "tunnel user can read dashboard secrets"
+pass "pipeline, dashboard and tunnel configuration credentials are isolated"
 
 pipeline_pid="$(unit_value "$PIPELINE_UNIT" MainPID)"
 dashboard_pid="$(unit_value "$DASHBOARD_UNIT" MainPID)"
