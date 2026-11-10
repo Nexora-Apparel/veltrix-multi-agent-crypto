@@ -4,6 +4,7 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
 
+from ..orchestration import JobDeadlineExceeded, LeaseBusy
 from .paper_trading import PaperTradingBatchResult, PaperTradingWorker
 from .sol_paper_quote import SolanaPaperQuoteAdapter
 from .sol_paper_wallet import SolanaPaperWallet
@@ -74,8 +75,7 @@ class SolanaNativePaperTradingWorker:
                 )
                 fills += len(actions)
             except Exception as exc:
-                from ..orchestration import LeaseBusy
-                if isinstance(exc, LeaseBusy):
+                if isinstance(exc, (LeaseBusy, JobDeadlineExceeded)):
                     raise
                 errors += 1
         return fills, errors
@@ -143,8 +143,7 @@ class SolanaNativePaperTradingWorker:
                 else:
                     blocked += 1
             except Exception as exc:
-                from ..orchestration import LeaseBusy
-                if isinstance(exc, LeaseBusy):
+                if isinstance(exc, (LeaseBusy, JobDeadlineExceeded)):
                     raise
                 if isinstance(exc, ValueError) and any(
                     phrase in str(exc) for phrase in (
