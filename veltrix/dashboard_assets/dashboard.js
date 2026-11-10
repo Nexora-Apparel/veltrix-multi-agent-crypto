@@ -57,6 +57,22 @@
     }
   }
 
+  function renderSolFills(rows) {
+    renderRows("sol-fills-body", "sol-fills-empty", rows || [], (row, fill) => {
+      const time = Number(fill.created_at_ms);
+      textCell(row, Number.isFinite(time) && time > 0 ? new Date(time).toLocaleString() : "—");
+      badgeCell(row, fill.side, ["BUY"], ["SELL"]);
+      textCell(row, short(fill.mint));
+      textCell(row, number(fill.quantity, 8));
+      textCell(row, number(Number(fill.price_lamports || 0) / 1_000_000_000, 9) + " SOL");
+      textCell(row, number(Number(fill.fee_lamports || 0) / 1_000_000_000, 9) + " SOL");
+      const pnl = Number(fill.realized_pnl_lamports || 0);
+      textCell(row, (pnl > 0 ? "+" : "") +
+        number(pnl / 1_000_000_000, 9) + " SOL",
+        pnl > 0 ? "positive" : pnl < 0 ? "negative" : "");
+    }, "No native SOL paper fills recorded.");
+  }
+
   function renderSolWallet(data) {
     const status = $("sol-wallet-status");
     if (!data || data.configured !== true) {
@@ -67,6 +83,7 @@
       $("sol-realized").textContent = "—";
       $("sol-open").textContent = "—";
       $("sol-fills").textContent = "— fills";
+      renderSolFills([]);
       $("sol-equity").textContent = "No SOL marks";
       $("sol-wallet-note").textContent = data && data.reason
         ? data.reason + " · read-only panel"
@@ -83,6 +100,7 @@
     $("sol-open").textContent = number(data.open_position_count, 0);
     $("sol-fills").textContent = number(data.entry_fills, 0) + " entries · " +
       number(data.exit_fills, 0) + " exits";
+    renderSolFills(data.recent_fills || []);
     $("sol-equity").textContent = data.equity_complete
       ? "Equity " + number(data.equity_sol, 6) + " SOL"
       : number((data.unmarked_positions || []).length, 0) + " unmarked · equity incomplete";
