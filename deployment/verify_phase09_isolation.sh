@@ -46,6 +46,8 @@ fi
 [[ "$(unit_value "$TUNNEL_UNIT" Group)" == cloudflared ]] || fail "tunnel unit Group mismatch"
 tunnel_ro="$(unit_value "$TUNNEL_UNIT" ReadOnlyPaths)"
 [[ "$tunnel_ro" == *"/etc/cloudflared"* ]] || fail "tunnel credentials/config must be read-only"
+[[ "$(unit_value "$TUNNEL_UNIT" ProtectSystem)" == "strict" ]] || fail "tunnel ProtectSystem must be strict"
+[[ "$(unit_value "$TUNNEL_UNIT" NoNewPrivileges)" == "yes" ]] || fail "tunnel NoNewPrivileges must be enabled"
 pipeline_rw="$(unit_value "$PIPELINE_UNIT" ReadWritePaths)"
 dashboard_ro="$(unit_value "$DASHBOARD_UNIT" ReadOnlyPaths)"
 [[ "$pipeline_rw" == *"/var/lib/veltrix"* ]] || fail "pipeline writable state path missing"
@@ -106,6 +108,13 @@ fi
   || fail "dashboard.env must be root:veltrix-dashboard-secrets mode 0640"
 [[ "$(stat -c '%U:%G:%a' /etc/cloudflared/config.yml)" == "root:cloudflared:640" ]] \
   || fail "cloudflared config must be root:cloudflared mode 0640"
+shopt -s nullglob
+tunnel_credentials=(/etc/cloudflared/*.json)
+[[ "${#tunnel_credentials[@]}" -gt 0 ]] || fail "cloudflared tunnel credentials JSON is missing"
+for credential in "${tunnel_credentials[@]}"; do
+  [[ "$(stat -c '%U:%G:%a' "$credential")" == "root:cloudflared:640" ]] \
+    || fail "cloudflared credentials must be root:cloudflared mode 0640: $credential"
+done
 if [[ "$REMOTE_DB" == false ]]; then
   ! runuser -u cloudflared -- test -r "$DB" || fail "tunnel user can read the paper database"
 fi
