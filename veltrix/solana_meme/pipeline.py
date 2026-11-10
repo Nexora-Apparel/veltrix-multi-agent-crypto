@@ -1,9 +1,9 @@
 """Bounded one-shot Solana intelligence pipeline.
 
-The pipeline runs discovery, enrichment, market refresh, risk evidence and
-read-only consensus in a fixed order under one global fenced RunContext. It
-never starts the PumpPortal stream supervisor. Paper processing remains
-explicitly disabled until the paper broker supports transaction-scoped fencing.
+The pipeline runs discovery, enrichment, market refresh, OHLCV refresh, risk
+evidence, consensus and an optional fenced paper ledger under one global
+RunContext. It never starts the PumpPortal stream supervisor. Paper execution
+is opt-in and remains simulation-only.
 """
 from __future__ import annotations
 
@@ -149,6 +149,7 @@ class OneShotSolanaPipeline:
                     *(["sol_paper"] if self.sol_paper_enabled else []),
                 ],
                 "paper_enabled": self.paper_enabled,
+                "sol_paper_enabled": self.sol_paper_enabled,
                 "limits": {
                     "discovery": 25,
                     "enrichment": 25,
