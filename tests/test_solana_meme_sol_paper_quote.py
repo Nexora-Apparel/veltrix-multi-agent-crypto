@@ -57,6 +57,7 @@ def test_sol_quote_uses_fresh_token_and_sol_usd_observations(tmp_path):
     assert quote.token_price_usd == Decimal("0.5")
     assert quote.sol_price_usd == Decimal("100.0")
     assert quote.sol_source == "dexscreener"
+    assert quote.sol_usd_method == "wsol_stable_pool"
 
 
 def test_sol_quote_rejects_stale_or_untrusted_sol_market_data(tmp_path):
@@ -85,3 +86,34 @@ def test_sol_quote_rejects_stale_token_snapshot(tmp_path):
     )
     with pytest.raises(RuntimeError, match="token USD market observation is stale"):
         adapter.quote(TOKEN_MINT)
+
+
+def test_sol_quote_derives_sol_usd_from_same_fresh_token_sol_pool(tmp_path):
+    store = MarketSnapshotStore(str(tmp_path / "derived-quote.sqlite3"))
+    store.record(market_snapshot())
+
+    class TokenSolProvider:
+        def fetch_token_pairs(self, chain, token_addresses):
+            assert chain == "solana"
+            if token_addresses == [WSOL_MINT]:
+                return []
+            return [sol_event_for_token_sol()]
+
+    adapter = SolanaPaperQuoteAdapter(
+        store, TokenSolProvider(), clock_ms=lambda: NOW,
+    )
+    quote = adapter.quote(TOKEN_MINT)
+    assert quote.sol_price_usd == Decimal("100")
+    assert quote.price_lamports == 5_000_000
+    assert quote.sol_usd_method == "token_sol_pair_ratio"
+
+
+def sol_event_for_token_sol():
+    return MarketEvent(
+        chain="solana", token_address=TOKEN_MINT, pair_address="token-wsol-pool",
+        symbol="TEST", price_usd=0.5, liquidity_usd=200_000,
+        volume_h1_usd=50_000, price_change_m5_pct=1.0,
+        observed_at_ms=NOW - 500, pair_created_at_ms=NOW - 10_000,
+        source="dexscreener", quote_token_symbol="SOL",
+        quote_token_address=WSOL_MINT, price_native=0.005,
+    )
