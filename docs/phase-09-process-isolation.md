@@ -118,9 +118,10 @@ Run `bash deployment/verify_phase09_isolation.sh` as root on the actual deployme
    shows the paper identity and only the required writable state directory.
 3. `systemctl show veltrix-dashboard.service -p User -p Group -p ReadOnlyPaths`
    shows a different identity and a read-only database mount.
-4. As the dashboard user, the database and any active WAL/SHM sidecars are
-   readable but attempts to create, update, truncate or delete files under the
-   database directory fail.
+4. The paper process identity has effective read/write access to the database
+   and its state directory. As the dashboard user, the database and any active
+   WAL/SHM sidecars are readable but attempts to create, update, truncate or
+   delete files under the database directory fail.
 5. Dashboard API remains authenticated, GET-only, and bound to loopback.
 6. Provider egress tests prove the dashboard has no provider egress and the
    observer (when implemented) can reach only the approved read-only RPC
