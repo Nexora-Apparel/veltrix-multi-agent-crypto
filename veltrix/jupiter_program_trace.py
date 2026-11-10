@@ -179,6 +179,8 @@ class JupiterRouteProgramPolicy:
                 raise JupiterProgramTraceError(f"{field} must be a non-negative integer")
         if self.max_registry_age_ms == 0:
             raise JupiterProgramTraceError("max_registry_age_ms must be positive")
+        if self.max_stack_height == 0:
+            raise JupiterProgramTraceError("max_stack_height must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,6 +296,11 @@ def evaluate_jupiter_route_programs(
         raise JupiterProgramTraceError("validated transaction does not invoke an approved Jupiter aggregator")
     if simulation.inner_instruction_count <= 0 or not inner:
         raise JupiterProgramTraceError("simulation did not return the required inner-CPI program trace")
+    allowed = set(policy.standard_program_ids) | set(jupiter_ids) | set(dex_ids)
+    if any(program_id not in allowed for program_id in top_level):
+        raise JupiterProgramTraceError("top-level message invokes a program outside the route allowlist")
+    if any(program_id not in allowed for program_id in inner):
+        raise JupiterProgramTraceError("inner CPI trace invokes a program outside the route allowlist")
     if len(simulation.inner_instructions) != simulation.inner_instruction_count:
         raise JupiterProgramTraceError("full inner-CPI instruction details are missing")
     if len(jupiter_instruction.route_plan) != len(order.route_plan):
@@ -331,11 +338,6 @@ def evaluate_jupiter_route_programs(
             raise JupiterProgramTraceError(f"inner CPI trace does not bind route pool {quoted.amm_key} to DEX {quoted.label}")
         verified_pools += 1
 
-    allowed = set(policy.standard_program_ids) | set(jupiter_ids) | set(dex_ids)
-    if any(program_id not in allowed for program_id in top_level):
-        raise JupiterProgramTraceError("top-level message invokes a program outside the route allowlist")
-    if any(program_id not in allowed for program_id in inner):
-        raise JupiterProgramTraceError("inner CPI trace invokes a program outside the route allowlist")
     for label, program_ids in dex_ids_by_label.items():
         if not any(program_id in inner for program_id in program_ids):
             raise JupiterProgramTraceError(f"simulated inner CPI trace does not invoke route DEX label {label}")
