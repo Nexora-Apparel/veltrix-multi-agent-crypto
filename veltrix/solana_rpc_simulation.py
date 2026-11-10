@@ -229,6 +229,8 @@ class SolanaRpcSimulationAdapter:
             }],
         )
         pre_slot = self._context_slot(pre_result, "getMultipleAccounts")
+        if pre_slot < max(minimum_context_slot, blockhash_slot):
+            raise SolanaRpcAdapterError("pre-state response did not reach the required minimum context slot")
         pre_accounts = pre_result.get("value")
         if not isinstance(pre_accounts, list) or len(pre_accounts) != len(addresses):
             raise SolanaRpcAdapterError("getMultipleAccounts returned an incomplete account list")
