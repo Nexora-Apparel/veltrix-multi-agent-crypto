@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -56,7 +55,7 @@ class ConsensusWorker:
             consensus_store.database_path,
         }
         if len(paths) != 1 or getattr(launch_store, "_uri", False):
-            raise ValueError("launch, market, risk and consensus stores must share one persistent SQLite database")
+            raise ValueError("launch, market, risk and consensus stores must share one persistent database")
         for name, value in (
             ("refresh_interval_ms", refresh_interval_ms),
             ("lease_ms", lease_ms),
