@@ -40,6 +40,12 @@ class DexScreenerProvider:
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
     def fetch_token_pairs(self, chain: str, token_addresses: Sequence[str]) -> list[MarketEvent]:
+        """Fetch all indexed pools for each requested token address.
+
+        DexScreener's /tokens/v1 batch route can return only a limited pair
+        sample. The /token-pairs/v1 route is the documented all-pools endpoint
+        and is required for deepest-pool selection and native quote discovery.
+        """
         chain_id = CHAIN_IDS.get(str(chain).lower())
         if chain_id is None:
             raise ProviderError(f"Unsupported chain: {chain}")
@@ -54,13 +60,9 @@ class DexScreenerProvider:
             if address not in seen:
                 addresses.append(address)
                 seen.add(address)
-        if not addresses:
-            return []
-
         events: list[MarketEvent] = []
-        for offset in range(0, len(addresses), self.batch_size):
-            batch = addresses[offset:offset + self.batch_size]
-            url = f"{self.base_url}/tokens/v1/{chain_id}/" + ",".join(batch)
+        for address in addresses:
+            url = f"{self.base_url}/token-pairs/v1/{chain_id}/{address}"
             try:
                 response = self.session.get(url, timeout=self.timeout)
                 response.raise_for_status()
@@ -73,7 +75,6 @@ class DexScreenerProvider:
                 ) from exc
             if not isinstance(payload, list):
                 raise ProviderError("Unexpected DexScreener response shape")
-
             observed_at_ms = self.clock_ms()
             if (
                 isinstance(observed_at_ms, bool)
@@ -82,15 +83,12 @@ class DexScreenerProvider:
             ):
                 raise ProviderError("Invalid local provider response timestamp")
             for pair in payload:
-                for requested_address in batch:
-                    try:
-                        event = self._normalize(
-                            pair, chain_id, observed_at_ms, requested_address
-                        )
-                    except ProviderError:
-                        continue
-                    if event is not None:
-                        events.append(event)
+                try:
+                    event = self._normalize(pair, chain_id, observed_at_ms, address)
+                except ProviderError:
+                    continue
+                if event is not None:
+                    events.append(event)
         return events
 
     @staticmethod
