@@ -7,6 +7,7 @@ capability and is intentionally separate from the legacy USD broker.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 import time
 from pathlib import Path
@@ -42,13 +43,20 @@ class SolanaPaperWallet:
     def __init__(
         self, database_path: str, starting_balance_lamports: int,
         *, stop_loss_pct: float = 0.06, trailing_pct: float = 0.06,
+        max_open_positions: int = 10, max_portfolio_exposure_pct: float = 0.5,
     ):
         _positive_int(starting_balance_lamports, "starting_balance_lamports")
         for name, value in (("stop_loss_pct", stop_loss_pct), ("trailing_pct", trailing_pct)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
                 raise ValueError(f"{name} must be between zero and one")
+        if isinstance(max_open_positions, bool) or not isinstance(max_open_positions, int) or max_open_positions < 1:
+            raise ValueError("max_open_positions must be a positive integer")
+        if isinstance(max_portfolio_exposure_pct, bool) or not isinstance(max_portfolio_exposure_pct, (int, float)) or not 0 < max_portfolio_exposure_pct <= 1:
+            raise ValueError("max_portfolio_exposure_pct must be in (0, 1]")
         self.stop_loss_pct = Decimal(str(stop_loss_pct))
         self.trailing_pct = Decimal(str(trailing_pct))
+        self.max_open_positions = max_open_positions
+        self.max_portfolio_exposure_pct = Decimal(str(max_portfolio_exposure_pct))
         if not isinstance(database_path, (str, Path)) or not str(database_path).strip() or str(database_path) == ":memory:":
             raise ValueError("SolanaPaperWallet requires a persistent database path")
         self.database_path = str(database_path)
@@ -84,17 +92,43 @@ class SolanaPaperWallet:
                     notional_lamports INTEGER NOT NULL,
                     fee_lamports INTEGER NOT NULL,
                     realized_pnl_lamports INTEGER NOT NULL,
-                    created_at_ms INTEGER NOT NULL
+                    created_at_ms INTEGER NOT NULL,
+                    quote_provenance_json TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE INDEX IF NOT EXISTS idx_solana_paper_fills_time
                     ON solana_paper_fills(created_at_ms DESC);
             """)
+            fill_columns = {row["name"] for row in db.execute("PRAGMA table_info(solana_paper_fills)").fetchall()}
+            if "quote_provenance_json" not in fill_columns:
+                db.execute("ALTER TABLE solana_paper_fills ADD COLUMN quote_provenance_json TEXT NOT NULL DEFAULT '{}'")
             db.execute(
                 """INSERT OR IGNORE INTO solana_paper_account
                    (id,starting_balance_lamports,cash_lamports,created_at_ms)
                    VALUES(1,?,?,?)""",
                 (starting_balance_lamports, starting_balance_lamports, int(time.time() * 1000)),
             )
+
+    @staticmethod
+    def _validate_quote_provenance(value: dict | None, mint: str) -> str:
+        if value is None:
+            return "{}"
+        if not isinstance(value, dict) or value.get("mint") != mint:
+            raise ValueError("quote provenance must match the canonical mint")
+        for field in ("token_source", "sol_source", "sol_usd_pair_address"):
+            if not isinstance(value.get(field), str) or not value[field].strip():
+                raise ValueError(f"quote provenance requires {field}")
+        for field in ("market_snapshot_id", "token_observed_at_ms", "sol_observed_at_ms"):
+            _positive_int(value.get(field), field)
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+    def has_fill_key(self, idempotency_key: str) -> bool:
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise ValueError("idempotency_key is required")
+        with self._connect() as db:
+            return db.execute(
+                "SELECT 1 FROM solana_paper_fills WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone() is not None
 
     @staticmethod
     def _decimal(value: object, name: str) -> Decimal:
@@ -132,7 +166,7 @@ class SolanaPaperWallet:
     def open_position(
         self, *, idempotency_key: str, mint: str, quantity: object,
         price_lamports: int, fee_lamports: int, created_at_ms: int,
-        context=None,
+        context=None, quote_provenance: dict | None = None,
     ) -> dict:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
@@ -148,6 +182,7 @@ class SolanaPaperWallet:
         total = notional + fee_lamports
         if total > MAX_SQLITE_INTEGER:
             raise ValueError("position debit exceeds the SQLite lamport range")
+        provenance_json = self._validate_quote_provenance(quote_provenance, mint)
         if context is not None:
             context.checkpoint(items=1)
         with self._transaction() as db:
@@ -161,7 +196,13 @@ class SolanaPaperWallet:
                 return {"status": "DUPLICATE", "fill_id": existing["fill_id"]}
             if db.execute("SELECT 1 FROM solana_paper_positions WHERE mint=?", (mint,)).fetchone():
                 raise ValueError("an open paper position already exists for this mint")
-            account = db.execute("SELECT cash_lamports FROM solana_paper_account WHERE id=1").fetchone()
+            count = int(db.execute("SELECT COUNT(*) FROM solana_paper_positions").fetchone()[0])
+            if count >= self.max_open_positions:
+                raise ValueError("maximum SOL paper positions reached")
+            account = db.execute("SELECT starting_balance_lamports,cash_lamports FROM solana_paper_account WHERE id=1").fetchone()
+            exposure = int(db.execute("SELECT COALESCE(SUM(cost_basis_lamports),0) FROM solana_paper_positions").fetchone()[0])
+            if exposure + total > int(Decimal(account["starting_balance_lamports"]) * self.max_portfolio_exposure_pct):
+                raise ValueError("SOL paper portfolio exposure cap would be exceeded")
             if account is None or account["cash_lamports"] < total:
                 raise ValueError("insufficient simulated SOL balance")
             fill_id = "solpaper-" + idempotency_key
@@ -182,10 +223,10 @@ class SolanaPaperWallet:
             db.execute(
                 """INSERT INTO solana_paper_fills
                    (fill_id,idempotency_key,mint,side,quantity,price_lamports,
-                    notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms,quote_provenance_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (fill_id, idempotency_key, mint, "BUY", str(qty), price_lamports,
-                 notional, fee_lamports, 0, created_at_ms),
+                 notional, fee_lamports, 0, created_at_ms, provenance_json),
             )
         return {"status": "OPENED", "fill_id": fill_id, "notional_lamports": notional,
                 "fee_lamports": fee_lamports, "total_debit_lamports": total}
@@ -193,6 +234,7 @@ class SolanaPaperWallet:
     def _sell_in_transaction(
         self, db, position, *, idempotency_key: str, fill_price: int,
         fee_bps: Decimal, fraction: Decimal, created_at_ms: int,
+        quote_provenance_json: str = "{}",
     ) -> dict:
         quantity = Decimal(position["quantity"])
         sold_quantity = quantity if fraction == 1 else quantity * fraction
@@ -227,10 +269,10 @@ class SolanaPaperWallet:
         db.execute(
             """INSERT INTO solana_paper_fills
                (fill_id,idempotency_key,mint,side,quantity,price_lamports,
-                notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms)
-               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms,quote_provenance_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
             (fill_id, idempotency_key, position["mint"], "SELL", str(sold_quantity),
-             fill_price, notional, fee, realized, created_at_ms),
+             fill_price, notional, fee, realized, created_at_ms, quote_provenance_json),
         )
         return {
             "status": "CLOSED" if remaining_quantity <= 0 else "PARTIALLY_CLOSED",
@@ -315,7 +357,7 @@ class SolanaPaperWallet:
     def process_market_price(
         self, *, mint: str, price_lamports: int, market_snapshot_id: int,
         fee_bps: object = 100, slippage_bps: object = 50,
-        created_at_ms: int, context=None,
+        created_at_ms: int, context=None, quote_provenance: dict | None = None,
     ) -> list[dict]:
         mint = canonical_mint(mint)
         _positive_int(price_lamports, "price_lamports")
@@ -328,6 +370,7 @@ class SolanaPaperWallet:
         fill_price = int((Decimal(price_lamports) * (1 - slip_rate / 10_000)).to_integral_value(rounding=ROUND_DOWN))
         if fill_price <= 0:
             raise ValueError("slippage-adjusted exit price is below one lamport")
+        provenance_json = self._validate_quote_provenance(quote_provenance, mint)
         if context is not None:
             context.checkpoint(items=1)
         with self._transaction() as db:
@@ -363,6 +406,7 @@ class SolanaPaperWallet:
                 return [self._sell_in_transaction(
                     db, position, idempotency_key=key, fill_price=fill_price,
                     fee_bps=fee_rate, fraction=Decimal("1"), created_at_ms=created_at_ms,
+                    quote_provenance_json=provenance_json,
                 )]
             multiple = Decimal(price_lamports) / Decimal(entry)
             if multiple >= 3 and not state["hit_3x"]:
@@ -370,6 +414,7 @@ class SolanaPaperWallet:
                 result = self._sell_in_transaction(
                     db, position, idempotency_key=key, fill_price=fill_price,
                     fee_bps=fee_rate, fraction=Decimal("0.5"), created_at_ms=created_at_ms,
+                    quote_provenance_json=provenance_json,
                 )
                 db.execute(
                     "UPDATE solana_paper_position_state SET hit_2x=1,hit_3x=1 WHERE mint=?",
@@ -422,6 +467,11 @@ class SolanaPaperWallet:
                 "market_value_lamports": market_value, "unrealized_pnl_lamports": pnl,
             })
         realized = int(realized_row["total"])
+        for fill in fills:
+            try:
+                fill["quote_provenance"] = json.loads(fill.pop("quote_provenance_json") or "{}")
+            except (TypeError, ValueError):
+                fill["quote_provenance"] = {"error": "malformed_quote_provenance"}
         return {
             "unit": "lamports", "lamports_per_sol": LAMPORTS_PER_SOL,
             "starting_balance_lamports": int(account["starting_balance_lamports"]),
