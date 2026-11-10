@@ -103,3 +103,12 @@ test("upstream transport failures return a bounded 502 response", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("short dashboard bearer tokens fail closed", async () => {
+  const response = await worker.fetch(new Request("https://terminal.example/api/health"), {
+    VELTRIX_API_ORIGIN: "https://api.example",
+    VELTRIX_DASHBOARD_TOKEN: "too-short"
+  });
+  assert.equal(response.status, 503);
+});
