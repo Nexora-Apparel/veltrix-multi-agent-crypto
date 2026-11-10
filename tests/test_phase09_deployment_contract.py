@@ -230,7 +230,6 @@ def test_cloudflare_tunnel_origin_is_loopback_only_and_hardened():
     assert "ProtectSystem=strict" in service
     assert "ReadOnlyPaths=/etc/cloudflared" in service
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in service
-    assert "CF_ACCESS_CLIENT_ID" in service or "CF_ACCESS_CLIENT_ID" not in service
 
 
 def test_cloudflare_deployment_requires_origin_access_service_credentials():
