@@ -54,7 +54,7 @@ worker budget. Avoid unbounded streaming and use bounded pages/batches.
   Never use generic production `TURSO_DATABASE_URL` or `TURSO_AUTH_TOKEN`
   secrets for destructive conformance tests.
 - The workflow and test code both enforce the exact disposable host
-  `veltrix-h0-conformance.turso.io`, reject URL credentials and extras, and
+  `veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io`, reject URL credentials and extras, and
   never print secrets or include them in artifacts.
 - The local SQLite backend remains the default and rollback path. No production
   data is migrated by this phase.
