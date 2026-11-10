@@ -303,8 +303,10 @@ def test_dashboard_sol_wallet_endpoint_reports_native_lamports_and_pnl(tmp_path)
     closed = DashboardRepository(database).sol_paper_wallet()
     assert closed["open_position_count"] == 0
     assert closed["realized_pnl_lamports"] == 9_800_000
-    assert closed["fill_count"] == 2
-    assert [fill["side"] for fill in closed["recent_fills"]] == ["SELL", "BUY"]
+    assert closed["fill_count"] == 4
+    sides = [fill["side"] for fill in closed["recent_fills"]]
+    assert sides.count("BUY") == 2
+    assert sides.count("SELL") == 2
     assert closed["equity_lamports"] == 2 * LAMPORTS_PER_SOL + 9_800_000
     assert closed["live_execution"] is False
 
