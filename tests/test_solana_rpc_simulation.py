@@ -514,6 +514,9 @@ def test_captures_inner_cpi_program_ids_from_simulation_trace():
     assert result.evidence.top_level_program_ids == result.validation.program_ids
     assert result.evidence.inner_program_ids == (program,)
     assert result.evidence.inner_instruction_count == 1
+    assert result.evidence.inner_instructions[0].program_id == program
+    assert result.evidence.inner_instructions[0].data == b""
+    assert result.evidence.inner_instructions[0].top_level_instruction_index == 0
 
 
 def test_rejects_inner_cpi_program_index_outside_validated_account_list():
@@ -534,4 +537,65 @@ def test_rejects_inner_cpi_program_index_outside_validated_account_list():
             expected_token_deltas=expected,
             minimum_context_slot=490,
             last_valid_block_height=950,
+        )
+
+
+def test_captures_inner_instruction_account_keys_data_and_stack_height():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    keys = tuple(str(key) for key in message.account_keys)
+    program = intent.instructions[0].program_id
+    program_index = keys.index(program)
+    source_index = keys.index(expected[0].token_account)
+    data["inner_instructions"] = [
+        {
+            "index": 0,
+            "instructions": [
+                {"programIdIndex": program_index, "accounts": [source_index], "data": "5T", "stackHeight": 2}
+            ],
+        }
+    ]
+    result = adapter(FakeSession(data)).simulate(
+        raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected,
+        minimum_context_slot=490, last_valid_block_height=950,
+    )
+    inner = result.evidence.inner_instructions[0]
+    assert inner.account_keys == (expected[0].token_account,)
+    assert inner.data == bytes([1, 2])
+    assert inner.stack_height == 2
+
+
+def test_rejects_inner_instruction_account_index_outside_validated_keys():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(intent.instructions[0].program_id)
+    data["inner_instructions"] = [{"index": 0, "instructions": [{"programIdIndex": program_index, "accounts": [255], "data": "", "stackHeight": 1}]}]
+    with pytest.raises(SolanaRpcAdapterError, match="account index is outside the resolved account list"):
+        adapter(FakeSession(data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected,
+            minimum_context_slot=490, last_valid_block_height=950,
+        )
+
+
+def test_rejects_invalid_inner_instruction_base58_data():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(intent.instructions[0].program_id)
+    data["inner_instructions"] = [{"index": 0, "instructions": [{"programIdIndex": program_index, "accounts": [], "data": "0", "stackHeight": 1}]}]
+    with pytest.raises(SolanaRpcAdapterError, match="invalid base58"):
+        adapter(FakeSession(data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected,
+            minimum_context_slot=490, last_valid_block_height=950,
+        )
+
+
+def test_rejects_inner_instruction_group_for_nonexistent_top_level_instruction():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(intent.instructions[0].program_id)
+    data["inner_instructions"] = [{"index": 9, "instructions": [{"programIdIndex": program_index, "accounts": [], "data": "", "stackHeight": 1}]}]
+    with pytest.raises(SolanaRpcAdapterError, match="group index is outside"):
+        adapter(FakeSession(data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected,
+            minimum_context_slot=490, last_valid_block_height=950,
         )
