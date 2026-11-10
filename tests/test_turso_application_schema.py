@@ -55,8 +55,12 @@ def test_core_paper_pipeline_stores_initialize_on_turso(monkeypatch):
                 "paper_consensus_decisions",
                 "paper_execution_costs",
             }
+            # The direct Turso DB-API connection returns tuple rows by
+            # default (unlike the application adapter, which configures
+            # named-row access). This query selects one column, so index 0
+            # is the portable DB-API representation.
             actual = {
-                row["name"]
+                row[0]
                 for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
