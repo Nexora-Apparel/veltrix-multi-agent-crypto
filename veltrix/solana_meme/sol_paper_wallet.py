@@ -200,11 +200,11 @@ class SolanaPaperWallet:
             if count >= self.max_open_positions:
                 raise ValueError("maximum SOL paper positions reached")
             account = db.execute("SELECT starting_balance_lamports,cash_lamports FROM solana_paper_account WHERE id=1").fetchone()
+            if account is None or account["cash_lamports"] < total:
+                raise ValueError("insufficient simulated SOL balance")
             exposure = int(db.execute("SELECT COALESCE(SUM(cost_basis_lamports),0) FROM solana_paper_positions").fetchone()[0])
             if exposure + total > int(Decimal(account["starting_balance_lamports"]) * self.max_portfolio_exposure_pct):
                 raise ValueError("SOL paper portfolio exposure cap would be exceeded")
-            if account is None or account["cash_lamports"] < total:
-                raise ValueError("insufficient simulated SOL balance")
             fill_id = "solpaper-" + idempotency_key
             db.execute(
                 "UPDATE solana_paper_account SET cash_lamports=cash_lamports-? WHERE id=1",
