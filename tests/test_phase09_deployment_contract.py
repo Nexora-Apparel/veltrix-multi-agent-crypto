@@ -138,3 +138,18 @@ def test_scheduled_pipeline_is_pinned_to_triggering_revision_and_not_feature_hea
     assert 'cron: "*/5 * * * *"' in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "ref: work/veltrix-trading-terminal" not in workflow
+
+
+def test_cloudflare_deployment_is_manual_pinned_and_main_only():
+    workflow = (ROOT / ".github" / "workflows" / "deploy-dashboard-cloudflare.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in workflow
+    assert "refs/heads/main" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "wrangler@4.160.0" in workflow
+    assert "CLOUDFLARE_API_TOKEN" in workflow
+    assert "CLOUDFLARE_ACCOUNT_ID" in workflow
+    assert "VELTRIX_API_ORIGIN" in workflow
+    assert "VELTRIX_DASHBOARD_TOKEN" in workflow
+    assert "wrangler secret put VELTRIX_DASHBOARD_TOKEN" in workflow
+    assert "wrangler deploy --config wrangler.jsonc" in workflow
+    assert "wrangler deployments list --config wrangler.jsonc" in workflow
