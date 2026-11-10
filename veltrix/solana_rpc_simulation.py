@@ -20,6 +20,7 @@ from solders.transaction import VersionedTransaction
 
 from veltrix.simulation_gate import (
     ExpectedTokenDelta,
+    SimulatedInnerInstruction,
     SimulatedTokenBalance,
     SimulationEvidence,
     SimulationGateError,
@@ -42,6 +43,27 @@ MAX_TRACKED_TOKEN_ACCOUNTS = 100
 
 
 class SolanaRpcAdapterError(RuntimeError):
+    pass
+
+
+_BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_BASE58_INDEX = {character: index for index, character in enumerate(_BASE58_ALPHABET)}
+
+
+def _decode_base58(value: str) -> bytes:
+    if not isinstance(value, str):
+        raise SolanaRpcAdapterError("inner instruction data must be a base58 string")
+    if value == "":
+        return b""
+    number = 0
+    for character in value:
+        digit = _BASE58_INDEX.get(character)
+        if digit is None:
+            raise SolanaRpcAdapterError("inner instruction data contains an invalid base58 character")
+        number = number * 58 + digit
+    payload = number.to_bytes((number.bit_length() + 7) // 8, "big") if number else b""
+    leading_zeroes = len(value) - len(value.lstrip("1"))
+    return bytes(leading_zeroes) + payload
     """Raised when the configured RPC provider cannot supply complete evidence."""
 
 
@@ -346,17 +368,38 @@ class SolanaRpcSimulationAdapter:
         inner_groups = value.get("innerInstructions") or []
         if not isinstance(inner_groups, list):
             raise SolanaRpcAdapterError("simulateTransaction returned malformed inner-instruction trace")
-        inner_program_ids: list[str] = []
+        inner_instructions: list[SimulatedInnerInstruction] = []
         for group in inner_groups:
             if not isinstance(group, dict) or not isinstance(group.get("instructions"), list):
                 raise SolanaRpcAdapterError("simulateTransaction returned malformed inner-instruction group")
+            group_index = group.get("index")
+            if isinstance(group_index, bool) or not isinstance(group_index, int) or not 0 <= group_index < validation.instruction_count:
+                raise SolanaRpcAdapterError("inner instruction group index is outside the top-level message")
             for inner in group["instructions"]:
                 if not isinstance(inner, dict):
                     raise SolanaRpcAdapterError("simulateTransaction returned a malformed inner instruction")
                 program_index = inner.get("programIdIndex")
                 if isinstance(program_index, bool) or not isinstance(program_index, int) or not 0 <= program_index < len(validation.account_keys):
                     raise SolanaRpcAdapterError("inner instruction program index is outside the resolved account list")
-                inner_program_ids.append(validation.account_keys[program_index])
+                raw_account_indexes = inner.get("accounts")
+                if not isinstance(raw_account_indexes, list):
+                    raise SolanaRpcAdapterError("inner instruction account indexes are missing or malformed")
+                account_keys = []
+                for account_index in raw_account_indexes:
+                    if isinstance(account_index, bool) or not isinstance(account_index, int) or not 0 <= account_index < len(validation.account_keys):
+                        raise SolanaRpcAdapterError("inner instruction account index is outside the resolved account list")
+                    account_keys.append(validation.account_keys[account_index])
+                stack_height = inner.get("stackHeight")
+                if stack_height is not None and (isinstance(stack_height, bool) or not isinstance(stack_height, int) or stack_height < 1):
+                    raise SolanaRpcAdapterError("inner instruction stackHeight is invalid")
+                inner_instructions.append(SimulatedInnerInstruction(
+                    top_level_instruction_index=group_index,
+                    program_id=validation.account_keys[program_index],
+                    account_keys=tuple(account_keys),
+                    data=_decode_base58(inner.get("data")),
+                    stack_height=stack_height,
+                ))
+        inner_program_ids = tuple(item.program_id for item in inner_instructions)
         post_accounts = value.get("accounts")
         if not isinstance(post_accounts, list) or len(post_accounts) != len(addresses):
             raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state token accounts")
@@ -410,7 +453,8 @@ class SolanaRpcSimulationAdapter:
             fee_lamports=fee_lamports,
             token_balances=tuple(token_balances),
             top_level_program_ids=validation.program_ids,
-            inner_program_ids=tuple(inner_program_ids),
+            inner_program_ids=inner_program_ids,
             inner_instruction_count=len(inner_program_ids),
+            inner_instructions=tuple(inner_instructions),
         )
         return RpcSimulationResult(validation=validation, evidence=evidence)

@@ -61,6 +61,24 @@ class SimulatedTokenBalance:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulatedInnerInstruction:
+    top_level_instruction_index: int
+    program_id: str
+    account_keys: tuple[str, ...]
+    data: bytes
+    stack_height: int | None
+
+    def __post_init__(self) -> None:
+        _nonnegative_int(self.top_level_instruction_index, "top_level_instruction_index")
+        _nonempty(self.program_id, "program_id")
+        if not isinstance(self.account_keys, tuple) or any(not isinstance(key, str) or not key for key in self.account_keys):
+            raise SimulationGateError("inner instruction account_keys must be an immutable tuple of public keys")
+        if not isinstance(self.data, bytes):
+            raise SimulationGateError("inner instruction data must be immutable bytes")
+        if self.stack_height is not None and (isinstance(self.stack_height, bool) or not isinstance(self.stack_height, int) or self.stack_height < 1):
+            raise SimulationGateError("inner instruction stack_height must be a positive integer or null")
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -79,6 +97,7 @@ class SimulationEvidence:
     top_level_program_ids: tuple[str, ...] = ()
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
+    inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -106,6 +125,13 @@ class SimulationEvidence:
         _nonnegative_int(self.inner_instruction_count, "inner_instruction_count")
         if self.inner_instruction_count != len(self.inner_program_ids):
             raise SimulationGateError("inner instruction count does not match the captured program trace")
+        if not isinstance(self.inner_instructions, tuple) or any(not isinstance(item, SimulatedInnerInstruction) for item in self.inner_instructions):
+            raise SimulationGateError("inner_instructions must be an immutable tuple of decoded inner instructions")
+        if self.inner_instructions and (
+            len(self.inner_instructions) != self.inner_instruction_count
+            or tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids
+        ):
+            raise SimulationGateError("captured inner instruction details do not match the program-ID trace")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")
