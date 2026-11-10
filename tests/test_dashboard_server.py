@@ -48,6 +48,7 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         health = json.loads(urlopen(request).read())
         assert health["database"] == "connected"
         assert health["database_read_only"] is True
+        assert health["worker"] == {"status": "not_configured", "healthy": False}
         assert health["live_execution"] is False
 
         request = Request(
