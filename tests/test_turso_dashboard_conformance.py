@@ -35,10 +35,10 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
     assert health["database"] == "connected"
     assert health["database_read_only"] is True
     assert health["live_execution"] is False
-    wallet = repository.sol_paper_wallet()
-    assert wallet["configured"] is True
-    assert wallet["unit"] == "SOL"
-    assert wallet["cash_lamports"] == LAMPORTS_PER_SOL
+    wallet_state = repository.sol_paper_wallet()
+    assert wallet_state["configured"] is True
+    assert wallet_state["unit"] == "SOL"
+    assert wallet_state["cash_lamports"] == LAMPORTS_PER_SOL
 
     import time
     mint = "So11111111111111111111111111111111111111112"
@@ -53,17 +53,17 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
         "token_source": "turso-conformance", "sol_source": "turso-conformance",
     }
     # Isolate the fixed probe mint so repeated conformance runs are idempotent.
-    with wallet._transaction() as db:
+    with wallet_store._transaction() as db:
         db.execute("DELETE FROM solana_paper_marks WHERE mint=?", (mint,))
         db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
         db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (mint,))
         db.execute("DELETE FROM solana_paper_fills WHERE mint=?", (mint,))
-    wallet.open_position(
+    wallet_store.open_position(
         idempotency_key=f"turso-mark-entry-{now_ms}", mint=mint, quantity=1,
         price_lamports=1_000, fee_lamports=0, created_at_ms=now_ms,
         quote_provenance=provenance,
     )
-    wallet.process_market_price(
+    wallet_store.process_market_price(
         mint=mint, price_lamports=1_500, market_snapshot_id=1,
         created_at_ms=now_ms + 1, quote_provenance=provenance,
     )
@@ -71,7 +71,7 @@ def test_dashboard_reads_turso_wallet_and_enforces_query_only():
     assert marked["equity_complete"] is True
     assert marked["unrealized_pnl_lamports"] == 500
     assert marked["open_positions"][0]["mark_source"] == "turso-conformance"
-    wallet.close_position(
+    wallet_store.close_position(
         idempotency_key=f"turso-mark-exit-{now_ms}", mint=mint,
         price_lamports=1_000, fee_lamports=0, created_at_ms=now_ms + 2,
         quote_provenance=provenance,
