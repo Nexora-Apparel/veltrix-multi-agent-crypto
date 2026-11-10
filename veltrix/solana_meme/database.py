@@ -30,7 +30,7 @@ def shared_database_path(database_path: str | Path | None = None) -> str:
                 )
             if not same_database:
                 raise ValueError(
-                    "VELTRIX_SOLANA_DISCOVERY_DB and DB_PATH must reference the same database"
+                    "VELTRIX_SOLANA_DISCOVERY_DB and DB_PATH must reference the same SQLite file"
                 )
         selected = discovery_path or legacy_path or DEFAULT_SOLANA_DATABASE
 
