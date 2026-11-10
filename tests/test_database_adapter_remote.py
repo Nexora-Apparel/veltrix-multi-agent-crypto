@@ -42,3 +42,24 @@ def test_remote_libsql_host_must_be_a_turso_domain(monkeypatch):
     monkeypatch.setenv("TURSO_AUTH_TOKEN", "test-only-token")
     with pytest.raises(ValueError, match="approved Turso endpoint"):
         connect_database("libsql://attacker.example")
+
+def test_http_turso_url_is_upgraded_to_https(monkeypatch):
+    calls = []
+    fake_driver = types.ModuleType("turso_serverless")
+    fake_driver.Row = type("RemoteRow", (), {})
+    fake_driver.connect = lambda url, **kwargs: calls.append(url) or object()
+    monkeypatch.setitem(sys.modules, "turso_serverless", fake_driver)
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "test-only-token")
+    connect_database("http://veltrix-h0-conformance.turso.io")
+    assert calls == ["https://veltrix-h0-conformance.turso.io"]
+
+
+def test_turso_scheme_is_normalized_to_libsql(monkeypatch):
+    calls = []
+    fake_driver = types.ModuleType("turso_serverless")
+    fake_driver.Row = type("RemoteRow", (), {})
+    fake_driver.connect = lambda url, **kwargs: calls.append(url) or object()
+    monkeypatch.setitem(sys.modules, "turso_serverless", fake_driver)
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "test-only-token")
+    connect_database("turso://veltrix-h0-conformance.turso.io")
+    assert calls == ["libsql://veltrix-h0-conformance.turso.io"]
