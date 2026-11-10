@@ -212,7 +212,7 @@ def test_returns_both_sides_when_both_pair_tokens_are_requested():
         quoteToken={"address": quote_mint, "symbol": "QUOTE"},
         priceNative="0.5",
     )
-    events = DexScreenerProvider(session=Session([[payload]])).fetch_token_pairs(
+    events = DexScreenerProvider(session=Session([[payload], [payload]])).fetch_token_pairs(
         "solana", [base_mint, quote_mint]
     )
     assert {(item.token_address, item.pool_token_side) for item in events} == {
