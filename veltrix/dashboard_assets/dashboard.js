@@ -207,6 +207,92 @@
       ((Number(exit.fees) + Number(exit.slippage)) / max * 100) + "%");
   }
 
+  function renderCandles(data) {
+    const svg = $("token-candle-chart");
+    svg.replaceChildren();
+    const candles = data.candles || [];
+    $("candle-empty").hidden = candles.length > 0;
+    $("candle-freshness").textContent = (data.freshness || "unavailable").toUpperCase();
+    $("candle-freshness").className = "count-pill " +
+      (data.freshness === "fresh" ? "positive" : "negative");
+    $("candle-source").textContent = data.source ? "Source: " + data.source : "No provider observations";
+    $("candle-updated").textContent = data.observed_at_ms
+      ? "Observed " + date(new Date(data.observed_at_ms).toISOString()) : "No observation timestamp";
+    if (!candles.length) return;
+    const ns = "http://www.w3.org/2000/svg";
+    const highs = candles.map(c => Number(c.high));
+    const lows = candles.map(c => Number(c.low));
+    const max = Math.max(...highs), min = Math.min(...lows);
+    const span = Math.max(max - min, max * 0.000001);
+    const left = 42, right = 880, top = 16, bottom = 220;
+    const volumeTop = 238, volumeBottom = 282;
+    const step = (right - left) / candles.length;
+    const bodyWidth = Math.max(2, Math.min(12, step * 0.62));
+    const y = value => bottom - ((value - min) / span) * (bottom - top);
+    [0,1,2,3].forEach(i => {
+      const gy = top + (bottom-top)*i/3;
+      const grid = document.createElementNS(ns,"line");
+      grid.setAttribute("x1",left); grid.setAttribute("x2",right);
+      grid.setAttribute("y1",gy); grid.setAttribute("y2",gy);
+      grid.setAttribute("class","chart-grid"); svg.appendChild(grid);
+    });
+    const maxVol = Math.max(1,...candles.map(c=>Number(c.volume)||0));
+    candles.forEach((c,i) => {
+      const x = left + step*(i+0.5);
+      const up = Number(c.close) >= Number(c.open);
+      const color = up ? "#31d68b" : "#ff557f";
+      const wick = document.createElementNS(ns,"line");
+      wick.setAttribute("x1",x); wick.setAttribute("x2",x);
+      wick.setAttribute("y1",y(Number(c.high))); wick.setAttribute("y2",y(Number(c.low)));
+      wick.setAttribute("stroke",color); wick.setAttribute("stroke-width","1.4");
+      svg.appendChild(wick);
+      const body = document.createElementNS(ns,"rect");
+      body.setAttribute("x",x-bodyWidth/2);
+      body.setAttribute("y",Math.min(y(Number(c.open)),y(Number(c.close))));
+      body.setAttribute("width",bodyWidth);
+      body.setAttribute("height",Math.max(1,Math.abs(y(Number(c.open))-y(Number(c.close)))));
+      body.setAttribute("rx","1"); body.setAttribute("fill",color);
+      svg.appendChild(body);
+      const vol = document.createElementNS(ns,"rect");
+      vol.setAttribute("x",x-bodyWidth/2);
+      vol.setAttribute("y",volumeBottom-(Number(c.volume)||0)/maxVol*(volumeBottom-volumeTop));
+      vol.setAttribute("width",bodyWidth);
+      vol.setAttribute("height",Math.max(1,(Number(c.volume)||0)/maxVol*(volumeBottom-volumeTop)));
+      vol.setAttribute("fill",color); vol.setAttribute("opacity",".55");
+      svg.appendChild(vol);
+    });
+    const label = document.createElementNS(ns,"text");
+    label.setAttribute("x",left); label.setAttribute("y",12);
+    label.setAttribute("class","chart-axis"); label.textContent="OHLC · USD";
+    svg.appendChild(label);
+  }
+
+  let candleLoading = false;
+  async function loadCandles() {
+    if (candleLoading) return;
+    const mint = $("chart-mint").value.trim();
+    const pair = $("chart-pair").value.trim();
+    const interval = $("chart-interval").value;
+    if (!mint || !pair) {
+      $("candle-empty").hidden = false;
+      $("candle-empty").textContent = "A token mint and pool address are required.";
+      return;
+    }
+    candleLoading = true;
+    try {
+      const query = new URLSearchParams({mint, pair, interval, limit:"180"});
+      const data = await api("/api/candles?" + query.toString());
+      renderCandles(data);
+    } catch (error) {
+      $("candle-freshness").textContent = "UNAVAILABLE";
+      $("candle-source").textContent = error.message;
+      $("candle-empty").hidden = false;
+      $("candle-empty").textContent = "Candle data unavailable. The chart will not fabricate price movement.";
+    } finally {
+      candleLoading = false;
+    }
+  }
+
   async function refresh() {
     if (refreshing) return;
     refreshing = true;
@@ -242,6 +328,7 @@
   }
 
   $("refresh").addEventListener("click", refresh);
+  $("load-candles").addEventListener("click", loadCandles);
   $("save-token").addEventListener("click", () => {
     const value = $("api-token").value.trim();
     if (value) sessionStorage.setItem(tokenKey, value);
@@ -256,4 +343,5 @@
   $("api-token").value = sessionStorage.getItem(tokenKey) || "";
   refresh();
   window.setInterval(refresh, 15_000);
+  window.setInterval(() => { if ($("chart-mint").value.trim() && $("chart-pair").value.trim()) loadCandles(); }, 15_000);
 })();
