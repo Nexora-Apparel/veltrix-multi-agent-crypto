@@ -146,6 +146,81 @@ class DashboardRepository:
             result["quality_flags"] = ["malformed_quality_flags"]
         return result
 
+    def sol_paper_wallet(self) -> dict:
+        """Return read-only lamport-native wallet state without inventing marks."""
+        from decimal import Decimal
+
+        with self._connect() as db:
+            required = {
+                "solana_paper_account", "solana_paper_positions",
+                "solana_paper_fills", "solana_paper_position_state",
+            }
+            tables = {
+                row["name"] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if not required.issubset(tables):
+                return {
+                    "configured": False, "unit": "SOL",
+                    "reason": "native SOL paper ledger is not initialized",
+                    "live_execution": False,
+                }
+            account = db.execute(
+                "SELECT starting_balance_lamports,cash_lamports,created_at_ms "
+                "FROM solana_paper_account WHERE id=1"
+            ).fetchone()
+            positions = self._rows(
+                db, "SELECT * FROM solana_paper_positions ORDER BY opened_at_ms,mint"
+            )
+            fills = self._rows(
+                db, "SELECT * FROM solana_paper_fills ORDER BY created_at_ms DESC LIMIT 50"
+            )
+            realized = db.execute(
+                "SELECT COALESCE(SUM(realized_pnl_lamports),0) AS total "
+                "FROM solana_paper_fills"
+            ).fetchone()
+            totals = db.execute(
+                """SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN side='BUY' THEN 1 ELSE 0 END) AS entries,
+                          SUM(CASE WHEN side='SELL' THEN 1 ELSE 0 END) AS exits
+                   FROM solana_paper_fills"""
+            ).fetchone()
+        if account is None:
+            return {"configured": False, "unit": "SOL", "reason": "wallet account row is missing", "live_execution": False}
+        lamports_per_sol = Decimal(1_000_000_000)
+        to_sol = lambda value: format(Decimal(int(value)) / lamports_per_sol, "f")
+        for fill in fills:
+            try:
+                fill["quote_provenance"] = json.loads(fill.pop("quote_provenance_json") or "{}")
+            except (TypeError, ValueError):
+                fill["quote_provenance"] = {"error": "malformed quote provenance"}
+        realized_lamports = int(realized["total"] or 0)
+        cash = int(account["cash_lamports"])
+        return {
+            "configured": True,
+            "unit": "SOL",
+            "lamports_per_sol": 1_000_000_000,
+            "starting_balance_lamports": int(account["starting_balance_lamports"]),
+            "starting_balance_sol": to_sol(account["starting_balance_lamports"]),
+            "cash_lamports": cash,
+            "cash_sol": to_sol(cash),
+            "realized_pnl_lamports": realized_lamports,
+            "realized_pnl_sol": to_sol(realized_lamports),
+            "open_positions": positions,
+            "open_position_count": len(positions),
+            "unmarked_positions": [position["mint"] for position in positions],
+            "equity_lamports": None if positions else cash,
+            "equity_sol": None if positions else to_sol(cash),
+            "equity_complete": not positions,
+            "fill_count": int(totals["total"] or 0),
+            "entry_fills": int(totals["entries"] or 0),
+            "exit_fills": int(totals["exits"] or 0),
+            "recent_fills": fills,
+            "created_at_ms": int(account["created_at_ms"]),
+            "live_execution": False,
+        }
+
     def candles(self, *, mint: str, pair_address: str, interval: str, limit: int = 500) -> dict:
         """Return stored provider candles; never synthesize missing OHLCV data."""
         from .solana_meme.candle_data import INTERVAL_SECONDS
@@ -550,6 +625,7 @@ def make_handler(repository: DashboardRepository, *, api_token: str = ""):
                 return
             routes = {
                 "/api/health": repository.health,
+                "/api/sol-paper-wallet": repository.sol_paper_wallet,
                 "/api/overview": repository.overview,
                 "/api/positions": repository.positions,
                 "/api/trades": repository.trades,
