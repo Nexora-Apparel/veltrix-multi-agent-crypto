@@ -8,7 +8,7 @@ const { default: worker } = await import(
 );
 const ACCESS = {
   CF_ACCESS_CLIENT_ID: "veltrix-origin-token.access",
-  CF_ACCESS_CLIENT_SECRET: "cloudflare-access-secret"
+  CF_ACCESS_CLIENT_SECRET: "cloudflare-access-secret-123456789012345678901234567890"
 };
 
 test("static assets are served with no-store cache policy", async () => {
