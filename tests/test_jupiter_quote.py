@@ -1,5 +1,4 @@
 """Adversarial tests for the read-only Jupiter Swap API V2 quote adapter."""
-import copy
 import pytest
 from solders.pubkey import Pubkey
 
@@ -145,11 +144,13 @@ def test_supports_keyless_quote_mode_without_api_key_header():
 )
 def test_rejects_invalid_or_unsafe_order_response(mutator, message):
     body = quote_body()
+    requested_input = body["inputMint"]
+    requested_output = body["outputMint"]
     mutator(body)
     client = adapter(body)
     with pytest.raises(JupiterQuoteError, match=message):
         client.quote_exact_in(
-            quote_body()["inputMint"], quote_body()["outputMint"], 1_000_000,
+            requested_input, requested_output, 1_000_000,
             policy=JupiterQuotePolicy(),
         )
 
