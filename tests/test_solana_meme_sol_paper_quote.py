@@ -5,7 +5,7 @@ import pytest
 from veltrix.providers.base import MarketEvent
 from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_store import MarketSnapshotStore
-from veltrix.solana_meme.sol_paper_quote import SolanaPaperQuoteAdapter, WSOL_MINT
+from veltrix.solana_meme.sol_paper_quote import SolanaPaperQuoteAdapter, STABLE_QUOTE_MINTS, WSOL_MINT
 
 MINT = "So11111111111111111111111111111111111111112"
 TOKEN_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -160,3 +160,10 @@ def test_sol_quote_accepts_canonical_usdt_quote_mint(tmp_path):
     quote = adapter.quote(TOKEN_MINT)
     assert quote.sol_price_usd == Decimal("100.0")
     assert quote.price_lamports == 5_000_000
+
+
+def test_stablecoin_quote_mint_allowlist_uses_canonical_solana_addresses():
+    assert STABLE_QUOTE_MINTS == {
+        "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    }
