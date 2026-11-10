@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: veltrix-turso-h0-conformance
+  group: veltrix-turso-dashboard-readonly-v2
   cancel-in-progress: false
 
 jobs:
