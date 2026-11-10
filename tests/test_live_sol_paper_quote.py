@@ -9,14 +9,14 @@ from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.sol_paper_quote import SolanaPaperQuoteAdapter
 
-WSOL_MINT = "So11111111111111111111111111111111111111112"
+BONK_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 
 
 @pytest.mark.skipif(
     os.getenv("VELTRIX_LIVE_SOL_QUOTE_TEST") != "1",
     reason="set VELTRIX_LIVE_SOL_QUOTE_TEST=1 for public SOL/USD acceptance",
 )
-def test_live_dexscreener_sol_quote_converts_real_usdc_market_to_lamports(tmp_path):
+def test_live_dexscreener_sol_quote_converts_real_bonk_market_to_lamports(tmp_path):
     now_ms = int(time.time() * 1000)
     provider = DexScreenerProvider()
     market_data = SolanaMarketData(provider, clock_ms=lambda: int(time.time() * 1000))
