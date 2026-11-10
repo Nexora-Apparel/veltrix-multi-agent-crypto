@@ -11,6 +11,7 @@ from solders.pubkey import Pubkey
 ADDRESS_LOOKUP_TABLE_PROGRAM_ID = "AddressLookupTab1e1111111111111111111111111"
 LOOKUP_TABLE_ACTIVE_DEACTIVATION_SLOT = (1 << 64) - 1
 LOOKUP_TABLE_MAX_ADDRESSES = 256
+MAX_TRANSACTION_ACCOUNT_KEYS = 128
 
 
 class TransactionValidationError(ValueError):
@@ -216,8 +217,8 @@ def _resolve_account_keys(
             loaded_readonly.append(table.addresses[index])
 
     full_keys = static_keys + tuple(loaded_writable) + tuple(loaded_readonly)
-    if len(full_keys) > 256:
-        raise TransactionValidationError("resolved transaction account count exceeds the u8 index space")
+    if len(full_keys) > MAX_TRANSACTION_ACCOUNT_KEYS:
+        raise TransactionValidationError("resolved transaction account count exceeds the runtime account-lock limit")
     if len(full_keys) != len(set(full_keys)):
         raise TransactionValidationError("resolved transaction contains duplicate account keys")
     return full_keys, static_count, len(loaded_writable)
