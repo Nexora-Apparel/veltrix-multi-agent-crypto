@@ -1,7 +1,7 @@
 [Unit]
 Description=VELTRIX authenticated read-only analytics dashboard
-After=network.target veltrix-paper.service
-Wants=veltrix-paper.service
+After=network.target veltrix-pipeline.service
+Wants=veltrix-pipeline.service
 
 [Service]
 Type=simple
