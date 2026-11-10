@@ -189,9 +189,7 @@ class CandidateEnrichmentWorker:
             if context is not None:
                 context.assert_fence_in_transaction(db)
                 self._assert_claim(db, snapshot.mint, now, context)
-                self.market_store.record_in_transaction(snapshot, db)
-            else:
-                self.market_store.record(snapshot)
+            self.market_store.record_in_transaction(snapshot, db)
             cursor = db.execute("""
                 UPDATE solana_enrichment_jobs
                 SET status = 'completed', lease_until_ms = NULL,
