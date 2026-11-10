@@ -93,3 +93,7 @@ td{border-color:#30212a;color:#eee5ea}
 .sol-wallet-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 8px}
 #sol-wallet-note{margin:0;color:var(--muted);font-size:10px}
 @media(max-width:760px){.sol-wallet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.market-row-selectable{cursor:pointer}
+.market-row-selectable:focus-visible{outline:1px solid var(--accent);outline-offset:-2px}
+.market-row-selectable:hover td{background:rgba(255,55,155,.055)}
