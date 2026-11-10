@@ -171,6 +171,7 @@ class DexScreenerProvider:
             token = base
             other = quote
             price_usd = cls._number(pair.get("priceUsd"), "priceUsd") or 0.0
+            price_native = cls._number(pair.get("priceNative"), "priceNative", optional=True)
             fdv = cls._number(pair.get("fdv"), "fdv", optional=True)
             market_cap = cls._number(pair.get("marketCap"), "marketCap", optional=True)
             price_change = pair.get("priceChange")
@@ -258,4 +259,6 @@ class DexScreenerProvider:
             quote_token_symbol=other.get("symbol") if isinstance(other.get("symbol"), str)
             else None,
             pool_token_side=side,
+            quote_token_address=other.get("address") if isinstance(other.get("address"), str) else None,
+            price_native=price_native,
         )
