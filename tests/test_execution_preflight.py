@@ -9,7 +9,7 @@ from veltrix.execution_preflight import (
     REQUIRED_LIVE_RISK_CLAIMS,
     evaluate_execution_preflight,
 )
-from veltrix.semantic_transfer_decoder import SemanticDecodeResult, TOKEN_PROGRAM_ID
+from veltrix.semantic_transfer_decoder import DecodedTokenTransfer, SemanticDecodeResult, TOKEN_PROGRAM_ID
 from veltrix.simulation_gate import SimulationGateResult
 from veltrix.solana_meme.risk_evidence import RiskFlag, SolanaRiskEvidenceReport
 from veltrix.transaction_validator import TransactionValidationResult
@@ -29,14 +29,14 @@ def fixture():
     semantic = SemanticDecodeResult(
         message_sha256=digest,
         token_transfers=(
-            type("DecodedTokenTransfer", (), {
-                "source": "source-account",
-                "mint": mint,
-                "destination": "destination-account",
-                "authority": "fee-payer",
-                "amount_raw": 100,
-                "decimals": 6,
-            })(),
+            DecodedTokenTransfer(
+                source="source-account",
+                mint=mint,
+                destination="destination-account",
+                authority="fee-payer",
+                amount_raw=100,
+                decimals=6,
+            ),
         ),
         native_transfers=(),
         compute_unit_limit=300_000,
