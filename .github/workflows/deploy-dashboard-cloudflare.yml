@@ -56,6 +56,9 @@ jobs:
           test -n "$CF_ACCESS_CLIENT_SECRET" || {
             echo "::error::Missing CF_ACCESS_CLIENT_SECRET repository secret."; exit 1;
           }
+          [[ "${#CF_ACCESS_CLIENT_SECRET}" -ge 32 ]] || {
+            echo "::error::CF_ACCESS_CLIENT_SECRET must contain at least 32 characters."; exit 1;
+          }
           [[ "$CF_ACCESS_CLIENT_ID" != *[[:space:]]* ]] || {
             echo "::error::CF_ACCESS_CLIENT_ID must not contain whitespace."; exit 1;
           }
