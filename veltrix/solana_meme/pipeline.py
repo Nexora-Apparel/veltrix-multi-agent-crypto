@@ -114,15 +114,17 @@ class OneShotSolanaPipeline:
             job_type="solana_intelligence_pipeline",
             payload={
                 "stage_order": [
-                    "discovery", "enrichment", "market_refresh", "risk", "consensus"
+                    "discovery", "enrichment", "market_refresh", "risk", "consensus",
+                    *(["paper"] if self.paper_enabled else []),
                 ],
-                "paper_enabled": False,
+                "paper_enabled": self.paper_enabled,
                 "limits": {
                     "discovery": 25,
                     "enrichment": 25,
                     "market_refresh": 25,
                     "risk": 5,
                     "consensus": 10,
+                    **({"paper": 25} if self.paper_enabled else {}),
                 },
             },
             handler=handler,
