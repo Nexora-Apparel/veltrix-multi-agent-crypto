@@ -114,7 +114,7 @@ class SolanaPaperWallet:
             return "{}"
         if not isinstance(value, dict) or value.get("mint") != mint:
             raise ValueError("quote provenance must match the canonical mint")
-        for field in ("token_source", "sol_source", "sol_usd_pair_address"):
+        for field in ("token_source", "sol_source", "sol_usd_pair_address", "sol_usd_method"):
             if not isinstance(value.get(field), str) or not value[field].strip():
                 raise ValueError(f"quote provenance requires {field}")
         for field in ("market_snapshot_id", "token_observed_at_ms", "sol_observed_at_ms"):
