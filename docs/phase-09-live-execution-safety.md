@@ -143,3 +143,18 @@ Implemented in `veltrix/semantic_transfer_decoder.py` with adversarial coverage 
 - This is deliberately not a DEX swap decoder. Jupiter, Raydium, Orca, route aggregators, CPI-heavy swaps, transfer hooks, Token-2022 extensions, ATA creation, and arbitrary Anchor/Borsh programs are unsupported and must fail closed. A future DEX-specific parser must decode the complete instruction and inner-CPI effect graph before any swap is eligible for simulation approval.
 
 No signing, RPC submission, wallet access, or live execution is introduced.
+
+
+### 09.8 — final evidence-composition preflight
+
+Implemented in `veltrix/execution_preflight.py` with adversarial coverage in `tests/test_execution_preflight.py`.
+
+- Requires matching message digests from structural validation, semantic instruction decoding, and SimulationGate approval.
+- Requires fresh risk evidence for the exact approved mint, finalized mint slot, immutable mint/holder evidence IDs, classic SPL Token ownership, revoked mint/freeze authorities, completed extension review, complete holder coverage, and exact mint/holder supply reconciliation.
+- Applies configurable top-1/top-5/top-10 holder concentration ceilings and blocks critical/high risk flags by default.
+- Requires every currently defined live-risk claim: mint state/authority/freeze/extension review, complete holder inventory and supply reconciliation, exhaustive liquidity-pool lock inventory, developer-wallet linkage, bundled-supply analysis, creator-wallet provenance, and executable sellability.
+- The current Phase 05 collector intentionally leaves several of these claims missing (liquidity-lock completeness, developer linkage, bundled supply, creator provenance and executable sellability). Therefore this gate will reject current reports until independent evidence sources are added and those claims are actually established. This is an explicit release blocker, not a reason to weaken the gate.
+- A pass means only `eligible_for_operator_authorization`: it does not issue operator authorization, call a signer, sign a transaction, submit a transaction, or enable live execution.
+- The semantic decoder is currently limited to direct classic SPL Token transfers; DEX swap transactions remain unsupported.
+
+No live execution path is introduced. Paper trading remains separate and unchanged.
