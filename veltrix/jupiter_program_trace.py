@@ -240,7 +240,11 @@ def evaluate_jupiter_route_programs(
         raise JupiterProgramTraceError("decoded Jupiter instruction program is not locally pinned")
     if jupiter_instruction.transfer_authority != order.taker:
         raise JupiterProgramTraceError("decoded Jupiter transfer authority differs from the order taker")
-    if jupiter_instruction.top_level_instruction_index >= validation.instruction_count:
+    if (
+        isinstance(jupiter_instruction.top_level_instruction_index, bool)
+        or not isinstance(jupiter_instruction.top_level_instruction_index, int)
+        or not 0 <= jupiter_instruction.top_level_instruction_index < validation.instruction_count
+    ):
         raise JupiterProgramTraceError("decoded Jupiter instruction parent index is outside the top-level message")
     if jupiter_instruction.input_mint != order.input_mint or jupiter_instruction.output_mint != order.output_mint:
         raise JupiterProgramTraceError("decoded Jupiter instruction mints differ from the order")
@@ -292,6 +296,11 @@ def evaluate_jupiter_route_programs(
     inner = simulation.inner_program_ids
     if top_level != validation.program_ids:
         raise JupiterProgramTraceError("simulated top-level program trace differs from validated message")
+    if (
+        jupiter_instruction.program_id not in top_level
+        or validation.program_ids[jupiter_instruction.top_level_instruction_index] != jupiter_instruction.program_id
+    ):
+        raise JupiterProgramTraceError("decoded Jupiter instruction index does not point to its validated top-level program")
     if not top_level or not any(program_id in jupiter_ids for program_id in top_level):
         raise JupiterProgramTraceError("validated transaction does not invoke an approved Jupiter aggregator")
     if simulation.inner_instruction_count <= 0 or not inner:
