@@ -270,3 +270,17 @@ The Jupiter route program gate now consumes the decoded Jupiter instruction and 
 - Enforces the local CPI stack-height ceiling and checks every inner program/account key against the validated transaction account list.
 - Unknown CPI programs, missing pool accounts, wrong parent index, missing user token accounts, stale registry, or route/trace mismatch fail closed.
 - This is a trace-to-route consistency check, not a full DEX instruction semantic decoder. The DEX instruction payload bytes are retained for future audited decoders; no DEX-specific payload is currently interpreted here.
+
+
+### 09.17 — Pump.fun bonding-curve CPI decoder
+
+Implemented in `veltrix/pumpfun_cpi_decoder.py`, based on `pump-fun/pump-public-docs/idl/pump.json` at commit `639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22`.
+
+- Pins Pump.fun program `6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P` and fee program `pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ`.
+- Decodes the reviewed v1/v2/v3 `buy`, `buy_exact_sol_in`, `sell`, `buy_v2`, `buy_exact_quote_in_v2`, `sell_v2`, `buy_v3`, `buy_exact_quote_in_v3`, and `sell_v3` discriminators and Borsh arguments.
+- Binds Pump.fun direction, base/quote mints, bonding-curve account, user ATAs, user signer, token programs, system program, fee program, and program account to the Jupiter order and route.
+- Derives and checks the Global, event-authority, global-volume, user-volume, fee-config, sharing-config and associated-token PDAs from the pinned IDL seeds.
+- Enforces exact-input amounts, minimum outputs, maximum quote spend within the Jupiter slippage ceiling, and disabled partial fills.
+- Requires fee-recipient and buyback-recipient addresses to be supplied through an independently verified allowlist; arbitrary recipient accounts are rejected.
+
+**Outstanding provenance gate:** the decoder does not yet fetch and verify the on-chain Pump.fun Global account to construct that fee-recipient allowlist. Production use remains blocked until a slot-bound, owner/discriminator-checked Global account snapshot supplies the allowlist. Creator-vault state and native-SOL balance effects also remain separate evidence requirements. Token-2022 and unsupported Pump.fun instruction variants fail closed. No signing or transaction submission is introduced.
