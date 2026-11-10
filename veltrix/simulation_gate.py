@@ -79,6 +79,28 @@ class SimulatedInnerInstruction:
             raise SimulationGateError("inner instruction stack_height must be a positive integer or null")
 
 @dataclass(frozen=True, slots=True)
+class SimulatedAccountSnapshot:
+    address: str
+    owner: str
+    lamports: int
+    executable: bool
+    rent_epoch: int
+    data: bytes
+    context_slot: int
+
+    def __post_init__(self) -> None:
+        _nonempty(self.address, "snapshot address")
+        _nonempty(self.owner, "snapshot owner")
+        _nonnegative_int(self.lamports, "snapshot lamports")
+        _nonnegative_int(self.rent_epoch, "snapshot rent_epoch")
+        _nonnegative_int(self.context_slot, "snapshot context_slot")
+        if not isinstance(self.executable, bool):
+            raise SimulationGateError("snapshot executable flag must be a boolean")
+        if not isinstance(self.data, bytes):
+            raise SimulationGateError("snapshot account data must be immutable bytes")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -98,6 +120,7 @@ class SimulationEvidence:
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
     inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
+    account_snapshots: tuple[SimulatedAccountSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -132,6 +155,12 @@ class SimulationEvidence:
             or tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids
         ):
             raise SimulationGateError("captured inner instruction details do not match the program-ID trace")
+        if not isinstance(self.account_snapshots, tuple) or any(not isinstance(item, SimulatedAccountSnapshot) for item in self.account_snapshots):
+            raise SimulationGateError("account_snapshots must be an immutable tuple of decoded account snapshots")
+        if len({item.address for item in self.account_snapshots}) != len(self.account_snapshots):
+            raise SimulationGateError("account_snapshots contains duplicate addresses")
+        if any(item.context_slot != self.context_slot for item in self.account_snapshots):
+            raise SimulationGateError("account snapshots must be from the simulation context slot")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")
