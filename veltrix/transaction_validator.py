@@ -100,6 +100,19 @@ class TransactionValidationResult:
     instruction_count: int
 
 
+def _is_writable(message: object, index: int, account_count: int) -> bool:
+    """Derive static-key writability from Solana's canonical message header."""
+    header = message.header
+    required = int(header.num_required_signatures)
+    readonly_signed = int(header.num_readonly_signed_accounts)
+    readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+    if index < 0 or index >= account_count:
+        raise TransactionValidationError("account index is out of range")
+    if index < required:
+        return index < required - readonly_signed
+    return index < account_count - readonly_unsigned
+
+
 def validate_transaction_message(
     message_bytes: bytes,
     *,
@@ -124,8 +137,8 @@ def validate_transaction_message(
 
     try:
         message = from_bytes_versioned(message_bytes)
-        # Legacy Message exposes has_duplicates/is_writable; MessageV0 exposes
-        # sanitize/is_maybe_writable. Keep the version-specific API explicit.
+        # Legacy messages expose duplicate-key validation; v0 also exposes
+        # sanitize for compiled indices and lookup-table descriptors.
         if isinstance(message, MessageV0):
             message.sanitize()
         elif message.has_duplicates():
@@ -158,12 +171,7 @@ def validate_transaction_message(
         raise TransactionValidationError("message signer privileges could not be inspected") from exc
     if actual_signers != intent.required_signers:
         raise TransactionValidationError("required signer set or ordering does not match the approved intent")
-    writable = (
-        message.is_maybe_writable
-        if isinstance(message, MessageV0)
-        else message.is_writable
-    )
-    if not message.is_signer(0) or not writable(0):
+    if not message.is_signer(0) or not _is_writable(message, 0, len(account_keys)):
         raise TransactionValidationError("fee payer must be a writable signer")
 
     referenced_indices: set[int] = set()
@@ -198,7 +206,7 @@ def validate_transaction_message(
                 raise TransactionValidationError(f"instruction {index} account key differs from approved intent")
             if message.is_signer(account_index) != account_expectation.is_signer:
                 raise TransactionValidationError(f"instruction {index} signer privilege differs from approved intent")
-            if writable(account_index) != account_expectation.is_writable:
+            if _is_writable(message, account_index, len(account_keys)) != account_expectation.is_writable:
                 raise TransactionValidationError(f"instruction {index} writable privilege differs from approved intent")
             referenced_indices.add(account_index)
         actual_program_ids.append(program_id)
