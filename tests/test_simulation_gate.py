@@ -12,6 +12,7 @@ from veltrix.simulation_gate import (
     evaluate_simulation,
 )
 from veltrix.transaction_validator import (
+    InstructionExpectation,
     TransactionIntent,
     TransactionValidationResult,
 )
@@ -27,9 +28,7 @@ def valid_fixture():
         instructions=(
             # Structural validation is represented by its immutable result.
             # Instruction expectations are supplied by the preceding validator.
-            __import__("veltrix.transaction_validator", fromlist=["InstructionExpectation"]).InstructionExpectation(
-                "approved-program", (), b"approved"
-            ),
+            InstructionExpectation("approved-program", (), b"approved"),
         ),
     )
     validation = TransactionValidationResult(
@@ -102,8 +101,17 @@ def test_accepts_fresh_successful_simulation_with_exact_token_deltas():
 
 
 def test_rejects_missing_simulation_evidence():
+    intent, validation, expected, _, policy = valid_fixture()
     with pytest.raises(SimulationGateError, match="evidence is required"):
-        evaluate(None, evidence=None)
+        evaluate_simulation(
+            None,
+            intent=intent,
+            validation=validation,
+            expected_token_deltas=expected,
+            policy=policy,
+            now_epoch_ms=1_005_000,
+            minimum_context_slot=490,
+        )
 
 
 def test_rejects_message_digest_mismatch():
