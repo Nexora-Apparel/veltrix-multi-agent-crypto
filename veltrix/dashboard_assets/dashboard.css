@@ -101,3 +101,6 @@ td{border-color:#30212a;color:#eee5ea}
 .sol-fills-scroll{max-height:320px;overflow:auto;margin-top:12px}
 .sol-fills-scroll table{min-width:720px}
 #sol-fills-empty{padding:12px}
+
+.sol-positions-scroll{max-height:300px;overflow:auto;margin:10px 0 4px}
+.sol-positions-scroll table{min-width:860px}
