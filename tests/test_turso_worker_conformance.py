@@ -118,6 +118,26 @@ def test_all_solana_workers_support_remote_transaction_scoped_fencing(monkeypatc
     )
 
     try:
+        # The target is disposable, but isolate this run from leftovers after
+        # an interrupted prior dispatch using the same fixed conformance mint.
+        with launches._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            context.assert_fence_in_transaction(db)
+            for table in (
+                "solana_enrichment_jobs",
+                "solana_market_refresh_jobs",
+                "solana_risk_evidence_jobs",
+                "solana_consensus_jobs",
+            ):
+                db.execute(f'DELETE FROM "{table}" WHERE mint=?', (mint,))
+            db.execute("DELETE FROM solana_consensus_decisions WHERE mint=?", (mint,))
+            db.execute("DELETE FROM solana_risk_evidence_reports WHERE mint=?", (mint,))
+            db.execute("DELETE FROM solana_market_snapshots WHERE mint=?", (mint,))
+            db.execute("DELETE FROM solana_launch_candidates WHERE mint=?", (mint,))
+            db.execute("DELETE FROM launch_feed_events WHERE details LIKE ?", (f"%{mint}%",))
+            db.execute("DELETE FROM paper_consensus_decisions WHERE decision_id=?", (decision_id,))
+            db.execute("DELETE FROM events WHERE payload LIKE ?", (f"%{decision_id}%",))
+
         candidate = normalize_candidate(
             {"chain": "solana", "mint": mint},
             source="turso-worker-conformance",
