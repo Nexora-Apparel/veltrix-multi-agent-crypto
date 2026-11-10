@@ -232,3 +232,17 @@ Implemented in `veltrix/jupiter_swap_effects.py`, with classic-token program own
 - The effect gate does not decode DEX instructions or authorize signing. It must be combined with the pinned program trace gate, semantic instruction policy, risk preflight, and operator authorization.
 
 No Jupiter `/execute`, Phantom signing, transaction submission, or live execution is introduced.
+
+
+### 09.14 — Jupiter v6 exact-in route instruction decoder
+
+Implemented in `veltrix/jupiter_instruction_decoder.py`, based on the official `jup-ag/instruction-parser` IDL at commit `e6f77951377847c579112e6a16d8c17c5c092485`.
+
+- Pins Jupiter v6 program ID `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4`.
+- Decodes only Anchor `route` and `sharedAccountsRoute` exact-in instruction discriminators. Token-ledger, exact-out, route-v2, unknown discriminators and unsupported swap variants fail closed.
+- Parses the Borsh route vector and Swap enum variants, validates each DEX label against Jupiter's order route plan, and reconciles first-layer input and final-layer output raw amounts to the order.
+- Validates route DAG ordering/connectivity, split percentages, slippage, exact in/out amounts, and zero platform fee.
+- Checks the IDL account layouts and signer/writable privileges. The taker must be the signer/fee payer; source and destination must be the taker's derived classic SPL ATAs; mints, token program and optional-account placeholders must match the supported layout.
+- Supports a deliberately small DEX variant set: Raydium, Raydium CLMM/CP, Meteora, Whirlpool, Pump.fun, Moonshot and SolFi. Other variants require explicit reviewed mappings before enablement.
+- Does not parse arbitrary DEX inner-instruction payloads or prove every CPI account semantic. It must be combined with the pinned CPI program-trace gate and exact simulated token-balance effect gate.
+- No Jupiter `/execute`, signing, wallet prompt, transaction broadcast, or live trading is introduced.
