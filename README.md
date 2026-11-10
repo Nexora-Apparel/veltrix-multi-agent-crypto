@@ -55,9 +55,12 @@ not strategy profitability or production execution.
 
 Cloudflare hosting is split by responsibility: Workers serves static assets
 and proxies allowlisted read-only API routes, while a persistent Python API
-and pipeline runtime use the shared Turso database. Browser code never stores
-the service bearer token; the Worker injects it server-side. The Worker has no
-public `workers.dev` endpoint configured. Its bundle has passed Wrangler
+and pipeline runtime use the shared Turso database. The Python API remains
+bound to loopback and is published through a hardened Cloudflare Tunnel
+protected by an Access Service Auth policy. The Worker injects both the Access
+service-token headers and the application bearer token server-side. Browser
+code stores neither credential. The Worker has no public `workers.dev`
+endpoint configured. Its bundle has passed Wrangler
 dry-run validation and nine security/routing tests. Production deployment is
 manual and restricted to `main`.
 
