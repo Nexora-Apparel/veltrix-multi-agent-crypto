@@ -81,7 +81,7 @@ def test_host_verification_script_checks_actual_systemd_mount_namespace():
     assert "test ! -w" in script
     assert "systemctl is-active" in script
     assert "effective UID mismatch" in script
-    assert "print $2" in script  # effective UID/GID, not saved-set ID
+    assert "print $3" in script  # label is field 1; effective UID/GID is field 3
     assert "paper service cannot write the shared database" in script
     assert "paper service cannot write the database directory" in script
     assert "supplementary group boundaries" in script
