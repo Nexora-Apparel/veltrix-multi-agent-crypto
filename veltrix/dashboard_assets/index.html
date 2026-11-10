@@ -47,6 +47,27 @@
       <article class="metric-card"><span>Portfolio exposure</span><strong id="exposure">$—</strong><small id="exposure-pct">— of starting balance</small></article>
     </section>
 
+    <section class="panel token-chart-panel" id="token-terminal">
+      <div class="panel-heading">
+        <div><p class="eyebrow">SOLANA TOKEN TERMINAL</p><h2>Live OHLCV market chart</h2>
+        <p class="panel-note">Provider candles only · no generated price movement</p></div>
+        <span class="count-pill" id="candle-freshness">DATA UNAVAILABLE</span>
+      </div>
+      <div class="token-chart-controls">
+        <input id="chart-mint" aria-label="Solana token mint" placeholder="Paste Solana token mint">
+        <input id="chart-pair" aria-label="Liquidity pool address" placeholder="Pool / pair address">
+        <select id="chart-interval" aria-label="Candle interval">
+          <option value="1m">1 minute</option><option value="5m">5 minutes</option>
+          <option value="15m">15 minutes</option><option value="1h">1 hour</option>
+          <option value="4h">4 hours</option><option value="1d">1 day</option>
+        </select>
+        <button id="load-candles" class="button" type="button">Load chart</button>
+      </div>
+      <div class="candle-meta"><span id="candle-source">No provider selected</span><span id="candle-updated">Waiting for candle data</span></div>
+      <div class="chart-wrap candle-chart-wrap"><svg id="token-candle-chart" viewBox="0 0 900 300" role="img" aria-label="Solana token OHLCV candlestick chart"></svg></div>
+      <div id="candle-empty" class="empty-state">Enter a token mint and pool address to load stored provider candles. No synthetic chart is shown.</div>
+    </section>
+
     <section class="panel chart-panel">
       <div class="panel-heading">
         <div><p class="eyebrow">PERFORMANCE</p><h2>Realized equity curve</h2><p class="panel-note">Starting balance plus settled exit-fill P&amp;L. Open-position value is excluded.</p></div>
