@@ -86,7 +86,7 @@ def build_case(*, shared=False, data=None, source_override=None, output_override
             AccountMeta(destination_account, False, True),
             AccountMeta(source_mint_override or input_mint, False, False),
             AccountMeta(output_mint, False, False),
-            AccountMeta(system_program, False, False),
+            AccountMeta(system_program, False, True),
             AccountMeta(system_program, False, False),
         ]
         instruction_name = "sharedAccountsRoute"
@@ -97,9 +97,9 @@ def build_case(*, shared=False, data=None, source_override=None, output_override
             AccountMeta(authority, True, False),
             AccountMeta(source_account, False, source_writable),
             AccountMeta(destination_account, False, True),
-            AccountMeta(system_program, False, False),
+            AccountMeta(system_program, False, True),
             AccountMeta(output_mint, False, False),
-            AccountMeta(system_program, False, False),
+            AccountMeta(system_program, False, True),
         ]
         instruction_name = "route"
         raw_data = data or encode_route_data()
