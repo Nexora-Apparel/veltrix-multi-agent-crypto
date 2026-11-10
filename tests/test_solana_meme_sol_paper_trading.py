@@ -149,3 +149,19 @@ def test_native_sol_worker_opens_approved_decision_and_persists_quote_provenance
     second = worker.run_once()
     assert second.opened_positions == 0
     assert second.duplicate_decisions == 1
+
+
+def test_native_sol_worker_propagates_pipeline_deadline_without_mutation(tmp_path):
+    from veltrix.orchestration import JobDeadlineExceeded
+
+    markets, wallet, validator, decision, adapter = _approved_worker_fixture(tmp_path)
+    worker = SolanaNativePaperTradingWorker(validator, wallet, adapter)
+
+    class ExpiredContext:
+        def checkpoint(self, *, items=1):
+            raise JobDeadlineExceeded("job deadline exceeded")
+
+    with pytest.raises(JobDeadlineExceeded, match="deadline"):
+        worker.run_once(context=ExpiredContext())
+    assert wallet.snapshot()["open_positions"] == []
+    assert wallet.snapshot()["cash_lamports"] == 2 * LAMPORTS_PER_SOL
