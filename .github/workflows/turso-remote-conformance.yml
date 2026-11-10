@@ -18,7 +18,7 @@ jobs:
       - name: Check out reviewed H1 adapter commit
         uses: actions/checkout@v4
         with:
-          ref: 872c3bcfc4609416da56330d9be2b45d9ce7dbb2
+          ref: 3835b442174c903b6d3a0bb4df566de34560a09c
 
       - name: Set up Python
         uses: actions/setup-python@v5
