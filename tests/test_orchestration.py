@@ -19,9 +19,13 @@ def store_at(path):
     return store
 
 
+def leased(store, owner="worker-a", now=10_000, ttl=300_000):
+    return store.acquire_lease(owner, now_ms=now, ttl_ms=ttl)
+
+
 def test_global_lease_excludes_second_owner_and_fences_expired_owner(tmp_path):
     store = store_at(tmp_path / "orchestration.sqlite3")
-    first = store.acquire_lease("worker-a", now_ms=10_000, ttl_ms=2_000)
+    first = leased(store, "worker-a", now=10_000, ttl=2_000)
     with pytest.raises(LeaseBusy):
         store.acquire_lease("worker-b", now_ms=11_000, ttl_ms=2_000)
     second = store.acquire_lease("worker-b", now_ms=12_000, ttl_ms=2_000)
@@ -61,6 +65,25 @@ def test_concurrent_lease_acquisition_has_one_winner(tmp_path):
     assert sum(result[0] == "busy" for result in outcomes) == 1
 
 
+def test_stale_fencing_token_cannot_start_finish_or_recover(tmp_path):
+    store = store_at(tmp_path / "fencing.sqlite3")
+    first = leased(store, "worker-a", now=10_000, ttl=2_000)
+    job = store.enqueue(idempotency_key="fence-job", job_type="scan", payload={}, now_ms=10_001)
+    second = store.acquire_lease("worker-b", now_ms=12_000, ttl_ms=30_000)
+    with pytest.raises(LeaseBusy):
+        store.start_attempt(job["run_id"], owner_id="worker-a", fencing_token=first, now_ms=12_001)
+    attempt = store.start_attempt(job["run_id"], owner_id="worker-b", fencing_token=second, now_ms=12_002)
+    assert attempt["attempt"] == 1
+    with pytest.raises(LeaseBusy):
+        store.finish_attempt(job["run_id"], 1, owner_id="worker-a",
+                             fencing_token=first, outcome="SUCCEEDED", now_ms=12_003)
+    with pytest.raises(LeaseBusy):
+        store.recover_interrupted(owner_id="worker-a", fencing_token=first,
+                                  now_ms=400_000, stale_after_ms=1_000)
+    assert store.finish_attempt(job["run_id"], 1, owner_id="worker-b",
+                                fencing_token=second, outcome="SUCCEEDED", now_ms=12_004) == "SUCCEEDED"
+
+
 def test_idempotency_key_rejects_changed_payload(tmp_path):
     store = store_at(tmp_path / "jobs.sqlite3")
     first = store.enqueue(idempotency_key="daily-scan-2026-11-10",
@@ -75,31 +98,39 @@ def test_idempotency_key_rejects_changed_payload(tmp_path):
 
 def test_retry_is_deferred_and_attempts_are_bounded(tmp_path):
     store = store_at(tmp_path / "retry.sqlite3")
+    fence = leased(store)
+    owner = "worker-a"
     job = store.enqueue(idempotency_key="retry-1", job_type="scan",
                         payload={}, max_attempts=2, now_ms=10_000)
-    first = store.start_attempt(job["run_id"], now_ms=10_100)
+    first = store.start_attempt(job["run_id"], owner_id=owner, fencing_token=fence, now_ms=10_100)
     assert first["attempt"] == 1
-    assert store.finish_attempt(job["run_id"], 1, outcome="RETRYABLE",
-                                now_ms=10_200, retry_delay_ms=5_000) == "RETRYABLE"
-    assert store.start_attempt(job["run_id"], now_ms=14_999) is None
-    second = store.start_attempt(job["run_id"], now_ms=15_200)
+    assert store.finish_attempt(job["run_id"], 1, owner_id=owner, fencing_token=fence,
+                                outcome="RETRYABLE", now_ms=10_200, retry_delay_ms=5_000) == "RETRYABLE"
+    assert store.start_attempt(job["run_id"], owner_id=owner, fencing_token=fence, now_ms=14_999) is None
+    second = store.start_attempt(job["run_id"], owner_id=owner, fencing_token=fence, now_ms=15_200)
     assert second["attempt"] == 2
-    assert store.finish_attempt(job["run_id"], 2, outcome="RETRYABLE",
-                                now_ms=15_300, retry_delay_ms=5_000) == "FAILED"
+    assert store.finish_attempt(job["run_id"], 2, owner_id=owner, fencing_token=fence,
+                                outcome="RETRYABLE", now_ms=15_300, retry_delay_ms=5_000) == "FAILED"
     assert store.get_job(job["run_id"])["error_code"] == "ATTEMPTS_EXHAUSTED"
 
 
-def test_interrupted_run_recovers_only_after_stale_threshold(tmp_path):
+def test_interrupted_run_recovery_requires_current_lease(tmp_path):
     store = store_at(tmp_path / "recovery.sqlite3")
     job = store.enqueue(idempotency_key="recover-1", job_type="scan",
                         payload={}, now_ms=10_000)
-    store.start_attempt(job["run_id"], now_ms=11_000)
-    assert store.recover_interrupted(now_ms=310_999, stale_after_ms=300_000) == 0
-    assert store.recover_interrupted(now_ms=311_000, stale_after_ms=300_000) == 1
+    with pytest.raises(TypeError):
+        store.recover_interrupted(now_ms=311_000, stale_after_ms=300_000)
+    fence = leased(store, now=11_000)
+    store.start_attempt(job["run_id"], owner_id="worker-a", fencing_token=fence, now_ms=11_000)
+    assert store.recover_interrupted(owner_id="worker-a", fencing_token=fence,
+                                     now_ms=310_999, stale_after_ms=300_000) == 0
+    assert store.recover_interrupted(owner_id="worker-a", fencing_token=fence,
+                                     now_ms=311_000, stale_after_ms=300_000) == 1
     recovered = store.get_job(job["run_id"])
     assert recovered["status"] == "RETRYABLE"
     assert recovered["error_code"] == "INTERRUPTED"
-    assert store.start_attempt(job["run_id"], now_ms=311_001)["attempt"] == 2
+    assert store.start_attempt(job["run_id"], owner_id="worker-a",
+                               fencing_token=fence, now_ms=311_001)["attempt"] == 2
 
 
 def test_run_once_executes_one_attempt_and_is_idempotent(tmp_path):
@@ -107,6 +138,7 @@ def test_run_once_executes_one_attempt_and_is_idempotent(tmp_path):
     calls = []
 
     def handler(context, payload):
+        context.assert_fence()
         calls.append(payload["n"])
         context.checkpoint(items=1)
 
@@ -133,16 +165,19 @@ def test_retryable_handler_error_schedules_later_attempt(tmp_path):
     assert row["error_code"] == "RetryableJobError"
 
 
-def test_context_enforces_item_budget_and_deadline():
+def test_context_enforces_item_budget_deadline_and_fence():
     now = [100.0]
     from veltrix.orchestration import RunContext
 
-    context = RunContext("r", "k", 1, 105.0, 2, lambda: now[0])
+    calls = []
+    context = RunContext("r", "k", 1, 105.0, 2, lambda: now[0], 9,
+                         lambda: calls.append("fenced"))
     context.checkpoint(items=2)
+    assert calls == ["fenced"]
     with pytest.raises(JobDeadlineExceeded, match="item budget"):
         context.checkpoint()
     now[0] = 106.0
-    fresh = RunContext("r", "k", 1, 105.0, 2, lambda: now[0])
+    fresh = RunContext("r", "k", 1, 105.0, 2, lambda: now[0], 9, lambda: None)
     with pytest.raises(JobDeadlineExceeded, match="deadline"):
         fresh.checkpoint(items=0)
 
