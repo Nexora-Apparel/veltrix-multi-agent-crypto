@@ -9,7 +9,7 @@ from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.sol_paper_quote import SolanaPaperQuoteAdapter
 
-USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 
 @pytest.mark.skipif(
@@ -20,7 +20,7 @@ def test_live_dexscreener_sol_quote_converts_real_usdc_market_to_lamports(tmp_pa
     now_ms = int(time.time() * 1000)
     provider = DexScreenerProvider()
     market_data = SolanaMarketData(provider, clock_ms=lambda: int(time.time() * 1000))
-    token_snapshot = market_data.fetch(USDC_MINT)
+    token_snapshot = market_data.fetch(WSOL_MINT)
     database = str(tmp_path / "live-sol-quote.sqlite3")
     store = MarketSnapshotStore(database)
     assert store.record(token_snapshot)
@@ -31,7 +31,7 @@ def test_live_dexscreener_sol_quote_converts_real_usdc_market_to_lamports(tmp_pa
         min_sol_pool_volume_h1_usd=10_000,
         clock_ms=lambda: int(time.time() * 1000),
     )
-    quote = adapter.quote(USDC_MINT)
+    quote = adapter.quote(WSOL_MINT)
     assert quote.price_lamports > 0
     assert quote.token_source == "dexscreener"
     assert quote.sol_source == "dexscreener"
