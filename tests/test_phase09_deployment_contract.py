@@ -32,6 +32,9 @@ def test_dashboard_unit_is_distinct_and_database_read_only():
     assert "ReadOnlyPaths=/var/lib/veltrix" in unit
     assert "VELTRIX_DASHBOARD_HOST=127.0.0.1" in unit
     assert "EnvironmentFile=/etc/veltrix/dashboard.env" in unit
+    assert "After=network.target veltrix-pipeline.service" in unit
+    assert "Wants=veltrix-pipeline.service" in unit
+    assert "veltrix-paper.service" not in unit
     assert "InaccessiblePaths=/etc/veltrix/paper.env" in unit
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
