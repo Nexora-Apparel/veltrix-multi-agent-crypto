@@ -316,7 +316,7 @@ class MarketRefreshWorker:
                     else:
                         unchanged += 1
                 except Exception as exc:
-                    self._fail(mint, exc, self.clock_ms())
+                    self._fail(mint, exc, self.clock_ms(), context)
                     failed += 1
 
         with self._connect() as db:
