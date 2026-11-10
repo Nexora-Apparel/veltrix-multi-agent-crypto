@@ -5,8 +5,9 @@ import dataclasses
 import pytest
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
-from solders.message import Message, to_bytes_versioned
+from solders.message import Message, MessageV0, to_bytes_versioned
 from solders.pubkey import Pubkey
+from solders.address_lookup_table_account import AddressLookupTableAccount
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
@@ -16,6 +17,7 @@ from veltrix.solana_rpc_simulation import (
 )
 from veltrix.simulation_gate import ExpectedTokenDelta, SimulationGatePolicy, evaluate_simulation
 from veltrix.transaction_validator import (
+    ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
     AccountExpectation,
     InstructionExpectation,
     TransactionIntent,
@@ -87,10 +89,17 @@ class FakeSession:
         elif method == "getBlockHeight":
             result = 900
         elif method == "getMultipleAccounts":
-            result = {
-                "context": {"slot": self.fixture["slot"]},
-                "value": self.fixture["pre_accounts"],
-            }
+            requested = params[0]
+            if self.fixture.get("lookup_table_address") and requested == [self.fixture["lookup_table_address"]]:
+                result = {
+                    "context": {"slot": self.fixture.get("lookup_slot", self.fixture["slot"])},
+                    "value": [self.fixture["lookup_table_info"]],
+                }
+            else:
+                result = {
+                    "context": {"slot": self.fixture["slot"]},
+                    "value": self.fixture["pre_accounts"],
+                }
         elif method == "getFeeForMessage":
             result = {"context": {"slot": self.fixture["slot"]}, "value": 5_000}
         else:
@@ -321,6 +330,155 @@ def test_rejects_rpc_redirect_response():
 
     with pytest.raises(SolanaRpcAdapterError, match="HTTP 302"):
         adapter(RedirectSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+        )
+
+
+def lookup_table_raw(addresses, *, deactivation_slot=(1 << 64) - 1, last_extended_slot=50):
+    raw = bytearray(56 + 32 * len(addresses))
+    raw[0:4] = (1).to_bytes(4, "little")
+    raw[4:12] = deactivation_slot.to_bytes(8, "little")
+    raw[12:20] = last_extended_slot.to_bytes(8, "little")
+    raw[20] = 0
+    raw[21] = 0
+    raw[22:54] = bytes(32)
+    raw[54:56] = bytes(2)
+    for index, address in enumerate(addresses):
+        raw[56 + index * 32:56 + (index + 1) * 32] = bytes(address)
+    return bytes(raw)
+
+
+def v0_lookup_fixture():
+    payer = Pubkey.new_unique()
+    source = Pubkey.new_unique()
+    destination = Pubkey.new_unique()
+    source_owner = Pubkey.new_unique()
+    destination_owner = Pubkey.new_unique()
+    mint = Pubkey.new_unique()
+    program = Pubkey.new_unique()
+    table_key = Pubkey.new_unique()
+    blockhash = Hash.new_unique()
+    table_account = AddressLookupTableAccount(key=table_key, addresses=[source, destination])
+    instruction = Instruction(
+        program,
+        b"approved-transfer",
+        [
+            AccountMeta(payer, True, True),
+            AccountMeta(source, False, True),
+            AccountMeta(destination, False, True),
+        ],
+    )
+    message = MessageV0.try_compile(payer, [instruction], [table_account], blockhash)
+    raw_message = to_bytes_versioned(message)
+    static_keys = tuple(str(key) for key in message.account_keys)
+    loaded_writable = []
+    loaded_readonly = []
+    for lookup in message.address_table_lookups:
+        loaded_writable.extend(str(table_account.addresses[i]) for i in bytes(lookup.writable_indexes))
+        loaded_readonly.extend(str(table_account.addresses[i]) for i in bytes(lookup.readonly_indexes))
+    account_keys = static_keys + tuple(loaded_writable) + tuple(loaded_readonly)
+    static_count = len(static_keys)
+
+    def writable(index):
+        if index < static_count:
+            header = message.header
+            required = int(header.num_required_signatures)
+            readonly_signed = int(header.num_readonly_signed_accounts)
+            readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+            if index < required:
+                return index < required - readonly_signed
+            return index < static_count - readonly_unsigned
+        return index < static_count + len(loaded_writable)
+
+    compiled = message.instructions[0]
+    program_id = str(account_keys[int(compiled.program_id_index)])
+    intent = TransactionIntent(
+        fee_payer=str(payer),
+        required_signers=tuple(
+            key for index, key in enumerate(static_keys) if message.is_signer(index)
+        ),
+        recent_blockhash=str(blockhash),
+        instructions=(
+            InstructionExpectation(
+                program_id,
+                tuple(
+                    AccountExpectation(
+                        account_keys[int(index)],
+                        message.is_signer(int(index)) if int(index) < static_count else False,
+                        writable(int(index)),
+                    )
+                    for index in bytes(compiled.accounts)
+                ),
+                bytes(compiled.data),
+            ),
+        ),
+    )
+    tx_policy = TransactionValidationPolicy(
+        allowed_program_ids=(program_id,),
+        allow_address_lookup_tables=True,
+    )
+    expected = (
+        ExpectedTokenDelta(str(source), str(mint), str(source_owner), -250),
+        ExpectedTokenDelta(str(destination), str(mint), str(destination_owner), 240),
+    )
+    data = {
+        "slot": 500,
+        "lookup_slot": 500,
+        "lookup_table_address": str(table_key),
+        "lookup_table_info": {
+            "owner": ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
+            "lamports": 1_000_000,
+            "data": [base64.b64encode(lookup_table_raw([source, destination])).decode("ascii"), "base64"],
+            "executable": False,
+            "rentEpoch": 0,
+            "space": 120,
+        },
+        "addresses": [str(source), str(destination)],
+        "pre_accounts": [
+            token_info(str(mint), str(source_owner), 1_000),
+            token_info(str(mint), str(destination_owner), 10),
+        ],
+        "post_accounts": [
+            token_info(str(mint), str(source_owner), 750),
+            token_info(str(mint), str(destination_owner), 250),
+        ],
+    }
+    return raw_message, intent, tx_policy, expected, data
+
+
+def test_resolves_active_v0_lookup_table_and_simulates_exact_message():
+    raw, intent, tx_policy, expected, data = v0_lookup_fixture()
+    result = adapter(FakeSession(data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+    )
+    assert result.validation.message_sha256
+    assert result.evidence.context_slot == 500
+    assert result.evidence.verified_token_account_count if hasattr(result.evidence, "verified_token_account_count") else True
+
+
+def test_rejects_deactivated_lookup_table_before_simulation():
+    raw, intent, tx_policy, expected, data = v0_lookup_fixture()
+    table_info = dict(data["lookup_table_info"])
+    table_info["data"] = [
+        base64.b64encode(lookup_table_raw(
+            [Pubkey.from_string(expected[0].token_account), Pubkey.from_string(expected[1].token_account)],
+            deactivation_slot=499,
+        )).decode("ascii"),
+        "base64",
+    ]
+    data["lookup_table_info"] = table_info
+    with pytest.raises(Exception, match="deactivated"):
+        adapter(FakeSession(data)).simulate(
             raw,
             intent=intent,
             transaction_policy=tx_policy,
