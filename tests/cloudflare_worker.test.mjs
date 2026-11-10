@@ -6,14 +6,12 @@ const source = await readFile(new URL("../cloudflare/worker.js", import.meta.url
 const { default: worker } = await import(
   "data:text/javascript;base64," + Buffer.from(source).toString("base64")
 );
-
 const TOKEN = "a".repeat(48);
 const ORIGIN = "https://api.veltrix.example";
 
 function request(path = "/api/health", method = "GET") {
   return new Request("https://dashboard.veltrix.example" + path, { method });
 }
-
 function env(overrides = {}) {
   return {
     VELTRIX_API_ORIGIN: ORIGIN,
@@ -21,6 +19,12 @@ function env(overrides = {}) {
     ASSETS: { fetch: async () => new Response("static dashboard") },
     ...overrides,
   };
+}
+async function withFetch(mock, run) {
+  const original = globalThis.fetch;
+  globalThis.fetch = mock;
+  try { return await run(); }
+  finally { globalThis.fetch = original; }
 }
 
 test("serves static dashboard with security headers", async () => {
@@ -35,12 +39,10 @@ test("serves static dashboard with security headers", async () => {
 
 test("proxies an allowlisted GET with server-side bearer token", async () => {
   let captured;
-  const response = await worker.fetch(request("/api/candles?mint=abc&interval=1m"), env({
-    fetch: async (url, options) => {
-      captured = { url: String(url), options };
-      return Response.json({ candles: [], synthetic: false });
-    },
-  }));
+  const response = await withFetch(async (url, options) => {
+    captured = { url: String(url), options };
+    return Response.json({ candles: [], synthetic: false });
+  }, () => worker.fetch(request("/api/candles?mint=abc&interval=1m"), env()));
   assert.equal(response.status, 200);
   assert.equal(captured.url, ORIGIN + "/api/candles?mint=abc&interval=1m");
   assert.equal(captured.options.method, "GET");
@@ -51,18 +53,20 @@ test("proxies an allowlisted GET with server-side bearer token", async () => {
 
 test("rejects non-GET methods before upstream fetch", async () => {
   let called = false;
-  const response = await worker.fetch(request("/api/health", "POST"), env({
-    fetch: async () => { called = true; return new Response("unexpected"); },
-  }));
+  const response = await withFetch(async () => {
+    called = true;
+    return new Response("unexpected");
+  }, () => worker.fetch(request("/api/health", "POST"), env()));
   assert.equal(response.status, 405);
   assert.equal(called, false);
 });
 
 test("rejects unlisted API paths", async () => {
   let called = false;
-  const response = await worker.fetch(request("/api/admin/login"), env({
-    fetch: async () => { called = true; return new Response("unexpected"); },
-  }));
+  const response = await withFetch(async () => {
+    called = true;
+    return new Response("unexpected");
+  }, () => worker.fetch(request("/api/admin/login"), env()));
   assert.equal(response.status, 404);
   assert.equal(called, false);
 });
@@ -88,31 +92,27 @@ test("rejects API origins that could redirect or leak credentials", async () => 
 
 test("rejects upstream redirects and never follows them", async () => {
   let options;
-  const response = await worker.fetch(request(), env({
-    fetch: async (_url, opts) => {
-      options = opts;
-      return new Response(null, { status: 302, headers: { location: "https://evil.example" } });
-    },
-  }));
+  const response = await withFetch(async (_url, opts) => {
+    options = opts;
+    return new Response(null, { status: 302, headers: { location: "https://evil.example" } });
+  }, () => worker.fetch(request(), env()));
   assert.equal(options.redirect, "manual");
   assert.equal(response.status, 502);
   assert.equal(response.headers.get("location"), null);
 });
 
 test("does not forward upstream Set-Cookie headers", async () => {
-  const response = await worker.fetch(request(), env({
-    fetch: async () => new Response("ok", {
-      headers: { "set-cookie": "session=private; HttpOnly" },
-    }),
-  }));
+  const response = await withFetch(async () => new Response("ok", {
+    headers: { "set-cookie": "session=private; HttpOnly" },
+  }), () => worker.fetch(request(), env()));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("set-cookie"), null);
 });
 
 test("returns generic 502 when origin request fails", async () => {
-  const response = await worker.fetch(request(), env({
-    fetch: async () => { throw new Error("private upstream details"); },
-  }));
+  const response = await withFetch(async () => {
+    throw new Error("private upstream details");
+  }, () => worker.fetch(request(), env()));
   assert.equal(response.status, 502);
   assert.deepEqual(await response.json(), { error: "API origin request failed" });
 });
