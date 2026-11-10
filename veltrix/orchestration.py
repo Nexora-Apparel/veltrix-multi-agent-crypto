@@ -62,6 +62,22 @@ class RunContext:
 class OrchestrationStore:
     """Durable run records, idempotency and a single global worker lease."""
 
+    AUDIT_EVENTS = {
+        "JOB_ENQUEUED", "ATTEMPT_STARTED", "JOB_FAILED",
+        "ATTEMPT_FINISHED", "ATTEMPT_RECOVERED",
+    }
+    ERROR_CODES = {
+        "ATTEMPTS_EXHAUSTED", "INTERRUPTED", "RetryableJobError",
+        "JobDeadlineExceeded", "TimeoutError", "ValueError",
+        "HANDLER_ERROR",
+    }
+
+    @classmethod
+    def _safe_error_code(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        return value if value in cls.ERROR_CODES else "HANDLER_ERROR"
+
     def __init__(self, database: str):
         if not isinstance(database, str) or not database.strip() or database == ":memory:":
             raise ValueError("a persistent database path or Turso URL is required")
@@ -106,10 +122,18 @@ class OrchestrationStore:
                 CREATE TABLE IF NOT EXISTS orchestration_audit (
                     event_id TEXT PRIMARY KEY,
                     run_id TEXT,
-                    event_type TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN
+                      ('JOB_ENQUEUED','ATTEMPT_STARTED','JOB_FAILED',
+                       'ATTEMPT_FINISHED','ATTEMPT_RECOVERED')),
                     detail_json TEXT NOT NULL,
                     created_at_ms INTEGER NOT NULL
                 );
+                CREATE TRIGGER IF NOT EXISTS orchestration_audit_no_update
+                  BEFORE UPDATE ON orchestration_audit
+                  BEGIN SELECT RAISE(ABORT, 'orchestration audit is append-only'); END;
+                CREATE TRIGGER IF NOT EXISTS orchestration_audit_no_delete
+                  BEFORE DELETE ON orchestration_audit
+                  BEGIN SELECT RAISE(ABORT, 'orchestration audit is append-only'); END;
             """)
             db.commit()
         finally:
@@ -144,6 +168,8 @@ class OrchestrationStore:
 
     @staticmethod
     def _audit(db, run_id: str | None, event_type: str, detail: dict, now: int):
+        if event_type not in OrchestrationStore.AUDIT_EVENTS:
+            raise ValueError("unsupported orchestration audit event")
         db.execute(
             "INSERT INTO orchestration_audit(event_id,run_id,event_type,detail_json,created_at_ms) VALUES(?,?,?,?,?)",
             (str(uuid.uuid4()), run_id, event_type,
@@ -326,12 +352,13 @@ class OrchestrationStore:
                     if isinstance(retry_delay_ms, bool) or not isinstance(retry_delay_ms, int) or not 1_000 <= retry_delay_ms <= 3_600_000:
                         raise ValueError("retry_delay_ms must be between 1000 and 3600000")
                     next_at = now + retry_delay_ms
+            safe_error = self._safe_error_code(error_code)
             db.execute("""
                 UPDATE orchestration_jobs SET status=?,updated_at_ms=?,next_attempt_at_ms=?,
                   finished_at_ms=?,error_code=? WHERE run_id=? AND attempt=? AND status='RUNNING'
-            """, (final, now, next_at, finished_at, (error_code or "")[:80] or None, run_id, attempt))
+            """, (final, now, next_at, finished_at, safe_error, run_id, attempt))
             self._audit(db, run_id, "ATTEMPT_FINISHED",
-                        {"attempt": attempt, "outcome": final, "error_code": error_code}, now)
+                        {"attempt": attempt, "outcome": final, "error_code": safe_error}, now)
             db.commit()
             return final
         except Exception:
