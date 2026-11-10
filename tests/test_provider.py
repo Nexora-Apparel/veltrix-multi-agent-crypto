@@ -15,6 +15,7 @@ def pair(**overrides):
                       "name": "Wrapped SOL", "symbol": "SOL"},
         "quoteToken": {"address": "USD", "symbol": "USDC"},
         "priceUsd": "142.50",
+        "priceNative": "1.0",
         "liquidity": {"usd": 250000},
         "volume": {"m5": 1000, "h1": 50000, "h24": 900000},
         "priceChange": {"m5": 2.5, "h1": -1.2, "h24": 8.4},
@@ -81,6 +82,8 @@ def test_normalizes_solana_market_intelligence_fields():
     assert event.name == "Wrapped SOL"
     assert event.dex_id == "raydium"
     assert event.quote_token_symbol == "USDC"
+    assert event.quote_token_address == "USD"
+    assert event.price_native == 1.0
     assert event.observed_at_ms == 1_800_000_000_000
 
 
@@ -100,17 +103,16 @@ def test_ignores_other_chain_pairs_and_unrequested_tokens():
     assert provider.fetch_token_pairs("solana", [mint]) == []
 
 
-def test_batches_at_most_thirty_addresses_and_deduplicates_inputs():
+def test_fetches_all_pools_per_deduplicated_address():
     addresses = [f"mint-{index}" for index in range(31)]
-    session = Session([[], []])
+    session = Session([[] for _ in addresses])
     provider = DexScreenerProvider(session=session)
     provider.fetch_token_pairs("solana", addresses + [addresses[0]])
 
-    assert len(session.urls) == 2
-    first = session.urls[0][0].rsplit("/", 1)[1].split(",")
-    second = session.urls[1][0].rsplit("/", 1)[1].split(",")
-    assert len(first) == 30
-    assert len(second) == 1
+    assert len(session.urls) == len(addresses)
+    requested = [url.rsplit("/", 1)[1] for url, _ in session.urls]
+    assert requested == addresses
+    assert all("/token-pairs/v1/solana/" in url for url, _ in session.urls)
 
 
 def test_empty_address_batch_makes_no_request():
