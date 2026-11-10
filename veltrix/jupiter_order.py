@@ -37,6 +37,7 @@ class JupiterOrderPolicy:
     max_price_impact_pct: float = 5.0
     max_fee_bps: float = 300.0
     max_route_steps: int = 12
+    max_slippage_bps: int = 500
     require_self_paid_fees: bool = True
 
     def __post_init__(self) -> None:
@@ -52,6 +53,8 @@ class JupiterOrderPolicy:
                 raise JupiterOrderIntakeError(f"{field} must be finite and non-negative")
         if isinstance(self.max_route_steps, bool) or not isinstance(self.max_route_steps, int) or not 1 <= self.max_route_steps <= 64:
             raise JupiterOrderIntakeError("max_route_steps must be between 1 and 64")
+        if isinstance(self.max_slippage_bps, bool) or not isinstance(self.max_slippage_bps, int) or not 0 <= self.max_slippage_bps <= 10_000:
+            raise JupiterOrderIntakeError("max_slippage_bps must be between 0 and 10000")
         if not isinstance(self.require_self_paid_fees, bool):
             raise JupiterOrderIntakeError("require_self_paid_fees must be a boolean")
 
@@ -81,6 +84,7 @@ class JupiterOrderTransaction:
     signature_fee_lamports: int
     prioritization_fee_lamports: int
     rent_fee_lamports: int
+    slippage_bps: int | None = None
 
 
 class JupiterSwapV2OrderAdapter:
@@ -180,6 +184,13 @@ class JupiterSwapV2OrderAdapter:
         if impact > policy.max_price_impact_pct:
             raise JupiterOrderIntakeError("quoted price impact exceeds policy")
         fee_bps = _finite_number(body.get("feeBps", 0), "feeBps")
+        slippage_bps = body.get("slippageBps")
+        if slippage_bps is not None and (
+            isinstance(slippage_bps, bool)
+            or not isinstance(slippage_bps, int)
+            or not 0 <= slippage_bps <= policy.max_slippage_bps
+        ):
+            raise JupiterOrderIntakeError("Jupiter order slippage exceeds local policy or is invalid")
         if fee_bps > policy.max_fee_bps:
             raise JupiterOrderIntakeError("quoted fee basis points exceed policy")
 
@@ -292,4 +303,5 @@ class JupiterSwapV2OrderAdapter:
             signature_fee_lamports=fee_value("signatureFeeLamports"),
             prioritization_fee_lamports=fee_value("prioritizationFeeLamports"),
             rent_fee_lamports=fee_value("rentFeeLamports"),
+            slippage_bps=slippage_bps,
         )

@@ -79,6 +79,7 @@ def order_fixture(*, use_lookup_table=False):
         "otherAmountThreshold": "2475000",
         "priceImpact": 0.35,
         "feeBps": 50,
+        "slippageBps": 100,
         "signatureFeeLamports": 5000,
         "prioritizationFeeLamports": 10000,
         "rentFeeLamports": 2039280,
@@ -139,6 +140,7 @@ def test_accepts_unsigned_v0_order_and_extracts_exact_message():
     assert result.message_bytes == to_bytes_versioned(message)
     assert result.serialized_transaction_bytes == bytes(transaction)
     assert result.router == "metis"
+    assert result.slippage_bps == 100
     assert result.route_plan[0].label == "Raydium CLMM"
 
 
@@ -163,6 +165,7 @@ def test_preserves_v0_message_with_address_lookup_table_for_next_validation_laye
         ("otherAmountThreshold", "2600000", "threshold exceeds"),
         ("priceImpact", 6.0, "price impact exceeds"),
         ("feeBps", 301, "fee basis points exceed"),
+        ("slippageBps", 501, "slippage exceeds"),
         ("signatureFeePayer", str(Pubkey.new_unique()), "signatureFeePayer"),
         ("prioritizationFeePayer", str(Pubkey.new_unique()), "prioritizationFeePayer"),
         ("rentFeePayer", str(Pubkey.new_unique()), "rentFeePayer"),
