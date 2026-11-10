@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 
+from solders.pubkey import Pubkey
+
 from veltrix.jupiter_instruction_decoder import JupiterSwapInstructionResult
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.jupiter_swap_effects import (
@@ -70,15 +72,25 @@ class PumpFunCpiPolicy:
     max_slippage_bps: int = 500
     max_stack_height: int = 8
     require_partial_fill_disabled: bool = True
-    require_classic_token_program: bool = True
+    allowed_fee_recipient_accounts: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.max_slippage_bps, bool) or not isinstance(self.max_slippage_bps, int) or not 0 <= self.max_slippage_bps <= 10_000:
             raise PumpFunCpiDecodeError("max_slippage_bps must be between 0 and 10000")
         if isinstance(self.max_stack_height, bool) or not isinstance(self.max_stack_height, int) or not 1 <= self.max_stack_height <= 64:
             raise PumpFunCpiDecodeError("max_stack_height must be between 1 and 64")
-        if not isinstance(self.require_partial_fill_disabled, bool) or not isinstance(self.require_classic_token_program, bool):
-            raise PumpFunCpiDecodeError("Pump.fun policy switches must be booleans")
+        if not isinstance(self.require_partial_fill_disabled, bool):
+            raise PumpFunCpiDecodeError("require_partial_fill_disabled must be a boolean")
+        if not isinstance(self.allowed_fee_recipient_accounts, tuple) or not self.allowed_fee_recipient_accounts:
+            raise PumpFunCpiDecodeError("an independently verified fee-recipient allowlist is required")
+        if len(set(self.allowed_fee_recipient_accounts)) != len(self.allowed_fee_recipient_accounts):
+            raise PumpFunCpiDecodeError("fee-recipient allowlist contains duplicates")
+        try:
+            for address in self.allowed_fee_recipient_accounts:
+                if not isinstance(address, str) or str(Pubkey.from_string(address)) != address:
+                    raise ValueError("non-canonical address")
+        except Exception as exc:
+            raise PumpFunCpiDecodeError("fee-recipient allowlist contains an invalid public key") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +160,14 @@ def _parse_data(data: bytes) -> tuple[str, str, str, int, int, bool | None, bool
     return name, version, mode, base_amount, quote_limit, track_volume, partial_fill
 
 
+def _pda(seeds: tuple[bytes, ...], program_id: str) -> str:
+    try:
+        address, _ = Pubkey.find_program_address(list(seeds), Pubkey.from_string(program_id))
+    except Exception as exc:
+        raise PumpFunCpiDecodeError("Pump.fun PDA derivation failed") from exc
+    return str(address)
+
+
 def _account(
     inner_accounts: tuple[str, ...],
     validation: TransactionValidationResult,
@@ -155,7 +175,7 @@ def _account(
     expected: str,
     *,
     signer: bool = False,
-    writable: bool = False,
+    writable: bool | None = None,
     role: str,
 ) -> None:
     if position < 0 or position >= len(inner_accounts):
@@ -171,10 +191,27 @@ def _account(
         raise PumpFunCpiDecodeError("validated account privilege evidence is incomplete")
     if validation.account_signers[global_index] is not signer:
         raise PumpFunCpiDecodeError(f"{role} signer privilege differs from the Pump.fun IDL")
-    if writable and not validation.account_writable[global_index]:
+    if writable is True and not validation.account_writable[global_index]:
         raise PumpFunCpiDecodeError(f"{role} must be writable in the validated message")
-    if not signer and role in {"mint", "system program", "token program", "associated token program", "Pump.fun program", "fee program"} and validation.account_writable[global_index]:
-        raise PumpFunCpiDecodeError(f"{role} must remain readonly in the validated message")
+    if writable is False and validation.account_writable[global_index]:
+        raise PumpFunCpiDecodeError(f"{role} must be readonly in the validated message")
+
+
+def _fee_recipient(
+    inner_accounts: tuple[str, ...],
+    validation: TransactionValidationResult,
+    position: int,
+    policy: PumpFunCpiPolicy,
+    *,
+    role: str,
+) -> str:
+    if position < 0 or position >= len(inner_accounts):
+        raise PumpFunCpiDecodeError(f"{role} account position is missing")
+    address = inner_accounts[position]
+    if address not in policy.allowed_fee_recipient_accounts:
+        raise PumpFunCpiDecodeError(f"{role} is not in the independently verified fee-recipient allowlist")
+    _account(inner_accounts, validation, position, address, writable=True, role=role)
+    return address
 
 
 def _decode_pump_accounts(
