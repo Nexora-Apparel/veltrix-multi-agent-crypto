@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import math
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
+
+from ..database import connect_database, row_factory_for
 
 from .launch_stream import LaunchStore
 from .market_data import MarketDataBatch, MarketDataUnavailable, SolanaMarketData
@@ -25,7 +26,7 @@ class EnrichmentBatchResult:
 class CandidateEnrichmentWorker:
     """Fetch one initial market snapshot per discovered mint; never emits trade signals.
 
-    The launch and market stores must share one persistent SQLite file so the
+    The launch and market stores must share one persistent database so the
     candidate queue and evidence ledger remain in one durable transaction domain.
     """
 
@@ -42,7 +43,7 @@ class CandidateEnrichmentWorker:
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if launch_store.database_path != market_store.database_path:
-            raise ValueError("launch and market stores must share one persistent SQLite database")
+            raise ValueError("launch and market stores must share one persistent database")
         if getattr(launch_store, "_uri", False):
             raise ValueError("enrichment requires a persistent SQLite database")
         for name, value in (
@@ -67,9 +68,9 @@ class CandidateEnrichmentWorker:
         self._initialize()
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.database_path, timeout=10)
-        db.row_factory = sqlite3.Row
+    def _connect(self) -> Iterator[Any]:
+        db = connect_database(self.database_path, timeout=10)
+        db.row_factory = row_factory_for(self.database_path)
         try:
             yield db
             db.commit()
