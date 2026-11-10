@@ -6,9 +6,8 @@ capability and is intentionally separate from the legacy USD broker.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
-import json
-import sqlite3
 import time
 from pathlib import Path
 
@@ -89,6 +88,7 @@ class SolanaPaperWallet:
             db.execute("PRAGMA foreign_keys=ON")
         return db
 
+    @contextmanager
     def _transaction(self):
         db = self._connect()
         try:
