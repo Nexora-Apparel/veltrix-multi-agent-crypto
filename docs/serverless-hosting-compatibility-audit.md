@@ -175,7 +175,7 @@ The serverless deployment is a separate security profile; it does not satisfy th
 
 Required controls:
 - GitHub Actions secrets only; never commit Turso tokens, provider keys or dashboard credentials.
-- Separate credentials for ingestion/write jobs and dashboard read access, if the provider supports scoped tokens. If scope cannot be restricted adequately, put a narrow Worker/API gateway in front of the database and do not expose the write credential to the browser.
+- Use separate database-scoped Turso tokens: a full-access database token only in GitHub Actions ingestion secrets, and a `--read-only` database token only in the Cloudflare Worker. Never put either token in browser code. Turso documents read-only database tokens; prefer expiring tokens and rotate them before expiry. The Worker must still expose only fixed read queries and must never expose a generic SQL endpoint.
 - No provider secrets in pull-request workflows from untrusted forks.
 - Pin third-party GitHub Actions to reviewed commit SHAs before production use.
 - Restrict workflow permissions to read-only repository contents unless a workflow explicitly needs more.
