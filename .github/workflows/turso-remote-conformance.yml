@@ -1,4 +1,4 @@
-name: Turso remote DB conformance
+name: Turso H1 adapter integration
 
 on:
   workflow_dispatch:
@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Check out reviewed H0 conformance probe
+      - name: Check out reviewed H1 adapter commit
         uses: actions/checkout@v4
         with:
-          ref: 9f6368af12b93ab2885ac2417f6bc41c506a7d55
+          ref: 23eb763da8879f410c4d379ec5552982dbe43d69
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,7 +28,7 @@ jobs:
       - name: Install pinned remote DB driver and test runner
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "git+https://github.com/tursodatabase/turso.git@367fe14dff049a665d5601a8c970b9f5640bfd6d#subdirectory=serverless/python" "pytest>=8,<9"
+          python -m pip install -r requirements.txt -r requirements-turso.txt "pytest>=8,<9"
 
       - name: Require disposable database credentials
         env:
@@ -38,9 +38,9 @@ jobs:
           test -n "$TURSO_DATABASE_URL"
           test -n "$TURSO_AUTH_TOKEN"
 
-      - name: Run live DB-API compatibility tests
+      - name: Run H1 DB-API and application schema tests
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
-          python -m pytest -q -rs tests/test_turso_remote_conformance.py
+          python -m pytest -q -rs tests/test_turso_remote_conformance.py tests/test_turso_application_schema.py
