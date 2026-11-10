@@ -123,3 +123,69 @@ class OneShotSolanaPipeline:
             job=job,
             stages=stage_results[0] if stage_results else None,
         )
+
+
+def build_one_shot_pipeline(
+    *,
+    database_path: Any | None = None,
+    settings_obj: Any | None = None,
+    clock_ms: Any | None = None,
+    discovery_session: Any | None = None,
+    market_provider: Any | None = None,
+    risk_collector: Any | None = None,
+    wallet_event_provider: Any | None = None,
+    wallet_event_batch_provider: Any | None = None,
+    paper_enabled: bool = False,
+) -> OneShotSolanaPipeline:
+    """Build production adapters without starting any long-lived supervisors.
+
+    PumpPortal websocket supervision is intentionally disabled. Discovery uses
+    one bounded secondary-source poll per invocation. The other stages reuse
+    their existing provider factories and share the same durable database.
+    """
+    from .consensus_runtime import build_runtime as build_consensus_runtime
+    from .intelligence_worker import build_runtime as build_intelligence_runtime
+    from .risk_runtime import build_runtime as build_risk_runtime
+    from .worker import build_engine
+
+    if database_path is None:
+        from .database import shared_database_path
+        db_path = shared_database_path()
+    else:
+        from .database import shared_database_path
+        db_path = shared_database_path(database_path)
+
+    discovery = build_engine(
+        database_path=db_path,
+        http_session=discovery_session,
+        include_primary_stream=False,
+    )
+    intelligence = build_intelligence_runtime(
+        database_path=db_path,
+        provider=market_provider,
+        clock_ms=clock_ms,
+    )
+    risk_runtime = build_risk_runtime(
+        database_path=db_path,
+        settings_obj=settings_obj,
+        collector=risk_collector,
+        clock_ms=clock_ms,
+    )
+    consensus_runtime = build_consensus_runtime(
+        database_path=db_path,
+        worker_clock_ms=clock_ms,
+        wallet_event_provider=wallet_event_provider,
+        wallet_event_batch_provider=wallet_event_batch_provider,
+    )
+
+    orchestration = OrchestrationStore(str(db_path))
+    orchestration.initialize()
+    return OneShotSolanaPipeline(
+        orchestration,
+        discovery,
+        intelligence.enrichment,
+        intelligence.refresh,
+        risk_runtime.worker,
+        consensus_runtime.worker,
+        paper_enabled=paper_enabled,
+    )
