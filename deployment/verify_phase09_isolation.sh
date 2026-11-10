@@ -76,7 +76,13 @@ for forbidden_gid in "$db_gid" "$pipeline_secrets_gid" "$dashboard_secrets_gid";
 done
 pass "running process UIDs, GIDs and supplementary group boundaries match"
 
-[[ -f "$DB" ]] || fail "database file not found: $DB"
+REMOTE_DB=false
+if [[ "$DB" == libsql://* ]]; then
+  REMOTE_DB=true
+  pass "remote Turso database URL selected; no local database file is expected"
+else
+  [[ -f "$DB" ]] || fail "database file not found: $DB"
+fi
 [[ -f "$PIPELINE_ENV" && -f "$DASHBOARD_ENV" ]] || fail "pipeline/dashboard environment files are missing"
 [[ "$(stat -c '%U:%G:%a' "$PIPELINE_ENV")" == "root:veltrix-worker-secrets:640" ]] \
   || fail "pipeline.env must be root:veltrix-worker-secrets mode 0640"
@@ -99,37 +105,42 @@ dashboard_mount_ns="$(readlink "/proc/$dashboard_pid/ns/mnt")"
 [[ "$pipeline_mount_ns" != "$dashboard_mount_ns" ]] || fail "pipeline and dashboard share a mount namespace"
 pass "pipeline and dashboard use distinct non-host mount namespaces"
 
-pipeline_mount_options="$(nsenter -t "$pipeline_pid" -m -- findmnt --noheadings --output OPTIONS --target "$DB")"
-dashboard_mount_options="$(nsenter -t "$dashboard_pid" -m -- findmnt --noheadings --output OPTIONS --target "$DB")"
-case ",$pipeline_mount_options," in *,rw,*) ;; *) fail "pipeline database mount is not effectively read-write: $pipeline_mount_options" ;; esac
-case ",$dashboard_mount_options," in *,ro,*) ;; *) fail "dashboard database mount is not effectively read-only: $dashboard_mount_options" ;; esac
-pass "kernel mount options confirm pipeline=rw and dashboard=ro"
+if [[ "$REMOTE_DB" == false ]]; then
+  pipeline_mount_options="$(nsenter -t "$pipeline_pid" -m -- findmnt --noheadings --output OPTIONS --target "$DB")"
+  dashboard_mount_options="$(nsenter -t "$dashboard_pid" -m -- findmnt --noheadings --output OPTIONS --target "$DB")"
+  case ",$pipeline_mount_options," in *,rw,*) ;; *) fail "pipeline database mount is not effectively read-write: $pipeline_mount_options" ;; esac
+  case ",$dashboard_mount_options," in *,ro,*) ;; *) fail "dashboard database mount is not effectively read-only: $dashboard_mount_options" ;; esac
+  pass "kernel mount options confirm pipeline=rw and dashboard=ro"
+  
+  # Check access from inside the dashboard's actual systemd mount namespace.
+  nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test -r "$DB" \
+    || fail "pipeline cannot read the shared database"
+  nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test -w "$DB" \
+    || fail "pipeline cannot write the shared database"
+  nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test -r "$DB" \
+    || fail "dashboard cannot read the shared database"
+  nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -w "$DB" \
+    || fail "dashboard can write the database file"
+  nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -w "$(dirname "$DB")" \
+    || fail "dashboard can write the database directory"
+  for suffix in -wal -shm; do
+    if [[ -e "$DB$suffix" ]]; then
+      nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test -r "$DB$suffix" \
+        || fail "dashboard cannot read SQLite sidecar $suffix"
+      nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -w "$DB$suffix" \
+        || fail "dashboard can write SQLite sidecar $suffix"
+    fi
+  done
+  pass "pipeline has database write access; dashboard and existing SQLite sidecars are read-only"
+  
+  nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -r "$PIPELINE_ENV" \
+    || fail "dashboard can read provider credentials"
+  nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test ! -r "$DASHBOARD_ENV" \
+    || fail "pipeline can read dashboard API credentials"
+  else
+  pass "remote Turso database selected; authenticated remote DB conformance verifies dashboard query-only access"
+fi
 
-# Check access from inside the dashboard's actual systemd mount namespace.
-nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test -r "$DB" \
-  || fail "pipeline cannot read the shared database"
-nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test -w "$DB" \
-  || fail "pipeline cannot write the shared database"
-nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test -r "$DB" \
-  || fail "dashboard cannot read the shared database"
-nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -w "$DB" \
-  || fail "dashboard can write the database file"
-nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -w "$(dirname "$DB")" \
-  || fail "dashboard can write the database directory"
-for suffix in -wal -shm; do
-  if [[ -e "$DB$suffix" ]]; then
-    nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test -r "$DB$suffix" \
-      || fail "dashboard cannot read SQLite sidecar $suffix"
-    nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -w "$DB$suffix" \
-      || fail "dashboard can write SQLite sidecar $suffix"
-  fi
-done
-pass "pipeline has database write access; dashboard and existing SQLite sidecars are read-only"
-
-nsenter -t "$dashboard_pid" -m -- runuser -u veltrix-dashboard -- test ! -r "$PIPELINE_ENV" \
-  || fail "dashboard can read provider credentials"
-nsenter -t "$pipeline_pid" -m -- runuser -u veltrix-worker -- test ! -r "$DASHBOARD_ENV" \
-  || fail "pipeline can read dashboard API credentials"
 pass "pipeline and dashboard cannot read each other's credential files"
 
 [[ "$(unit_value "$DASHBOARD_UNIT" Environment)" == *"VELTRIX_DASHBOARD_HOST=127.0.0.1"* ]] \
