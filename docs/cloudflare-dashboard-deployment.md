@@ -158,3 +158,15 @@ pinned Wrangler dry-run bundle step on dashboard/Worker changes. It does not
 require Cloudflare credentials and cannot publish a Worker; it validates
 configuration and asset bundling before the guarded production workflow is
 used.
+
+
+## Browser credential boundary
+
+The static dashboard intentionally has no bearer-token input and does not store
+service credentials in browser storage. The Cloudflare Worker injects
+`VELTRIX_DASHBOARD_TOKEN` on the server side for allowlisted read-only API
+requests. The Python API independently validates that bearer token using
+constant-time comparison. Keep the origin private or firewall-restricted where
+the hosting provider permits it; do not expose the API origin as an unauthenticated
+alternate route. Local development can use the Python API's documented
+environment binding and direct authenticated HTTP clients.
