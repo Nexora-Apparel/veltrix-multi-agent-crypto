@@ -129,3 +129,17 @@ Implemented in `veltrix/solana_rpc_simulation.py` with mocked-RPC adversarial co
 - Does not implement native SOL balance-delta accounting, mint-extension policy, transfer-hook semantics, arbitrary program decoding, or live transaction submission. Token-2022 extension-specific semantics remain unsupported and must fail closed in the semantic decoder.
 
 This is an RPC evidence adapter, not a trade executor. Live execution remains disabled.
+
+
+### 09.7 — narrow semantic transfer decoder
+
+Implemented in `veltrix/semantic_transfer_decoder.py` with adversarial coverage in `tests/test_semantic_transfer_decoder.py`.
+
+- Re-runs structural validation on the exact message and requires the supplied validation result to match.
+- Supports only System Program `Transfer`, classic SPL Token `TransferChecked`, and bounded Compute Budget `SetComputeUnitLimit` / `SetComputeUnitPrice`.
+- Decodes raw integer lamports and token base units, binds token transfer source/mint/destination/authority/amount/decimals, enforces aggregate native/token ceilings, and checks compute-unit / micro-lamport priority-fee caps.
+- Requires decoded effects to equal the explicitly approved effect tuples exactly.
+- Rejects unknown programs, all Token-2022 instructions, unchecked SPL Token `Transfer`, multisig/extra-account variants, account creation, authority changes, duplicate/unknown Compute Budget instructions, and every unsupported System/Token instruction.
+- This is deliberately not a DEX swap decoder. Jupiter, Raydium, Orca, route aggregators, CPI-heavy swaps, transfer hooks, Token-2022 extensions, ATA creation, and arbitrary Anchor/Borsh programs are unsupported and must fail closed. A future DEX-specific parser must decode the complete instruction and inner-CPI effect graph before any swap is eligible for simulation approval.
+
+No signing, RPC submission, wallet access, or live execution is introduced.
