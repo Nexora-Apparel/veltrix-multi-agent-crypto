@@ -151,3 +151,10 @@ Access to require authentication, and verify the Access challenge before
 considering the dashboard public-facing. The API origin must separately run
 behind HTTPS and accept only authenticated API requests. A successful Worker
 deployment alone is not an end-to-end production acceptance.
+
+
+A separate `.github/workflows/cloudflare-dashboard-validation.yml` runs the
+pinned Wrangler dry-run bundle step on dashboard/Worker changes. It does not
+require Cloudflare credentials and cannot publish a Worker; it validates
+configuration and asset bundling before the guarded production workflow is
+used.
