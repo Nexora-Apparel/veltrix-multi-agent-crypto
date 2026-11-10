@@ -296,13 +296,13 @@ def evaluate_jupiter_route_programs(
     inner = simulation.inner_program_ids
     if top_level != validation.program_ids:
         raise JupiterProgramTraceError("simulated top-level program trace differs from validated message")
+    if not top_level or not any(program_id in jupiter_ids for program_id in top_level):
+        raise JupiterProgramTraceError("validated transaction does not invoke an approved Jupiter aggregator")
     if (
         jupiter_instruction.program_id not in top_level
         or validation.program_ids[jupiter_instruction.top_level_instruction_index] != jupiter_instruction.program_id
     ):
         raise JupiterProgramTraceError("decoded Jupiter instruction index does not point to its validated top-level program")
-    if not top_level or not any(program_id in jupiter_ids for program_id in top_level):
-        raise JupiterProgramTraceError("validated transaction does not invoke an approved Jupiter aggregator")
     if simulation.inner_instruction_count <= 0 or not inner:
         raise JupiterProgramTraceError("simulation did not return the required inner-CPI program trace")
     allowed = set(policy.standard_program_ids) | set(jupiter_ids) | set(dex_ids)
