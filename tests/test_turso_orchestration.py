@@ -1,18 +1,42 @@
-"""H2 live conformance; credentials must target the disposable Frankfurt DB only."""
+"""H2 live conformance against the dedicated disposable Frankfurt Turso DB only."""
 from __future__ import annotations
 
 import os
+import threading
+from urllib.parse import urlsplit
+
 import pytest
 
-URL = os.getenv("TURSO_DATABASE_URL", "").strip()
-TOKEN = os.getenv("TURSO_AUTH_TOKEN", "").strip()
+URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
+TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
+EXPECTED_HOST = "veltrix-h0-conformance.turso.io"
+
+
+def _assert_disposable_target(url: str) -> None:
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "libsql"
+        or parsed.hostname != EXPECTED_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise RuntimeError(
+            "H2 conformance is restricted to the dedicated disposable "
+            f"database host {EXPECTED_HOST}"
+        )
+
+
 pytestmark = pytest.mark.skipif(
     not URL or not TOKEN,
-    reason="Turso disposable-database credentials are required",
+    reason="dedicated disposable Turso conformance credentials are required",
 )
 
 
 def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch):
+    _assert_disposable_target(URL)
     monkeypatch.setenv("TURSO_AUTH_TOKEN", TOKEN)
     from veltrix.orchestration import LeaseBusy, OrchestrationStore
 
@@ -24,30 +48,107 @@ def test_orchestration_schema_atomic_lease_idempotency_and_recovery(monkeypatch)
             store.acquire_lease("h2-worker-b", now_ms=1_001_000, ttl_ms=10_000)
         assert store.renew_lease("h2-worker-a", fence, now_ms=1_002_000, ttl_ms=10_000)
 
-        job = store.enqueue(idempotency_key="h2-conformance-once",
-                            job_type="conformance", payload={"safe": True},
-                            max_attempts=2, now_ms=1_000_000)
-        duplicate = store.enqueue(idempotency_key="h2-conformance-once",
-                                  job_type="conformance", payload={"safe": True},
-                                  max_attempts=2, now_ms=1_000_001)
+        job = store.enqueue(
+            idempotency_key="h2-conformance-once",
+            job_type="conformance",
+            payload={"safe": True},
+            max_attempts=2,
+            now_ms=1_000_000,
+        )
+        duplicate = store.enqueue(
+            idempotency_key="h2-conformance-once",
+            job_type="conformance",
+            payload={"safe": True},
+            max_attempts=2,
+            now_ms=1_000_001,
+        )
         assert duplicate["run_id"] == job["run_id"]
-        attempt = store.start_attempt(job["run_id"], now_ms=1_000_002)
+        attempt = store.start_attempt(job["run_id"], owner_id="h2-worker-a", fencing_token=fence, now_ms=1_000_002)
         assert attempt["attempt"] == 1
-        assert store.finish_attempt(job["run_id"], 1, outcome="RETRYABLE",
-                                    now_ms=1_000_003, retry_delay_ms=1_000) == "RETRYABLE"
-        assert store.start_attempt(job["run_id"], now_ms=1_000_500) is None
-        assert store.start_attempt(job["run_id"], now_ms=1_001_004)["attempt"] == 2
-        assert store.finish_attempt(job["run_id"], 2, outcome="SUCCEEDED",
-                                    now_ms=1_001_005) == "SUCCEEDED"
+        assert store.finish_attempt(
+            job["run_id"], 1, owner_id="h2-worker-a", fencing_token=fence, outcome="RETRYABLE",
+            now_ms=1_000_003, retry_delay_ms=1_000,
+        ) == "RETRYABLE"
+        assert store.start_attempt(job["run_id"], owner_id="h2-worker-a", fencing_token=fence, now_ms=1_000_500) is None
+        assert store.start_attempt(job["run_id"], owner_id="h2-worker-a", fencing_token=fence, now_ms=1_001_004)["attempt"] == 2
+        assert store.finish_attempt(
+            job["run_id"], 2, owner_id="h2-worker-a", fencing_token=fence, outcome="SUCCEEDED", now_ms=1_001_005,
+        ) == "SUCCEEDED"
         assert store.get_job(job["run_id"])["status"] == "SUCCEEDED"
+
+        audit_job = store.enqueue(
+            idempotency_key="h2-audit-sanitization",
+            job_type="conformance",
+            payload={"audit": True},
+            max_attempts=1,
+            now_ms=1_001_006,
+        )
+        audit_attempt = store.start_attempt(
+            audit_job["run_id"], owner_id="h2-worker-a",
+            fencing_token=fence, now_ms=1_001_007,
+        )
+        assert store.finish_attempt(
+            audit_job["run_id"], audit_attempt["attempt"],
+            owner_id="h2-worker-a", fencing_token=fence,
+            outcome="FAILED", error_code="PRIVATE_PROVIDER_ERROR",
+            now_ms=1_001_008,
+        ) == "FAILED"
+        assert store.get_job(audit_job["run_id"])["error_code"] == "HANDLER_ERROR"
+        audit_db = store._connect()
+        try:
+            with pytest.raises(Exception, match="append-only"):
+                audit_db.execute("UPDATE orchestration_audit SET detail_json='{}'")
+            audit_db.rollback()
+            with pytest.raises(Exception, match="append-only"):
+                audit_db.execute("DELETE FROM orchestration_audit")
+            audit_db.rollback()
+        finally:
+            audit_db.close()
+
         assert store.release_lease("h2-worker-a", fence)
         next_fence = store.acquire_lease(
             "h2-worker-b", now_ms=1_002_001, ttl_ms=10_000
         )
         assert next_fence == fence + 1
         assert store.release_lease("h2-worker-b", next_fence)
+
+        barrier = threading.Barrier(3)
+        outcomes = []
+        outcomes_lock = threading.Lock()
+
+        def contender(owner):
+            contender_store = OrchestrationStore(URL)
+            barrier.wait()
+            try:
+                result = ("won", contender_store.acquire_lease(
+                    owner, now_ms=1_003_000, ttl_ms=10_000,
+                    lease_name="remote-race",
+                ))
+            except LeaseBusy:
+                result = ("busy", None)
+            with outcomes_lock:
+                outcomes.append((owner, result))
+
+        threads = [
+            threading.Thread(target=contender, args=("race-a",)),
+            threading.Thread(target=contender, args=("race-b",)),
+        ]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(timeout=20)
+        assert all(not thread.is_alive() for thread in threads)
+        assert sum(result[0] == "won" for _, result in outcomes) == 1
+        assert sum(result[0] == "busy" for _, result in outcomes) == 1
+        winner = next(owner for owner, result in outcomes if result[0] == "won")
+        winner_fence = next(result[1] for _, result in outcomes if result[0] == "won")
+        assert OrchestrationStore(URL).release_lease(
+            winner, winner_fence, lease_name="remote-race"
+        )
     finally:
         import turso_serverless
+
         db = turso_serverless.connect(URL, auth_token=TOKEN)
         try:
             for table in (

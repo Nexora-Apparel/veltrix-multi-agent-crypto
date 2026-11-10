@@ -7,20 +7,37 @@ from __future__ import annotations
 
 import os
 import uuid
+from urllib.parse import urlsplit
 
 import pytest
 
 
-DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "").strip()
-AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "").strip()
+DATABASE_URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
+AUTH_TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
+EXPECTED_HOST = "veltrix-h0-conformance.turso.io"
+
+
+def _assert_disposable_target(url: str) -> None:
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "libsql"
+        or parsed.hostname != EXPECTED_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise RuntimeError(f"remote conformance is restricted to {EXPECTED_HOST}")
 
 pytestmark = pytest.mark.skipif(
     not DATABASE_URL or not AUTH_TOKEN,
-    reason="TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required for live conformance",
+    reason="dedicated disposable Turso conformance credentials are required",
 )
 
 
 def test_remote_driver_supports_veltrix_sqlite_contract() -> None:
+    _assert_disposable_target(DATABASE_URL)
     driver = pytest.importorskip("turso_serverless")
     assert driver.apilevel == "2.0"
     assert driver.paramstyle == "qmark"
