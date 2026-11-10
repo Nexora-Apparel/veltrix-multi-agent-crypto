@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from veltrix.ledger import PaperBroker
 from veltrix.orchestration import OrchestrationStore
 from veltrix.providers.base import MarketEvent
 from veltrix.solana_meme.candidates import normalize_candidate
@@ -16,6 +17,7 @@ from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_refresh import MarketRefreshWorker
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.pipeline import OneShotSolanaPipeline, build_one_shot_pipeline
+from veltrix.solana_meme.paper_trading import PaperTradingPolicy, PaperTradingWorker
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 from veltrix.solana_meme.risk_worker import SolanaRiskEvidenceWorker
@@ -193,3 +195,25 @@ def test_production_builder_disables_pumpportal_supervisor_and_shares_database(
     assert isinstance(pipeline, OneShotSolanaPipeline)
     assert seen["include_primary_stream"] is False
     assert pipeline.orchestration.database == database
+
+
+def test_optional_paper_stage_runs_after_consensus_under_same_fence(tmp_path):
+    pipeline, _, markets, risks, decisions = build_pipeline(tmp_path)
+    broker = PaperBroker(str(markets.database_path), starting_balance=500)
+    paper_worker = PaperTradingWorker(
+        decisions, markets, risks, broker,
+        policy=PaperTradingPolicy(position_usd=25),
+        clock_ms=lambda: 10_000,
+    )
+    pipeline.paper_worker = paper_worker
+    pipeline.paper_enabled = True
+
+    result = pipeline.run_once(idempotency_key="solana-paper-window-1")
+
+    assert result.job["status"] == "SUCCEEDED"
+    assert result.stages.consensus.recorded == 1
+    assert result.stages.paper is not None
+    assert result.stages.paper.scanned_decisions == 1
+    assert result.stages.paper.skipped_decisions == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert broker.paper_decisions(limit=1)[0]["execution_status"] == "NOT_ELIGIBLE"
