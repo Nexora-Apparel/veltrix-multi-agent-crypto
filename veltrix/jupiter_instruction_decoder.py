@@ -441,7 +441,7 @@ def decode_jupiter_swap_instruction(
     _assert_account(validation, account_indexes[destination_position], output_ata, signer=False, writable=True, role="user destination token account")
     _assert_account(validation, account_indexes[destination_mint_position], order.output_mint, signer=False, writable=False, role="destination mint")
     _assert_privileges(validation, account_indexes[0], signer=False, writable=False, role="token program")
-    _assert_privileges(validation, account_indexes[authority_position], signer=True, writable=False, role="transfer authority")
+    _assert_privileges(validation, account_indexes[authority_position], signer=True, writable=True, role="transfer authority")
     _assert_privileges(validation, account_indexes[source_position], signer=False, writable=True, role="user source token account")
     _assert_privileges(validation, account_indexes[destination_position], signer=False, writable=True, role="user destination token account")
     _assert_privileges(validation, account_indexes[destination_mint_position], signer=False, writable=False, role="destination mint")
