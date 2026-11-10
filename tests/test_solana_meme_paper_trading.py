@@ -12,6 +12,7 @@ from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.paper_trading import PaperTradingPolicy, PaperTradingWorker
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceReport
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
+from veltrix.orchestration import LeaseBusy, OrchestrationStore, RunContext, run_once
 
 MINT = "So11111111111111111111111111111111111111112"
 WALLET_A = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -458,3 +459,95 @@ def test_broker_atomically_rechecks_latest_consensus_decision(tmp_path):
     assert result["status"] == "BLOCKED"
     assert "newer consensus decision superseded" in result["reason"]
     assert broker.snapshot()["open_positions"] == []
+
+
+def test_paper_worker_uses_global_fence_for_entry_and_ledger_mutations(tmp_path):
+    _, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    orchestration = OrchestrationStore(broker.db_path)
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(context=context)
+        assert result.opened_positions == 1
+
+    result = run_once(
+        orchestration, idempotency_key="paper-window-1",
+        job_type="paper", payload={}, handler=handler,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert len(broker.snapshot()["open_positions"]) == 1
+    assert broker.paper_decisions(limit=1)[0]["execution_status"] == "OPENED"
+
+
+def test_paper_worker_fails_closed_when_transaction_fence_is_lost(tmp_path):
+    _, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: (_ for _ in ()).throw(
+            LeaseBusy("global lease lost")
+        ),
+    )
+    with pytest.raises(LeaseBusy, match="global lease lost"):
+        worker.run_once(context=context)
+    assert broker.snapshot()["open_positions"] == []
+    assert broker.paper_decisions(limit=1) == []
+
+
+def test_paper_skip_outcome_is_not_written_after_fence_loss(tmp_path):
+    _, _, _, broker, worker, _ = build_pipeline(tmp_path, approved=False)
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: (_ for _ in ()).throw(
+            LeaseBusy("global lease lost")
+        ),
+    )
+    with pytest.raises(LeaseBusy, match="global lease lost"):
+        worker.run_once(context=context)
+    assert broker.paper_decisions(limit=1) == []
+
+
+def test_paper_broker_external_transaction_rolls_back_entry_and_decision(tmp_path):
+    _, _, _, broker, _, decision = build_pipeline(tmp_path)
+    cash_before = broker.snapshot()["cash"]
+    with broker._connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        broker.open_position_from_consensus(
+            decision.decision_id,
+            decision.mint,
+            0.001,
+            25,
+            "fenced test entry",
+            created_at_ms=decision.created_at_ms,
+            paper_review_eligible=True,
+            execution_authorized=False,
+            fee_bps=100,
+            slippage_bps=50,
+            processed_at_ms=NOW,
+            expected_market_snapshot_id=decision.market_snapshot_id,
+            expected_risk_evidence_hash=decision.risk_evidence_hash,
+            db=db,
+        )
+        db.rollback()
+    assert broker.snapshot()["cash"] == pytest.approx(cash_before)
+    assert broker.snapshot()["open_positions"] == []
+    assert broker.has_consensus_decision(decision.decision_id) is None
+
+
+def test_paper_exit_mutation_is_fenced_inside_broker_transaction(tmp_path):
+    markets, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    assert worker.run_once().opened_positions == 1
+    markets.record(market_snapshot(NOW + 1, price=0.0021))
+    worker.clock_ms = lambda: NOW + 1
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: (_ for _ in ()).throw(
+            LeaseBusy("global lease lost")
+        ),
+    )
+    with pytest.raises(LeaseBusy, match="global lease lost"):
+        worker.run_once(context=context)
+    assert broker.totals()["closed_sell_fills"] == 0
+    assert len(broker.snapshot()["open_positions"]) == 1
