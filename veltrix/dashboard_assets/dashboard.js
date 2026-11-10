@@ -70,6 +70,26 @@
     }, "No native SOL paper fills recorded.");
   }
 
+  function renderSolPositions(rows) {
+    renderRows("sol-positions-body", "sol-positions-empty", rows || [], (row, position) => {
+      textCell(row, short(position.mint));
+      textCell(row, number(position.quantity, 6));
+      textCell(row, number(Number(position.entry_price_lamports || 0) / 1_000_000_000, 9));
+      textCell(row, position.mark_price_lamports === null ||
+        position.mark_price_lamports === undefined ? "—" :
+        number(Number(position.mark_price_lamports) / 1_000_000_000, 9));
+      const pnl = position.unrealized_pnl_lamports;
+      textCell(row, pnl === null || pnl === undefined ? "—" :
+        (Number(pnl) > 0 ? "+" : "") +
+        number(Number(pnl) / 1_000_000_000, 9) + " SOL",
+        pnl === null || pnl === undefined ? "" :
+        Number(pnl) >= 0 ? "positive" : "negative");
+      const state = String(position.mark_freshness || "unavailable").toUpperCase();
+      badgeCell(row, state, ["FRESH"], ["STALE", "FUTURE"]);
+      textCell(row, position.mark_source || "—");
+    }, "No open native SOL paper positions.");
+  }
+
   function renderSolWallet(data) {
     const status = $("sol-wallet-status");
     if (!data || data.configured !== true) {
@@ -83,6 +103,7 @@
       $("sol-unrealized").className = "";
       $("sol-fills").textContent = "— fills";
       renderSolFills([]);
+      renderSolPositions([]);
       $("sol-equity").textContent = "No SOL marks";
       $("sol-wallet-note").textContent = data && data.reason
         ? data.reason + " · read-only panel"
@@ -107,6 +128,7 @@
     $("sol-fills").textContent = number(data.entry_fills, 0) + " entries · " +
       number(data.exit_fills, 0) + " exits";
     renderSolFills(data.recent_fills || []);
+    renderSolPositions(data.open_positions || []);
     $("sol-equity").textContent = data.equity_complete
       ? "Equity " + number(data.equity_sol, 6) + " SOL"
       : number((data.unmarked_positions || []).length, 0) + " stale / unmarked · equity incomplete";
