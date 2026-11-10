@@ -105,7 +105,6 @@ class SimulationGatePolicy:
     allowed_provider_ids: tuple[str, ...]
     max_evidence_age_ms: int = 10_000
     max_future_skew_ms: int = 1_000
-    max_context_slot_lag: int = 32
     max_compute_units: int = 300_000
     max_fee_lamports: int = 10_000_000
 
@@ -119,7 +118,7 @@ class SimulationGatePolicy:
         if len(set(self.allowed_provider_ids)) != len(self.allowed_provider_ids):
             raise SimulationGateError("allowed provider IDs must not contain duplicates")
         for field in (
-            "max_evidence_age_ms", "max_future_skew_ms", "max_context_slot_lag",
+            "max_evidence_age_ms", "max_future_skew_ms",
             "max_compute_units", "max_fee_lamports",
         ):
             value = getattr(self, field)
