@@ -154,9 +154,10 @@ bash deployment/verify_phase09_isolation.sh
 ```
 
 The verifier must pass distinct service UIDs, active units, effective process
-UID/GID checks, supplementary group boundaries, dashboard read-only access to
-the database and existing WAL/SHM sidecars from its real mount namespace, and
-cross-service environment-file isolation.
+UID/GID checks, supplementary group boundaries, the effective systemd sandbox
+and capability properties, paper read/write access to the database, dashboard
+read-only access to the database and existing WAL/SHM sidecars from their real
+mount namespaces, and cross-service environment-file isolation.
 
 The script is intentionally read-only. It does not repair host state.
 
