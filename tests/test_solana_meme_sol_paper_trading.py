@@ -128,6 +128,7 @@ def _approved_worker_fixture(tmp_path):
         sol_price_usd=Decimal("100"), token_observed_at_ms=NOW,
         sol_observed_at_ms=NOW, token_source="dexscreener",
         sol_source="dexscreener", sol_usd_pair_address="sol-usdc-pool",
+        sol_usd_method="wsol_stable_pool",
     )
     return markets, wallet, validator, decision, QuoteAdapter(markets, quote)
 
