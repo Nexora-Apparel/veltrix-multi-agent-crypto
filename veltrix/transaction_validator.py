@@ -205,6 +205,8 @@ def _resolve_account_keys(
             raise TransactionValidationError("lookup table evidence context slot is outside the required range")
         writable_indexes = tuple(bytes(lookup.writable_indexes))
         readonly_indexes = tuple(bytes(lookup.readonly_indexes))
+        if not writable_indexes and not readonly_indexes:
+            raise TransactionValidationError("lookup table entry must load at least one address")
         if len(set(writable_indexes + readonly_indexes)) != len(writable_indexes) + len(readonly_indexes):
             raise TransactionValidationError("lookup table indexes contain duplicates")
         for index in writable_indexes:
