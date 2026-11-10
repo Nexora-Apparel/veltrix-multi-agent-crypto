@@ -95,3 +95,57 @@ def test_sol_wallet_rolls_back_fill_when_orchestration_fence_is_lost(tmp_path):
     assert snapshot["cash_lamports"] == 1_000_000_000
     assert snapshot["open_positions"] == []
     assert snapshot["fills"] == []
+
+
+def test_sol_wallet_partial_take_profits_and_trailing_stop_are_idempotent(tmp_path):
+    wallet = SolanaPaperWallet(str(tmp_path / "sol-exits.sqlite3"), 2_000_000_000)
+    wallet.open_position(
+        idempotency_key="entry", mint=MINT, quantity=100,
+        price_lamports=1_000_000, fee_lamports=10_000_000,
+        created_at_ms=1_800_000_000_000,
+    )
+
+    first = wallet.process_market_price(
+        mint=MINT, price_lamports=2_000_000, market_snapshot_id=10,
+        fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_001_000,
+    )
+    assert first[0]["status"] == "PARTIALLY_CLOSED"
+    assert first[0]["quantity_sold"] == "50"
+    assert wallet.process_market_price(
+        mint=MINT, price_lamports=2_000_000, market_snapshot_id=10,
+        fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_001_000,
+    ) == []
+
+    second = wallet.process_market_price(
+        mint=MINT, price_lamports=3_000_000, market_snapshot_id=11,
+        fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_002_000,
+    )
+    assert second[0]["quantity_sold"] == "25"
+    assert wallet.snapshot()[ "open_positions" ][0]["quantity"] == "25"
+
+    final = wallet.process_market_price(
+        mint=MINT, price_lamports=2_800_000, market_snapshot_id=12,
+        fee_bps=100, slippage_bps=0, created_at_ms=1_800_000_003_000,
+    )
+    assert final[0]["status"] == "CLOSED"
+    snap = SolanaPaperWallet(str(tmp_path / "sol-exits.sqlite3"), 1).snapshot()
+    assert snap["open_positions"] == []
+    assert snap["realized_pnl_lamports"] > 0
+    assert len([fill for fill in snap["fills"] if fill["side"] == "SELL"]) == 3
+
+
+def test_sol_wallet_initial_stop_closes_position_and_records_loss(tmp_path):
+    wallet = SolanaPaperWallet(str(tmp_path / "sol-stop.sqlite3"), 1_000_000_000)
+    wallet.open_position(
+        idempotency_key="entry", mint=MINT, quantity=10,
+        price_lamports=10_000_000, fee_lamports=1_000_000,
+        created_at_ms=1_800_000_000_000,
+    )
+    exits = wallet.process_market_price(
+        mint=MINT, price_lamports=9_300_000, market_snapshot_id=99,
+        fee_bps=100, slippage_bps=50, created_at_ms=1_800_000_001_000,
+    )
+    assert len(exits) == 1
+    assert exits[0]["status"] == "CLOSED"
+    assert exits[0]["realized_pnl_lamports"] < 0
+    assert wallet.snapshot()["open_positions"] == []
