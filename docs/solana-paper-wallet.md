@@ -17,8 +17,12 @@ USD marks or mixing currencies.
   exit fills can persist the verified quote audit record; worker-driven exits
   also persist the exact market snapshot provenance used for the exit.
 - Restarting the process preserves the initial balance, cash, positions,
-  fills and realized P&L. Supplying a different initial balance on restart
-  never resets an existing account.
+  fills, realized P&L and last provider-backed position marks. Supplying a
+  different initial balance on restart never resets an existing account.
+- Dashboard unrealized P&L and equity use persisted marks only when their
+  source observation is no more than 120 seconds old and is not future-dated.
+  Missing or stale marks make equity explicitly incomplete; stale marks are
+  never carried forward as current prices.
 - The integrated quote adapter derives lamports per token from a fresh token
   USD mark and a separately verified SOL/USD observation. It persists the
   complete source, pool, timestamp and market-snapshot provenance with each
