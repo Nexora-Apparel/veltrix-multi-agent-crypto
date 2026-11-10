@@ -242,6 +242,12 @@ class SolanaRpcSimulationAdapter:
         raw_data = info.get("data")
         if not isinstance(owner, str) or not isinstance(executable, bool):
             raise SolanaRpcAdapterError("account snapshot owner or executable flag is malformed")
+        from solders.pubkey import Pubkey
+        try:
+            if str(Pubkey.from_string(owner)) != owner:
+                raise ValueError("non-canonical owner")
+        except Exception as exc:
+            raise SolanaRpcAdapterError("account snapshot owner is not a canonical public key") from exc
         if isinstance(lamports, bool) or not isinstance(lamports, int) or lamports < 0:
             raise SolanaRpcAdapterError("account snapshot lamports are malformed")
         if isinstance(rent_epoch, bool) or not isinstance(rent_epoch, int) or rent_epoch < 0:
