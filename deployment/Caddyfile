@@ -1,0 +1,31 @@
+# Set VELTRIX_API_DOMAIN to the dedicated API origin hostname.
+# Caddy provisions and renews public HTTPS certificates automatically.
+{$VELTRIX_API_DOMAIN} {
+  encode zstd gzip
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    -Server
+  }
+
+  @api path /api/*
+  handle @api {
+    reverse_proxy 127.0.0.1:8765 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto {scheme}
+      header_up Authorization {http.request.header.Authorization}
+    }
+  }
+
+  handle {
+    respond "not found" 404
+  }
+
+  log {
+    output stdout
+    format json
+  }
+}
