@@ -128,7 +128,7 @@ def test_rejects_expected_program_mismatch():
         accounts=intent.instructions[0].accounts,
         data=intent.instructions[0].data,
     )
-    wrong_policy = TransactionValidationPolicy(allowed_program_ids=(wrong_ix.program_id,))
+    wrong_policy = TransactionValidationPolicy(allowed_program_ids=(intent.instructions[0].program_id, wrong_ix.program_id))
     wrong = TransactionIntent(intent.fee_payer, intent.required_signers, intent.recent_blockhash, (wrong_ix,))
     with pytest.raises(TransactionValidationError, match="program ID"):
         validate_transaction_message(to_bytes_versioned(message), intent=wrong, policy=wrong_policy)
@@ -224,7 +224,7 @@ def test_intent_requires_fee_payer_to_be_signer():
     with pytest.raises(TransactionValidationError, match="fee payer"):
         TransactionIntent(
             fee_payer=intent.fee_payer,
-            required_signers=(),
+            required_signers=(str(Pubkey.new_unique()),),
             recent_blockhash=intent.recent_blockhash,
             instructions=intent.instructions,
         )
