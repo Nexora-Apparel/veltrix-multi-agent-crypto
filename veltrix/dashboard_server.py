@@ -245,7 +245,7 @@ class DashboardRepository:
 
     def sol_paper_wallet(self) -> dict:
         """Return read-only lamport-native wallet state without inventing marks."""
-        from decimal import Decimal
+        from decimal import Decimal, ROUND_DOWN
 
         with self._connect() as db:
             required = {
@@ -313,7 +313,7 @@ class DashboardRepository:
             if fresh:
                 quantity = Decimal(position["quantity"])
                 market_value = int(
-                    (quantity * Decimal(int(mark["price_lamports"]))).to_integral_value()
+                    (quantity * Decimal(int(mark["price_lamports"]))).to_integral_value(rounding=ROUND_DOWN)
                 )
                 pnl = market_value - int(position["cost_basis_lamports"])
                 unrealized_lamports += pnl
