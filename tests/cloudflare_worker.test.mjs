@@ -16,6 +16,8 @@ function env(overrides = {}) {
   return {
     VELTRIX_API_ORIGIN: ORIGIN,
     VELTRIX_DASHBOARD_TOKEN: TOKEN,
+    CF_ACCESS_CLIENT_ID: "veltrix-origin-token.access",
+    CF_ACCESS_CLIENT_SECRET: "cloudflare-access-secret",
     ASSETS: { fetch: async () => new Response("static dashboard") },
     ...overrides,
   };
@@ -47,6 +49,8 @@ test("proxies an allowlisted GET with server-side bearer token", async () => {
   assert.equal(captured.url, ORIGIN + "/api/candles?mint=abc&interval=1m");
   assert.equal(captured.options.method, "GET");
   assert.equal(captured.options.headers.get("authorization"), "Bearer " + TOKEN);
+  assert.equal(captured.options.headers.get("cf-access-client-id"), "veltrix-origin-token.access");
+  assert.equal(captured.options.headers.get("cf-access-client-secret"), "cloudflare-access-secret");
   assert.equal(captured.options.redirect, "manual");
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
@@ -75,6 +79,8 @@ test("fails closed when proxy secrets are absent or weak", async () => {
   assert.equal((await worker.fetch(request(), env({ VELTRIX_API_ORIGIN: "" }))).status, 503);
   assert.equal((await worker.fetch(request(), env({ VELTRIX_DASHBOARD_TOKEN: "short" }))).status, 503);
   assert.equal((await worker.fetch(request(), env({ VELTRIX_DASHBOARD_TOKEN: TOKEN + " " }))).status, 503);
+  assert.equal((await worker.fetch(request(), env({ CF_ACCESS_CLIENT_ID: "" }))).status, 503);
+  assert.equal((await worker.fetch(request(), env({ CF_ACCESS_CLIENT_SECRET: "" }))).status, 503);
 });
 
 test("rejects API origins that could redirect or leak credentials", async () => {
