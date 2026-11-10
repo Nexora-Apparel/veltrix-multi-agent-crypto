@@ -81,6 +81,7 @@ test("fails closed when proxy secrets are absent or weak", async () => {
   assert.equal((await worker.fetch(request(), env({ VELTRIX_DASHBOARD_TOKEN: TOKEN + " " }))).status, 503);
   assert.equal((await worker.fetch(request(), env({ CF_ACCESS_CLIENT_ID: "" }))).status, 503);
   assert.equal((await worker.fetch(request(), env({ CF_ACCESS_CLIENT_SECRET: "" }))).status, 503);
+  assert.equal((await worker.fetch(request(), env({ CF_ACCESS_CLIENT_SECRET: "weak" }))).status, 503);
 });
 
 test("rejects API origins that could redirect or leak credentials", async () => {
