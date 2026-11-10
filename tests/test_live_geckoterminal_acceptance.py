@@ -12,6 +12,8 @@ import pytest
 
 from veltrix.solana_meme.candidates import canonical_mint
 from veltrix.solana_meme.geckoterminal_candles import GeckoTerminalCandleProvider
+from veltrix.solana_meme.candle_store import SolanaCandleStore
+from veltrix.dashboard_server import DashboardRepository
 
 
 pytestmark = pytest.mark.skipif(
@@ -20,7 +22,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_live_geckoterminal_returns_valid_recent_ohlcv():
+def test_live_geckoterminal_returns_valid_recent_ohlcv_and_reaches_dashboard(tmp_path):
     mint = canonical_mint(os.environ["VELTRIX_ACCEPTANCE_SOLANA_MINT"])
     pool = os.environ["VELTRIX_ACCEPTANCE_SOLANA_POOL"]
     interval = os.getenv("VELTRIX_ACCEPTANCE_CANDLE_INTERVAL", "1m")
@@ -45,9 +47,24 @@ def test_live_geckoterminal_returns_valid_recent_ohlcv():
         assert 0 <= now_ms - candle.observed_at_ms <= 120_000
         assert candle.open_time_ms <= now_ms + 60_000
 
+    # Exercise the same persistence/read path consumed by the chart API.
+    database = tmp_path / "live-chart.sqlite3"
+    store = SolanaCandleStore(str(database))
+    inserted = sum(1 for candle in candles if store.record(candle))
+    chart_payload = DashboardRepository(database).candles(
+        mint=mint, pair_address=pool, interval=interval, limit=100
+    )
+    assert inserted > 0
+    assert chart_payload["count"] == len(candles)
+    assert chart_payload["source"] == "geckoterminal"
+    assert chart_payload["freshness"] == "fresh"
+    assert chart_payload["synthetic"] is False
+    assert chart_payload["candles"][-1]["close"] == candles[-1].close
+
     print(
         "LIVE_GECKOTERMINAL_ACCEPTANCE "
         f"mint={mint} pool={pool} interval={interval} "
-        f"candles={len(candles)} latency_ms={latency_ms} "
+        f"candles={len(candles)} inserted={inserted} "
+        f"chart_count={chart_payload['count']} latency_ms={latency_ms} "
         f"latest_open_ms={candles[-1].open_time_ms}"
     )
