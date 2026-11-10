@@ -16,6 +16,7 @@ from .discovery import DiscoveryCycleResult, SolanaDiscoveryEngine
 from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .market_refresh import MarketRefreshBatchResult, MarketRefreshWorker
 from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
+from .paper_trading import PaperTradingBatchResult, PaperTradingWorker
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class SolanaPipelineStages:
     market_refresh: MarketRefreshBatchResult
     risk: RiskEvidenceBatchResult
     consensus: ConsensusBatchResult
+    paper: PaperTradingBatchResult | None = None
 
 
 @dataclass(frozen=True)
@@ -45,15 +47,14 @@ class OneShotSolanaPipeline:
         risk: SolanaRiskEvidenceWorker,
         consensus: ConsensusWorker,
         *,
+        paper_worker: PaperTradingWorker | None = None,
         paper_enabled: bool = False,
         max_runtime_seconds: float = 180.0,
         lease_ttl_ms: int = 240_000,
         max_items: int = 100,
     ) -> None:
-        if paper_enabled:
-            raise ValueError(
-                "paper stage is blocked until PaperTradingWorker supports transaction-scoped fencing"
-            )
+        if paper_enabled and paper_worker is None:
+            raise ValueError("paper_enabled requires a transaction-fenced PaperTradingWorker")
         database_paths = {
             orchestration.database,
             discovery.store.database_path,
@@ -62,6 +63,8 @@ class OneShotSolanaPipeline:
             risk.database_path,
             consensus.database_path,
         }
+        if paper_worker is not None:
+            database_paths.add(paper_worker.broker.db_path)
         if len(database_paths) != 1:
             raise ValueError("all one-shot pipeline stages must share one persistent database")
         self.orchestration = orchestration
@@ -70,6 +73,8 @@ class OneShotSolanaPipeline:
         self.market_refresh = market_refresh
         self.risk = risk
         self.consensus = consensus
+        self.paper_worker = paper_worker
+        self.paper_enabled = paper_enabled
         self.max_runtime_seconds = max_runtime_seconds
         self.lease_ttl_ms = lease_ttl_ms
         self.max_items = max_items
@@ -80,12 +85,18 @@ class OneShotSolanaPipeline:
         market_refresh = self.market_refresh.run_once(limit=25, context=context)
         risk = self.risk.run_once(limit=5, context=context)
         consensus = self.consensus.run_once(limit=10, context=context)
+        paper = (
+            self.paper_worker.run_once(limit=25, context=context)
+            if self.paper_enabled and self.paper_worker is not None
+            else None
+        )
         return SolanaPipelineStages(
             discovery=discovery,
             enrichment=enrichment,
             market_refresh=market_refresh,
             risk=risk,
             consensus=consensus,
+            paper=paper,
         )
 
     def run_once(self, *, idempotency_key: str) -> SolanaPipelineRun:
@@ -180,6 +191,14 @@ def build_one_shot_pipeline(
 
     orchestration = OrchestrationStore(str(db_path))
     orchestration.initialize()
+    paper_worker = None
+    if paper_enabled:
+        from .paper_runtime import build_runtime as build_paper_runtime
+        paper_worker = build_paper_runtime(
+            database_path=db_path,
+            clock_ms=clock_ms,
+        ).worker
+
     return OneShotSolanaPipeline(
         orchestration,
         discovery,
@@ -187,5 +206,6 @@ def build_one_shot_pipeline(
         intelligence.refresh,
         risk_runtime.worker,
         consensus_runtime.worker,
+        paper_worker=paper_worker,
         paper_enabled=paper_enabled,
     )
