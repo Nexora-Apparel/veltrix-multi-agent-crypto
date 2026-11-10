@@ -151,6 +151,8 @@ def test_cloudflare_deployment_is_manual_pinned_and_main_only():
     assert "VELTRIX_API_ORIGIN" in workflow
     assert "VELTRIX_DASHBOARD_TOKEN" in workflow
     assert "wrangler secret put VELTRIX_DASHBOARD_TOKEN" in workflow
+    assert "Verify authenticated HTTPS API origin before deployment" in workflow
+    assert '"${VELTRIX_API_ORIGIN}/api/health"' in workflow
     assert "wrangler deploy --config wrangler.jsonc" in workflow
     assert "wrangler deployments list --config wrangler.jsonc" in workflow
 
