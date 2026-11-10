@@ -182,7 +182,7 @@ class SolanaRpcSimulationAdapter:
         return tuple(resolved), context_slot
 
     @staticmethod
-    def _token_balance(account_info: Any, address: str) -> tuple[str, str, int]:
+    def _token_balance(account_info: Any, address: str) -> tuple[str, str, str, int]:
         if not isinstance(account_info, dict):
             raise SolanaRpcAdapterError(f"token account {address} is missing")
         program_owner = account_info.get("owner")
@@ -206,7 +206,7 @@ class SolanaRpcSimulationAdapter:
         mint = str(Pubkey.from_bytes(raw[0:32]))
         owner = str(Pubkey.from_bytes(raw[32:64]))
         amount = int.from_bytes(raw[64:72], "little", signed=False)
-        return mint, owner, amount
+        return program_owner, mint, owner, amount
 
     def simulate(
         self,
@@ -363,9 +363,9 @@ class SolanaRpcSimulationAdapter:
 
         token_balances = []
         for address, post_info in zip(addresses, post_accounts):
-            pre_mint, pre_owner, pre_amount = pre_balances[address]
-            post_mint, post_owner, post_amount = self._token_balance(post_info, address)
-            if (pre_mint, pre_owner) != (post_mint, post_owner):
+            pre_program, pre_mint, pre_owner, pre_amount = pre_balances[address]
+            post_program, post_mint, post_owner, post_amount = self._token_balance(post_info, address)
+            if (pre_program, pre_mint, pre_owner) != (post_program, post_mint, post_owner):
                 raise SolanaRpcAdapterError("simulated token-account mint or authority changed")
             token_balances.append(SimulatedTokenBalance(
                 token_account=address,
@@ -373,6 +373,7 @@ class SolanaRpcSimulationAdapter:
                 owner=pre_owner,
                 pre_amount_raw=pre_amount,
                 post_amount_raw=post_amount,
+                token_program_id=pre_program,
             ))
 
         fee_result = self._rpc(
