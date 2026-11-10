@@ -294,6 +294,16 @@ def _decode_route_data(data: bytes, *, instruction_name: str, policy: JupiterSwa
         ))
     if not any(step.input_index == 0 for step in steps) or not any(step.output_index == count for step in steps):
         raise JupiterInstructionDecodeError("Jupiter route plan does not connect the input token to the final output")
+    outgoing_percentages: dict[int, int] = {}
+    reachable = {0}
+    for step in steps:
+        outgoing_percentages[step.input_index] = outgoing_percentages.get(step.input_index, 0) + step.percent
+        if step.input_index in reachable:
+            reachable.add(step.output_index)
+    if any(total != 100 for total in outgoing_percentages.values()):
+        raise JupiterInstructionDecodeError("Jupiter route split percentages do not total 100 for each input node")
+    if count not in reachable:
+        raise JupiterInstructionDecodeError("Jupiter route DAG does not reach the final output node")
     in_amount = reader.u64()
     quoted_out_amount = reader.u64()
     slippage_bps = reader.u16()
@@ -423,8 +433,12 @@ def decode_jupiter_swap_instruction(
         _assert_privileges(validation, account_indexes[1], signer=False, writable=False, role="Jupiter program authority")
         _assert_privileges(validation, account_indexes[4], signer=False, writable=True, role="program source token account")
         _assert_privileges(validation, account_indexes[5], signer=False, writable=True, role="program destination token account")
-        if account_keys[4] in (input_ata, output_ata) or account_keys[5] in (input_ata, output_ata):
-            raise JupiterInstructionDecodeError("shared route program token accounts cannot alias user ATAs")
+        if account_keys[1] == SYSTEM_PROGRAM_ID:
+            raise JupiterInstructionDecodeError("shared route program authority cannot be the system program")
+        if account_keys[4] in (input_ata, output_ata, SYSTEM_PROGRAM_ID) or account_keys[5] in (input_ata, output_ata, SYSTEM_PROGRAM_ID):
+            raise JupiterInstructionDecodeError("shared route program token accounts cannot alias user ATAs or default placeholders")
+        if account_keys[4] == account_keys[5]:
+            raise JupiterInstructionDecodeError("shared route program source and destination token accounts must differ")
     for position in optional_positions:
         _assert_account(validation, account_indexes[position], SYSTEM_PROGRAM_ID, signer=False, writable=False, role="unsupported optional fee/Token-2022 account")
 
@@ -448,6 +462,10 @@ def decode_jupiter_swap_instruction(
             raise JupiterInstructionDecodeError("Jupiter instruction DEX variant differs from the API route label")
         if quoted.percent != decoded.percent or quoted.bps != decoded.percent * 100:
             raise JupiterInstructionDecodeError("Jupiter instruction split percentage differs from the API route plan")
+    first_layer_input = sum(quoted.input_amount_raw for decoded, quoted in zip(route_plan, order.route_plan) if decoded.input_index == 0)
+    final_layer_output = sum(quoted.output_amount_raw for decoded, quoted in zip(route_plan, order.route_plan) if decoded.output_index == len(route_plan))
+    if first_layer_input != order.input_amount_raw or final_layer_output != order.output_amount_raw:
+        raise JupiterInstructionDecodeError("Jupiter route-plan raw amounts do not reconcile to the order")
 
     return JupiterSwapInstructionResult(
         message_sha256=digest,
