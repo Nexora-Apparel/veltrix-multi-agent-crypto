@@ -88,6 +88,21 @@ class DashboardRepository:
                 for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             }
         required = {"account", "positions", "trades", "paper_consensus_decisions"}
+        worker = None
+        if "solana_pipeline_health" in tables:
+            with self._connect() as db:
+                row = db.execute("""
+                    SELECT status,last_started_at_ms,last_finished_at_ms,
+                           last_success_at_ms,last_duration_ms,last_job_id,
+                           last_error,consecutive_failures,updated_at_ms
+                    FROM solana_pipeline_health WHERE id=1
+                """).fetchone()
+                if row is not None:
+                    worker = dict(row)
+                    worker["healthy"] = worker["status"] == "healthy"
+                    worker["last_success_at"] = _iso_from_ms(worker.pop("last_success_at_ms"))
+                    worker["last_started_at"] = _iso_from_ms(worker.pop("last_started_at_ms"))
+                    worker["last_finished_at"] = _iso_from_ms(worker.pop("last_finished_at_ms"))
         return {
             "ok": True,
             "database": "connected",
@@ -95,6 +110,7 @@ class DashboardRepository:
             "paper_ledger_initialized": "account" in tables,
             "available_tables": sorted(tables),
             "missing_paper_tables": sorted(required - tables),
+            "worker": worker or {"status": "not_configured", "healthy": False},
             "live_execution": False,
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
