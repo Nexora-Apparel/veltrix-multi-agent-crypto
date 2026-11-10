@@ -11,7 +11,8 @@ import pytest
 URL = os.getenv("TURSO_CONFORMANCE_DATABASE_URL", "").strip()
 TOKEN = os.getenv("TURSO_CONFORMANCE_AUTH_TOKEN", "").strip()
 EXPECTED_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io"
-MINT = "So11111111111111111111111111111111111111112"
+# Deterministic, non-canonical test mint; never use a production token mint.
+MINT = "4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw"
 
 pytestmark = pytest.mark.skipif(
     not URL or not TOKEN,
