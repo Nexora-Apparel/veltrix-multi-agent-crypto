@@ -285,9 +285,9 @@ def decode_transaction_semantics(
         for x in expected_native_transfers
     )
     if tuple(decoded_tokens) != expected_tokens:
-        raise SemanticDecodeError("decoded token transfers do not exactly match approved effects")
+        raise SemanticDecodeError(f"decoded token transfers do not exactly match approved effects: actual={tuple(decoded_tokens)!r} expected={expected_tokens!r}")
     if tuple(decoded_native) != expected_native:
-        raise SemanticDecodeError("decoded native transfers do not exactly match approved effects")
+        raise SemanticDecodeError(f"decoded native transfers do not exactly match approved effects: actual={tuple(decoded_native)!r} expected={expected_native!r}")
 
     return SemanticDecodeResult(
         message_sha256=validation.message_sha256,
