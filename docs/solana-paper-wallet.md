@@ -13,7 +13,9 @@ USD marks or mixing currencies.
 - A token position is keyed by canonical Solana mint; only one open position
   per mint is allowed in this initial implementation.
 - Every fill has a unique idempotency key. Account debit/credit, position
-  mutation and fill insertion are committed atomically.
+  mutation and fill insertion are committed atomically. Both entry and manual
+  exit fills can persist the verified quote audit record; worker-driven exits
+  also persist the exact market snapshot provenance used for the exit.
 - Restarting the process preserves the initial balance, cash, positions,
   fills and realized P&L. Supplying a different initial balance on restart
   never resets an existing account.
@@ -89,4 +91,6 @@ wallet write accepts the global orchestration RunContext and checks its fence
 inside the same transaction. The worker is integrated into the default pipeline builder but remains
 disabled unless `SOL_PAPER_TRADING_ENABLED=true`. The scheduled GitHub
 workflow keeps it disabled unless the repository variable is explicitly
-enabled. Full end-to-end provider-to-ledger acceptance remains outstanding.
+enabled. A live quote-to-ledger round trip has passed in GitHub Actions. Production
+continuous operation, dashboard hosting, and long-duration paper performance
+validation remain outstanding.
