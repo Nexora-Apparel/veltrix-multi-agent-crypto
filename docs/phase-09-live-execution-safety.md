@@ -281,6 +281,21 @@ Implemented in `veltrix/pumpfun_cpi_decoder.py`, based on `pump-fun/pump-public-
 - Binds Pump.fun direction, base/quote mints, bonding-curve account, user ATAs, user signer, token programs, system program, fee program, and program account to the Jupiter order and route.
 - Derives and checks the Global, event-authority, global-volume, user-volume, fee-config, sharing-config and associated-token PDAs from the pinned IDL seeds.
 - Enforces exact-input amounts, minimum outputs, maximum quote spend within the Jupiter slippage ceiling, and disabled partial fills.
-- Requires fee-recipient and buyback-recipient addresses to be supplied through an independently verified allowlist; arbitrary recipient accounts are rejected.
+- Fee and buyback recipients are checked against the Pump.fun Global account snapshot described in Phase 09.18; arbitrary recipient accounts are rejected.
 
 **Outstanding provenance gate:** the decoder does not yet fetch and verify the on-chain Pump.fun Global account to construct that fee-recipient allowlist. Production use remains blocked until a slot-bound, owner/discriminator-checked Global account snapshot supplies the allowlist. Creator-vault state and native-SOL balance effects also remain separate evidence requirements. Token-2022 and unsupported Pump.fun instruction variants fail closed. No signing or transaction submission is introduced.
+
+
+
+### 09.18 — same-slot Pump.fun Global configuration evidence
+
+Implemented through `SimulatedAccountSnapshot` in `veltrix/simulation_gate.py`, optional account snapshot requests in `veltrix/solana_rpc_simulation.py`, and `decode_pumpfun_global_config` in `veltrix/pumpfun_cpi_decoder.py`.
+
+- The simulation adapter can request additional account addresses alongside expected token accounts.
+- It captures pre-state and simulated post-state account data at the exact same RPC context slot and rejects missing accounts, malformed owner/data, or any snapshot mutation.
+- Exported `PUMP_GLOBAL_ACCOUNT` is the PDA callers must pass in `additional_account_snapshots` for Pump.fun routes.
+- The Global decoder verifies the exact PDA, Pump.fun owner, non-executable account, positive lamports, Anchor discriminator, initialized flag, complete Borsh layout and simulation context slot.
+- It extracts the primary/active/reserved fee recipients and buyback fee-recipient list from the same-slot Global state. The Pump.fun CPI decoder now requires this snapshot; callers can no longer inject an arbitrary fee-recipient allowlist.
+- The resulting Global data hash and slot are included in the Pump.fun decode result.
+
+**Integration gate:** the caller must explicitly request `PUMP_GLOBAL_ACCOUNT` during simulation and pass the resulting evidence through the decoder. This has not yet been verified against a live RPC response or a real Jupiter/Pump.fun transaction. Persistence of the full account snapshot through the worker/database pipeline also remains to be audited. No signing or transaction submission is introduced.
