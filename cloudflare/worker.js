@@ -38,13 +38,22 @@ export default {
     }
     if (request.method !== "GET") return json(405, { error: "method not allowed" });
     if (!API_PATHS.has(url.pathname)) return json(404, { error: "not found" });
-    if (!env.VELTRIX_API_ORIGIN || !env.VELTRIX_DASHBOARD_TOKEN) {
-      return json(503, { error: "API proxy is not configured" });
+    if (
+      !env.VELTRIX_API_ORIGIN || !env.VELTRIX_DASHBOARD_TOKEN ||
+      !env.CF_ACCESS_CLIENT_ID || !env.CF_ACCESS_CLIENT_SECRET
+    ) {
+      return json(503, { error: "API proxy or origin Access service authentication is not configured" });
     }
     if (
       typeof env.VELTRIX_DASHBOARD_TOKEN !== "string" ||
       env.VELTRIX_DASHBOARD_TOKEN.length < 32 ||
-      env.VELTRIX_DASHBOARD_TOKEN.trim() !== env.VELTRIX_DASHBOARD_TOKEN
+      env.VELTRIX_DASHBOARD_TOKEN.trim() !== env.VELTRIX_DASHBOARD_TOKEN ||
+      typeof env.CF_ACCESS_CLIENT_ID !== "string" ||
+      !env.CF_ACCESS_CLIENT_ID.trim() ||
+      env.CF_ACCESS_CLIENT_ID.trim() !== env.CF_ACCESS_CLIENT_ID ||
+      typeof env.CF_ACCESS_CLIENT_SECRET !== "string" ||
+      !env.CF_ACCESS_CLIENT_SECRET.trim() ||
+      env.CF_ACCESS_CLIENT_SECRET.trim() !== env.CF_ACCESS_CLIENT_SECRET
     ) {
       return json(503, { error: "API proxy authentication is not configured securely" });
     }
@@ -61,7 +70,11 @@ export default {
     }
 
     const target = new URL(url.pathname + url.search, origin);
-    const headers = new Headers({ authorization: "Bearer " + env.VELTRIX_DASHBOARD_TOKEN });
+    const headers = new Headers({
+      authorization: "Bearer " + env.VELTRIX_DASHBOARD_TOKEN,
+      "CF-Access-Client-Id": env.CF_ACCESS_CLIENT_ID,
+      "CF-Access-Client-Secret": env.CF_ACCESS_CLIENT_SECRET
+    });
     let upstream;
     try {
       upstream = await fetch(target, {
