@@ -1,0 +1,44 @@
+name: Turso remote DB conformance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-turso-h0-conformance
+  cancel-in-progress: false
+
+jobs:
+  remote-db-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the pinned remote DB driver and test runner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "git+https://github.com/tursodatabase/turso.git@367fe14dff049a665d5601a8c970b9f5640bfd6d#subdirectory=serverless/python" "pytest>=8,<9"
+
+      - name: Require disposable database credentials
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          test -n "$TURSO_DATABASE_URL"
+          test -n "$TURSO_AUTH_TOKEN"
+
+      - name: Run live DB-API compatibility tests
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m pytest -q -rs tests/test_turso_remote_conformance.py
