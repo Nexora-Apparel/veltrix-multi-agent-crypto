@@ -249,6 +249,7 @@ class JupiterSwapInstructionResult:
     slippage_bps: int
     platform_fee_bps: int
     shared_route_id: int | None
+    top_level_instruction_index: int
     route_plan: tuple[DecodedJupiterRouteStep, ...]
 
 
@@ -402,16 +403,16 @@ def decode_jupiter_swap_instruction(
         raise JupiterInstructionDecodeError("Jupiter order message could not be decoded") from exc
 
     jupiter_instructions = []
-    for instruction in message.instructions:
+    for top_level_index, instruction in enumerate(message.instructions):
         program_index = int(instruction.program_id_index)
         if program_index >= len(validation.account_keys):
             raise JupiterInstructionDecodeError("Jupiter instruction program index is out of range")
         if validation.account_keys[program_index] == JUPITER_V6_PROGRAM_ID:
-            jupiter_instructions.append((instruction, program_index))
+            jupiter_instructions.append((instruction, program_index, top_level_index))
     if len(jupiter_instructions) != 1 or validation.program_ids.count(JUPITER_V6_PROGRAM_ID) != 1:
         raise JupiterInstructionDecodeError("transaction must contain exactly one top-level Jupiter v6 instruction")
 
-    instruction, program_index = jupiter_instructions[0]
+    instruction, program_index, top_level_instruction_index = jupiter_instructions[0]
     program_id = validation.account_keys[program_index]
     account_indexes = tuple(int(index) for index in bytes(instruction.accounts))
     account_keys = tuple(validation.account_keys[index] if 0 <= index < len(validation.account_keys) else "" for index in account_indexes)
@@ -499,5 +500,6 @@ def decode_jupiter_swap_instruction(
         slippage_bps=slippage_bps,
         platform_fee_bps=platform_fee_bps,
         shared_route_id=shared_route_id,
+        top_level_instruction_index=top_level_instruction_index,
         route_plan=route_plan,
     )

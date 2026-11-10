@@ -257,3 +257,16 @@ Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.p
 - The existing top-level/inner program-ID trace is cross-checked against the full captured instruction list.
 - Malformed or out-of-range trace entries fail closed; the RPC adapter does not silently drop malformed CPI records.
 - This provides the raw evidence needed for DEX-specific instruction decoders. It does not itself interpret DEX instruction payloads, approve CPI account semantics, or authorize execution.
+
+
+### 09.16 — route-to-CPI trace binding
+
+The Jupiter route program gate now consumes the decoded Jupiter instruction and full simulated inner-CPI records.
+
+- Binds the decoded Jupiter instruction's top-level index and program ID to the same validated message.
+- Requires every captured inner CPI to be nested under that exact Jupiter route instruction; unexpected setup or unrelated CPI groups are rejected in this supported path.
+- Requires both user token accounts to appear in the simulated CPI account trace.
+- Requires each Jupiter route-plan AMM pool key to appear in a non-empty CPI instruction issued by a locally pinned DEX program whose registry label matches the route label.
+- Enforces the local CPI stack-height ceiling and checks every inner program/account key against the validated transaction account list.
+- Unknown CPI programs, missing pool accounts, wrong parent index, missing user token accounts, stale registry, or route/trace mismatch fail closed.
+- This is a trace-to-route consistency check, not a full DEX instruction semantic decoder. The DEX instruction payload bytes are retained for future audited decoders; no DEX-specific payload is currently interpreted here.

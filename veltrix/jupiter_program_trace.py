@@ -15,6 +15,7 @@ from typing import Any
 import requests
 from solders.pubkey import Pubkey
 
+from veltrix.jupiter_instruction_decoder import JupiterSwapInstructionResult
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
@@ -146,6 +147,7 @@ class JupiterRouteProgramPolicy:
     )
     max_registry_age_ms: int = 86_400_000
     max_future_skew_ms: int = 1_000
+    max_stack_height: int = 8
 
     def __post_init__(self) -> None:
         for field in ("allowed_dex_labels", "allowed_dex_program_ids", "allowed_jupiter_program_ids", "allowed_routers", "jupiter_program_labels", "standard_program_ids"):
@@ -171,12 +173,14 @@ class JupiterRouteProgramPolicy:
                     raise ValueError("non-canonical")
             except Exception as exc:
                 raise JupiterProgramTraceError("standard program allowlist contains an invalid public key") from exc
-        for field in ("max_registry_age_ms", "max_future_skew_ms"):
+        for field in ("max_registry_age_ms", "max_future_skew_ms", "max_stack_height"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise JupiterProgramTraceError(f"{field} must be a non-negative integer")
         if self.max_registry_age_ms == 0:
             raise JupiterProgramTraceError("max_registry_age_ms must be positive")
+        if self.max_stack_height == 0:
+            raise JupiterProgramTraceError("max_stack_height must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,12 +193,16 @@ class JupiterRouteProgramGateResult:
     top_level_program_ids: tuple[str, ...]
     inner_program_ids: tuple[str, ...]
     registry_sha256: str
+    cpi_instruction_count: int
+    route_pool_accounts_verified: int
+    parent_instruction_index: int
 
 
 def evaluate_jupiter_route_programs(
     order: JupiterOrderTransaction,
     *,
     validation: TransactionValidationResult,
+    jupiter_instruction: JupiterSwapInstructionResult,
     simulation: SimulationEvidence,
     simulation_gate: SimulationGateResult,
     registry: JupiterProgramRegistrySnapshot,
@@ -206,6 +214,8 @@ def evaluate_jupiter_route_programs(
         raise JupiterProgramTraceError("Jupiter v0 order is required")
     if not isinstance(validation, TransactionValidationResult):
         raise JupiterProgramTraceError("structural transaction validation is required")
+    if not isinstance(jupiter_instruction, JupiterSwapInstructionResult):
+        raise JupiterProgramTraceError("decoded Jupiter v6 route instruction is required")
     if not isinstance(simulation, SimulationEvidence):
         raise JupiterProgramTraceError("simulation program trace is required")
     if not isinstance(simulation_gate, SimulationGateResult) or simulation_gate.approved is not True:
@@ -224,6 +234,22 @@ def evaluate_jupiter_route_programs(
         or digest != simulation_gate.message_sha256
     ):
         raise JupiterProgramTraceError("order, validator and simulation message digests differ")
+    if jupiter_instruction.message_sha256 != digest:
+        raise JupiterProgramTraceError("decoded Jupiter instruction belongs to a different message")
+    if jupiter_instruction.program_id not in policy.allowed_jupiter_program_ids:
+        raise JupiterProgramTraceError("decoded Jupiter instruction program is not locally pinned")
+    if jupiter_instruction.transfer_authority != order.taker:
+        raise JupiterProgramTraceError("decoded Jupiter transfer authority differs from the order taker")
+    if (
+        isinstance(jupiter_instruction.top_level_instruction_index, bool)
+        or not isinstance(jupiter_instruction.top_level_instruction_index, int)
+        or not 0 <= jupiter_instruction.top_level_instruction_index < validation.instruction_count
+    ):
+        raise JupiterProgramTraceError("decoded Jupiter instruction parent index is outside the top-level message")
+    if jupiter_instruction.input_mint != order.input_mint or jupiter_instruction.output_mint != order.output_mint:
+        raise JupiterProgramTraceError("decoded Jupiter instruction mints differ from the order")
+    if jupiter_instruction.input_amount_raw != order.input_amount_raw or jupiter_instruction.quoted_output_amount_raw != order.output_amount_raw:
+        raise JupiterProgramTraceError("decoded Jupiter instruction amounts differ from the order")
     if order.taker != order.fee_payer or validation.fee_payer != order.taker:
         raise JupiterProgramTraceError("Jupiter taker is not the transaction fee payer")
     if simulation.recent_blockhash != order.recent_blockhash:
@@ -272,14 +298,55 @@ def evaluate_jupiter_route_programs(
         raise JupiterProgramTraceError("simulated top-level program trace differs from validated message")
     if not top_level or not any(program_id in jupiter_ids for program_id in top_level):
         raise JupiterProgramTraceError("validated transaction does not invoke an approved Jupiter aggregator")
+    if (
+        jupiter_instruction.program_id not in top_level
+        or validation.program_ids[jupiter_instruction.top_level_instruction_index] != jupiter_instruction.program_id
+    ):
+        raise JupiterProgramTraceError("decoded Jupiter instruction index does not point to its validated top-level program")
     if simulation.inner_instruction_count <= 0 or not inner:
         raise JupiterProgramTraceError("simulation did not return the required inner-CPI program trace")
-
     allowed = set(policy.standard_program_ids) | set(jupiter_ids) | set(dex_ids)
     if any(program_id not in allowed for program_id in top_level):
         raise JupiterProgramTraceError("top-level message invokes a program outside the route allowlist")
     if any(program_id not in allowed for program_id in inner):
         raise JupiterProgramTraceError("inner CPI trace invokes a program outside the route allowlist")
+    if len(simulation.inner_instructions) != simulation.inner_instruction_count:
+        raise JupiterProgramTraceError("full inner-CPI instruction details are missing")
+    if len(jupiter_instruction.route_plan) != len(order.route_plan):
+        raise JupiterProgramTraceError("decoded Jupiter route plan length differs from the API order")
+    for decoded, quoted in zip(jupiter_instruction.route_plan, order.route_plan):
+        if decoded.dex_label != quoted.label:
+            raise JupiterProgramTraceError("decoded route DEX label differs from the API route plan")
+    input_token_account = jupiter_instruction.input_token_account
+    output_token_account = jupiter_instruction.output_token_account
+    observed_user_accounts = set()
+    for item in simulation.inner_instructions:
+        if item.top_level_instruction_index != jupiter_instruction.top_level_instruction_index:
+            raise JupiterProgramTraceError("inner CPI instruction is not nested under the decoded Jupiter route instruction")
+        if item.stack_height is not None and item.stack_height > policy.max_stack_height:
+            raise JupiterProgramTraceError("inner CPI stack height exceeds local policy")
+        if item.program_id not in validation.account_keys:
+            raise JupiterProgramTraceError("inner CPI program ID is absent from validated account keys")
+        if any(account not in validation.account_keys for account in item.account_keys):
+            raise JupiterProgramTraceError("inner CPI account is absent from validated account keys")
+        if input_token_account in item.account_keys:
+            observed_user_accounts.add(input_token_account)
+        if output_token_account in item.account_keys:
+            observed_user_accounts.add(output_token_account)
+    if observed_user_accounts != {input_token_account, output_token_account}:
+        raise JupiterProgramTraceError("inner CPI trace does not reference both user token accounts")
+    verified_pools = 0
+    for quoted in order.route_plan:
+        candidate_programs = set(dex_ids_by_label[quoted.label])
+        if not any(
+            item.program_id in candidate_programs
+            and quoted.amm_key in item.account_keys
+            and bool(item.data)
+            for item in simulation.inner_instructions
+        ):
+            raise JupiterProgramTraceError(f"inner CPI trace does not bind route pool {quoted.amm_key} to DEX {quoted.label}")
+        verified_pools += 1
+
     for label, program_ids in dex_ids_by_label.items():
         if not any(program_id in inner for program_id in program_ids):
             raise JupiterProgramTraceError(f"simulated inner CPI trace does not invoke route DEX label {label}")
@@ -295,4 +362,7 @@ def evaluate_jupiter_route_programs(
         top_level_program_ids=top_level,
         inner_program_ids=inner,
         registry_sha256=registry.sha256,
+        cpi_instruction_count=simulation.inner_instruction_count,
+        route_pool_accounts_verified=verified_pools,
+        parent_instruction_index=jupiter_instruction.top_level_instruction_index,
     )
