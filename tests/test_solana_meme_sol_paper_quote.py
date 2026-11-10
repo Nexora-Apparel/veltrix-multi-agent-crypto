@@ -115,5 +115,5 @@ def sol_event_for_token_sol():
         volume_h1_usd=50_000, price_change_m5_pct=1.0,
         observed_at_ms=NOW - 500, pair_created_at_ms=NOW - 10_000,
         source="dexscreener", quote_token_symbol="SOL",
-        quote_token_address=WSOL_MINT, price_native=0.005,
+        quote_token_address=WSOL_MINT, price_native=0.005, pool_token_side="base",
     )
