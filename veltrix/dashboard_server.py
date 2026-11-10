@@ -19,7 +19,7 @@ from typing import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from .solana_meme.database import shared_database_path
 
@@ -115,6 +115,44 @@ class DashboardRepository:
         except (TypeError, ValueError):
             result["quality_flags"] = ["malformed_quality_flags"]
         return result
+
+    def candles(self, *, mint: str, pair_address: str, interval: str, limit: int = 500) -> dict:
+        """Return stored provider candles; never synthesize missing OHLCV data."""
+        from .solana_meme.candle_data import INTERVAL_SECONDS
+        from .solana_meme.candidates import canonical_mint
+
+        canonical_mint(mint)
+        if not isinstance(pair_address, str) or not pair_address.strip() or len(pair_address) > 128:
+            raise ValueError("pair_address is required")
+        if interval not in INTERVAL_SECONDS:
+            raise ValueError("unsupported candle interval")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 5000:
+            raise ValueError("limit must be between 1 and 5000")
+        with self._connect() as db:
+            if not self._has_table(db, "solana_ohlcv_candles"):
+                rows = []
+            else:
+                rows = self._rows(db, """
+                    SELECT mint,pair_address,interval,open_time_ms,open,high,low,
+                           close,volume,source,observed_at_ms,is_closed
+                    FROM solana_ohlcv_candles
+                    WHERE mint=? AND pair_address=? AND interval=?
+                    ORDER BY open_time_ms DESC LIMIT ?
+                """, (mint,pair_address,interval,limit))
+        rows.reverse()
+        now_ms = int(time.time() * 1000)
+        latest = rows[-1] if rows else None
+        age_ms = now_ms - int(latest["observed_at_ms"]) if latest else None
+        return {
+            "mint": mint, "pair_address": pair_address, "interval": interval,
+            "candles": rows, "count": len(rows),
+            "source": latest["source"] if latest else None,
+            "observed_at_ms": latest["observed_at_ms"] if latest else None,
+            "age_ms": age_ms,
+            "freshness": "fresh" if age_ms is not None and 0 <= age_ms <= 120_000 else
+                         "stale" if age_ms is not None else "unavailable",
+            "synthetic": False,
+        }
 
     def overview(self) -> dict:
         now_ms = int(time.time() * 1000)
@@ -435,6 +473,25 @@ def make_handler(repository: DashboardRepository, *, api_token: str = ""):
                 self._json(401, {"error": "unauthorized"})
                 return
             path = urlsplit(self.path).path
+            if path == "/api/candles":
+                query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+                try:
+                    mint = query.get("mint", [""])[0]
+                    pair = query.get("pair", [""])[0]
+                    interval = query.get("interval", ["1m"])[0]
+                    raw_limit = query.get("limit", ["500"])[0]
+                    if not raw_limit.isdigit():
+                        raise ValueError("limit must be an integer")
+                    self._json(200, repository.candles(
+                        mint=mint, pair_address=pair, interval=interval,
+                        limit=int(raw_limit),
+                    ))
+                except ValueError as exc:
+                    self._json(400, {"error": str(exc)})
+                except (sqlite3.Error, FileNotFoundError):
+                    LOGGER.exception("candle read failed")
+                    self._json(503, {"error": "candle data unavailable"})
+                return
             if path == "/":
                 self._asset("index.html", "text/html; charset=utf-8")
                 return
