@@ -131,3 +131,10 @@ def test_cloudflare_worker_is_not_published_on_unprotected_workers_dev_host():
     assert '"workers_dev": false' in config
     assert '"preview_urls": false' in config
     assert '"run_worker_first": ["/api/*"]' in config
+
+
+def test_scheduled_pipeline_is_pinned_to_triggering_revision_and_not_feature_head():
+    workflow = (ROOT / ".github" / "workflows" / "solana-scheduled-pipeline.yml").read_text(encoding="utf-8")
+    assert 'cron: "*/5 * * * *"' in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "ref: work/veltrix-trading-terminal" not in workflow
