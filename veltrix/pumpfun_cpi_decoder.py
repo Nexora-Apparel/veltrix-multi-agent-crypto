@@ -144,7 +144,7 @@ class _GlobalReader:
         while number:
             number, remainder = divmod(number, 58)
             encoded = alphabet[remainder] + encoded
-        leading_zeroes = len(raw) - len(raw.lstrip(b"\\x00"))
+        leading_zeroes = len(raw) - len(raw.lstrip(b"\x00"))
         address = "1" * leading_zeroes + (encoded or "")
         try:
             return str(Pubkey.from_string(address))
