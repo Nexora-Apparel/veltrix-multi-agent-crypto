@@ -1,0 +1,49 @@
+name: Turso H2 orchestration conformance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-turso-h2-conformance
+  cancel-in-progress: false
+
+jobs:
+  remote-orchestration-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Check out reviewed H2 orchestration commit
+        uses: actions/checkout@v4
+        with:
+          ref: 29baf9ac0080a1d6318e47e519826fa85097080b
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned remote DB driver and test runner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-turso.txt "pytest>=8,<9"
+
+      - name: Require disposable database credentials
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          test -n "$TURSO_DATABASE_URL"
+          test -n "$TURSO_AUTH_TOKEN"
+
+      - name: Run H0, H1 and H2 live conformance
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m pytest -q -rs \
+            tests/test_turso_remote_conformance.py \
+            tests/test_turso_application_schema.py \
+            tests/test_turso_orchestration.py
