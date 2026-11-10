@@ -186,3 +186,31 @@ def test_dashboard_candle_endpoint_rejects_invalid_interval_and_missing_pair(tmp
             mint="So11111111111111111111111111111111111111112",
             pair_address="", interval="1m",
         )
+
+
+def test_dashboard_pool_resolution_rejects_invalid_mint_without_provider_access(tmp_path):
+    database = make_database(tmp_path)
+    token = "p" * 40
+    server = build_server(
+        database_path=database,
+        host="127.0.0.1",
+        port=0,
+        api_token=token,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        request = Request(
+            base + "/api/pool?mint=not-a-solana-mint",
+            headers={"Authorization": "Bearer " + token},
+        )
+        with pytest.raises(HTTPError) as rejected:
+            urlopen(request)
+        assert rejected.value.code == 400
+        payload = json.loads(rejected.value.read())
+        assert "mint" in payload["error"].lower()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
