@@ -120,7 +120,7 @@ class SolanaPaperQuoteAdapter:
             or not 0 < token_at <= now_ms or now_ms - token_at > self.max_age_ms
         ):
             raise RuntimeError("token USD market observation is stale or future-dated")
-        token_source = token.get("source") or token.get("dex_id")
+        token_source = token.get("source")
         if not isinstance(token_source, str) or not token_source.strip():
             raise RuntimeError("token USD market observation has no source provenance")
         token_usd = self._decimal(token.get("price_usd"), "token USD price")
