@@ -342,4 +342,25 @@ def test_policy_rejects_unknown_variant_or_missing_label_mapping():
             allowed_swap_variants=("RaydiumClmm",),
             variant_to_label=(),
         )
-def test_decodes_whirlpool_v2_variant_option_layout():    data = encode_route_data(swap_tag=47, variant_fields=bytes([1, 0]))    order, validation, _, _ = build_case(data=data, route_label="Whirlpool")    result = decode((order, validation, "route", None))    assert result.route_plan[0].swap_variant == "WhirlpoolSwapV2"    assert result.route_plan[0].variant_fields == (True, ())def test_rejects_invalid_whirlpool_remaining_accounts_option_tag():    data = encode_route_data(swap_tag=47, variant_fields=bytes([1, 2]))    order, validation, _, _ = build_case(data=data, route_label="Whirlpool")    with pytest.raises(JupiterInstructionDecodeError, match="option tag is invalid"):        decode((order, validation, "route", None))def test_decodes_pump_fun_exact_in_variant():    data = encode_route_data(swap_tag=49)    order, validation, _, _ = build_case(data=data, route_label="Pump.Fun")    result = decode((order, validation, "route", None))    assert result.route_plan[0].swap_variant == "PumpdotfunWrappedBuy"    assert result.route_plan[0].dex_label == "Pump.Fun"
+
+def test_decodes_whirlpool_v2_variant_option_layout():
+    data = encode_route_data(swap_tag=47, variant_fields=bytes([1, 0]))
+    order, validation, _, _ = build_case(data=data, route_label="Whirlpool")
+    result = decode((order, validation, "route", None))
+    assert result.route_plan[0].swap_variant == "WhirlpoolSwapV2"
+    assert result.route_plan[0].variant_fields == (True, ())
+
+
+def test_rejects_invalid_whirlpool_remaining_accounts_option_tag():
+    data = encode_route_data(swap_tag=47, variant_fields=bytes([1, 2]))
+    order, validation, _, _ = build_case(data=data, route_label="Whirlpool")
+    with pytest.raises(JupiterInstructionDecodeError, match="option tag is invalid"):
+        decode((order, validation, "route", None))
+
+
+def test_decodes_pump_fun_exact_in_variant():
+    data = encode_route_data(swap_tag=49)
+    order, validation, _, _ = build_case(data=data, route_label="Pump.Fun")
+    result = decode((order, validation, "route", None))
+    assert result.route_plan[0].swap_variant == "PumpdotfunWrappedBuy"
+    assert result.route_plan[0].dex_label == "Pump.Fun"
