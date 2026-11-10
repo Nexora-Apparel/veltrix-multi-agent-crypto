@@ -58,6 +58,20 @@ jobs:
             echo "::error::VELTRIX_DASHBOARD_TOKEN must not contain whitespace."; exit 1;
           }
 
+      - name: Verify authenticated HTTPS API origin before deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --max-time 12 \
+            -H "Authorization: Bearer ${VELTRIX_DASHBOARD_TOKEN}" \
+            "${VELTRIX_API_ORIGIN}/api/health")"
+          printf '%s' "$response" | python -c '
+          import json, sys
+          payload = json.load(sys.stdin)
+          if not isinstance(payload, dict):
+              raise SystemExit("API health response must be a JSON object")
+          '
+
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.160.0
 
