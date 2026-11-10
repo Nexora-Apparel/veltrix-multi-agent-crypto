@@ -23,6 +23,62 @@ Paper-only research and monitoring system for Solana, Base and BSC. It has no wa
 
 - Static provider-readiness inventory (`veltrix.provider_readiness`): reports configured endpoints, claim-specific trust, known connector capability limits and missing provenance per chain without making network calls. It deliberately reports GoPlus liquidity evidence as incomplete and developer-linked holdings as unsupported; credentials and allowlists cannot turn those limitations into a pass. Launch-bundle readiness separately checks launch indexer, funding-trace and origin-resolver configuration/trust. This inventory is operational guidance only: actual per-token freshness, coverage and evidence are still checked by the runtime composite gate.
 
+## Dashboard, market charts and continuous runtime
+
+The Pump.fun-inspired mobile dashboard is served from `veltrix/dashboard_assets`
+and exposes a read-only API from `veltrix/dashboard_server.py`. It includes
+token/pair/interval controls, a real OHLCV candlestick + volume chart, paper
+positions/trades, consensus/agent views, system health and a native SOL paper
+wallet panel with fill history. Candles are sourced from GeckoTerminal,
+persisted append-only, and rendered only from stored provider observations;
+missing or stale data is labelled rather than fabricated.
+
+The chart path is implemented end-to-end at the API level:
+GeckoTerminal → candle validation/ingestion → persistent candle store →
+authenticated `GET /api/candles` → dashboard chart payload. The live acceptance
+workflow exercises a real provider request and the authenticated dashboard
+HTTP endpoint, checking freshness, provenance, OHLC invariants and
+`synthetic=false`.
+
+The native SOL paper wallet stores all balances, fees and P&L as integer
+lamports. It is wired into the consensus-approved paper worker and the
+transaction-fenced pipeline, but remains disabled by default. The optional
+`SOL_PAPER_TRADING_ENABLED` runtime setting enables simulation only; the
+legacy USD paper broker and native SOL wallet cannot run simultaneously.
+Live trading is rejected. A live acceptance workflow now obtains a real
+DexScreener token quote and SOL/USD conversion, performs a simulated SOL
+entry/exit, restarts the wallet and verifies both fills, quote provenance,
+cash recovery and realized P&L. This validates quote-to-ledger accounting,
+not strategy profitability or production execution.
+
+Cloudflare hosting is split by responsibility: Workers serves static assets
+and proxies allowlisted read-only API routes, while a persistent Python API
+and pipeline runtime use the shared Turso database. Browser code never stores
+the service bearer token; the Worker injects it server-side. The Worker has no
+public `workers.dev` endpoint configured. Its bundle has passed Wrangler
+dry-run validation and nine security/routing tests. Production deployment is
+manual and restricted to `main`.
+
+## Current operational blockers
+
+- The persistent Python API host and production Turso database have not been
+  provisioned or started. The systemd service template and five-minute
+  GitHub Actions runner are implementation options, not proof of a running
+  production worker. GitHub cron activates only after its workflow is merged
+  into the default branch.
+- Cloudflare production secrets, custom hostname, DNS/TLS route and Access
+  authentication policy have not been configured. The deployment workflow
+  fails closed unless the API origin and Cloudflare credentials are supplied.
+- No production dashboard/browser session has been verified. The current live
+  chart acceptance reaches the authenticated Python HTTP API using real
+  provider candles, but does not constitute a deployed Cloudflare acceptance.
+- Native SOL quote-to-ledger acceptance is passing; long-duration paper
+  performance, strategy edge and fully operational consensus-approved
+  production paper trading are not certified.
+- Composite token-safety certification remains closed until independently
+  trusted, complete liquidity-lock and developer-holdings evidence providers
+  pass their live acceptance gates.
+
 ## Setup
 Python 3.11+
 ```bash
