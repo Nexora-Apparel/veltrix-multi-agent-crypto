@@ -57,6 +57,6 @@ Paper processing is disabled unless `paper_enabled=True` is explicitly supplied.
 
 ## Current non-completions
 
-- H1.2/H2 live Turso conformance has not run. It requires dedicated `TURSO_CONFORMANCE_DATABASE_URL` and `TURSO_CONFORMANCE_AUTH_TOKEN` secrets targeting exactly `veltrix-h0-conformance.turso.io`.
-- The remote worker conformance suite is now included in the manual workflow but remains unverified until that workflow is run.
+- H1.2/H2 remote Turso conformance was reported successful against the dedicated disposable host `veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io`, using `TURSO_CONFORMANCE_DATABASE_URL` and `TURSO_CONFORMANCE_AUTH_TOKEN`. This does not constitute a complete one-shot pipeline run.
+- Full one-shot pipeline execution and recovery against remote Turso remains a separate validation gate. The local SQLite pipeline tests cover stage order, idempotency, paper-off default, builder configuration and optional paper-stage behavior.
 - No Cloudflare API/dashboard, domain, DNS, HTTPS, scheduler or production deployment is configured by this phase.
