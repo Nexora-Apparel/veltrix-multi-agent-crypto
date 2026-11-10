@@ -37,7 +37,7 @@ def run_market_smoke(provider=None) -> MarketSmokeResult:
         diagnostic = "normalized event count=0"
         if hasattr(provider, "session") and hasattr(provider, "base_url"):
             try:
-                url = f"{provider.base_url}/tokens/v1/solana/{BONK_MINT}"
+                url = f"{provider.base_url}/token-pairs/v1/solana/{BONK_MINT}"
                 response = provider.session.get(url, timeout=provider.timeout)
                 response.raise_for_status()
                 raw = response.json()
