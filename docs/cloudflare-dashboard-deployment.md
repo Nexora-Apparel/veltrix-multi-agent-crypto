@@ -25,6 +25,13 @@ Set these as encrypted Worker secrets/variables; never commit actual values:
 - `VELTRIX_DASHBOARD_TOKEN`: the same strong token configured on the Python
   dashboard server; at least 32 random characters.
 
+For the Python dashboard's Turso connection, set
+`TURSO_DASHBOARD_AUTH_TOKEN` in `/etc/veltrix/dashboard.env` to a dedicated
+Turso read-only token when the database provider supports read-only tokens.
+The pipeline keeps its separate `TURSO_AUTH_TOKEN`. If a separate read-only
+token is unavailable, the dashboard's remote DB-API wrapper still rejects
+every statement except a single `SELECT`; do not expose a write endpoint.
+
 Deploy with Wrangler from the repository root after installing Wrangler:
 
 ```sh
@@ -52,7 +59,10 @@ The Worker rejects non-GET methods, unknown paths, non-HTTPS origins, and
 upstream redirects. It forwards query strings only to the fixed configured
 origin, disables caching, and does not expose arbitrary proxy destinations.
 The Python origin continues to reject unauthenticated requests and all
-write methods. The edge Worker does not replace Cloudflare Access.
+write methods. The Turso serverless HTTP driver rejects SQLite
+`PRAGMA query_only`, so remote dashboard connections use an application-level
+SELECT-only connection wrapper; local SQLite connections retain OS-level
+read-only URI mode plus `query_only`. The edge Worker does not replace Cloudflare Access.
 
 ## Remaining deployment gates
 
