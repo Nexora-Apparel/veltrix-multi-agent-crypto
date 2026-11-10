@@ -33,7 +33,7 @@ def market_snapshot():
     return SolanaMarketData(
         provider=type("P", (), {"fetch_token_pairs": lambda self, chain, mints: [event]})(),
         clock_ms=lambda: NOW,
-    ).fetch([TOKEN_MINT]).snapshots[0]
+    ).fetch(TOKEN_MINT)
 
 
 def sol_event(*, price=100.0, observed=NOW - 500, liquidity=1_000_000, volume=100_000, quote="USDC"):
