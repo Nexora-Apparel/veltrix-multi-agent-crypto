@@ -109,6 +109,8 @@ def fixture():
     )
     policy = JupiterRouteProgramPolicy(
         allowed_dex_labels=("Raydium CLMM",),
+        allowed_dex_program_ids=(dex_program,),
+        allowed_jupiter_program_ids=(jupiter_program,),
         allowed_routers=("metis",),
     )
     return order, validation, simulation, gate, registry, policy
@@ -157,7 +159,7 @@ def test_rejects_route_label_not_present_in_registry():
             json.dumps(((validation.program_ids[0], "Jupiter V6"),), separators=(",", ":"), ensure_ascii=True).encode("utf-8")
         ).hexdigest(),
     )
-    with pytest.raises(JupiterProgramTraceError, match="does not map every"):
+    with pytest.raises(JupiterProgramTraceError, match="no locally pinned program ID"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
