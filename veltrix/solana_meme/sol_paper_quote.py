@@ -121,8 +121,8 @@ class SolanaPaperQuoteAdapter:
         ):
             raise RuntimeError("token USD market observation is stale or future-dated")
         token_source = token.get("source")
-        if not isinstance(token_source, str) or not token_source.strip():
-            raise RuntimeError("token USD market observation has no source provenance")
+        if not isinstance(token_source, str) or not token_source.strip() or token_source == "unknown":
+            raise RuntimeError("token USD market observation has no verified source provenance")
         token_usd = self._decimal(token.get("price_usd"), "token USD price")
         sol_event = self._sol_usd(now_ms)
         sol_usd = self._decimal(sol_event.price_usd, "SOL/USD price")
