@@ -13,7 +13,7 @@ from .market_store import MarketSnapshotStore
 WSOL_MINT = "So11111111111111111111111111111111111111112"
 # Trust only canonical Solana stablecoin mints. A symbol alone is spoofable.
 STABLE_QUOTE_MINTS = {
-    "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v",
+    "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
 }
 
