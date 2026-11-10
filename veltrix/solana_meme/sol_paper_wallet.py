@@ -39,8 +39,16 @@ def _quantity(value: object) -> Decimal:
 class SolanaPaperWallet:
     """Persistent SOL-only simulation ledger; never signs or broadcasts."""
 
-    def __init__(self, database_path: str, starting_balance_lamports: int):
+    def __init__(
+        self, database_path: str, starting_balance_lamports: int,
+        *, stop_loss_pct: float = 0.06, trailing_pct: float = 0.06,
+    ):
         _positive_int(starting_balance_lamports, "starting_balance_lamports")
+        for name, value in (("stop_loss_pct", stop_loss_pct), ("trailing_pct", trailing_pct)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
+                raise ValueError(f"{name} must be between zero and one")
+        self.stop_loss_pct = Decimal(str(stop_loss_pct))
+        self.trailing_pct = Decimal(str(trailing_pct))
         if not isinstance(database_path, (str, Path)) or not str(database_path).strip() or str(database_path) == ":memory:":
             raise ValueError("SolanaPaperWallet requires a persistent database path")
         self.database_path = str(database_path)
@@ -59,6 +67,12 @@ class SolanaPaperWallet:
                     entry_price_lamports INTEGER NOT NULL,
                     cost_basis_lamports INTEGER NOT NULL,
                     opened_at_ms INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS solana_paper_position_state (
+                    mint TEXT PRIMARY KEY,
+                    hit_2x INTEGER NOT NULL DEFAULT 0,
+                    hit_3x INTEGER NOT NULL DEFAULT 0,
+                    peak_price_lamports INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS solana_paper_fills (
                     fill_id TEXT PRIMARY KEY,
@@ -150,6 +164,10 @@ class SolanaPaperWallet:
                 (mint, str(qty), price_lamports, total, created_at_ms),
             )
             db.execute(
+                "INSERT INTO solana_paper_position_state(mint,peak_price_lamports) VALUES(?,?)",
+                (mint, price_lamports),
+            )
+            db.execute(
                 """INSERT INTO solana_paper_fills
                    (fill_id,idempotency_key,mint,side,quantity,price_lamports,
                     notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms)
@@ -160,17 +178,70 @@ class SolanaPaperWallet:
         return {"status": "OPENED", "fill_id": fill_id, "notional_lamports": notional,
                 "fee_lamports": fee_lamports, "total_debit_lamports": total}
 
+    def _sell_in_transaction(
+        self, db, position, *, idempotency_key: str, fill_price: int,
+        fee_bps: Decimal, fraction: Decimal, created_at_ms: int,
+    ) -> dict:
+        quantity = Decimal(position["quantity"])
+        sold_quantity = quantity if fraction == 1 else quantity * fraction
+        notional = int((sold_quantity * fill_price).to_integral_value(rounding=ROUND_DOWN))
+        if notional <= 0 or notional > MAX_SQLITE_INTEGER:
+            raise ValueError("exit notional is outside the SQLite lamport range")
+        fee = int((Decimal(notional) * fee_bps / Decimal(10_000)).to_integral_value(rounding=ROUND_DOWN))
+        proceeds = notional - fee
+        if proceeds < 0 or proceeds > MAX_SQLITE_INTEGER:
+            raise ValueError("exit proceeds are outside the SQLite lamport range")
+        current_basis = int(position["cost_basis_lamports"])
+        allocated_basis = current_basis if fraction == 1 else int(
+            (Decimal(current_basis) * sold_quantity / quantity).to_integral_value(rounding=ROUND_DOWN)
+        )
+        realized = proceeds - allocated_basis
+        remaining_quantity = quantity - sold_quantity
+        remaining_basis = current_basis - allocated_basis
+        fill_id = "solpaper-" + idempotency_key
+        db.execute(
+            "UPDATE solana_paper_account SET cash_lamports=cash_lamports+? WHERE id=1",
+            (proceeds,),
+        )
+        if remaining_quantity <= 0:
+            db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (position["mint"],))
+            db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (position["mint"],))
+        else:
+            db.execute(
+                """UPDATE solana_paper_positions
+                   SET quantity=?,cost_basis_lamports=? WHERE mint=?""",
+                (str(remaining_quantity), remaining_basis, position["mint"]),
+            )
+        db.execute(
+            """INSERT INTO solana_paper_fills
+               (fill_id,idempotency_key,mint,side,quantity,price_lamports,
+                notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (fill_id, idempotency_key, position["mint"], "SELL", str(sold_quantity),
+             fill_price, notional, fee, realized, created_at_ms),
+        )
+        return {
+            "status": "CLOSED" if remaining_quantity <= 0 else "PARTIALLY_CLOSED",
+            "fill_id": fill_id, "realized_pnl_lamports": realized,
+            "proceeds_lamports": proceeds, "fee_lamports": fee,
+            "quantity_sold": str(sold_quantity),
+        }
+
     def close_position(
         self, *, idempotency_key: str, mint: str, price_lamports: int,
         fee_lamports: int, created_at_ms: int, context=None,
+        fraction: object = Decimal("1"),
     ) -> dict:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
         mint = canonical_mint(mint)
         _positive_int(price_lamports, "price_lamports")
-        if isinstance(fee_lamports, bool) or not isinstance(fee_lamports, int) or fee_lamports < 0:
-            raise ValueError("fee_lamports must be a non-negative integer")
+        if isinstance(fee_lamports, bool) or not isinstance(fee_lamports, int) or not 0 <= fee_lamports <= MAX_SQLITE_INTEGER:
+            raise ValueError("fee_lamports must be a non-negative SQLite integer")
         _positive_int(created_at_ms, "created_at_ms")
+        part = _quantity(fraction)
+        if part > 1:
+            raise ValueError("fraction must be at most one")
         if context is not None:
             context.checkpoint(items=1)
         with self._transaction() as db:
@@ -188,29 +259,123 @@ class SolanaPaperWallet:
             if position is None:
                 raise ValueError("no open paper position exists for this mint")
             qty = Decimal(position["quantity"])
-            notional = int((qty * price_lamports).to_integral_value(rounding=ROUND_DOWN))
-            if not 0 < notional <= MAX_SQLITE_INTEGER:
+            sold_qty = qty if part == 1 else qty * part
+            notional = int((sold_qty * price_lamports).to_integral_value(rounding=ROUND_DOWN))
+            if notional <= 0 or notional > MAX_SQLITE_INTEGER:
                 raise ValueError("exit notional is outside the SQLite lamport range")
+            if fee_lamports > notional:
+                raise ValueError("exit fee exceeds simulated proceeds")
+            # The manual close API supplies an explicit fee in lamports; preserve it
+            # exactly rather than recomputing a basis-point estimate.
             proceeds = notional - fee_lamports
-            if proceeds < 0 or proceeds > MAX_SQLITE_INTEGER:
-                raise ValueError("exit proceeds are outside the SQLite lamport range")
-            pnl = proceeds - int(position["cost_basis_lamports"])
+            current_basis = int(position["cost_basis_lamports"])
+            allocated_basis = current_basis if part == 1 else int(
+                (Decimal(current_basis) * sold_qty / qty).to_integral_value(rounding=ROUND_DOWN)
+            )
+            pnl = proceeds - allocated_basis
+            remaining_qty = qty - sold_qty
+            remaining_basis = current_basis - allocated_basis
             fill_id = "solpaper-" + idempotency_key
             db.execute(
                 "UPDATE solana_paper_account SET cash_lamports=cash_lamports+? WHERE id=1",
                 (proceeds,),
             )
-            db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
+            if remaining_qty <= 0:
+                db.execute("DELETE FROM solana_paper_positions WHERE mint=?", (mint,))
+                db.execute("DELETE FROM solana_paper_position_state WHERE mint=?", (mint,))
+            else:
+                db.execute(
+                    "UPDATE solana_paper_positions SET quantity=?,cost_basis_lamports=? WHERE mint=?",
+                    (str(remaining_qty), remaining_basis, mint),
+                )
             db.execute(
                 """INSERT INTO solana_paper_fills
                    (fill_id,idempotency_key,mint,side,quantity,price_lamports,
                     notional_lamports,fee_lamports,realized_pnl_lamports,created_at_ms)
                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (fill_id, idempotency_key, mint, "SELL", str(qty), price_lamports,
+                (fill_id, idempotency_key, mint, "SELL", str(sold_qty), price_lamports,
                  notional, fee_lamports, pnl, created_at_ms),
             )
-        return {"status": "CLOSED", "fill_id": fill_id, "realized_pnl_lamports": pnl,
+        return {"status": "CLOSED" if remaining_qty <= 0 else "PARTIALLY_CLOSED",
+                "fill_id": fill_id, "realized_pnl_lamports": pnl,
                 "proceeds_lamports": proceeds, "fee_lamports": fee_lamports}
+
+    def process_market_price(
+        self, *, mint: str, price_lamports: int, market_snapshot_id: int,
+        fee_bps: object = 100, slippage_bps: object = 50,
+        created_at_ms: int, context=None,
+    ) -> list[dict]:
+        mint = canonical_mint(mint)
+        _positive_int(price_lamports, "price_lamports")
+        _positive_int(market_snapshot_id, "market_snapshot_id")
+        _positive_int(created_at_ms, "created_at_ms")
+        fee_rate = self._decimal(fee_bps, "fee_bps")
+        slip_rate = self._decimal(slippage_bps, "slippage_bps")
+        if not 0 <= fee_rate <= 2_000 or not 0 <= slip_rate <= 2_000:
+            raise ValueError("fee_bps and slippage_bps must be between 0 and 2000")
+        fill_price = int((Decimal(price_lamports) * (1 - slip_rate / 10_000)).to_integral_value(rounding=ROUND_DOWN))
+        if fill_price <= 0:
+            raise ValueError("slippage-adjusted exit price is below one lamport")
+        if context is not None:
+            context.checkpoint(items=1)
+        with self._transaction() as db:
+            if context is not None:
+                context.assert_fence_in_transaction(db)
+            position = db.execute(
+                "SELECT * FROM solana_paper_positions WHERE mint=?", (mint,)
+            ).fetchone()
+            if position is None:
+                return []
+            state = db.execute(
+                "SELECT * FROM solana_paper_position_state WHERE mint=?", (mint,)
+            ).fetchone()
+            if state is None:
+                db.execute(
+                    "INSERT INTO solana_paper_position_state(mint,peak_price_lamports) VALUES(?,?)",
+                    (mint, int(position["entry_price_lamports"])),
+                )
+                state = {"hit_2x": 0, "hit_3x": 0, "peak_price_lamports": position["entry_price_lamports"]}
+            peak = max(int(state["peak_price_lamports"]), price_lamports)
+            db.execute(
+                "UPDATE solana_paper_position_state SET peak_price_lamports=? WHERE mint=?",
+                (peak, mint),
+            )
+            entry = int(position["entry_price_lamports"])
+            initial_stop = int((Decimal(entry) * (1 - self.stop_loss_pct)).to_integral_value(rounding=ROUND_DOWN))
+            trailing_active = bool(state["hit_3x"])
+            trailing_stop = int((Decimal(peak) * (1 - self.trailing_pct)).to_integral_value(rounding=ROUND_DOWN))
+            if price_lamports <= initial_stop or (trailing_active and price_lamports <= trailing_stop):
+                key = f"exit:{mint}:{market_snapshot_id}:stop"
+                if db.execute("SELECT 1 FROM solana_paper_fills WHERE idempotency_key=?", (key,)).fetchone():
+                    return []
+                return [self._sell_in_transaction(
+                    db, position, idempotency_key=key, fill_price=fill_price,
+                    fee_bps=fee_rate, fraction=Decimal("1"), created_at_ms=created_at_ms,
+                )]
+            multiple = Decimal(price_lamports) / Decimal(entry)
+            if multiple >= 3 and not state["hit_3x"]:
+                key = f"exit:{mint}:{market_snapshot_id}:3x"
+                result = self._sell_in_transaction(
+                    db, position, idempotency_key=key, fill_price=fill_price,
+                    fee_bps=fee_rate, fraction=Decimal("0.5"), created_at_ms=created_at_ms,
+                )
+                db.execute(
+                    "UPDATE solana_paper_position_state SET hit_2x=1,hit_3x=1 WHERE mint=?",
+                    (mint,),
+                )
+                return [result]
+            if multiple >= 2 and not state["hit_2x"]:
+                key = f"exit:{mint}:{market_snapshot_id}:2x"
+                result = self._sell_in_transaction(
+                    db, position, idempotency_key=key, fill_price=fill_price,
+                    fee_bps=fee_rate, fraction=Decimal("0.5"), created_at_ms=created_at_ms,
+                )
+                db.execute(
+                    "UPDATE solana_paper_position_state SET hit_2x=1 WHERE mint=?",
+                    (mint,),
+                )
+                return [result]
+            return []
 
     def snapshot(self, marks_lamports: dict[str, int] | None = None) -> dict:
         marks = marks_lamports or {}
