@@ -16,11 +16,14 @@ retry loop is created.
 - `orchestration_worker_lease`: one named global lease, owner ID, expiry and
   monotonically increasing fencing token. Acquisition is one atomic
   conditional upsert inside a transaction. Release marks the row unowned rather
-  than deleting it, preserving the counter across clean hand-offs. Renew/release
-  require both owner and fencing token; expired owners cannot renew or release
-  a successor's lease.
-- `orchestration_audit`: append-only lifecycle events without payload bodies,
-  credentials, provider response bodies or exception messages.
+  than deleting it, preserving the counter across clean hand-offs. Renew/release and every job state transition (start, finish, recovery)
+  require the current owner and fencing token. The lease row is checked inside
+  the same transaction as each state mutation; expired or superseded workers
+  are rejected.
+- `orchestration_audit`: database-enforced append-only lifecycle events without
+  payload bodies, credentials, provider response bodies or exception messages.
+  Event types are constrained and arbitrary exception names collapse to a
+  generic `HANDLER_ERROR` code.
 - Reusing an idempotency key with a different job type or payload digest fails.
 - Retries are deferred; maximum attempts are capped at five. A later scheduler
   invocation must submit the same idempotency key and payload.
@@ -46,11 +49,13 @@ worker budget. Avoid unbounded streaming and use bounded pages/batches.
 ## Deployment requirements
 
 - Use a scheduler to invoke one-shot jobs; retries are picked up on later runs.
-- Ensure only trusted workflows receive the Turso secrets.
-- Keep `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in GitHub Actions secrets;
-  never print them or include them in artifacts.
-- H2 conformance must use the disposable Frankfurt database only. Never point
-  this test at a production ledger.
+- Ensure only the manual remote-conformance workflow receives the dedicated
+  `TURSO_CONFORMANCE_DATABASE_URL` and `TURSO_CONFORMANCE_AUTH_TOKEN` secrets.
+  Never use generic production `TURSO_DATABASE_URL` or `TURSO_AUTH_TOKEN`
+  secrets for destructive conformance tests.
+- The workflow and test code both enforce the exact disposable host
+  `veltrix-h0-conformance.turso.io`, reject URL credentials and extras, and
+  never print secrets or include them in artifacts.
 - The local SQLite backend remains the default and rollback path. No production
   data is migrated by this phase.
 
