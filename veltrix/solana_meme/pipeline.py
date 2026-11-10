@@ -68,6 +68,8 @@ class OneShotSolanaPipeline:
         }
         if paper_worker is not None:
             database_paths.add(paper_worker.broker.db_path)
+        if candle_worker is not None:
+            database_paths.add(candle_worker.database_path)
         if len(database_paths) != 1:
             raise ValueError("all one-shot pipeline stages must share one persistent database")
         self.orchestration = orchestration
