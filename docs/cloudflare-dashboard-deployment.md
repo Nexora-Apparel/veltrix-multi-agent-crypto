@@ -32,6 +32,10 @@ The pipeline keeps its separate `TURSO_AUTH_TOKEN`. If a separate read-only
 token is unavailable, the dashboard's remote DB-API wrapper still rejects
 every statement except a single `SELECT`; do not expose a write endpoint.
 
+The Wrangler configuration sets `workers_dev=false`: the Worker is not
+published on a public `workers.dev` hostname. Attach it only to the intended
+custom domain after Cloudflare Access is configured and tested.
+
 Deploy with Wrangler from the repository root after installing Wrangler:
 
 ```sh
