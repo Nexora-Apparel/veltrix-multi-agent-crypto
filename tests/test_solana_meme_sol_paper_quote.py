@@ -43,6 +43,13 @@ def sol_event(*, price=100.0, observed=NOW - 500, liquidity=1_000_000, volume=10
         volume_h1_usd=volume, price_change_m5_pct=0.1,
         observed_at_ms=observed, pair_created_at_ms=NOW - 100_000,
         source="dexscreener", quote_token_symbol=quote,
+        quote_token_address=(
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v"
+            if quote == "USDC" else
+            "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+            if quote == "USDT" else
+            "So11111111111111111111111111111111111111112"
+        ),
     )
 
 
@@ -117,3 +124,39 @@ def sol_event_for_token_sol():
         source="dexscreener", quote_token_symbol="SOL",
         quote_token_address=WSOL_MINT, price_native=0.005, pool_token_side="base",
     )
+
+
+def test_sol_quote_rejects_spoofed_stablecoin_symbol_or_unverified_mint(tmp_path):
+    store = MarketSnapshotStore(str(tmp_path / "spoofed-stable.sqlite3"))
+    store.record(market_snapshot())
+    spoofed = sol_event()
+    spoofed = MarketEvent(
+        **{
+            **spoofed.__dict__,
+            "quote_token_address": "FakeUSDC11111111111111111111111111111111111",
+        }
+    )
+    adapter = SolanaPaperQuoteAdapter(
+        store, FakeSolUsdProvider([spoofed]), clock_ms=lambda: NOW,
+    )
+    with pytest.raises(RuntimeError, match="no fresh"):
+        adapter.quote(TOKEN_MINT)
+
+    unsupported_symbol = sol_event(quote="USD")
+    adapter = SolanaPaperQuoteAdapter(
+        store, FakeSolUsdProvider([unsupported_symbol]), clock_ms=lambda: NOW,
+    )
+    with pytest.raises(RuntimeError, match="no fresh"):
+        adapter.quote(TOKEN_MINT)
+
+
+def test_sol_quote_accepts_canonical_usdt_quote_mint(tmp_path):
+    store = MarketSnapshotStore(str(tmp_path / "usdt-quote.sqlite3"))
+    store.record(market_snapshot())
+    adapter = SolanaPaperQuoteAdapter(
+        store, FakeSolUsdProvider([sol_event(quote="USDT")]),
+        clock_ms=lambda: NOW,
+    )
+    quote = adapter.quote(TOKEN_MINT)
+    assert quote.sol_price_usd == Decimal("100.0")
+    assert quote.price_lamports == 5_000_000
