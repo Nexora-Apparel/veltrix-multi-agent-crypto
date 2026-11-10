@@ -363,6 +363,11 @@ def decode_pumpfun_route_cpis(
         raise PumpFunCpiDecodeError("Pump.fun program is not part of the locally pinned Jupiter route")
     if jupiter_instruction.top_level_instruction_index != route_gate.parent_instruction_index:
         raise PumpFunCpiDecodeError("Jupiter route parent instruction differs from route-gate evidence")
+    if len(jupiter_instruction.route_plan) != len(order.route_plan):
+        raise PumpFunCpiDecodeError("decoded Jupiter route plan differs in length from the API order")
+    slippage_bps = order.slippage_bps if order.slippage_bps is not None else jupiter_instruction.slippage_bps
+    if slippage_bps > policy.max_slippage_bps:
+        raise PumpFunCpiDecodeError("Jupiter slippage exceeds the Pump.fun CPI policy")
 
     decoded_results = []
     pump_steps = [
@@ -372,6 +377,9 @@ def decode_pumpfun_route_cpis(
     ]
     if not pump_steps:
         raise PumpFunCpiDecodeError("Pump.fun CPI decoder is not applicable to this DEX route")
+    pump_instructions = [item for item in simulation.inner_instructions if item.program_id == PUMP_PROGRAM_ID]
+    if len(pump_instructions) != len(pump_steps):
+        raise PumpFunCpiDecodeError("simulated Pump.fun CPI count differs from the Jupiter Pump.fun route steps")
     for route, decoded_route in pump_steps:
         expected_direction = "buy" if decoded_route.swap_variant == "PumpdotfunWrappedBuy" else "sell" if decoded_route.swap_variant == "PumpdotfunWrappedSell" else None
         if expected_direction is None:
@@ -405,7 +413,6 @@ def decode_pumpfun_route_cpis(
         if amount_mode == "buy_exact_out":
             if base_amount != order.output_amount_raw:
                 raise PumpFunCpiDecodeError("Pump.fun exact-output base amount differs from Jupiter quoted output")
-            slippage_bps = order.slippage_bps if order.slippage_bps is not None else jupiter_instruction.slippage_bps
             max_allowed_quote = (order.input_amount_raw * (10_000 + slippage_bps) + 9_999) // 10_000
             if quote_limit > max_allowed_quote:
                 raise PumpFunCpiDecodeError("Pump.fun max quote spend exceeds Jupiter input plus slippage ceiling")
