@@ -551,3 +551,28 @@ def test_paper_exit_mutation_is_fenced_inside_broker_transaction(tmp_path):
         worker.run_once(context=context)
     assert broker.totals()["closed_sell_fills"] == 0
     assert len(broker.snapshot()["open_positions"]) == 1
+
+
+def test_sol_quoted_paper_position_and_pnl_survive_broker_restart(tmp_path):
+    markets, risks, consensus, broker, worker, decision = build_pipeline(tmp_path)
+    assert markets.latest(MINT)["quote_token_symbol"] == "SOL"
+    first = worker.run_once()
+    assert first.opened_positions == 1
+
+    # Simulate a process restart by reopening the same durable paper ledger.
+    restarted_broker = PaperBroker(
+        broker.db_path, starting_balance=500, max_positions=10, max_position_usd=50
+    )
+    restarted_worker = PaperTradingWorker(
+        consensus, markets, risks, restarted_broker,
+        policy=worker.policy, clock_ms=lambda: NOW + 1,
+    )
+    markets.record(market_snapshot(NOW + 1, price=0.0015))
+    status = restarted_worker.status()
+
+    assert len(restarted_broker.snapshot()["open_positions"]) == 1
+    assert restarted_broker.snapshot()["cash"] == pytest.approx(474.75)
+    assert status["unmarked_positions"] == []
+    assert status["account"]["open_positions"][0]["mark_price"] == pytest.approx(0.0015)
+    assert status["account"]["unrealized_pnl"] > 0
+    assert restarted_broker.paper_decisions(limit=1)[0]["decision_id"] == decision.decision_id
