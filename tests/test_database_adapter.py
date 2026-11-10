@@ -54,5 +54,5 @@ def test_remote_sqlite_uri_mode_is_rejected():
 
 
 def test_plain_http_remote_url_is_rejected():
-    with pytest.raises(ValueError, match="insecure"):
+    with pytest.raises(ValueError, match="approved Turso endpoint"):
         connect_database("http://example.invalid/database")
