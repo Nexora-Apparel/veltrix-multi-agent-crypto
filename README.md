@@ -41,8 +41,10 @@ HTTP endpoint, checking freshness, provenance, OHLC invariants and
 `synthetic=false`.
 
 The native SOL paper wallet stores all balances, fees and P&L as integer
-lamports. It is wired into the consensus-approved paper worker and the
-transaction-fenced pipeline, but remains disabled by default. The optional
+lamports. It persists provider-backed position marks; the dashboard calculates
+unrealized P&L and equity only from marks no older than 120 seconds, and marks
+stale or missing equity incomplete. It is wired into the consensus-approved
+paper worker and the transaction-fenced pipeline, but remains disabled by default. The optional
 `SOL_PAPER_TRADING_ENABLED` runtime setting enables simulation only; the
 legacy USD paper broker and native SOL wallet cannot run simultaneously.
 Live trading is rejected. A live acceptance workflow now obtains a real
