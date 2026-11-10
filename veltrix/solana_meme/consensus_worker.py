@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
+
+from ..database import connect_database, row_factory_for
+from ..orchestration import LeaseBusy, RunContext
 
 from ..whales import WalletBuyEvent
 from .consensus import ConsensusEngine, MarketEvidence, RiskEvidence
@@ -54,7 +56,7 @@ class ConsensusWorker:
             consensus_store.database_path,
         }
         if len(paths) != 1 or getattr(launch_store, "_uri", False):
-            raise ValueError("launch, market, risk and consensus stores must share one persistent SQLite database")
+            raise ValueError("launch, market, risk and consensus stores must share one persistent database")
         for name, value in (
             ("refresh_interval_ms", refresh_interval_ms),
             ("lease_ms", lease_ms),
@@ -81,9 +83,9 @@ class ConsensusWorker:
         self._initialize()
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.database_path, timeout=10)
-        db.row_factory = sqlite3.Row
+    def _connect(self) -> Iterator[Any]:
+        db = connect_database(self.database_path, timeout=10)
+        db.row_factory = row_factory_for(self.database_path)
         try:
             yield db
             db.commit()
@@ -103,6 +105,8 @@ class ConsensusWorker:
                     consecutive_failures INTEGER NOT NULL DEFAULT 0,
                     next_run_at_ms INTEGER NOT NULL,
                     lease_until_ms INTEGER,
+                    claimed_by_owner_id TEXT,
+                    claim_fencing_token INTEGER,
                     last_attempt_at_ms INTEGER,
                     last_success_at_ms INTEGER,
                     last_error TEXT,
@@ -113,9 +117,32 @@ class ConsensusWorker:
                 "CREATE INDEX IF NOT EXISTS idx_solana_consensus_due "
                 "ON solana_consensus_jobs(status, next_run_at_ms, lease_until_ms)"
             )
+            columns = {row["name"] for row in db.execute(
+                "PRAGMA table_info(solana_consensus_jobs)"
+            ).fetchall()}
+            if "claimed_by_owner_id" not in columns:
+                db.execute("ALTER TABLE solana_consensus_jobs ADD COLUMN claimed_by_owner_id TEXT")
+            if "claim_fencing_token" not in columns:
+                db.execute("ALTER TABLE solana_consensus_jobs ADD COLUMN claim_fencing_token INTEGER")
 
-    def _discover_jobs(self, now: int) -> int:
+    @staticmethod
+    def _assert_claim(db: Any, mint: str, now: int, context: RunContext) -> None:
+        if not context.owner_id:
+            raise LeaseBusy("run context has no lease owner identity")
+        row = db.execute(
+            """SELECT 1 FROM solana_consensus_jobs
+               WHERE mint=? AND status='processing' AND claimed_by_owner_id=?
+                 AND claim_fencing_token=? AND lease_until_ms>?""",
+            (mint, context.owner_id, context.fencing_token, now),
+        ).fetchone()
+        if row is None:
+            raise LeaseBusy("consensus row claim expired or was replaced")
+
+    def _discover_jobs(self, now: int, context: RunContext | None = None) -> int:
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
             cursor = db.execute("""
                 INSERT OR IGNORE INTO solana_consensus_jobs
                     (mint, status, attempts, consecutive_failures, next_run_at_ms, updated_at_ms)
@@ -127,12 +154,16 @@ class ConsensusWorker:
             """, (now, now))
             return cursor.rowcount
 
-    def _claim(self, now: int, limit: int) -> list[str]:
+    def _claim(self, now: int, limit: int,
+               context: RunContext | None = None) -> list[str]:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
             db.execute("""
                 UPDATE solana_consensus_jobs
                 SET status = 'retry', lease_until_ms = NULL,
+                    claimed_by_owner_id = NULL, claim_fencing_token = NULL,
                     next_run_at_ms = ?, updated_at_ms = ?
                 WHERE status = 'processing' AND lease_until_ms <= ?
             """, (now, now, now))
@@ -146,36 +177,73 @@ class ConsensusWorker:
                 db.execute("""
                     UPDATE solana_consensus_jobs
                     SET status = 'processing', attempts = attempts + 1,
-                        last_attempt_at_ms = ?, lease_until_ms = ?, updated_at_ms = ?
-                    WHERE mint = ?
-                """, (now, now + self.lease_ms, now, mint))
+                        last_attempt_at_ms = ?, lease_until_ms = ?, updated_at_ms = ?,
+                        claimed_by_owner_id = ?, claim_fencing_token = ?
+                    WHERE mint = ? AND status IN ('active', 'retry')
+                """, (
+                    now, now + self.lease_ms, now,
+                    context.owner_id if context else None,
+                    context.fencing_token if context else None,
+                    mint,
+                ))
             return mints
 
-    def _succeed(self, mint: str, now: int) -> None:
+    def _succeed(self, decision: Any, now: int,
+                 context: RunContext | None = None) -> bool:
         with self._connect() as db:
-            db.execute("""
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
+                self._assert_claim(db, decision.mint, now, context)
+            inserted = self.consensus_store.record_in_transaction(decision, db)
+            cursor = db.execute("""
                 UPDATE solana_consensus_jobs
                 SET status = 'active', consecutive_failures = 0,
                     next_run_at_ms = ?, lease_until_ms = NULL,
+                    claimed_by_owner_id = NULL, claim_fencing_token = NULL,
                     last_success_at_ms = ?, last_error = NULL, updated_at_ms = ?
-                WHERE mint = ?
-            """, (now + self.refresh_interval_ms, now, now, mint))
+                WHERE mint = ? AND status = 'processing'
+                  AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
+            """, (
+                now + self.refresh_interval_ms, now, now, decision.mint,
+                context.owner_id if context else None,
+                context.owner_id if context else None,
+                context.fencing_token if context else None,
+            ))
+            if cursor.rowcount != 1:
+                raise LeaseBusy("consensus completion lost its row claim")
+        return inserted
 
-    def _fail(self, mint: str, error: Exception, now: int) -> None:
+    def _fail(self, mint: str, error: Exception, now: int,
+              context: RunContext | None = None) -> None:
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if context is not None:
+                context.assert_fence_in_transaction(db)
+                self._assert_claim(db, mint, now, context)
             row = db.execute(
                 "SELECT consecutive_failures FROM solana_consensus_jobs WHERE mint = ?",
                 (mint,),
             ).fetchone()
             failures = (int(row["consecutive_failures"]) if row else 0) + 1
             delay = min(self.retry_base_ms * (2 ** min(failures - 1, 30)), self.retry_max_ms)
-            db.execute("""
+            cursor = db.execute("""
                 UPDATE solana_consensus_jobs
                 SET status = 'retry', consecutive_failures = ?,
                     next_run_at_ms = ?, lease_until_ms = NULL,
+                    claimed_by_owner_id = NULL, claim_fencing_token = NULL,
                     last_error = ?, updated_at_ms = ?
-                WHERE mint = ?
-            """, (failures, now + delay, f"{type(error).__name__}: {error}"[:500], now, mint))
+                WHERE mint = ? AND status = 'processing'
+                  AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
+            """, (
+                failures, now + delay, f"{type(error).__name__}: {error}"[:500],
+                now, mint,
+                context.owner_id if context else None,
+                context.owner_id if context else None,
+                context.fencing_token if context else None,
+            ))
+            if cursor.rowcount != 1:
+                raise LeaseBusy("consensus failure update lost its row claim")
 
     def _wallet_events(self, mint: str) -> tuple[WalletBuyEvent, ...]:
         if self.wallet_event_provider is None:
@@ -200,15 +268,17 @@ class ConsensusWorker:
             grouped.setdefault(event.token_address, []).append(event)
         return {mint: tuple(rows) for mint, rows in grouped.items()}
 
-    def run_once(self, *, limit: int = 10) -> ConsensusBatchResult:
+    def run_once(self, *, limit: int = 10, context: RunContext | None = None) -> ConsensusBatchResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
             raise ValueError("limit must be between 1 and 25")
         now = self.clock_ms()
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("clock_ms must return a positive integer")
-        discovered = self._discover_jobs(now)
-        claimed = self._claim(now, limit)
+        discovered = self._discover_jobs(now, context)
+        claimed = self._claim(now, limit, context)
         recorded = unchanged = failed = 0
+        if context is not None and claimed:
+            context.checkpoint(items=len(claimed))
         wallet_events_by_mint = self._wallet_events_by_mint(claimed, now)
 
         for mint in claimed:
@@ -233,13 +303,12 @@ class ConsensusWorker:
                     wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
                     now_ms=self.clock_ms(),
                 )
-                if self.consensus_store.record(decision):
+                if self._succeed(decision, self.clock_ms(), context):
                     recorded += 1
                 else:
                     unchanged += 1
-                self._succeed(mint, self.clock_ms())
             except Exception as exc:
-                self._fail(mint, exc, self.clock_ms())
+                self._fail(mint, exc, self.clock_ms(), context)
                 failed += 1
 
         with self._connect() as db:
