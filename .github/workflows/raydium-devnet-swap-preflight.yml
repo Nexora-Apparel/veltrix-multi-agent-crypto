@@ -71,7 +71,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
       - name: Build and simulate a direct single-pool CPMM v0 transaction
         run: |
           npm install --no-audit --no-fund
