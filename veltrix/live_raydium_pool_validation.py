@@ -70,7 +70,7 @@ def account_evidence(account, label: str) -> DexPoolAccountEvidence:
     )
 
 
-def decode_token_vault(account, expected_mint: str) -> dict:
+def decode_token_vault(account, expected_mint: str, expected_authority: str) -> dict:
     if account.owner not in TOKEN_PROGRAMS:
         raise ValueError(f"vault {account.address} is not owned by a supported SPL Token program")
     data = account.data
@@ -81,8 +81,10 @@ def decode_token_vault(account, expected_mint: str) -> dict:
     amount = int.from_bytes(data[64:72], "little")
     if mint != expected_mint:
         raise ValueError(f"vault {account.address} mint does not match PoolState")
-    if token_owner == str(Pubkey.default()):
-        raise ValueError(f"vault {account.address} has a default token authority")
+    if token_owner != expected_authority:
+        raise ValueError(
+            f"vault {account.address} token authority does not match the Raydium pool authority"
+        )
     return {
         "address": account.address,
         "token_program": account.owner,
@@ -165,8 +167,8 @@ def main() -> int:
         expected_address=pool.observation_key,
         expected_pool_address=pool_address,
     )
-    vault0 = decode_token_vault(by_address[pool.token_vault_0], pool.token_mint_0)
-    vault1 = decode_token_vault(by_address[pool.token_vault_1], pool.token_mint_1)
+    vault0 = decode_token_vault(by_address[pool.token_vault_0], pool.token_mint_0, pool_address)
+    vault1 = decode_token_vault(by_address[pool.token_vault_1], pool.token_mint_1, pool_address)
 
     report = {
         "schema_version": 1,
