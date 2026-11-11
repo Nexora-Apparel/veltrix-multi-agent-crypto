@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Connection, MessageV0, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { Raydium, TxVersion, CurveCalculator, FeeOn } from "@raydium-io/raydium-sdk-v2";
 import BN from "bn.js";
 
@@ -52,14 +52,58 @@ async function main() {
     poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.V0,
     ownerInfo:{wallet:new PublicKey(WALLET),useSOLBalance:true}
   });
-  const tx = built.transaction;
+  let tx = built.transaction;
   if (!(tx instanceof VersionedTransaction) || tx.version !== 0) fail("SDK did not return one v0 transaction");
   if (tx.signatures.length !== 1 || tx.signatures.some(sig=>sig.some(byte=>byte!==0))) fail("SDK transaction is not unsigned with one empty wallet signature");
+  const minimumOut = swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
+  if (minimumOut.lte(new BN(0))) fail("calculated 1% slippage floor is zero");
+  const directIx = tx.message.compiledInstructions.find(ix =>
+    tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+  if (!directIx || directIx.data.length !== 24 || Buffer.from(directIx.data.slice(0,8)).toString("hex") !== "8fbe5adac41e33de") {
+    fail("SDK CPMM instruction discriminator/layout mismatch");
+  }
+  if (new BN(Buffer.from(directIx.data.slice(8,16)).reverse()).toString() !== String(INPUT)) fail("SDK CPMM input amount mismatch");
+  const adjustedInstructions = tx.message.compiledInstructions.map(ix => {
+    if (ix !== directIx) return ix;
+    const data = new Uint8Array(ix.data);
+    const raw = minimumOut.toArrayLike(Buffer,"le",8);
+    data.set(raw,16);
+    return {...ix,data};
+  });
+  const adjustedMessage = new MessageV0(tx.message.header,tx.message.staticAccountKeys,
+    tx.message.recentBlockhash,adjustedInstructions,tx.message.addressTableLookups);
+  tx = new VersionedTransaction(adjustedMessage);
+  const finalCpmmIx = tx.message.compiledInstructions.find(ix =>
+    tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+  if (new BN(Buffer.from(finalCpmmIx.data.slice(16,24)).reverse()).toString() !== minimumOut.toString()) {
+    fail("final CPMM instruction does not carry the reviewed 1% slippage floor");
+  }
   const serialized=tx.serialize();
   const roundTrip=VersionedTransaction.deserialize(serialized);
   if (Buffer.compare(Buffer.from(serialized),Buffer.from(roundTrip.serialize()))!==0) fail("v0 serialization round-trip mismatch");
-  const sim=await connection.simulateTransaction(tx,{sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
+  const sim=await connection.simulateTransaction(tx,{sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed",innerInstructions:true});
   if (sim.value.err) fail("unsigned direct-CPMM simulation failed: "+JSON.stringify(sim.value.err));
+  const eventLine=(sim.value.logs||[]).find(line=>line.startsWith("Program data: "));
+  if (!eventLine) fail("CPMM swap event missing from successful simulation");
+  const event=Buffer.from(eventLine.slice("Program data: ".length),"base64");
+  if (event.length < 72 || event.slice(0,8).toString("hex") !== "40c6cde8260871e2" ||
+      new PublicKey(event.slice(8,40)).toBase58() !== POOL ||
+      new BN(event.slice(56,64),"le").toString() !== String(INPUT)) {
+    fail("CPMM swap event does not match the exact pool/input");
+  }
+  const actualOutput=new BN(event.slice(64,72),"le");
+  if (actualOutput.lt(minimumOut)) fail("actual simulated output is below the final minimum output");
+  const adversarialMinimum=actualOutput.add(new BN(1));
+  const adversarialInstructions=tx.message.compiledInstructions.map(ix=>{
+    if(tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58()!=="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb") return ix;
+    const data=new Uint8Array(ix.data); data.set(adversarialMinimum.toArrayLike(Buffer,"le",8),16); return {...ix,data};
+  });
+  const adversarialMessage=new MessageV0(tx.message.header,tx.message.staticAccountKeys,
+    tx.message.recentBlockhash,adversarialInstructions,tx.message.addressTableLookups);
+  const adversarialTx=new VersionedTransaction(adversarialMessage);
+  const negative=await connection.simulateTransaction(adversarialTx,{sigVerify:false,replaceRecentBlockhash:true,
+    commitment:"confirmed",innerInstructions:false});
+  if(!negative.value.err) fail("CPMM accepted a minimum output one raw unit above the observed output");
   const message=tx.message;
   const keys=message.staticAccountKeys.map(k=>k.toBase58());
   const ixSummary=message.compiledInstructions.map(ix=>({
@@ -75,14 +119,15 @@ async function main() {
     cluster:"devnet",genesis_hash:GENESIS,rpc_endpoint:RPC,
     wallet:WALLET,pool:POOL,program:poolInfo.programId,
     input_mint:WSOL,output_mint:USDC,input_amount_lamports:String(INPUT),
-    quoted_output_raw:swapResult.outputAmount.toString(),minimum_output_raw:minOut.toString(),
+    quoted_output_raw:swapResult.outputAmount.toString(),minimum_output_raw:minimumOut.toString(),actual_output_raw:actualOutput.toString(),
     slippage_bps:100,transaction_version:0,transaction_count:1,
     unsigned_transaction_base64:Buffer.from(serialized).toString("base64"),
     static_account_keys:keys,instructions:ixSummary,
     address_lookup_tables:message.addressTableLookups.map(x=>({
       account_key:x.accountKey.toBase58(),writable_indexes:[...x.writableIndexes],readonly_indexes:[...x.readonlyIndexes]
     })),
-    simulation:{err:sim.value.err,logs:(sim.value.logs||[]).slice(-80),units_consumed:sim.value.unitsConsumed??null},
+    simulation:{err:sim.value.err,logs:(sim.value.logs||[]).slice(-80),inner_instructions:sim.value.innerInstructions??[],units_consumed:sim.value.unitsConsumed??null},
+    adversarial:{minimum_output_raw:adversarialMinimum.toString(),rejected:!!negative.value.err,error:negative.value.err},
     signed:false,submitted:false,broadcast:false
   };
   fs.mkdirSync("artifacts",{recursive:true});
