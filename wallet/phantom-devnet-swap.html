@@ -474,7 +474,7 @@
     const allowed=new Set([TOKEN,TOKEN_2022,SYSTEM,ATA_PROGRAM]);
     const transferProofs=[];
     for(const ix of inner){
-      if(!Number.isInteger(ix.programIdIndex)||ix.programIdIndex>=policy.keys.length) fail("inner CPI program index invalid");
+      if(!Number.isInteger(ix.programIdIndex)||ix.programIdIndex>=policy.keys.length) fail("inner CPI program index invalid: "+JSON.stringify({ix,keys:policy.keys.length}));
       const program=policy.keys[ix.programIdIndex];
       if(!allowed.has(program)) fail("unexpected direct CPMM inner CPI program: "+program);
       const accts=(ix.accounts||[]).map(index=>{
