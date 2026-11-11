@@ -1,6 +1,8 @@
 """End-to-end deterministic local swap replay over committed Raydium accounts."""
 import hashlib
+from dataclasses import replace
 
+import pytest
 from solders.pubkey import Pubkey
 
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
@@ -21,7 +23,10 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_replay_bundle import (
     build_raydium_clmm_replay_account_bundle,
 )
-from veltrix.raydium_clmm_swap_replay import replay_raydium_clmm_swap
+from veltrix.raydium_clmm_swap_replay import (
+    RaydiumSwapReplayError,
+    replay_raydium_clmm_swap,
+)
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
@@ -228,3 +233,47 @@ def test_full_local_replay_matches_boundary_fifo_crossing_and_staged_settlement(
     assert vaults[result.final_bundle.pool.token_vault_0].amount_raw == 1010
     assert vaults[result.final_bundle.pool.token_vault_1].amount_raw == 990
     assert len(result.final_bundle.bundle_sha256) == 64
+
+
+def test_replay_recomputes_and_rejects_forged_bitmap_traversal_proof():
+    bundle, traversal = make_replay_bundle()
+    forged = replace(
+        traversal,
+        first_initialized_array_start_index=60,
+        expected_initialized_array_starts=(60,),
+        supplied_initialized_array_starts=(60,),
+        supplied_array_starts=(60,),
+        last_cpi_array_start_index=60,
+    )
+    with pytest.raises(RaydiumSwapReplayError, match="not source-derived"):
+        replay_raydium_clmm_swap(
+            bundle,
+            forged,
+            amount_specified=10,
+            sqrt_price_limit_x64=Q64 - 1,
+            base_fee_rate=0,
+            protocol_fee_rate=0,
+            fund_fee_rate=0,
+            block_timestamp=1000,
+            recent_epoch=2,
+            zero_for_one=True,
+            is_base_input=True,
+        )
+
+
+def test_replay_rejects_wrong_swap_direction_before_mutating_any_account():
+    bundle, traversal = make_replay_bundle()
+    with pytest.raises(RaydiumSwapReplayError, match="direction"):
+        replay_raydium_clmm_swap(
+            bundle,
+            traversal,
+            amount_specified=10,
+            sqrt_price_limit_x64=Q64 - 1,
+            base_fee_rate=0,
+            protocol_fee_rate=0,
+            fund_fee_rate=0,
+            block_timestamp=1000,
+            recent_epoch=2,
+            zero_for_one=False,
+            is_base_input=True,
+        )
