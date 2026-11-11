@@ -260,7 +260,7 @@ def test_rejects_cpi_amounts_outside_quote_or_slippage_policy(field, value, mess
 
 def test_rejects_unrecognized_meteora_cpi_and_missing_full_inner_evidence():
     order, validation, simulation, sim_gate, program_gate, route_semantics, effects = fixture()
-    changed = dataclasses.replace(simulation.inner_instructions[0], data=b"unknown!!" + bytes(16))
+    changed = dataclasses.replace(simulation.inner_instructions[0], data=b"unknown!" + bytes(16))
     simulation = dataclasses.replace(simulation, inner_instructions=(changed,))
     with pytest.raises(MeteoraDlmmCpiError, match="not the pinned"):
         evaluate((order, validation, simulation, sim_gate, program_gate, route_semantics, effects))
@@ -303,3 +303,16 @@ def test_rejects_mixed_dex_route_and_wrong_cpi_parent_instruction():
     simulation = dataclasses.replace(simulation, inner_instructions=(inner,))
     with pytest.raises(MeteoraDlmmCpiError, match="not nested"):
         evaluate((order, validation, simulation, sim_gate, program_gate, route_semantics, effects))
+
+
+
+def test_rejects_bitmap_extension_when_policy_disables_it():
+    order, *_ = fixture()
+    accounts = list(make_accounts(order))
+    accounts[1] = str(Pubkey.new_unique())
+    with pytest.raises(MeteoraDlmmCpiError, match="bitmap extension"):
+        decode_meteora_dlmm_swap(
+            swap_data(),
+            tuple(accounts),
+            policy=MeteoraDlmmSwapPolicy(allow_bitmap_extension=False),
+        )
