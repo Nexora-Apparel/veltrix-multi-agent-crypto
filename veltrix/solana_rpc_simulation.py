@@ -55,7 +55,7 @@ def _decode_base58_instruction_data(value: Any) -> bytes:
             raise SolanaRpcAdapterError("inner instruction data contains an invalid base58 character")
         number = number * 58 + digit
     leading_zeroes = len(value) - len(value.lstrip("1"))
-    decoded = (b"\\x00" * leading_zeroes) + (number.to_bytes((number.bit_length() + 7) // 8, "big") if number else b"")
+    decoded = (bytes(leading_zeroes)) + (number.to_bytes((number.bit_length() + 7) // 8, "big") if number else b"")
     if len(decoded) > MAX_INNER_INSTRUCTION_DATA_BYTES:
         raise SolanaRpcAdapterError("inner instruction data exceeds the decoded size limit")
     return decoded
