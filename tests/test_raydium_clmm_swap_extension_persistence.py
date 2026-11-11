@@ -97,7 +97,7 @@ def fixture():
         address=derive_raydium_clmm_tick_array_address(
             pool_address=pool_key, start_tick_index=30720,
         ),
-        pool_address=pool_key, start_tick_index=30720, tick_spacing=10,
+        pool_address=pool_key, start_tick_index=30720, tick_spacing=1,
         initialized_tick_count=1, recent_epoch=1, ticks=ticks,
         data_sha256=hashlib.sha256(array_bytes).hexdigest(),
         raw_data=array_bytes,
