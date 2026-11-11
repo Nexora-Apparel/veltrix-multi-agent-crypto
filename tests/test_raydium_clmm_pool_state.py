@@ -135,7 +135,8 @@ def fixture():
 
 
 def test_decodes_pinned_pool_state_header_and_rederives_pda():
-    _, evidence, _, _, _, pool_address, mint_a, mint_b = fixture()
+    raw, evidence, _, _, _, pool_address, mint_a, mint_b = fixture()
+    assert len(raw) == 1544
     decoded = decode_raydium_clmm_pool_state(evidence, expected_pool_address=pool_address)
     assert decoded.pool_address == pool_address
     assert decoded.token_mint_0 == mint_a
