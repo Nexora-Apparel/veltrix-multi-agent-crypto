@@ -93,6 +93,73 @@ def find_next_initialized_tick_in_array(
     return None
 
 
+
+def first_initialized_tick_in_array(
+    tick_array: RaydiumClmmTickArray,
+    *,
+    zero_for_one: bool,
+) -> RaydiumInitializedTickCursor:
+    """Mirror TickArrayState::first_initialized_tick for a non-owning first array."""
+    if not isinstance(tick_array, RaydiumClmmTickArray):
+        raise RaydiumTickCursorError("decoded Raydium TickArrayState is required")
+    if not isinstance(zero_for_one, bool):
+        raise RaydiumTickCursorError("swap direction must be boolean")
+    if not isinstance(tick_array.ticks, tuple) or len(tick_array.ticks) != RAYDIUM_TICK_ARRAY_SIZE:
+        raise RaydiumTickCursorError("TickArrayState must contain exactly 60 ticks")
+    indices = (
+        range(RAYDIUM_TICK_ARRAY_SIZE - 1, -1, -1)
+        if zero_for_one
+        else range(RAYDIUM_TICK_ARRAY_SIZE)
+    )
+    for index in indices:
+        tick = tick_array.ticks[index]
+        if not isinstance(tick, RaydiumClmmTick):
+            raise RaydiumTickCursorError("TickArrayState contains a malformed tick")
+        expected_tick = (
+            tick_array.start_tick_index + index * tick_array.tick_spacing
+        )
+        initialized = (
+            tick.liquidity_gross > 0
+            or tick.orders_amount > 0
+            or tick.part_filled_orders_remaining > 0
+        )
+        if tick.initialized is not initialized:
+            raise RaydiumTickCursorError("tick initialized flag disagrees with liquidity/order fields")
+        if initialized:
+            if tick.tick_index != expected_tick:
+                raise RaydiumTickCursorError("initialized tick index is not canonical for its array slot")
+            return RaydiumInitializedTickCursor(
+                tick_array_start_index=tick_array.start_tick_index,
+                tick_offset=index,
+                tick=tick,
+                zero_for_one=zero_for_one,
+            )
+    raise RaydiumTickCursorError("tick array has no initialized tick")
+
+
+def select_next_initialized_tick_in_first_array(
+    tick_array: RaydiumClmmTickArray,
+    *,
+    current_tick_index: int,
+    tick_spacing: int,
+    zero_for_one: bool,
+    first_tick_array_contains_pool_tick: bool,
+) -> RaydiumInitializedTickCursor | None:
+    """Mirror the first-array branch at the start of Raydium swap_internal."""
+    if not isinstance(first_tick_array_contains_pool_tick, bool):
+        raise RaydiumTickCursorError("first-array ownership flag must be boolean")
+    if first_tick_array_contains_pool_tick:
+        return find_next_initialized_tick_in_array(
+            tick_array,
+            current_tick_index=current_tick_index,
+            tick_spacing=tick_spacing,
+            zero_for_one=zero_for_one,
+        )
+    return first_initialized_tick_in_array(
+        tick_array, zero_for_one=zero_for_one
+    )
+
+
 def next_tick_array_start_index(
     tick_array_start_index: int,
     *,

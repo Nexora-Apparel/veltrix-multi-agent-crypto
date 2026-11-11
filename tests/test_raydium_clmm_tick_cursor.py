@@ -13,6 +13,8 @@ from veltrix.raydium_clmm_tick_arrays import (
 from veltrix.raydium_clmm_tick_cursor import (
     RaydiumTickCursorError,
     find_next_initialized_tick_in_array,
+    first_initialized_tick_in_array,
+    select_next_initialized_tick_in_first_array,
     next_tick_array_start_index,
 )
 
@@ -136,3 +138,62 @@ def test_cursor_rejects_invalid_spacing_direction_and_initialized_flag():
         find_next_initialized_tick_in_array(
             malformed, current_tick_index=0, tick_spacing=1, zero_for_one=True
         )
+
+
+@pytest.mark.parametrize(
+    "zero_for_one,expected_offset",
+    [(True, 12), (False, 8)],
+)
+def test_first_initialized_tick_searches_from_directional_array_edge(
+    zero_for_one, expected_offset
+):
+    ticks = array(initialized=(8, 10, 12))
+    result = first_initialized_tick_in_array(
+        ticks, zero_for_one=zero_for_one
+    )
+    assert result.tick_offset == expected_offset
+
+
+def test_first_array_without_pool_tick_uses_directional_edge_fallback():
+    ticks = array(initialized=(8, 10, 12))
+    left = select_next_initialized_tick_in_first_array(
+        ticks,
+        current_tick_index=100,
+        tick_spacing=1,
+        zero_for_one=True,
+        first_tick_array_contains_pool_tick=False,
+    )
+    right = select_next_initialized_tick_in_first_array(
+        ticks,
+        current_tick_index=-100,
+        tick_spacing=1,
+        zero_for_one=False,
+        first_tick_array_contains_pool_tick=False,
+    )
+    assert left.tick_offset == 12
+    assert right.tick_offset == 8
+
+
+def test_first_array_that_contains_pool_tick_uses_regular_in_array_search():
+    ticks = array(initialized=(8, 10, 12))
+    result = select_next_initialized_tick_in_first_array(
+        ticks,
+        current_tick_index=10,
+        tick_spacing=1,
+        zero_for_one=False,
+        first_tick_array_contains_pool_tick=True,
+    )
+    assert result.tick_offset == 12
+    assert select_next_initialized_tick_in_first_array(
+        ticks,
+        current_tick_index=12,
+        tick_spacing=1,
+        zero_for_one=False,
+        first_tick_array_contains_pool_tick=True,
+    ) is None
+
+
+def test_first_initialized_tick_rejects_empty_array_like_pinned_rust_api():
+    ticks = array()
+    with pytest.raises(RaydiumTickCursorError, match="no initialized tick"):
+        first_initialized_tick_in_array(ticks, zero_for_one=True)
