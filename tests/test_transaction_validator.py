@@ -17,6 +17,7 @@ from veltrix.transaction_validator import (
     TransactionValidationError,
     TransactionValidationPolicy,
     validate_transaction_message,
+    extract_instruction_account_keys,
 )
 
 
@@ -466,4 +467,35 @@ def test_rejects_lookup_resolution_set_with_extra_table():
         validate_transaction_message(
             raw, intent=intent, policy=policy,
             resolved_lookup_tables=(resolved, extra), current_slot=100, minimum_context_slot=90,
+        )
+
+
+
+def test_extracts_ordered_unique_accounts_for_exact_target_instruction():
+    message, intent, policy = fixture_message()
+    raw = to_bytes_versioned(message)
+    validation = validate_transaction_message(raw, intent=intent, policy=policy)
+    accounts = extract_instruction_account_keys(
+        raw,
+        validation=validation,
+        target_program_ids=(intent.instructions[0].program_id,),
+    )
+    assert accounts == tuple(dict.fromkeys(validation.account_keys[index] for index in bytes(message.instructions[0].accounts)))
+
+
+def test_rejects_target_instruction_account_extraction_on_digest_or_program_mismatch():
+    message, intent, policy = fixture_message()
+    raw = to_bytes_versioned(message)
+    validation = validate_transaction_message(raw, intent=intent, policy=policy)
+    with pytest.raises(TransactionValidationError, match="digest"):
+        extract_instruction_account_keys(
+            raw + b"changed",
+            validation=validation,
+            target_program_ids=(intent.instructions[0].program_id,),
+        )
+    with pytest.raises(TransactionValidationError, match="exactly one"):
+        extract_instruction_account_keys(
+            raw,
+            validation=validation,
+            target_program_ids=(str(Pubkey.new_unique()),),
         )
