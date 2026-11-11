@@ -138,6 +138,49 @@ def decode_raydium_tick_array_bitmap_extension(
     )
 
 
+
+def encode_raydium_tick_array_bitmap_extension(
+    extension: RaydiumClmmTickArrayBitmapExtension,
+) -> bytes:
+    """Serialize the pinned bitmap-extension account in positive/negative order."""
+    if not isinstance(extension, RaydiumClmmTickArrayBitmapExtension):
+        raise RaydiumTickArrayMutationError("decoded bitmap-extension state is required")
+    try:
+        pool = Pubkey.from_string(extension.pool_address)
+        if str(pool) != extension.pool_address:
+            raise ValueError("non-canonical pool address")
+    except Exception as exc:
+        raise RaydiumTickArrayMutationError("bitmap-extension pool address is invalid") from exc
+    if extension.address != derive_raydium_tick_array_bitmap_extension_address(
+        extension.pool_address
+    ):
+        raise RaydiumTickArrayMutationError("bitmap-extension address is not the canonical Raydium PDA")
+    data = bytearray(TICK_ARRAY_BITMAP_EXTENSION_LENGTH)
+    data[:8] = TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+    data[8:40] = bytes(pool)
+    offset = 40
+    for side, rows in (
+        ("positive", extension.positive_bitmaps),
+        ("negative", extension.negative_bitmaps),
+    ):
+        if not isinstance(rows, tuple) or len(rows) != EXTENSION_BITMAPS:
+            raise RaydiumTickArrayMutationError(
+                f"{side} bitmap extension must contain exactly 14 arrays"
+            )
+        for row in rows:
+            if not isinstance(row, tuple) or len(row) != 8:
+                raise RaydiumTickArrayMutationError(
+                    f"{side} bitmap extension rows must contain exactly eight u64 words"
+                )
+            for word in row:
+                _integer(word, 0, U64_MAX, f"{side} bitmap word")
+                data[offset:offset + 8] = word.to_bytes(8, "little")
+                offset += 8
+    if offset != TICK_ARRAY_BITMAP_EXTENSION_LENGTH:
+        raise RaydiumTickArrayMutationError("serialized bitmap-extension length is inconsistent")
+    return bytes(data)
+
+
 def _extension_location(start_tick_index: int, tick_spacing: int) -> tuple[str, int, int]:
     ticks_per_array = _ticks_per_array(tick_spacing)
     max_tick_in_bitmap = ticks_per_array * EXTENSION_BITMAP_BITS
@@ -344,6 +387,14 @@ def apply_raydium_tick_array_mutation(
     next_array = replace(
         next_array, data_sha256=hashlib.sha256(encoded_tick_array).hexdigest()
     )
+    if next_extension is not None and next_extension.data_sha256 == "":
+        encoded_extension = encode_raydium_tick_array_bitmap_extension(
+            next_extension
+        )
+        next_extension = replace(
+            next_extension,
+            data_sha256=hashlib.sha256(encoded_extension).hexdigest(),
+        )
     return RaydiumTickArrayMutationResult(
         pool=next_pool, tick_array=next_array, bitmap_extension=next_extension,
         initialized_before=array_was_initialized, initialized_after=array_is_initialized,
