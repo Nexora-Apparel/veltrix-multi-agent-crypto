@@ -277,6 +277,12 @@ def apply_raydium_tick_array_mutation(
         raise RaydiumTickArrayMutationError("replacement tick must contain exactly three reward-growth values")
     for value in updated_tick.reward_growths_outside_x64:
         _integer(value, 0, U128_MAX, "reward_growths_outside_x64")
+    if updated_tick.initialized is not (
+        updated_tick.liquidity_gross > 0
+        or updated_tick.orders_amount > 0
+        or updated_tick.part_filled_orders_remaining > 0
+    ):
+        raise RaydiumTickArrayMutationError("replacement tick initialized flag disagrees with its source fields")
     if updated_tick.liquidity_gross > 0 and abs(updated_tick.liquidity_net) > updated_tick.liquidity_gross:
         raise RaydiumTickArrayMutationError("replacement tick net liquidity exceeds gross liquidity")
     if len(updated_tick.padding) != 3:
