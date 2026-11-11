@@ -352,3 +352,19 @@ Implemented in `veltrix/raydium_clmm_vaults.py` using Raydium CLMM's pinned sour
 Limitations: this verifies vault identity and token-account metadata, not the vault's economic sufficiency. It does not verify mint freeze/transfer-fee extensions, vault reserve minimums, tick-array initialized liquidity, pool observation freshness, or dynamic fees. Token-2022 and wrapped-native routes remain unsupported. The result is evidence only and never grants execution eligibility.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.24 — Raydium CLMM current tick-array validation
+
+Implemented in `veltrix/raydium_clmm_tick_arrays.py`, pinned to the Raydium CLMM source layout used in Phase 09.22.
+
+- Derives the current tick-array start index using the upstream 60-tick array and negative-index floor semantics.
+- Derives the canonical tick-array PDA from `tick_array`, pool ID and big-endian i32 start index.
+- Fetches current tick arrays through the same pinned RPC provider at a confirmed slot no earlier than simulation, pool evidence and vault evidence.
+- Requires exact 10,240-byte Anchor `TickArrayState` data, correct discriminator, pool ID, owner, PDA and current start index.
+- Decodes all 60 tick records, including signed net liquidity, gross liquidity and limit-order initialization fields.
+- Reconciles the stored initialized-tick count against decoded tick records; validates initialized tick offsets/spacing and `abs(liquidity_net) <= liquidity_gross` where liquidity is present.
+
+Limitations: this captures only the current tick array for each pool. It does not yet prove all additional arrays passed through the actual Raydium CPI, validate the tick-array bitmap extension, derive swap-direction traversal, or calculate executable liquidity/depth/slippage. The current-array snapshot is evidence only and does not enable execution.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
