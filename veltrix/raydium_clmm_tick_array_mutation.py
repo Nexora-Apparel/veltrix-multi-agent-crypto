@@ -216,6 +216,18 @@ def apply_raydium_tick_array_mutation(
         raise RaydiumTickArrayMutationError("tick array does not belong to the supplied pool")
     if len(tick_array.ticks) != RAYDIUM_TICK_ARRAY_SIZE:
         raise RaydiumTickArrayMutationError("tick array must contain exactly 60 TickState records")
+    if len(pool.tick_array_bitmap) != 16:
+        raise RaydiumTickArrayMutationError("PoolState default bitmap must contain exactly 16 u64 words")
+    for word in pool.tick_array_bitmap:
+        _integer(word, 0, U64_MAX, "PoolState tick-array bitmap word")
+    for slot, existing_tick in enumerate(tick_array.ticks):
+        if not isinstance(existing_tick, RaydiumClmmTick):
+            raise RaydiumTickArrayMutationError("tick array contains a malformed TickState record")
+        expected_index = tick_array.start_tick_index + slot * pool.tick_spacing
+        if existing_tick.tick_index not in (0, expected_index):
+            raise RaydiumTickArrayMutationError("tick record index is inconsistent with its array slot")
+        if existing_tick.initialized and existing_tick.tick_index != expected_index:
+            raise RaydiumTickArrayMutationError("initialized tick record has a non-canonical tick index")
     if tick_array.address != derive_raydium_clmm_tick_array_address(
         pool_address=pool.pool_address, start_tick_index=tick_array.start_tick_index
     ):
