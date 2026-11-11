@@ -79,3 +79,16 @@ def test_vault_authority_must_match_pool_address():
 
     with pytest.raises(ValueError, match="authority does not match"):
         decode_token_vault(account, str(mint), str(wrong_authority))
+
+
+
+def test_authoritative_snapshot_rejects_changed_pool_dependencies():
+    import pytest
+    from veltrix.live_raydium_pool_validation import require_stable_pool_dependencies
+
+    discovered = ("config-a", "observation-a", "vault-a", "vault-b")
+    require_stable_pool_dependencies(discovered, discovered)
+
+    changed = ("config-a", "observation-a", "vault-a", "vault-c")
+    with pytest.raises(ValueError, match="dependencies changed"):
+        require_stable_pool_dependencies(discovered, changed)
