@@ -293,3 +293,15 @@ def test_vault_balance_delta_rejects_underflow_overflow_and_boolean(delta):
     vault = fetch().vaults[0]
     with pytest.raises(RaydiumClmmVaultError, match="delta|u64"):
         apply_raydium_clmm_vault_balance_delta(vault, delta_raw=delta)
+
+
+def test_vault_serializer_rejects_stale_hash_and_noncanonical_vault_pda():
+    vault = fetch().vaults[0]
+    with pytest.raises(RaydiumClmmVaultError, match="SHA-256"):
+        encode_raydium_clmm_vault_token_account(
+            dataclasses.replace(vault, data_sha256="0" * 64)
+        )
+    with pytest.raises(RaydiumClmmVaultError, match="canonical"):
+        encode_raydium_clmm_vault_token_account(
+            dataclasses.replace(vault, address=str(Pubkey.new_unique()))
+        )
