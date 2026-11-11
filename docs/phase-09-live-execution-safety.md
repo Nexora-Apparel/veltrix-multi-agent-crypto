@@ -319,3 +319,5 @@ Implemented in `veltrix/dex_pool_evidence.py`; `SolanaRpcSimulationAdapter.fetch
 - Requires the account snapshot context slot to be at least the simulation slot and binds the snapshot to provider, cluster, genesis hash, route-message digest and registry digest.
 - Records the raw pool account bytes and SHA-256 for the next DEX-specific state decoder.
 - This proves only that the quoted AMM account is owned by the pinned DEX program and has account data. It does not decode pool mints, vaults, liquidity, tick arrays or instruction-specific account roles. `execution_ready` remains false.
+
+The pool-evidence function now requires the original `SimulationEvidence`, verifies its message digest/provider/cluster/genesis against the route and RPC adapter, and derives `minContextSlot` directly from `simulation.context_slot`; callers cannot lower the freshness floor by passing an arbitrary slot.
