@@ -26,7 +26,6 @@ from veltrix.raydium_clmm_bitmap_traversal import (
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArraySnapshot,
     derive_raydium_clmm_tick_array_address,
-    raydium_current_tick_array_start,
 )
 from veltrix.simulation_gate import SimulationEvidence
 
