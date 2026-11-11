@@ -106,7 +106,7 @@ def test_invalid_tick_array_offset_and_wrong_array_are_rejected():
     p = pool(tick_spacing=10)
     a = array(p)
     with pytest.raises(RaydiumTickArrayMutationError, match="different tick-array"):
-        apply_raydium_tick_array_mutation(p, a, tick_index=60, updated_tick=tick(60))
+        apply_raydium_tick_array_mutation(p, a, tick_index=600, updated_tick=tick(600))
     with pytest.raises(RaydiumTickArrayMutationError, match="invalid tick-array offset"):
         apply_raydium_tick_array_mutation(p, a, tick_index=1, updated_tick=tick(1))
 
