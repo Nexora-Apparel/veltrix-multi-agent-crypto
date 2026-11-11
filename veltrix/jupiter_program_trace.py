@@ -139,10 +139,8 @@ class JupiterRouteProgramPolicy:
     allowed_routers: tuple[str, ...] = ("metis",)
     jupiter_program_labels: tuple[str, ...] = ("Jupiter V6",)
     standard_program_ids: tuple[str, ...] = (
-        SYSTEM_PROGRAM_ID,
         TOKEN_PROGRAM_ID,
         COMPUTE_BUDGET_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID,
     )
     max_registry_age_ms: int = 86_400_000
     max_future_skew_ms: int = 1_000
@@ -171,6 +169,8 @@ class JupiterRouteProgramPolicy:
                     raise ValueError("non-canonical")
             except Exception as exc:
                 raise JupiterProgramTraceError("standard program allowlist contains an invalid public key") from exc
+        if any(program_id not in {TOKEN_PROGRAM_ID, COMPUTE_BUDGET_PROGRAM_ID} for program_id in self.standard_program_ids):
+            raise JupiterProgramTraceError("standard programs are limited to classic SPL Token for inner CPI and Compute Budget for top-level instructions")
         for field in ("max_registry_age_ms", "max_future_skew_ms"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -270,16 +270,23 @@ def evaluate_jupiter_route_programs(
     inner = simulation.inner_program_ids
     if top_level != validation.program_ids:
         raise JupiterProgramTraceError("simulated top-level program trace differs from validated message")
-    if not top_level or not any(program_id in jupiter_ids for program_id in top_level):
-        raise JupiterProgramTraceError("validated transaction does not invoke an approved Jupiter aggregator")
+    if len([program_id for program_id in top_level if program_id in jupiter_ids]) != 1:
+        raise JupiterProgramTraceError("transaction must invoke exactly one approved Jupiter aggregator instruction")
     if simulation.inner_instruction_count <= 0 or not inner:
         raise JupiterProgramTraceError("simulation did not return the required inner-CPI program trace")
 
-    allowed = set(policy.standard_program_ids) | set(jupiter_ids) | set(dex_ids)
-    if any(program_id not in allowed for program_id in top_level):
-        raise JupiterProgramTraceError("top-level message invokes a program outside the route allowlist")
-    if any(program_id not in allowed for program_id in inner):
-        raise JupiterProgramTraceError("inner CPI trace invokes a program outside the route allowlist")
+    # Context-specific allowlists prevent a standard program ID from becoming
+    # a blanket authorization for arbitrary top-level transfers or account setup.
+    top_level_allowed = set(jupiter_ids)
+    if COMPUTE_BUDGET_PROGRAM_ID in policy.standard_program_ids:
+        top_level_allowed.add(COMPUTE_BUDGET_PROGRAM_ID)
+    inner_allowed = set(dex_ids)
+    if TOKEN_PROGRAM_ID in policy.standard_program_ids:
+        inner_allowed.add(TOKEN_PROGRAM_ID)
+    if any(program_id not in top_level_allowed for program_id in top_level):
+        raise JupiterProgramTraceError("top-level message invokes a program outside the Jupiter/compute-budget allowlist")
+    if any(program_id not in inner_allowed for program_id in inner):
+        raise JupiterProgramTraceError("inner CPI trace invokes a program outside the DEX/token allowlist")
     for label, program_ids in dex_ids_by_label.items():
         if not any(program_id in inner for program_id in program_ids):
             raise JupiterProgramTraceError(f"simulated inner CPI trace does not invoke route DEX label {label}")
