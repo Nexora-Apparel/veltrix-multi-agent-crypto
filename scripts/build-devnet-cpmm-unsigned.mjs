@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { Connection, MessageV0, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { Raydium, TxVersion, CurveCalculator, FeeOn } from "@raydium-io/raydium-sdk-v2";
 import BN from "bn.js";
 
@@ -70,9 +70,12 @@ async function main() {
     data.set(raw,16);
     return {...ix,data};
   });
-  const adjustedMessage = new MessageV0(tx.message.header,tx.message.staticAccountKeys,
-    tx.message.recentBlockhash,adjustedInstructions,tx.message.addressTableLookups);
-  tx = new VersionedTransaction(adjustedMessage);
+  const adjustedTx=VersionedTransaction.deserialize(tx.serialize());
+  const directIndex=adjustedTx.message.compiledInstructions.findIndex(ix =>
+    adjustedTx.message.staticAccountKeys[ix.programIdIndex]?.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+  if(directIndex<0) fail("direct CPMM instruction disappeared while applying slippage floor");
+  adjustedTx.message.compiledInstructions[directIndex].data=adjustedInstructions.find(ix=>ix===directIx)?.data || adjustedInstructions[tx.message.compiledInstructions.indexOf(directIx)].data;
+  tx=adjustedTx;
   const finalCpmmIx = tx.message.compiledInstructions.find(ix =>
     tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
   if (new BN(Buffer.from(finalCpmmIx.data.slice(16,24)).reverse()).toString() !== minimumOut.toString()) {
@@ -98,9 +101,12 @@ async function main() {
     if(tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58()!=="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb") return ix;
     const data=new Uint8Array(ix.data); data.set(adversarialMinimum.toArrayLike(Buffer,"le",8),16); return {...ix,data};
   });
-  const adversarialMessage=new MessageV0(tx.message.header,tx.message.staticAccountKeys,
-    tx.message.recentBlockhash,adversarialInstructions,tx.message.addressTableLookups);
-  const adversarialTx=new VersionedTransaction(adversarialMessage);
+  const adversarialTx=VersionedTransaction.deserialize(serialized);
+  const adversarialIndex=adversarialTx.message.compiledInstructions.findIndex(ix =>
+    adversarialTx.message.staticAccountKeys[ix.programIdIndex]?.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+  if(adversarialIndex<0) fail("direct CPMM instruction missing from adversarial clone");
+  adversarialTx.message.compiledInstructions[adversarialIndex].data=adversarialInstructions[tx.message.compiledInstructions.findIndex(ix =>
+    tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb")].data;
   const negative=await connection.simulateTransaction(adversarialTx,{sigVerify:false,replaceRecentBlockhash:true,
     commitment:"confirmed",innerInstructions:false});
   if(!negative.value.err) fail("CPMM accepted a minimum output one raw unit above the observed output");
