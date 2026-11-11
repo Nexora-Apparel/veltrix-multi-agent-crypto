@@ -195,8 +195,9 @@ def evaluate_raydium_cpmm_cpis(
         if len(inner.account_keys) != RAYDIUM_CPMM_SWAP_ACCOUNT_COUNT:
             raise RaydiumCpmmCpiSemanticError("Raydium CPMM swap CPI must contain exactly 13 accounts")
         accounts = tuple(_canonical_account(value, f"Raydium CPMM CPI account {position}") for position, value in enumerate(inner.account_keys))
-        if len(set(accounts)) != len(accounts):
-            raise RaydiumCpmmCpiSemanticError("Raydium CPMM swap CPI contains duplicate account keys")
+        unique_accounts = tuple(accounts[index] for index in (0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12))
+        if len(set(unique_accounts)) != len(unique_accounts):
+            raise RaydiumCpmmCpiSemanticError("Raydium CPMM swap CPI contains aliased state or token accounts")
         if accounts[0] != order.taker:
             raise RaydiumCpmmCpiSemanticError("Raydium CPMM payer differs from the Jupiter taker")
         if accounts[1] != _authority(inner.program_id):
