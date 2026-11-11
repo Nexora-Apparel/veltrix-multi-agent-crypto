@@ -248,6 +248,7 @@ def test_rejects_wrong_amount_threshold_depth_and_remaining_accounts():
         evaluate(tuple(values))
 
     values = list(fixture())
+    inner = values[2].inner_instructions[0]
     inner = dataclasses.replace(inner, account_keys=inner.account_keys + (str(Pubkey.new_unique()),))
     values[2] = dataclasses.replace(values[2], inner_instructions=(inner,))
     with pytest.raises(MeteoraDammV1CpiSemanticError, match="exactly 15"):
