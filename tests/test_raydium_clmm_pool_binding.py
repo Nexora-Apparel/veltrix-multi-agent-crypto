@@ -247,6 +247,7 @@ def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
         values[5],
         cpi_account_order=(values[1].tick_array_accounts[0], bitmap),
         bitmap_extension_address=bitmap,
+        bitmap_extension_sha256="f" * 64,
     )
     result = evaluate(tuple(values))
     assert result.tick_array_addresses == (values[1].tick_array_accounts[0],)
