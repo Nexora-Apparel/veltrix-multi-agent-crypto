@@ -101,7 +101,7 @@ class FakeSession:
             else:
                 result = {
                     "context": {"slot": self.fixture["slot"]},
-                    "value": self.fixture["pre_accounts"],
+                    "value": [self.fixture["pre_accounts"][self.fixture["addresses"].index(address)] if address in self.fixture["addresses"] else self.fixture.get("extra_pre_accounts", {}).get(address, {"owner": "11111111111111111111111111111111", "lamports": 1, "executable": False, "data": ["", "base64"], "rentEpoch": 0, "space": 0}) for address in requested],
                 }
         elif method == "getFeeForMessage":
             result = {"context": {"slot": self.fixture["slot"]}, "value": 5_000}
