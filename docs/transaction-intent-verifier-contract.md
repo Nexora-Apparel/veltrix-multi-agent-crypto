@@ -175,15 +175,31 @@ The captured transaction's resolved router route has these verified structural p
   vault token-program owners, wallet token-account derivations and mint decimals are checked
   against live Devnet account data.
 
-**Critical rejection:** simulation of the captured route shows the inner CPMM
-`SwapBaseInput` CPI receives `amount_in=1,000,000` but
-`minimum_amount_out=0`. The outer router instruction carries `minimum_amount_out=3,396`,
-but the AMM Routing program's source is not publicly available in Raydium's current program
-reference. Therefore the outer threshold cannot be independently proven to be enforced after
-the CPMM CPI from public source/IDL evidence alone. A successful simulation is not proof of
-that post-CPI check. The route is consequently rejected for wallet signing.
+**Router threshold verification:** the inner CPMM CPI receives `amount_in=1,000,000` and
+`minimum_amount_out=0`; the outer router instruction carries `minimum_amount_out=3,396`.
+Because the AMM Routing program's source is not publicly available in Raydium's current
+program reference, the audit does not assume that the outer threshold is enforced merely
+because the original simulation succeeds.
 
-The next safe implementation path is a direct Devnet CPMM transaction (not the opaque router):
-the user ATA setup and cleanup instructions remain explicitly decoded, while the top-level
-CPMM `SwapBaseInput` must itself carry the reviewed non-zero minimum output. The current
-router transaction remains a valuable adversarial fixture and must never be signed.
+Instead, the live audit performs an adversarial runtime check against the same captured
+transaction. The original unsigned simulation returned `1,000,000 -> 3,431` raw units and
+succeeded with the outer minimum set to `3,396`. The audit then changes only that outer
+minimum to `3,432` (one raw unit above the actual simulated output) and re-simulates. The
+router rejects the mutated transaction. Both simulations use `sigVerify=false` and
+`replaceRecentBlockhash=true`; neither transaction is signed, submitted or broadcast.
+
+This demonstrates that the currently deployed Devnet router enforces its outer minimum
+output for this exact route. The audit now passes only when this negative test fails as
+expected, all top-level and inner instructions are decoded, and every referenced account,
+mint, vault, authority, signer and privilege matches the expected transaction intent.
+The source-availability limitation remains recorded; the runtime test must be repeated
+against the exact final transaction before any future signing is enabled.
+
+Latest live audit: GitHub Actions run
+[43076526681](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43076526681).
+Python CI: [43076526788](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43076526788)
+— 774 passed, 5 skipped.
+
+No wallet transaction has been signed, submitted, broadcast or executed. The Phantom
+signing guard remains in place pending the browser-side verifier implementation and a
+fresh final-transaction audit.
