@@ -214,7 +214,7 @@ def test_decodes_pinned_meteora_dlmm_swap_instruction():
 @pytest.mark.parametrize(
     ("data", "accounts", "message"),
     [
-        (b"", None, "exactly 24 bytes"),
+        (b"", None, "8-byte discriminator and two u64"),
         (swap_data(discriminator=b"12345678"), None, "not the pinned"),
         (swap_data(amount_in=0), None, "must be positive"),
         (swap_data(minimum_out=0), None, "must be positive"),
@@ -295,6 +295,7 @@ def test_rejects_mixed_dex_route_and_wrong_cpi_parent_instruction():
         order,
         route_plan=(dataclasses.replace(order.route_plan[0], label="Raydium CLMM"),),
     )
+    program_gate = dataclasses.replace(program_gate, route_labels=("Raydium CLMM",))
     with pytest.raises(MeteoraDlmmCpiError, match="mixed or non-Meteora"):
         evaluate((order, validation, simulation, sim_gate, program_gate, route_semantics, effects))
 
