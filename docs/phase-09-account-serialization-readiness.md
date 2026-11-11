@@ -14,7 +14,7 @@
 | [#89](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/89) | FIFO limit-order legacy/canonical regressions | 1,363 passed, 5 skipped |
 | [#91](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/91) | TickArrayState, PoolState and bitmap-extension serializers | 1,366 passed, 5 skipped |
 | [#98](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/98) | ObservationState exact serializer and update commitment | 1,368 passed, 5 skipped |
-| [#99](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/99) | SPL vault amount serializer/delta, PoolState mutation commitments | 1,375 passed, 5 skipped |\n| [#101](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/101) | Replay account bundle identity and byte-commitment validator | 1,381 passed, 5 skipped |
+| [#99](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/99) | SPL vault amount serializer/delta, PoolState mutation commitments | 1,375 passed, 5 skipped |\n| [#101](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/101) | Replay account bundle identity and byte-commitment validator | 1,382 passed, 5 skipped |
 
 The PRs are stacked and intentionally remain unmerged. CI compilation and Python test suite succeeded for each listed head. Three live Solana smoke steps were skipped in CI; they are not passing live-chain evidence.
 
@@ -37,7 +37,7 @@ For supported decoded accounts, serialization validates source-byte commitments 
 - PoolState post-swap, reward, and tick-array bitmap mutation paths can refresh serialized PoolState bytes and commitments.
 - Observation updates refresh the exact serialized ObservationState commitment.
 - SPL vault amount deltas update only the token amount bytes and refresh the vault commitment.
-- All these changes remain local deterministic state operations; no transaction signer or broadcaster is involved.\n- PR #101 binds PoolState, one or more TickArrays, optional bitmap extension, ObservationState and exactly two token vaults into one deterministic account-bundle commitment.
+- All these changes remain local deterministic state operations; no transaction signer or broadcaster is involved.\n- PR #101 binds PoolState, one or more TickArrays, optional bitmap extension, ObservationState and exactly two token vaults into one deterministic account-bundle commitment. It also rejects tick-array initialized-count mismatches against the corresponding default/extension bitmap bit.
 
 ## What is not established
 
