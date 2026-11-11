@@ -155,6 +155,15 @@ def test_negative_default_bitmap_lower_boundary_stays_in_poolstate_bitmap():
     assert result.bitmap_changed is True
     assert result.pool.tick_array_bitmap[0] & 1 == 1
 
+
+def test_mutation_rejects_invalid_epoch_domain():
+    p = pool()
+    a = array(p)
+    with pytest.raises(RaydiumTickArrayMutationError, match="recent_epoch"):
+        apply_raydium_tick_array_mutation(
+            p, a, recent_epoch=-1, tick_index=0, updated_tick=tick(0),
+        )
+
 def test_extension_bitmap_mutation_updates_only_the_correct_side():
     p = pool(tick_spacing=1)
     a = array(p, start=60 * 512)
@@ -188,6 +197,13 @@ def test_bitmap_extension_rejects_bad_discriminator_and_wrong_pool():
     address = derive_raydium_tick_array_bitmap_extension_address(p.pool_address)
     data = bytearray(TICK_ARRAY_BITMAP_EXTENSION_LENGTH)
     with pytest.raises(RaydiumTickArrayMutationError, match="discriminator"):
+        decode_raydium_tick_array_bitmap_extension(
+            address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+            executable=False, data=bytes(data), expected_pool_address=p.pool_address,
+        )
+    data[:8] = TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+    data[8:40] = bytes(Pubkey.new_unique())
+    with pytest.raises(RaydiumTickArrayMutationError, match="different pool"):
         decode_raydium_tick_array_bitmap_extension(
             address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
             executable=False, data=bytes(data), expected_pool_address=p.pool_address,
