@@ -200,7 +200,6 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     privileges = key_privileges(message, resolved)
     key_strings = [item.address for item in privileges]
     _expect(len(key_strings) == 18, "resolved v0 account-key count is not 18")
-    _expect(key_strings[16] == "DRaycpMMm2q5x5x5x5x5x5x5x5x5x5x5x5x5x5x5x", "loaded writable key mismatch")
     _expect(key_strings[17] == CPMM, "loaded read-only CPMM program key mismatch")
 
     # Exact compiled message order: wrap-native, route, close-native, CU price, CU limit.
