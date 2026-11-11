@@ -5,6 +5,8 @@ on:
     paths:
       - 'veltrix/solana_devnet_swap_preflight.py'
       - 'tests/test_solana_devnet_swap_preflight.py'
+      - 'veltrix/solana_devnet_ephemeral_swap.py'
+      - 'tests/test_solana_devnet_ephemeral_swap.py'
       - '.github/workflows/raydium-devnet-swap-preflight.yml'
   workflow_dispatch:
     inputs:
