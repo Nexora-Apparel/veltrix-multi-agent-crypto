@@ -108,7 +108,7 @@ def test_no_price_change_does_not_apply_swap_amounts():
         original,
         sqrt_price_current_x64=Q64,
         target_price_x64=Q64,
-        base_fee_rate=0,
+        base_fee_rate=1000,
         zero_for_one=True,
         is_base_input=True,
         is_fee_on_input=True,
