@@ -258,3 +258,17 @@ Implemented in `SimulatedInnerInstruction` within `veltrix/simulation_gate.py` a
 - Cross-checks the complete inner-instruction record count and program-ID order against the existing inner program trace.
 - Existing consumers that only inspect program IDs remain compatible; DEX-specific semantic gates must require complete `inner_instructions` evidence before evaluating CPI data.
 - This captures evidence; it does not yet decode Raydium/Meteora/other DEX instruction payloads or certify pool/account semantics. No signing or broadcast is introduced.
+
+
+### 09.16 — Meteora DLMM CPI swap decoder
+
+Implemented in `veltrix/meteora_dlmm_cpi.py`, pinned to Meteora's `dlmm.json` IDL snapshot at `MeteoraAg/dlmm-sdk` commit `1532e540db41ac405dbf4c5bb2ddfceaa1f98ff1`.
+
+- Pins the Meteora DLMM program ID and the `swap` instruction discriminator from the upstream IDL.
+- Decodes the exact 24-byte instruction payload: 8-byte discriminator, `amount_in` u64 and `min_amount_out` u64.
+- Requires the exact 15-account IDL layout, classic SPL Token programs for both mints, the taker authority, Meteora self-program account, and the derived `__event_authority` PDA.
+- Binds the CPI pool address to Jupiter's quoted `ammKey`, the X/Y mint pair to the route hop, and input amount to the quote. Enforces a local minimum-output floor derived from the configured maximum slippage.
+- Requires complete inner-CPI evidence nested under the exact Jupiter route instruction, plus matching message digests and successful structural, simulation, program-trace, route-semantic and quote-to-balance gates.
+- Supports only pure Metis routes composed entirely of Meteora DLMM hops. Other DEX labels, mixed routes, unrecognized Meteora instructions, Token-2022, host-fee accounts, and unpinned program IDs fail closed.
+- The decoder does not yet fetch and decode the Meteora LB-pair account, verify reserve/oracle relationships, or inspect token-account mint/authority state for the DEX CPI's `user_token_in`/`user_token_out` accounts. Therefore this is an instruction-semantic gate, not complete pool-state certification or live-execution approval.
+- No signing, wallet approval, Jupiter `/execute`, transaction submission or broadcast is implemented.
