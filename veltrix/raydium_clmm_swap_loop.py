@@ -61,6 +61,8 @@ def _validate_inputs(
         raise RaydiumSwapLoopSelectionError("decoded tick-array order differs from the verified CPI account order")
     if starts != traversal.expected_initialized_array_starts:
         raise RaydiumSwapLoopSelectionError("decoded tick arrays differ from the verified bitmap-selected sequence")
+    if starts != traversal.supplied_initialized_array_starts:
+        raise RaydiumSwapLoopSelectionError("decoded tick arrays differ from the verified initialized CPI sequence")
     if traversal.zero_for_one is not zero_for_one:
         raise RaydiumSwapLoopSelectionError("bitmap traversal direction differs from swap direction")
     if any(
@@ -126,6 +128,8 @@ def select_next_initialized_tick(
     )
     if not isinstance(first_tick_array_contains_pool_tick, bool):
         raise RaydiumSwapLoopSelectionError("first-array containment flag must be boolean")
+    if not first_tick_array_contains_pool_tick and current_tick_array_index != 0:
+        raise RaydiumSwapLoopSelectionError("first-array fallback is valid only for the initial CPI array")
     if isinstance(current_tick_array_index, bool) or not isinstance(current_tick_array_index, int) or not 0 <= current_tick_array_index < len(tick_arrays):
         raise RaydiumSwapLoopSelectionError("current tick-array index is outside the supplied CPI sequence")
 
