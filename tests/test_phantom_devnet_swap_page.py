@@ -189,3 +189,17 @@ def test_adversarial_node_harness_is_wired_into_ci():
     assert harness.exists()
     assert "node tests/phantom_verifier_adversarial.mjs" in workflow.read_text(encoding="utf-8")
     assert "window.__VELTRIX_TEST__ === true" in PAGE.read_text(encoding="utf-8")
+
+
+
+def test_cpmm_and_token_account_decoders_are_exposed_only_to_guarded_tests():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeCpmmSwapData(data)" in source
+    assert "function decodeTokenAccount(" in source
+    assert "decodeCpmmSwapData,decodeTokenAccount" in source
+    harness = PAGE.parents[1] / "tests" / "phantom_verifier_adversarial.mjs"
+    harness_source = harness.read_text(encoding="utf-8")
+    assert "wrong CPMM discriminator" in harness_source
+    assert "altered CPMM input" in harness_source
+    assert "wrong token mint" in harness_source
+    assert "wrong token owner" in harness_source
