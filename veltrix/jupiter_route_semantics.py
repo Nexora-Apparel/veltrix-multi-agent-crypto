@@ -313,9 +313,48 @@ def evaluate_jupiter_route_semantics(
     account_indexes = tuple(bytes(instruction.accounts))
     if len(account_indexes) != JUPITER_ROUTE_ACCOUNT_COUNT:
         raise JupiterRouteSemanticError("only the seven-account Jupiter v6 route instruction is supported")
-    if any(index >= len(validation.account_keys) for index in account_indexes):
-        raise JupiterRouteSemanticError("Jupiter route instruction references an unresolved account index")
+    static_keys = tuple(str(key) for key in message.account_keys)
+    if tuple(validation.account_keys[:len(static_keys)]) != static_keys:
+        raise JupiterRouteSemanticError("validated static account-key order differs from the serialized message")
+    if any(index >= len(static_keys) for index in account_indexes):
+        raise JupiterRouteSemanticError("Jupiter route accounts loaded through address lookup tables are not supported")
+    if program_index >= len(static_keys):
+        raise JupiterRouteSemanticError("Jupiter program ID must be a static message account")
     accounts = tuple(validation.account_keys[index] for index in account_indexes)
+
+    header = message.header
+    required_signatures = int(header.num_required_signatures)
+    readonly_signed = int(header.num_readonly_signed_accounts)
+    readonly_unsigned = int(header.num_readonly_unsigned_accounts)
+    static_count = len(static_keys)
+    if (
+        required_signatures < 1 or required_signatures > static_count
+        or readonly_signed > required_signatures
+        or readonly_unsigned > static_count - required_signatures
+    ):
+        raise JupiterRouteSemanticError("serialized message header has invalid account privileges")
+
+    def account_privileges(index: int) -> tuple[bool, bool]:
+        signer = index < required_signatures
+        writable = (
+            index < required_signatures - readonly_signed
+            if signer else index < static_count - readonly_unsigned
+        )
+        return signer, writable
+
+    # Jupiter route requires a signer authority and writable user token ATAs.
+    # The fee payer may elevate the authority's global writable bit, so only
+    # its signer bit is constrained here.
+    if not account_privileges(account_indexes[1])[0]:
+        raise JupiterRouteSemanticError("Jupiter route transfer authority is not a required signer")
+    for position in (2, 3):
+        signer, writable = account_privileges(account_indexes[position])
+        if signer or not writable:
+            raise JupiterRouteSemanticError("Jupiter source and destination token accounts must be non-signer writable accounts")
+    for position in (0, 5, 4, 6):
+        signer, writable = account_privileges(account_indexes[position])
+        if signer or writable:
+            raise JupiterRouteSemanticError("Jupiter token program, mint and omitted optional accounts must be read-only non-signers")
     expected_source = derive_associated_token_address(order.taker, order.input_mint)
     expected_destination = derive_associated_token_address(order.taker, order.output_mint)
     if accounts[0] != CLASSIC_TOKEN_PROGRAM_ID:
