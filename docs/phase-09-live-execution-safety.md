@@ -246,3 +246,15 @@ Implemented in `veltrix/jupiter_route_semantics.py`, pinned to Jupiter's public 
 - This first slice supports only the Metis router, the Jupiter v6 `route` instruction, and explicitly mapped unit-payload DEX variants (Raydium, Meteora, Raydium CLMM, Meteora DLMM, Raydium CPMM). It rejects other routers, Jupiter instruction variants, DEX enum variants, Token-2022, optional destination accounts, and platform-fee accounts.
 - It does not decode DEX-specific CPI payloads or prove pool account semantics. Those remain separate mandatory gates; unknown or unsupported instructions remain rejected.
 - No signing, Jupiter `/execute`, wallet signature request, transaction submission, or broadcast is implemented.
+
+
+### 09.15 — lossless simulated inner-CPI instruction evidence
+
+Implemented in `SimulatedInnerInstruction` within `veltrix/simulation_gate.py` and the RPC normalizer in `veltrix/solana_rpc_simulation.py`.
+
+- Preserves each simulated inner instruction's parent top-level instruction index, deterministic ordinal, canonical program ID, resolved account-key list, decoded raw instruction bytes, and optional stack height.
+- Resolves program and account indexes only against the exact static + address-lookup-table account-key order already validated for the unsigned message.
+- Decodes canonical base58 instruction data with invalid-character, round-trip, and 1,232-byte size checks. Rejects invalid parent indexes, duplicate parent groups, out-of-range account indexes, oversized account lists, and malformed stack heights.
+- Cross-checks the complete inner-instruction record count and program-ID order against the existing inner program trace.
+- Existing consumers that only inspect program IDs remain compatible; DEX-specific semantic gates must require complete `inner_instructions` evidence before evaluating CPI data.
+- This captures evidence; it does not yet decode Raydium/Meteora/other DEX instruction payloads or certify pool/account semantics. No signing or broadcast is introduced.

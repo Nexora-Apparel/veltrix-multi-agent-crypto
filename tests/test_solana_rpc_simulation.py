@@ -535,3 +535,74 @@ def test_rejects_inner_cpi_program_index_outside_validated_account_list():
             minimum_context_slot=490,
             last_valid_block_height=950,
         )
+
+
+
+def test_preserves_full_inner_cpi_instruction_evidence():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    compiled = message.instructions[0]
+    data["inner_instructions"] = [{
+        "index": 0,
+        "instructions": [{
+            "programIdIndex": int(compiled.program_id_index),
+            "accounts": list(bytes(compiled.accounts)),
+            "data": "2",
+            "stackHeight": 2,
+        }],
+    }]
+    result = adapter(FakeSession(data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+    )
+    evidence = result.evidence
+    assert evidence.inner_instruction_count == 1
+    assert len(evidence.inner_instructions) == 1
+    inner = evidence.inner_instructions[0]
+    assert inner.parent_instruction_index == 0
+    assert inner.ordinal == 0
+    assert inner.program_id == result.validation.program_ids[0]
+    assert inner.account_keys == tuple(result.validation.account_keys[i] for i in bytes(compiled.accounts))
+    assert inner.data == b"\x01"
+    assert inner.stack_height == 2
+
+
+@pytest.mark.parametrize(
+    ("inner", "message"),
+    [
+        ({"programIdIndex": 999, "accounts": [], "data": "", "stackHeight": 2}, "program index"),
+        ({"programIdIndex": 0, "accounts": [999], "data": "", "stackHeight": 2}, "account index"),
+        ({"programIdIndex": 0, "accounts": [], "data": "0", "stackHeight": 2}, "base58 character"),
+        ({"programIdIndex": 0, "accounts": [], "data": "2", "stackHeight": 0}, "stack height"),
+    ],
+)
+def test_rejects_malformed_inner_cpi_instruction_records(inner, message):
+    raw, intent, tx_policy, expected, data = fixture()
+    data["inner_instructions"] = [{"index": 0, "instructions": [inner]}]
+    with pytest.raises(SolanaRpcAdapterError, match=message):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+        )
+
+
+def test_rejects_inner_instruction_group_with_invalid_parent_index():
+    raw, intent, tx_policy, expected, data = fixture()
+    data["inner_instructions"] = [{"index": 1, "instructions": []}]
+    with pytest.raises(SolanaRpcAdapterError, match="parent index"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+        )

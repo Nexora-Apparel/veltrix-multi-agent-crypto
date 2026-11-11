@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from solders.pubkey import Pubkey
+
 from veltrix.transaction_validator import (
     TransactionIntent,
     TransactionValidationResult,
@@ -61,6 +63,45 @@ class SimulatedTokenBalance:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulatedInnerInstruction:
+    """Lossless normalized CPI instruction evidence from simulateTransaction."""
+
+    parent_instruction_index: int
+    ordinal: int
+    program_id: str
+    account_keys: tuple[str, ...]
+    data: bytes
+    stack_height: int | None
+
+    def __post_init__(self) -> None:
+        for field in ("parent_instruction_index", "ordinal"):
+            _nonnegative_int(getattr(self, field), field)
+        _nonempty(self.program_id, "inner instruction program_id")
+        try:
+            if str(Pubkey.from_string(self.program_id)) != self.program_id:
+                raise ValueError("non-canonical")
+        except Exception as exc:
+            raise SimulationGateError("inner instruction program_id is not a canonical public key") from exc
+        if not isinstance(self.account_keys, tuple) or len(self.account_keys) > 128:
+            raise SimulationGateError("inner instruction account_keys must be an immutable tuple of at most 128 keys")
+        for key in self.account_keys:
+            _nonempty(key, "inner instruction account key")
+            try:
+                if str(Pubkey.from_string(key)) != key:
+                    raise ValueError("non-canonical")
+            except Exception as exc:
+                raise SimulationGateError("inner instruction account key is not a canonical public key") from exc
+        if not isinstance(self.data, bytes) or len(self.data) > 1232:
+            raise SimulationGateError("inner instruction data must be immutable bytes of at most 1232 bytes")
+        if self.stack_height is not None and (
+            isinstance(self.stack_height, bool)
+            or not isinstance(self.stack_height, int)
+            or not 1 <= self.stack_height <= 64
+        ):
+            raise SimulationGateError("inner instruction stack_height must be null or between 1 and 64")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -79,6 +120,7 @@ class SimulationEvidence:
     top_level_program_ids: tuple[str, ...] = ()
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
+    inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -106,6 +148,15 @@ class SimulationEvidence:
         _nonnegative_int(self.inner_instruction_count, "inner_instruction_count")
         if self.inner_instruction_count != len(self.inner_program_ids):
             raise SimulationGateError("inner instruction count does not match the captured program trace")
+        if not isinstance(self.inner_instructions, tuple) or any(
+            not isinstance(item, SimulatedInnerInstruction) for item in self.inner_instructions
+        ):
+            raise SimulationGateError("inner_instructions must be an immutable tuple of validated CPI evidence")
+        if self.inner_instructions:
+            if len(self.inner_instructions) != self.inner_instruction_count:
+                raise SimulationGateError("full inner instruction evidence count differs from the program trace")
+            if tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids:
+                raise SimulationGateError("full inner instruction program IDs differ from the program trace")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")
