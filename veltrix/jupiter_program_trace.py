@@ -203,6 +203,7 @@ class JupiterRouteProgramGateResult:
     registry_sha256: str
     compute_budget: ComputeBudgetResult
     jupiter_route: JupiterV6RouteInspection
+    execution_ready: bool = False
 
 
 def evaluate_jupiter_route_programs(
