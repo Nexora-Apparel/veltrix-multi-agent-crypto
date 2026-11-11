@@ -163,8 +163,8 @@ def test_accepts_simulated_output_above_minimum_even_if_it_differs_from_quote():
 @pytest.mark.parametrize(
     ("balance_index", "field", "value", "message"),
     [
-        (0, "post_amount_raw", 4_001, "delta differs"),
-        (1, "post_amount_raw", 2_099, "delta differs"),
+        (0, "post_amount_raw", 4_001, "input spend differs"),
+        (1, "post_amount_raw", 2_049, "below Jupiter's minimum"),
         (0, "token_program_id", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", "classic SPL Token"),
         (1, "owner", str(Pubkey.new_unique()), "mint or owner"),
         (1, "mint", str(Pubkey.new_unique()), "mint or owner"),
