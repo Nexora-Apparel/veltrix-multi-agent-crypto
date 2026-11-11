@@ -28,6 +28,7 @@ from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
     RaydiumTickArrayMutationResult,
     apply_raydium_tick_array_mutation,
+    apply_raydium_tick_array_mutation_chained,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTick,
@@ -74,6 +75,8 @@ def apply_raydium_swap_boundary(
     protocol_fee_rate: int,
     fund_fee_rate: int,
     bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
+    mutation_context: RaydiumTickArrayMutationResult | None = None,
+    prior_array_mutation: RaydiumTickArrayMutationResult | None = None,
 ) -> RaydiumSwapBoundaryResult:
     """Apply AMM amounts, FIFO matching, conditional tick crossing and mutation.
 
@@ -171,14 +174,30 @@ def apply_raydium_swap_boundary(
         liquidity_next = crossing.liquidity_after
 
     # update_tick_state is applied after the crossing decision in the pinned source.
-    mutation = apply_raydium_tick_array_mutation(
-        applied.pool,
-        tick_array,
-        tick_index=final_tick.tick_index,
-        updated_tick=final_tick,
-        recent_epoch=recent_epoch,
-        bitmap_extension=bitmap_extension,
-    )
+    if mutation_context is None:
+        if prior_array_mutation is not None:
+            raise RaydiumSwapBoundaryError("array mutation lineage requires a global mutation context")
+        mutation = apply_raydium_tick_array_mutation(
+            applied.pool,
+            tick_array,
+            tick_index=final_tick.tick_index,
+            updated_tick=final_tick,
+            recent_epoch=recent_epoch,
+            bitmap_extension=bitmap_extension,
+        )
+    else:
+        if applied.pool != mutation_context.pool:
+            raise RaydiumSwapBoundaryError("boundary PoolState differs from the latest mutation lineage")
+        if bitmap_extension is not None and bitmap_extension != mutation_context.bitmap_extension:
+            raise RaydiumSwapBoundaryError("boundary bitmap extension differs from the latest mutation lineage")
+        mutation = apply_raydium_tick_array_mutation_chained(
+            mutation_context,
+            tick_array,
+            tick_index=final_tick.tick_index,
+            updated_tick=final_tick,
+            recent_epoch=recent_epoch,
+            prior_array_mutation=prior_array_mutation,
+        )
 
     tick_after = (
         state.tick_next - 1
