@@ -37,6 +37,19 @@ def _validate_bitmap_words(rows, *, row_count: int, word_count: int, field: str)
                 )
 
 
+def _validate_u64_sequence(words, *, length: int, field: str) -> None:
+    if not isinstance(words, tuple) or len(words) != length:
+        raise RaydiumBitmapCursorError(
+            f"{field} must contain exactly {length} u64 words"
+        )
+    if any(
+        isinstance(word, bool) or not isinstance(word, int)
+        or not 0 <= word < (1 << 64)
+        for word in words
+    ):
+        raise RaydiumBitmapCursorError(f"{field} contains a word outside the u64 domain")
+
+
 def _default_bitmap_initialized(
     pool: RaydiumClmmPoolState,
     start_tick_index: int,
@@ -62,8 +75,8 @@ def is_raydium_tick_array_initialized(
         raise RaydiumBitmapCursorError("PoolState tick spacing must be a positive u16")
     if isinstance(start_tick_index, bool) or not isinstance(start_tick_index, int):
         raise RaydiumBitmapCursorError("tick-array start index must be an integer")
-    _validate_bitmap_words(
-        pool.tick_array_bitmap, row_count=1, word_count=16,
+    _validate_u64_sequence(
+        pool.tick_array_bitmap, length=16,
         field="PoolState default bitmap",
     )
     tick_count = RAYDIUM_TICK_ARRAY_SIZE * pool.tick_spacing
