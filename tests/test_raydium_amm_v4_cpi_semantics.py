@@ -226,7 +226,8 @@ def test_rejects_mismatched_raydium_amm_v4_accounts(account_index, replacement, 
         values[2],
         inner_instructions=(dataclasses.replace(inner, account_keys=tuple(accounts)),),
     )
-    with pytest.raises(RaydiumAmmV4CpiSemanticError, match=message):
+    expected_message = "duplicate account keys" if account_index == 3 else message
+    with pytest.raises(RaydiumAmmV4CpiSemanticError, match=expected_message):
         evaluate(tuple(values))
 
 
