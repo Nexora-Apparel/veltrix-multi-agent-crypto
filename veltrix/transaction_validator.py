@@ -357,3 +357,48 @@ def validate_transaction_message(
         instruction_count=len(instructions),
         account_keys=account_keys,
     )
+
+
+def extract_instruction_account_keys(
+    message_bytes: bytes,
+    *,
+    validation: TransactionValidationResult,
+    target_program_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return ordered unique account keys referenced by exactly one target instruction.
+
+    This is intended for selecting same-slot account snapshots before RPC
+    simulation, after structural validation has resolved all v0 lookup keys.
+    """
+    if not isinstance(message_bytes, bytes) or not message_bytes:
+        raise TransactionValidationError("message_bytes must be non-empty immutable bytes")
+    if not isinstance(validation, TransactionValidationResult):
+        raise TransactionValidationError("successful transaction validation is required")
+    if not isinstance(target_program_ids, tuple) or not target_program_ids:
+        raise TransactionValidationError("target_program_ids must be a non-empty immutable tuple")
+    if any(not isinstance(value, str) or not value or value.strip() != value for value in target_program_ids):
+        raise TransactionValidationError("target program IDs must be canonical non-empty strings")
+    if len(set(target_program_ids)) != len(target_program_ids):
+        raise TransactionValidationError("target program IDs must not contain duplicates")
+    if hashlib.sha256(message_bytes).hexdigest() != validation.message_sha256:
+        raise TransactionValidationError("message digest differs from structural validation evidence")
+    try:
+        message = from_bytes_versioned(message_bytes)
+        instructions = tuple(message.instructions)
+    except Exception as exc:
+        raise TransactionValidationError("validated message could not be decoded for account extraction") from exc
+
+    matches = []
+    for instruction in instructions:
+        program_index = int(instruction.program_id_index)
+        account_indexes = tuple(bytes(instruction.accounts))
+        if program_index >= len(validation.account_keys):
+            raise TransactionValidationError("instruction program index is outside resolved account keys")
+        if any(index >= len(validation.account_keys) for index in account_indexes):
+            raise TransactionValidationError("instruction account index is outside resolved account keys")
+        if validation.account_keys[program_index] in target_program_ids:
+            matches.append(account_indexes)
+    if len(matches) != 1:
+        raise TransactionValidationError("message must contain exactly one instruction for the requested target program")
+    ordered = dict.fromkeys(validation.account_keys[index] for index in matches[0])
+    return tuple(ordered)
