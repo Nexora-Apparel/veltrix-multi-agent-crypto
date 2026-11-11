@@ -258,7 +258,7 @@ def test_rejects_reserve_wrong_mint_or_non_token_program_owner():
     wrong = token_account_data(pubkey(), pubkey(), 10_000)
     states[1] = dataclasses.replace(states[1], pre_data=wrong, post_data=wrong)
     simulation = dataclasses.replace(simulation, account_states=tuple(states))
-    with pytest.raises(MeteoraDlmmPoolStateError, match="mint or token authority changed"):
+    with pytest.raises(MeteoraDlmmPoolStateError, match="reserve token-account mints differ"):
         evaluate((order, simulation, gate, cpi, effects))
 
     order, simulation, gate, cpi, effects = fixture()
