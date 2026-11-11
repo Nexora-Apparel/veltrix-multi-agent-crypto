@@ -156,6 +156,16 @@ def test_negative_default_bitmap_lower_boundary_stays_in_poolstate_bitmap():
     assert result.pool.tick_array_bitmap[0] & 1 == 1
 
 
+
+def test_u128_liquidity_gross_is_accepted_without_u64_truncation():
+    p = pool()
+    a = array(p, initialized=1)
+    updated = tick(0, gross=(1 << 64) + 7)
+    result = apply_raydium_tick_array_mutation(
+        p, a, recent_epoch=2, tick_index=0, updated_tick=updated,
+    )
+    assert result.tick_array.ticks[0].liquidity_gross == (1 << 64) + 7
+
 def test_mutation_rejects_invalid_epoch_domain():
     p = pool()
     a = array(p)
