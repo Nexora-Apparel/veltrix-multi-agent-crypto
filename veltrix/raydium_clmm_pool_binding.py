@@ -15,7 +15,7 @@ from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_SOURCE_COMMIT,
     RaydiumClmmPoolRouteCheck,
 )
-from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
+from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot\nfrom veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTickArraySnapshot
 from veltrix.simulation_gate import SimulationEvidence
 
@@ -133,7 +133,7 @@ def evaluate_raydium_clmm_cpi_pool_binding(
             raise RaydiumClmmPoolBindingError("vault snapshot contains a vault for a different pool")
         if (
             vault.token_authority != pool.pool_address
-            or vault.token_program_id != pool_account.expected_program_id.replace(pool_account.expected_program_id, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            or vault.token_program_id != CLASSIC_TOKEN_PROGRAM_ID
             or vault.state != 1
             or vault.lamports <= 0
         ):
