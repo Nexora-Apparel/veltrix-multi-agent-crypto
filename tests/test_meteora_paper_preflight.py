@@ -259,11 +259,13 @@ def test_rejects_digest_mismatch_and_unapproved_gate():
 def test_rejects_compute_fee_slippage_and_platform_fee_over_policy():
     values = list(fixture())
     values[2] = dataclasses.replace(values[2], units_consumed=300_001)
+    values[3] = dataclasses.replace(values[3], units_consumed=300_001)
     with pytest.raises(MeteoraPaperPreflightError, match="compute usage"):
         evaluate(tuple(values))
 
     values = list(fixture())
     values[2] = dataclasses.replace(values[2], fee_lamports=10_000_001)
+    values[3] = dataclasses.replace(values[3], fee_lamports=10_000_001)
     with pytest.raises(MeteoraPaperPreflightError, match="network fee"):
         evaluate(tuple(values))
 
