@@ -98,10 +98,7 @@ def make_tick_array(pool):
         tick_index=0, liquidity_net=0, liquidity_gross=0,
         orders_amount=0, part_filled_orders_remaining=0, initialized=False,
     )
-    ticks = (empty, tick) + tuple(
-        replace(empty, tick_index=index * 10)
-        for index in range(2, 60)
-    )
+    ticks = (empty, tick) + (empty,) * 58
     raw = bytearray(RAYDIUM_TICK_ARRAY_DATA_LENGTH)
     raw[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
     raw[8:40] = bytes(Pubkey.from_string(pool.pool_address))
