@@ -3,6 +3,7 @@ import pytest
 from veltrix.raydium_clmm_tick_array_cursor import (
     RaydiumTickArrayCursorError,
     RaydiumClmmTickArrayQueue,
+    search_next_initialized_tick,
     first_initialized_tick,
     next_initialized_tick,
     next_tick_array_start_index,
@@ -245,3 +246,57 @@ def test_tick_array_queue_rejects_wrong_pool_and_cpi_order():
             tick_spacing=15,
             snapshot=reversed_snapshot,
         )
+
+
+def test_swap_loop_search_prefers_next_tick_in_current_array():
+    array = build_tick_array(0, 15, [0, 2, 7])
+    queue = RaydiumClmmTickArrayQueue.from_snapshot(
+        pool_address=array.pool_address,
+        tick_spacing=15,
+        snapshot=build_snapshot((array,)),
+    ).select_first(0)
+    result = search_next_initialized_tick(
+        queue,
+        current_tick_index=0,
+        zero_for_one=False,
+        first_tick_array_contains_pool_tick=True,
+    )
+    assert result.tick.tick_index == 30
+    assert result.first_tick_array_contains_pool_tick is True
+    assert result.requires_array_advance is False
+
+
+def test_swap_loop_uses_first_tick_fallback_once_when_initial_array_excludes_pool_tick():
+    array = build_tick_array(0, 15, [0, 2, 7])
+    queue = RaydiumClmmTickArrayQueue.from_snapshot(
+        pool_address=array.pool_address,
+        tick_spacing=15,
+        snapshot=build_snapshot((array,)),
+    ).select_first(0)
+    result = search_next_initialized_tick(
+        queue,
+        current_tick_index=900,
+        zero_for_one=False,
+        first_tick_array_contains_pool_tick=False,
+    )
+    assert result.tick.tick_index == 0
+    assert result.first_tick_array_contains_pool_tick is True
+    assert result.requires_array_advance is False
+
+
+def test_swap_loop_requests_bitmap_advance_only_after_current_array_search_is_exhausted():
+    array = build_tick_array(0, 15, [0, 2, 7])
+    queue = RaydiumClmmTickArrayQueue.from_snapshot(
+        pool_address=array.pool_address,
+        tick_spacing=15,
+        snapshot=build_snapshot((array,)),
+    ).select_first(0)
+    result = search_next_initialized_tick(
+        queue,
+        current_tick_index=105,
+        zero_for_one=False,
+        first_tick_array_contains_pool_tick=True,
+    )
+    assert result.tick is None
+    assert result.first_tick_array_contains_pool_tick is True
+    assert result.requires_array_advance is True
