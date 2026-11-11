@@ -36,7 +36,7 @@ def test_privilege_reconstruction_preserves_static_and_loaded_order():
 def test_read_u64_decodes_little_endian_and_rejects_truncation():
     assert read_u64(bytes.fromhex("40420f0000000000"), 0) == 1_000_000
     with pytest.raises(AuditError, match="truncated"):
-        read_u64(b"\\x01\\x02", 0)
+        read_u64(b"\x01\x02", 0)
 
 
 def test_captured_fixture_contains_only_the_expected_exact_swap_intent():
@@ -45,8 +45,8 @@ def test_captured_fixture_contains_only_the_expected_exact_swap_intent():
     message = parse_base64_v0_transaction(FIXTURE["unsigned_transaction_base64"])
     assert message.required_signatures == 1
     assert len(message.instructions) == 5
-    assert message.instructions[0].data == b"\\x05" + (1_000_000).to_bytes(8, "little")
+    assert message.instructions[0].data == b"\x05" + (1_000_000).to_bytes(8, "little")
     assert message.instructions[1].data == (
-        b"\\x00" + (1_000_000).to_bytes(8, "little") + (3_396).to_bytes(8, "little")
+        b"\x00" + (1_000_000).to_bytes(8, "little") + (3_396).to_bytes(8, "little")
     )
-    assert message.instructions[2].data == b"\\x06"
+    assert message.instructions[2].data == b"\x06"
