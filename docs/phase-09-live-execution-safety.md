@@ -549,3 +549,19 @@ Implemented in `veltrix/raydium_clmm_observation.py`.
 **Proof boundary:** decoding does not yet replay oracle updates, consult historical TWAPs, or prove that an observation history is sufficient for any strategy. It is a source-layout and identity gate only.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.35 — Integer-exact Raydium dynamic-fee state transitions
+
+Implemented in `veltrix/raydium_clmm_dynamic_fee.py`, using pinned `states/pool_fee.rs` and `instructions/swap.rs`.
+
+- Ports Rust-compatible signed tick-spacing index calculation, including truncation toward zero followed by the negative non-aligned correction.
+- Ports the filter, decay and reset time windows with saturating elapsed-time semantics.
+- Ports volatility-reference decay and accumulator updates, including the source's 10,000-unit scale and configured cap.
+- Ports quadratic dynamic fee computation using integer ceiling division, source denominator constants, and the 10% maximum fee-rate cap.
+- Ports base-plus-dynamic fee composition, dynamic tick-spacing index advancement, skipped-spacing volatility updates, and spacing-bounded sqrt-price selection using Phase 09.32 integer tick math.
+- Includes the pinned source test vector where a 10,000 volatility accumulator at tick spacing 60 and control factor 1,000 yields a dynamic fee rate of 36.
+
+**Proof boundary:** this is the dynamic-fee state machine and spacing-bound primitive, not a complete swap replay. It does not yet integrate exact-input/output amount steps, tick crossing, fee-growth updates, FIFO limit-order matching, protocol/fund fee settlement, reward updates, oracle updates or vault reconciliation into one transaction-level replay. These remain mandatory before claiming quote-to-simulation parity.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
