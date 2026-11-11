@@ -440,3 +440,8 @@ Implemented in `veltrix/raydium_clmm_cpi_tick_arrays.py`.
 - Generalized the tick-array decoder to validate arrays outside the current tick's own array while retaining current-array checks when explicitly requested.
 
 Remaining limitation: strict order and account identity do not yet prove that no initialized tick-array boundary was skipped. The next step must decode the PoolState in-range bitmap and optional extension bitmaps, reproduce Raydium's `first_tick_array_index_with_extension_info` / `next_initialized_tick_array_start_index` traversal, and prove the exact sequence of initialized arrays consumed by the swap loop. This stage also does not calculate executable liquidity/depth or price impact. All results remain evidence-only; signing, Jupiter `/execute`, transaction submission, broadcast, and live execution remain disabled.
+
+
+#### Pinned PoolState allocation-size correction
+
+A source-layout audit corrected the full PoolState account allocation from the earlier 1,576-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
