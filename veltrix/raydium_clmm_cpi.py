@@ -84,6 +84,8 @@ def decode_raydium_clmm_swap(data: bytes) -> DecodedRaydiumClmmSwap:
         raise RaydiumClmmCpiError("Raydium CLMM is_base_input is not a canonical Borsh boolean")
     if amount <= 0 or threshold <= 0:
         raise RaydiumClmmCpiError("Raydium CLMM swap amount and minimum-output threshold must be positive")
+    if sqrt_price_limit == 0:
+        raise RaydiumClmmCpiError("Raydium CLMM sqrt-price limit must be non-zero")
     return DecodedRaydiumClmmSwap(
         amount_raw=amount,
         other_amount_threshold_raw=threshold,
@@ -241,6 +243,8 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("Raydium CLMM CPI input amount differs from the exact Jupiter route amount")
     if decoded.other_amount_threshold_raw > quoted_step.output_amount_raw:
         raise RaydiumClmmCpiError("Raydium CLMM minimum-output threshold exceeds the quoted route output")
+    if decoded.other_amount_threshold_raw < order.minimum_output_amount_raw:
+        raise RaydiumClmmCpiError("Raydium CLMM minimum-output threshold is below Jupiter's order threshold")
     minimum_allowed = (
         quoted_step.output_amount_raw * (10_000 - min(policy.max_slippage_bps, route_semantics.slippage_bps))
         + 9_999
