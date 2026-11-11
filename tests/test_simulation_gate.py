@@ -6,6 +6,7 @@ import pytest
 from veltrix.simulation_gate import (
     ExpectedTokenDelta,
     SimulatedTokenBalance,
+    SimulationAccountSnapshot,
     SimulationEvidence,
     SimulationGateError,
     SimulationGatePolicy,
