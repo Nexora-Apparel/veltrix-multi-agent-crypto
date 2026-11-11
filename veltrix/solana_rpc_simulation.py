@@ -59,7 +59,7 @@ _BASE58_INDEX = {character: index for index, character in enumerate(_BASE58_ALPH
 def _encode_base58(data: bytes) -> str:
     if not data:
         return ""
-    zeros = len(data) - len(data.lstrip(b"\\x00"))
+    zeros = len(data) - len(data.lstrip(b"\x00"))
     number = int.from_bytes(data, "big")
     encoded = ""
     while number:
@@ -79,7 +79,7 @@ def _decode_base58(value: object) -> bytes:
         raise SolanaRpcAdapterError("inner instruction data contains an invalid base58 character") from exc
     zeros = len(value) - len(value.lstrip("1"))
     payload = number.to_bytes((number.bit_length() + 7) // 8, "big") if number else b""
-    decoded = b"\\x00" * zeros + payload
+    decoded = b"\x00" * zeros + payload
     if _encode_base58(decoded) != value:
         raise SolanaRpcAdapterError("inner instruction data is not canonical base58")
     if len(decoded) > 1232:
