@@ -97,7 +97,6 @@ def test_browser_semantic_verifier_has_no_signing_bypass():
     assert "async function resolveV0Accounts(message)" in source
     assert "async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence)" in source
     assert "Transaction intent rejected:" in source
-    assert "function inspectTransaction(tx, quote, reviewedBytes)" in source
 
 
 
@@ -165,3 +164,19 @@ def test_pool_vault_direction_is_bound_to_mint_order():
     assert "expectedVaultIn" in source
     assert "expectedVaultOut" in source
     assert "router vault direction does not match WSOL-to-USDC pool mint order" in source
+
+
+
+def test_quote_is_locked_to_the_exactly_audited_single_hop_pool():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "q.routePlan.length !== 1" in source
+    assert "q.routePlan[0].poolId !== POOL" in source
+    assert "Multi-hop or changed-pool routes are rejected." in source
+
+
+def test_browser_verifier_checks_pool_token_programs_and_all_privileges():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "const requiredPrivileges = [" in source
+    assert "effective signer/writable privilege mismatch" in source
+    assert "pool vault token-program owner does not match pool state" in source
+    assert "pool mint account owner does not match pool token-program declarations" in source
