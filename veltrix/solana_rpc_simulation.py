@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 import requests
 from solders.message import MessageV0, from_bytes_versioned, to_bytes_versioned
+from solders.pubkey import Pubkey
 from solders.address_lookup_table_account import AddressLookupTable, ID as ADDRESS_LOOKUP_TABLE_ID
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
@@ -23,6 +24,7 @@ from veltrix.simulation_gate import (
     SimulatedTokenBalance,
     SimulationEvidence,
     SimulatedInnerInstruction,
+    SimulatedAccountState,
     SimulationGateError,
 )
 from veltrix.transaction_validator import (
@@ -85,6 +87,40 @@ def _decode_base58(value: object) -> bytes:
     if len(decoded) > 1232:
         raise SolanaRpcAdapterError("inner instruction data exceeds the Solana instruction size ceiling")
     return decoded
+
+
+def _account_snapshot(account_info: Any, address: str) -> tuple[str, int, bool, bytes]:
+    if not isinstance(account_info, dict):
+        raise SolanaRpcAdapterError(f"requested account snapshot is missing: {address}")
+    owner = account_info.get("owner")
+    lamports = account_info.get("lamports")
+    executable = account_info.get("executable")
+    data = account_info.get("data")
+    if not isinstance(owner, str):
+        raise SolanaRpcAdapterError("account snapshot omitted its owner program ID")
+    try:
+        if str(Pubkey.from_string(owner)) != owner:
+            raise ValueError("non-canonical")
+    except Exception as exc:
+        raise SolanaRpcAdapterError("account snapshot owner is not a canonical public key") from exc
+    if isinstance(lamports, bool) or not isinstance(lamports, int) or lamports < 0:
+        raise SolanaRpcAdapterError("account snapshot lamports are invalid")
+    if not isinstance(executable, bool):
+        raise SolanaRpcAdapterError("account snapshot executable flag is invalid")
+    if (
+        not isinstance(data, (list, tuple))
+        or len(data) != 2
+        or data[1] != "base64"
+        or not isinstance(data[0], str)
+    ):
+        raise SolanaRpcAdapterError("account snapshot data must use base64 encoding")
+    try:
+        raw_data = base64.b64decode(data[0], validate=True)
+    except Exception as exc:
+        raise SolanaRpcAdapterError("account snapshot data is not valid base64") from exc
+    if len(raw_data) > 1_048_576:
+        raise SolanaRpcAdapterError("account snapshot data exceeds the 1 MiB state-capture limit")
+    return owner, lamports, executable, raw_data
 
 
 def _parse_inner_instruction_evidence(
@@ -313,6 +349,7 @@ class SolanaRpcSimulationAdapter:
         expected_token_deltas: tuple[ExpectedTokenDelta, ...],
         minimum_context_slot: int,
         last_valid_block_height: int,
+        additional_account_addresses: tuple[str, ...] = (),
     ) -> RpcSimulationResult:
         """Validate and simulate the exact message; return normalized evidence.
 
@@ -336,9 +373,20 @@ class SolanaRpcSimulationAdapter:
         addresses = [item.token_account for item in expected_token_deltas]
         if len(addresses) != len(set(addresses)):
             raise SolanaRpcAdapterError("expected token-account addresses must be unique")
+        if not isinstance(additional_account_addresses, tuple):
+            raise SolanaRpcAdapterError("additional_account_addresses must be an immutable tuple")
+        if len(additional_account_addresses) + len(addresses) > MAX_TRACKED_TOKEN_ACCOUNTS:
+            raise SolanaRpcAdapterError("combined token and generic account snapshots exceed the 100-account capture ceiling")
+        if any(not isinstance(address, str) or not address for address in additional_account_addresses):
+            raise SolanaRpcAdapterError("additional account addresses contain an invalid value")
+        if len(set(additional_account_addresses)) != len(additional_account_addresses):
+            raise SolanaRpcAdapterError("additional account addresses must not contain duplicates")
+        if set(addresses).intersection(additional_account_addresses):
+            raise SolanaRpcAdapterError("additional account addresses must not duplicate token-balance addresses")
+        tracked_addresses = addresses + list(additional_account_addresses)
 
         from solders.pubkey import Pubkey
-        for address in addresses:
+        for address in tracked_addresses:
             try:
                 Pubkey.from_string(address)
             except Exception as exc:
@@ -381,10 +429,12 @@ class SolanaRpcSimulationAdapter:
             current_slot=lookup_context_slot,
             minimum_context_slot=minimum_context_slot,
         )
+        if not set(additional_account_addresses).issubset(set(validation.account_keys)):
+            raise SolanaRpcAdapterError("additional account snapshots must be transaction message account keys")
 
         pre_result = self._rpc(
             "getMultipleAccounts",
-            [addresses, {
+            [tracked_addresses, {
                 "encoding": "base64",
                 "commitment": "confirmed",
                 "minContextSlot": max(minimum_context_slot, blockhash_slot, lookup_context_slot or 0),
@@ -396,11 +446,15 @@ class SolanaRpcSimulationAdapter:
         if lookup_context_slot is not None and pre_slot != lookup_context_slot:
             raise SolanaRpcAdapterError("lookup table and token-account snapshots were not observed at the same context slot")
         pre_accounts = pre_result.get("value")
-        if not isinstance(pre_accounts, list) or len(pre_accounts) != len(addresses):
+        if not isinstance(pre_accounts, list) or len(pre_accounts) != len(tracked_addresses):
             raise SolanaRpcAdapterError("getMultipleAccounts returned an incomplete account list")
         pre_balances = {
             address: self._token_balance(info, address)
-            for address, info in zip(addresses, pre_accounts)
+            for address, info in zip(addresses, pre_accounts[:len(addresses)])
+        }
+        pre_account_states = {
+            address: _account_snapshot(info, address)
+            for address, info in zip(additional_account_addresses, pre_accounts[len(addresses):])
         }
 
         try:
@@ -429,7 +483,7 @@ class SolanaRpcSimulationAdapter:
                 "sigVerify": False,
                 "replaceRecentBlockhash": False,
                 "minContextSlot": pre_slot,
-                "accounts": {"encoding": "base64", "addresses": addresses},
+                "accounts": {"encoding": "base64", "addresses": tracked_addresses},
                 "innerInstructions": True,
             }],
         )
@@ -443,11 +497,11 @@ class SolanaRpcSimulationAdapter:
         inner_instructions = _parse_inner_instruction_evidence(inner_groups, validation)
         inner_program_ids = tuple(item.program_id for item in inner_instructions)
         post_accounts = value.get("accounts")
-        if not isinstance(post_accounts, list) or len(post_accounts) != len(addresses):
-            raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state token accounts")
+        if not isinstance(post_accounts, list) or len(post_accounts) != len(tracked_addresses):
+            raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state account snapshots")
 
         token_balances = []
-        for address, post_info in zip(addresses, post_accounts):
+        for address, post_info in zip(addresses, post_accounts[:len(addresses)]):
             pre_program, pre_mint, pre_owner, pre_amount = pre_balances[address]
             post_program, post_mint, post_owner, post_amount = self._token_balance(post_info, address)
             if (pre_program, pre_mint, pre_owner) != (post_program, post_mint, post_owner):
@@ -459,6 +513,24 @@ class SolanaRpcSimulationAdapter:
                 pre_amount_raw=pre_amount,
                 post_amount_raw=post_amount,
                 token_program_id=pre_program,
+            ))
+
+        account_states = []
+        for address, post_info in zip(additional_account_addresses, post_accounts[len(addresses):]):
+            pre_owner, pre_lamports, pre_executable, pre_data = pre_account_states[address]
+            post_owner, post_lamports, post_executable, post_data = _account_snapshot(post_info, address)
+            if (pre_owner, pre_executable) != (post_owner, post_executable):
+                raise SolanaRpcAdapterError("generic account owner or executable status changed during simulation")
+            account_states.append(SimulatedAccountState(
+                address=address,
+                pre_owner_program_id=pre_owner,
+                post_owner_program_id=post_owner,
+                pre_lamports=pre_lamports,
+                post_lamports=post_lamports,
+                pre_executable=pre_executable,
+                post_executable=post_executable,
+                pre_data=pre_data,
+                post_data=post_data,
             ))
 
         fee_result = self._rpc(
@@ -498,5 +570,6 @@ class SolanaRpcSimulationAdapter:
             inner_program_ids=inner_program_ids,
             inner_instruction_count=len(inner_program_ids),
             inner_instructions=inner_instructions,
+            account_states=tuple(account_states),
         )
         return RpcSimulationResult(validation=validation, evidence=evidence)

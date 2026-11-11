@@ -73,7 +73,7 @@ class FakeSession:
             assert params[1]["sigVerify"] is False
             assert params[1]["replaceRecentBlockhash"] is False
             assert params[1]["encoding"] == "base64"
-            assert params[1]["accounts"]["addresses"] == self.fixture["addresses"]
+            assert params[1]["accounts"]["addresses"] == self.fixture.get("tracked_addresses", self.fixture["addresses"])
             result = {
                 "context": {"slot": self.fixture["slot"]},
                 "value": {
@@ -605,4 +605,78 @@ def test_rejects_inner_instruction_group_with_invalid_parent_index():
             expected_token_deltas=expected,
             minimum_context_slot=490,
             last_valid_block_height=950,
+        )
+
+
+
+def test_captures_additional_transaction_account_pre_and_post_state():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    extra_address = str(message.account_keys[-1])
+    loader_owner = str(Pubkey.new_unique())
+    generic_info = {
+        "owner": loader_owner,
+        "lamports": 10_000,
+        "executable": True,
+        "data": ["", "base64"],
+    }
+    data["tracked_addresses"] = data["addresses"] + [extra_address]
+    data["pre_accounts"].append(generic_info)
+    data["post_accounts"].append(generic_info)
+    result = adapter(FakeSession(data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+        additional_account_addresses=(extra_address,),
+    )
+    assert len(result.evidence.account_states) == 1
+    snapshot = result.evidence.account_states[0]
+    assert snapshot.address == extra_address
+    assert snapshot.pre_owner_program_id == loader_owner
+    assert snapshot.post_owner_program_id == loader_owner
+    assert snapshot.pre_executable is True
+    assert snapshot.post_executable is True
+    assert snapshot.pre_data == b""
+    assert snapshot.post_data == b""
+
+
+def test_rejects_additional_account_not_in_validated_message():
+    raw, intent, tx_policy, expected, data = fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="must be transaction message account keys"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            additional_account_addresses=(str(Pubkey.new_unique()),),
+        )
+
+
+def test_rejects_account_snapshot_owner_change():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    extra_address = str(message.account_keys[-1])
+    before_owner = str(Pubkey.new_unique())
+    after_owner = str(Pubkey.new_unique())
+    data["tracked_addresses"] = data["addresses"] + [extra_address]
+    data["pre_accounts"].append({
+        "owner": before_owner, "lamports": 10, "executable": False, "data": ["", "base64"]
+    })
+    data["post_accounts"].append({
+        "owner": after_owner, "lamports": 10, "executable": False, "data": ["", "base64"]
+    })
+    with pytest.raises(SolanaRpcAdapterError, match="owner or executable status changed"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            additional_account_addresses=(extra_address,),
         )

@@ -102,6 +102,43 @@ class SimulatedInnerInstruction:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulatedAccountState:
+    """Same-context pre-state and simulated post-state for a transaction account."""
+
+    address: str
+    pre_owner_program_id: str
+    post_owner_program_id: str
+    pre_lamports: int
+    post_lamports: int
+    pre_executable: bool
+    post_executable: bool
+    pre_data: bytes
+    post_data: bytes
+
+    def __post_init__(self) -> None:
+        for field in ("address", "pre_owner_program_id", "post_owner_program_id"):
+            value = getattr(self, field)
+            _nonempty(value, field)
+            try:
+                if str(Pubkey.from_string(value)) != value:
+                    raise ValueError("non-canonical")
+            except Exception as exc:
+                raise SimulationGateError(f"{field} must be a canonical public key") from exc
+        if self.pre_owner_program_id != self.post_owner_program_id:
+            raise SimulationGateError("account owner program changed during simulation")
+        for field in ("pre_lamports", "post_lamports"):
+            _nonnegative_int(getattr(self, field), field)
+        if not isinstance(self.pre_executable, bool) or not isinstance(self.post_executable, bool):
+            raise SimulationGateError("account executable flags must be booleans")
+        if self.pre_executable != self.post_executable:
+            raise SimulationGateError("account executable status changed during simulation")
+        for field in ("pre_data", "post_data"):
+            value = getattr(self, field)
+            if not isinstance(value, bytes) or len(value) > 1_048_576:
+                raise SimulationGateError(f"{field} must be immutable bytes of at most 1 MiB")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -121,6 +158,7 @@ class SimulationEvidence:
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
     inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
+    account_states: tuple[SimulatedAccountState, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -157,6 +195,16 @@ class SimulationEvidence:
                 raise SimulationGateError("full inner instruction evidence count differs from the program trace")
             if tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids:
                 raise SimulationGateError("full inner instruction program IDs differ from the program trace")
+        if not isinstance(self.account_states, tuple) or any(
+            not isinstance(item, SimulatedAccountState) for item in self.account_states
+        ):
+            raise SimulationGateError("account_states must be an immutable tuple of validated account snapshots")
+        account_addresses = [item.address for item in self.account_states]
+        if len(account_addresses) != len(set(account_addresses)):
+            raise SimulationGateError("simulation contains duplicate generic account snapshots")
+        token_addresses = {item.token_account for item in self.token_balances}
+        if token_addresses.intersection(account_addresses):
+            raise SimulationGateError("generic account snapshots must not duplicate token-balance snapshots")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")

@@ -61,6 +61,7 @@ class DecodedMeteoraDlmmSwap:
     reserve_y: str
     user_token_in: str
     user_token_out: str
+    bitmap_extension: str
     token_x_mint: str
     token_y_mint: str
     oracle: str
@@ -127,6 +128,7 @@ def decode_meteora_dlmm_swap(data: bytes, account_keys: tuple[str, ...], *, poli
         reserve_y=account_keys[3],
         user_token_in=account_keys[4],
         user_token_out=account_keys[5],
+        bitmap_extension=account_keys[1],
         token_x_mint=account_keys[6],
         token_y_mint=account_keys[7],
         oracle=account_keys[8],

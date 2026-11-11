@@ -272,3 +272,18 @@ Implemented in `veltrix/meteora_dlmm_cpi.py`, pinned to Meteora's `dlmm.json` ID
 - Supports only pure Metis routes composed entirely of Meteora DLMM hops. Other DEX labels, mixed routes, unrecognized Meteora instructions, Token-2022, host-fee accounts, and unpinned program IDs fail closed.
 - The decoder does not yet fetch and decode the Meteora LB-pair account, verify reserve/oracle relationships, or inspect token-account mint/authority state for the DEX CPI's `user_token_in`/`user_token_out` accounts. Therefore this is an instruction-semantic gate, not complete pool-state certification or live-execution approval.
 - No signing, wallet approval, Jupiter `/execute`, transaction submission or broadcast is implemented.
+
+
+### 09.17 — same-slot account snapshots and Meteora LB-pair state
+
+Implemented generic account capture in `SimulatedAccountState`, the RPC adapter's optional `additional_account_addresses` parameter, and Meteora pool-state checks in `veltrix/meteora_dlmm_pool_state.py`.
+
+- Captures pre-state via `getMultipleAccounts` and simulated post-state via `simulateTransaction.accounts` for caller-selected accounts, all at the same confirmed context slot as the token balance evidence.
+- Resolves selected accounts only if they are part of the structurally validated transaction message. Caps combined token + generic snapshots at 100 accounts and each generic account payload at 1 MiB.
+- Preserves owner program ID, lamports, executable flag, and raw pre/post account data. Rejects owner/executable changes, missing account values, invalid base64, non-canonical owners and oversized data.
+- Adds `extract_instruction_account_keys` to obtain the ordered unique account metas for exactly one pinned target instruction. The orchestration layer can pass those Jupiter route account keys (excluding already tracked user token ATAs) into `simulate(additional_account_addresses=...)`.
+- Decodes the Meteora `LbPair` account at its pinned 904-byte IDL layout, verifies the token mint/reserve/oracle links remain stable across simulation, and checks the pool's reserve addresses against the actual CPI accounts.
+- Decodes classic 165-byte SPL reserve token accounts and verifies their mints against the LB-pair. Verifies Meteora Oracle and optional BinArrayBitmapExtension account ownership/discriminators.
+- Requires the Meteora CPI's user input/output accounts to be the taker's exact classic associated token accounts, whose mint/owner/balance deltas are independently captured by SimulationGate and the quote-to-balance effect gate.
+- Pool-state approval currently supports exactly one Meteora DLMM hop. It does not certify reserve authority relationships, bin-array liquidity, price impact from pool state, or every dynamic oracle field. Those remain additional review gates.
+- No signing, Jupiter `/execute`, transaction submission or broadcast is implemented.
