@@ -2,7 +2,7 @@
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickState};
+use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayState, TickState};
 use anchor_lang::prelude::Pubkey;
 use serde_json::Value;
 
@@ -483,5 +483,42 @@ fn python_pool_post_swap_finalization_vectors_match_pinned_raydium_pool_state() 
         assert_eq!(actual_dynamic_volatility_reference, expected["dynamic_volatility_reference"].as_u64().unwrap() as u32);
         assert_eq!(actual_dynamic_volatility_accumulator, expected["dynamic_volatility_accumulator"].as_u64().unwrap() as u32);
         assert_eq!(actual_dynamic_timestamp, expected["dynamic_last_update_timestamp"].as_u64().unwrap());
+    }
+}
+
+
+#[test]
+fn python_default_tick_array_bitmap_vectors_match_pinned_raydium_pool_state() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["tick_array_bitmap"].as_array().expect("default bitmap vectors");
+    assert_eq!(cases.len(), 5);
+
+    for case in cases {
+        let spacing = case["tick_spacing"].as_u64().unwrap() as u16;
+        let start_index = case["start_index"].as_i64().unwrap() as i32;
+        let mut pool = PoolState::default();
+        pool.tick_spacing = spacing;
+        pool.flip_tick_array_bit(None, start_index)
+            .unwrap_or_else(|error| panic!("Rust bitmap flip failed at {start_index}: {error:?}"));
+        let actual_bitmap = pool.tick_array_bitmap;
+        let expected = case["expected_bitmap"].as_array().unwrap();
+        for index in 0..16 {
+            let actual_word = actual_bitmap[index];
+            assert_eq!(
+                actual_word,
+                expected[index].as_u64().unwrap(),
+                "bitmap word {index} mismatch at tick-array start {start_index}"
+            );
+        }
+        assert_eq!(
+            TickArrayState::tick_count(spacing),
+            60,
+            "tick-array size mismatch for spacing {spacing}"
+        );
+
+        pool.flip_tick_array_bit(None, start_index)
+            .unwrap_or_else(|error| panic!("Rust bitmap clear failed at {start_index}: {error:?}"));
+        let cleared_bitmap = pool.tick_array_bitmap;
+        assert!(cleared_bitmap.iter().all(|word| *word == 0));
     }
 }
