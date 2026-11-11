@@ -386,8 +386,9 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     for _, program, account_indexes, data in inner_flat:
         if program == ATA_PROGRAM:
             names = inner_account_names(account_indexes)
-            _expect(data in {b"\x00", b"\x01"} and len(names) == 6,
-                    "associated-token CPI is not create/create-idempotent")
+            _expect(data in {b"\\x00", b"\\x01"} and len(names) == 6,
+                    "associated-token CPI shape mismatch: data=" + data.hex() +
+                    ", accounts=" + repr(names))
             payer, ata, owner, mint, system_program, token_program = names
             _expect(payer == WALLET and ata in allowed_user_atas and owner == WALLET,
                     "associated-token CPI payer, owner or destination is unexpected")
