@@ -510,3 +510,55 @@ def test_live_bitmap_cursor_rejects_stale_pool_and_tick_array_commitments():
             current_tick_index=0,
             zero_for_one=True,
         )
+
+
+def test_live_bitmap_cursor_uses_active_array_start_after_tick_crossing():
+    pool, current_array, observation, vaults = fixture()
+    ticks = []
+    for offset, original in enumerate(current_array.ticks):
+        index = -600 + offset * pool.tick_spacing
+        if offset == 59:
+            ticks.append(replace(
+                original,
+                tick_index=index,
+                liquidity_net=1,
+                liquidity_gross=1,
+                initialized=True,
+            ))
+        else:
+            ticks.append(replace(original, tick_index=index))
+    next_array = replace(
+        current_array,
+        address=derive_raydium_clmm_tick_array_address(
+            pool_address=pool.pool_address, start_tick_index=-600
+        ),
+        start_tick_index=-600,
+        ticks=tuple(ticks),
+        initialized_tick_count=1,
+        data_sha256="",
+    )
+    next_bytes = encode_raydium_clmm_tick_array(next_array)
+    next_array = replace(
+        next_array, data_sha256=hashlib.sha256(next_bytes).hexdigest()
+    )
+    words = list(pool.tick_array_bitmap)
+    words[7] |= 1 << 63
+    updated_pool = replace(pool, tick_array_bitmap=tuple(words))
+    pool_bytes = encode_raydium_clmm_pool_state(updated_pool)
+    updated_pool = replace(
+        updated_pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    # PoolState.tick_current is still the pre-swap tick (0), while the active
+    # swap cursor moved to -1 and remains attached to the previously selected
+    # array start (0) until the bitmap chooses the next array.
+    result = select_next_initialized_tick_from_live_bitmap(
+        updated_pool,
+        tick_arrays=(current_array, next_array),
+        current_tick_index=-1,
+        zero_for_one=True,
+        current_array_start_index=0,
+    )
+    assert result.cursor.tick.tick_index == -10
+    assert result.visited_array_starts == (0, -600)
