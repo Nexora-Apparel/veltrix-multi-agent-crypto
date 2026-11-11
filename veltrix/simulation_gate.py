@@ -204,6 +204,9 @@ class SimulationEvidence:
         account_addresses = tuple(item.address for item in self.account_states)
         if len(account_addresses) != len(set(account_addresses)):
             raise SimulationGateError("simulation contains duplicate raw account-state records")
+        token_addresses = {item.token_account for item in self.token_balances}
+        if token_addresses.intersection(account_addresses):
+            raise SimulationGateError("raw account-state records must not duplicate tracked token balance accounts")
         if not isinstance(self.logs, tuple) or len(self.logs) > 512 or any(
             not isinstance(line, str) or len(line) > 4096 for line in self.logs
         ) or sum(len(line.encode("utf-8")) for line in self.logs) > 65_536:
