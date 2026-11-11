@@ -73,7 +73,7 @@ class FakeSession:
             assert params[1]["sigVerify"] is False
             assert params[1]["replaceRecentBlockhash"] is False
             assert params[1]["encoding"] == "base64"
-            assert params[1]["accounts"]["addresses"] == self.fixture["addresses"]
+            assert params[1]["accounts"]["addresses"] == self.fixture.get("simulation_addresses", self.fixture["addresses"])
             result = {
                 "context": {"slot": self.fixture["slot"]},
                 "value": {
@@ -81,6 +81,7 @@ class FakeSession:
                     "unitsConsumed": 120_000,
                     "accounts": self.fixture["post_accounts"],
                     "innerInstructions": self.fixture.get("inner_instructions", []),
+                    "logs": self.fixture.get("logs", []),
                 },
             }
         elif method == "getGenesisHash":
@@ -749,4 +750,85 @@ def test_rejects_mismatched_detailed_cpi_trace_in_simulation_evidence():
             fee_lamports=1, token_balances=(), inner_program_ids=("program-a",),
             inner_instruction_count=1,
             inner_instructions=(SimulatedInnerInstruction(0, "program-b", (), bytes([1]), 1),),
+        )
+
+
+def raw_account_info(owner, data, *, lamports=1, executable=False):
+    return {
+        "owner": owner,
+        "lamports": lamports,
+        "executable": executable,
+        "data": [base64.b64encode(data).decode("ascii"), "base64"],
+        "space": len(data),
+    }
+
+
+def test_simulation_captures_observed_account_pre_and_post_bytes_at_same_slot():
+    raw, intent, tx_policy, expected, fixture_data = fixture()
+    observed = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    pre_data = b"pool-state-before"
+    post_data = b"pool-state-after!"
+    fixture_data["simulation_addresses"] = fixture_data["addresses"] + [observed]
+    fixture_data["pre_accounts"].append(raw_account_info(owner, pre_data, lamports=10))
+    fixture_data["post_accounts"].append(raw_account_info(owner, post_data, lamports=11))
+    fixture_data["logs"] = ["Program log: simulated swap", "Program consumed 120000 units"]
+    session = FakeSession(fixture_data)
+    result = adapter(session).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+        observed_account_addresses=(observed,),
+    )
+    evidence = result.evidence
+    assert len(evidence.account_states) == 1
+    state = evidence.account_states[0]
+    assert state.address == observed
+    assert state.pre_owner == owner == state.post_owner
+    assert state.pre_lamports == 10 and state.post_lamports == 11
+    assert state.pre_data == pre_data and state.post_data == post_data
+    assert state.pre_data_sha256 == __import__("hashlib").sha256(pre_data).hexdigest()
+    assert state.post_data_sha256 == __import__("hashlib").sha256(post_data).hexdigest()
+    assert evidence.logs == tuple(fixture_data["logs"])
+    assert evidence.context_slot == 500
+    request = next(call for call in session.calls if call["method"] == "simulateTransaction")
+    assert request["params"][1]["accounts"]["addresses"] == fixture_data["simulation_addresses"]
+
+
+def test_simulation_rejects_duplicate_or_token_overlapping_observed_accounts():
+    raw, intent, tx_policy, expected, fixture_data = fixture()
+    rpc = adapter(FakeSession(fixture_data))
+    token_address = fixture_data["addresses"][0]
+    with pytest.raises(SolanaRpcAdapterError, match="must not contain duplicates"):
+        rpc.simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950,
+            observed_account_addresses=(token_address, token_address),
+        )
+    with pytest.raises(SolanaRpcAdapterError, match="must not duplicate tracked token accounts"):
+        rpc.simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950,
+            observed_account_addresses=(token_address,),
+        )
+
+
+def test_simulation_rejects_observed_account_owner_change():
+    raw, intent, tx_policy, expected, fixture_data = fixture()
+    observed = str(Pubkey.new_unique())
+    fixture_data["simulation_addresses"] = fixture_data["addresses"] + [observed]
+    owner = str(Pubkey.new_unique())
+    fixture_data["pre_accounts"].append(raw_account_info(owner, b"before"))
+    fixture_data["post_accounts"].append(raw_account_info(str(Pubkey.new_unique()), b"after"))
+    with pytest.raises(SolanaRpcAdapterError, match="owner or executable status changed"):
+        adapter(FakeSession(fixture_data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950,
+            observed_account_addresses=(observed,),
         )
