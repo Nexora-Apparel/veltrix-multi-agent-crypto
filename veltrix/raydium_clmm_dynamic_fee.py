@@ -38,8 +38,8 @@ def _u32(value: int, name: str) -> int:
 
 
 def tick_spacing_index_from_tick(tick_index: int, tick_spacing: int) -> int:
-    if isinstance(tick_index, bool) or not isinstance(tick_index, int):
-        raise RaydiumDynamicFeeError("tick_index must be an integer")
+    if isinstance(tick_index, bool) or not isinstance(tick_index, int) or not -(1 << 31) <= tick_index < (1 << 31):
+        raise RaydiumDynamicFeeError("tick_index must fit i32")
     if isinstance(tick_spacing, bool) or not isinstance(tick_spacing, int) or not 1 <= tick_spacing <= 0xFFFF:
         raise RaydiumDynamicFeeError("tick_spacing must fit non-zero u16")
     quotient = abs(tick_index) // tick_spacing
@@ -59,8 +59,8 @@ def update_dynamic_fee_reference(
 ) -> RaydiumClmmDynamicFeeInfo:
     if not isinstance(info, RaydiumClmmDynamicFeeInfo) or not info.enabled:
         raise RaydiumDynamicFeeError("enabled DynamicFeeInfo is required")
-    if isinstance(tick_spacing_index, bool) or not isinstance(tick_spacing_index, int):
-        raise RaydiumDynamicFeeError("tick_spacing_index must be an integer")
+    if isinstance(tick_spacing_index, bool) or not isinstance(tick_spacing_index, int) or not -(1 << 31) <= tick_spacing_index < (1 << 31):
+        raise RaydiumDynamicFeeError("tick_spacing_index must fit i32")
     if isinstance(current_timestamp, bool) or not isinstance(current_timestamp, int) or not 0 <= current_timestamp <= 0xFFFFFFFFFFFFFFFF:
         raise RaydiumDynamicFeeError("current_timestamp must fit u64")
     elapsed = max(0, current_timestamp - info.last_update_timestamp)
@@ -90,8 +90,8 @@ def update_volatility_accumulator(
 ) -> RaydiumClmmDynamicFeeInfo:
     if not isinstance(info, RaydiumClmmDynamicFeeInfo) or not info.enabled:
         raise RaydiumDynamicFeeError("enabled DynamicFeeInfo is required")
-    if isinstance(tick_spacing_index, bool) or not isinstance(tick_spacing_index, int):
-        raise RaydiumDynamicFeeError("tick_spacing_index must be an integer")
+    if isinstance(tick_spacing_index, bool) or not isinstance(tick_spacing_index, int) or not -(1 << 31) <= tick_spacing_index < (1 << 31):
+        raise RaydiumDynamicFeeError("tick_spacing_index must fit i32")
     index_delta = abs(info.tick_spacing_index_reference - tick_spacing_index)
     raw = info.volatility_reference + index_delta * VOLATILITY_ACCUMULATOR_SCALE
     return replace(
@@ -158,8 +158,14 @@ def update_dynamic_fee_index(
         raise RaydiumDynamicFeeError("enabled DynamicFeeInfo is required")
     if not isinstance(zero_for_one, bool) or not isinstance(is_skipped_tick_spacing, bool):
         raise RaydiumDynamicFeeError("swap direction and skipped-spacing flags must be booleans")
-    if isinstance(current_index, bool) or not isinstance(current_index, int):
-        raise RaydiumDynamicFeeError("current_index must be an integer")
+    if isinstance(current_index, bool) or not isinstance(current_index, int) or not -(1 << 31) <= current_index < (1 << 31):
+        raise RaydiumDynamicFeeError("current_index must fit i32")
+    if isinstance(tick, bool) or not isinstance(tick, int) or not -(1 << 31) <= tick < (1 << 31):
+        raise RaydiumDynamicFeeError("tick must fit i32")
+    if isinstance(tick_next, bool) or not isinstance(tick_next, int) or not -(1 << 31) <= tick_next < (1 << 31):
+        raise RaydiumDynamicFeeError("tick_next must fit i32")
+    if isinstance(tick_spacing, bool) or not isinstance(tick_spacing, int) or not 1 <= tick_spacing <= 0xFFFF:
+        raise RaydiumDynamicFeeError("tick_spacing must fit non-zero u16")
     next_info = info
     next_index = current_index
     if is_skipped_tick_spacing:
@@ -190,6 +196,10 @@ def get_spacing_bounded_price(
         raise RaydiumDynamicFeeError("target price must be a positive integer")
     if isinstance(liquidity, bool) or not isinstance(liquidity, int) or liquidity < 0:
         raise RaydiumDynamicFeeError("liquidity must be a non-negative integer")
+    if isinstance(tick_spacing_index, bool) or not isinstance(tick_spacing_index, int) or not -(1 << 31) <= tick_spacing_index < (1 << 31):
+        raise RaydiumDynamicFeeError("tick_spacing_index must fit i32")
+    if isinstance(tick_spacing, bool) or not isinstance(tick_spacing, int) or not 1 <= tick_spacing <= 0xFFFF:
+        raise RaydiumDynamicFeeError("tick_spacing must fit non-zero u16")
     if not isinstance(dynamic_fee_info, RaydiumClmmDynamicFeeInfo):
         raise RaydiumDynamicFeeError("DynamicFeeInfo is required")
     if not dynamic_fee_info.enabled or liquidity == 0 or (
