@@ -72,6 +72,7 @@ def test_first_initialized_tick_sets_default_bitmap_and_count():
     result = apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0))
     assert result.tick_array.initialized_tick_count == 1
     assert result.tick_array.recent_epoch == 2
+    assert result.tick_array.data_sha256 == ""
     assert result.pool.account_data_sha256 == ""
     assert result.initialized_before is False and result.initialized_after is True
     assert result.bitmap_changed is True
