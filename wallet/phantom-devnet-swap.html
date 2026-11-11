@@ -415,7 +415,7 @@
         ataAccounts.join("|")!==[wallet.toBase58(),swapAccounts[5],wallet.toBase58(),USDC,SYSTEM,TOKEN].join("|")) {
       fail("Devnet USDC associated-token-account creation mismatch");
     }
-    const decoded=decodeCpmmSwapData(swap.data);
+    const decoded=decodeCpmmSwapData(swap.data,BigInt(String(quote.otherAmountThreshold)));
     if (swapAccounts.length!==13 || swapAccounts[0]!==wallet.toBase58() ||
         swapAccounts[3]!==POOL || swapAccounts[4]===swapAccounts[5] ||
         swapAccounts[8]!==TOKEN || swapAccounts[9]!==TOKEN ||
@@ -528,13 +528,13 @@
       resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
       directCpmm:"verified",runtime};
   }
-  function decodeCpmmSwapData(data) {
+  function decodeCpmmSwapData(data, expectedMinimum=0n) {
     const discriminator = Uint8Array.from([143,190,90,218,196,30,51,222]);
     if (!(data instanceof Uint8Array) || data.length !== 24 || !equalBytes(data.slice(0,8),discriminator)) {
       fail("CPMM SwapBaseInput discriminator/length mismatch");
     }
     const amountIn = readU64(data,8), minimumAmountOut = readU64(data,16);
-    if (amountIn !== BigInt(TEST_LAMPORTS) || minimumAmountOut !== 0n) {
+    if (amountIn !== BigInt(TEST_LAMPORTS) || minimumAmountOut !== BigInt(expectedMinimum)) {
       fail("CPMM exact-input or inner-minimum semantics changed");
     }
     return {amountIn,minimumAmountOut};
