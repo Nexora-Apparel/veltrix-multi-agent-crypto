@@ -92,6 +92,17 @@ def test_first_array_fallback_uses_directional_first_tick_once():
     assert result.advanced_tick_array is False
 
 
+def test_zero_for_one_first_array_fallback_selects_highest_initialized_tick():
+    arrays = (array(-120, 1, {1, 12, 58}), array(-180, 1, {3}))
+    result = select_next_initialized_tick(
+        tick_arrays=arrays, traversal=traversal([-120, -180], True),
+        current_tick=-60, current_tick_array_index=0, tick_spacing=1,
+        zero_for_one=True, first_tick_array_contains_pool_tick=False,
+    )
+    assert result.tick.tick_index == -62
+    assert result.first_tick_array_contains_pool_tick is True
+
+
 def test_empty_current_array_advances_to_next_bitmap_selected_array():
     arrays = (array(0, 1, set()), array(60, 1, {4, 50}))
     result = select_next_initialized_tick(
@@ -125,6 +136,16 @@ def test_bitmap_selected_arrays_may_skip_empty_array_intervals():
     )
     assert result.tick.tick_index == 184
     assert result.tick_array_index == 1
+
+
+def test_rejects_first_array_fallback_after_initial_array():
+    arrays = (array(0, 1, {5}), array(60, 1, {4}))
+    with pytest.raises(RaydiumSwapLoopSelectionError, match="initial CPI array"):
+        select_next_initialized_tick(
+            tick_arrays=arrays, traversal=traversal([0, 60], False),
+            current_tick=65, current_tick_array_index=1, tick_spacing=1,
+            zero_for_one=False, first_tick_array_contains_pool_tick=False,
+        )
 
 
 def test_rejects_missing_next_tick_array_instead_of_guessing():
