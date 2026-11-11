@@ -56,8 +56,7 @@
   "use strict";
   const RPC = "https://api.devnet.solana.com";
   const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-  const TRADE = "https://transaction-v1-devnet.raydium.io";
-  const SOL = "So11111111111111111111111111111111111111112";
+    const SOL = "So11111111111111111111111111111111111111112";
   const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
   const TEST_LAMPORTS = 1000000;
   const MAX_LAMPORTS = TEST_LAMPORTS;
@@ -78,7 +77,7 @@
   ]);
   const $ = id => document.getElementById(id);
   const connection = new solanaWeb3.Connection(RPC, "confirmed");
-  let provider = null, wallet = null, prepared = null, busy = false;
+  let provider = null, wallet = null, prepared = null, busy = false, directSdkPromise = null;
 
   function status(message, kind) {
     $("status").textContent = message;
@@ -94,7 +93,7 @@
     busy = value;
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
-    $("execute").disabled = value || !prepared;
+    $("execute").disabled = true;
     $("amount").disabled = value;
   }
   function getProvider() {
@@ -681,6 +680,15 @@
       resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
       router:{setup:"verified",route:"verified",cleanup:"verified"},cpmmCpi:"verified",runtime:cpi};
   }
+  async function loadDirectCpmmSdk() {
+    if (!directSdkPromise) {
+      directSdkPromise = Promise.all([
+        import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle"),
+        import("https://esm.sh/bn.js@5.2.2")
+      ]).then(([sdk,bn])=>({sdk,BN:bn.default}));
+    }
+    return directSdkPromise;
+  }
   async function prepareQuote() {
     if (!wallet) throw new Error("Connect Phantom first.");
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
@@ -693,51 +701,86 @@
     const balance = await refreshBalance();
     const tokenBalanceBefore = await tokenBalanceRaw();
     if (balance < lamports + RESERVE_LAMPORTS) throw new Error("Insufficient Devnet SOL after preserving the 0.05 SOL reserve.");
-    const quote = await json(TRADE + "/compute/swap-base-in?" + new URLSearchParams({
-      inputMint:SOL,outputMint:USDC,amount:String(lamports),slippageBps:"100",txVersion:"V0"
-    }));
-    const q = quote.data;
-    if (quote.success !== true || !q || q.inputMint !== SOL || q.outputMint !== USDC) throw new Error("Raydium did not return a valid Devnet SOL/USDC quote.");
-    if (!Array.isArray(q.routePlan) || q.routePlan.length !== 1 ||
-        q.routePlan[0].poolId !== POOL) {
-      throw new Error("Only the independently audited single-hop Devnet CPMM pool is accepted. Multi-hop or changed-pool routes are rejected.");
-    }
-    const impact = Number(q.priceImpactPct);
-    if (!Number.isFinite(impact) || impact < 0 || impact > MAX_IMPACT) throw new Error("Price impact is missing, invalid or above the 2% safety ceiling. No transaction built.");
-    const built = await json(TRADE + "/transaction/swap-base-in", {
-      method:"POST",headers:{"content-type":"application/json"},
-      body:JSON.stringify({computeUnitPriceMicroLamports:"50000",swapResponse:quote,txVersion:"V0",wallet:wallet.toBase58(),wrapSol:true,unwrapSol:false})
+
+    const {sdk,BN} = await loadDirectCpmmSdk();
+    const {Raydium,TxVersion,CurveCalculator,FeeOn} = sdk;
+    const raydium = await Raydium.load({
+      owner:wallet,connection,cluster:"devnet",disableFeatureCheck:true,disableLoadToken:true,
+      blockhashCommitment:"finalized",
+      urlConfigs:{
+        BASE_HOST:"https://api-v3-devnet.raydium.io",
+        OWNER_BASE_HOST:"https://owner-v1-devnet.raydium.io",
+        SWAP_HOST:"https://transaction-v1-devnet.raydium.io",
+        CPMM_LOCK:"https://dynamic-ipfs-devnet.raydium.io/lock/cpmm/position"
+      }
     });
-    if (built.success !== true || !Array.isArray(built.data) || built.data.length !== 1) {
-      throw new Error("The authorized route must build exactly one transaction; multi-transaction bundles are rejected.");
+    const pool = await raydium.cpmm.getPoolInfoFromRpc(POOL);
+    const {poolInfo,poolKeys,rpcData}=pool;
+    if (poolInfo.id !== POOL || poolInfo.programId !== CPMM) throw new Error("Live RPC pool identity/program mismatch.");
+    const mintA=poolInfo.mintA.address, mintB=poolInfo.mintB.address;
+    if (![mintA,mintB].includes(SOL) || ![mintA,mintB].includes(USDC)) throw new Error("Pinned CPMM pool mint pair is not WSOL/Devnet USDC.");
+    const baseIn=mintA===SOL;
+    const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
+    const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
+    const inputAmount=new BN(String(lamports));
+    const swapResult=CurveCalculator.swapBaseInput(
+      inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
+      rpcData.configInfo.creatorFeeRate,rpcData.configInfo.protocolFeeRate,rpcData.configInfo.fundFeeRate,
+      rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB
+    );
+    if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) throw new Error("Live CPMM quote output is zero.");
+    const spotOutput=inputAmount.mul(reserveOut).div(reserveIn);
+    const impact=Number(spotOutput.sub(swapResult.outputAmount).toString())/Number(spotOutput.toString())*100;
+    if (!Number.isFinite(impact) || impact<0 || impact>MAX_IMPACT) throw new Error("Direct CPMM price impact exceeds the 2% safety ceiling.");
+    const minimumOut=swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
+    if (minimumOut.lte(new BN(0))) throw new Error("Computed 1% slippage floor is zero.");
+
+    const built=await raydium.cpmm.swap({
+      poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.V0,
+      ownerInfo:{wallet,useSOLBalance:true}
+    });
+    if (!built || !built.transaction || typeof built.transaction.serialize!=="function") {
+      throw new Error("Raydium SDK did not return a serializable direct CPMM transaction.");
     }
-    const txs = [], reviewedBytes = [], programSet = new Set(); let totalFee = 0;
-    for (const item of built.data) {
-      if (!item || typeof item.transaction !== "string") throw new Error("Malformed unsigned transaction bundle.");
-      const bytes = Uint8Array.from(atob(item.transaction), c => c.charCodeAt(0));
-      const tx = solanaWeb3.VersionedTransaction.deserialize(bytes);
-      const snapshot = snapshotUnsignedTransaction(tx);
-      const semanticAudit = await inspectTransaction(tx, q, snapshot);
-      const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
-      if (simulation.value.err) throw new Error("Devnet simulation rejected transaction: " + JSON.stringify(simulation.value.err));
-      const fee = await connection.getFeeForMessage(tx.message, "confirmed");
-      if (fee.value !== null) totalFee += fee.value;
-      tx.message.compiledInstructions.forEach(ix => programSet.add(tx.message.staticAccountKeys[ix.programIdIndex].toBase58()));
-      txs.push(tx);
-      reviewedBytes.push(snapshot);
-      if (semanticAudit.resolvedAccountCount !== 18) fail("unexpected resolved account count");
+    const sdkBytes=Uint8Array.from(built.transaction.serialize());
+    const tx=solanaWeb3.VersionedTransaction.deserialize(sdkBytes);
+    if (tx.message.version!==0 || tx.signatures.length!==1 ||
+        tx.signatures.some(sig=>sig.some(byte=>byte!==0))) {
+      throw new Error("Direct CPMM builder returned a non-v0, signed or multi-signer transaction.");
     }
-    prepared = {txs, reviewedBytes, quote:q, impact, lamports, totalFee, programs:[...programSet],
-      tokenBalanceBefore:tokenBalanceBefore.toString(), preparedAt:Date.now(), walletAddress:wallet.toBase58()};
-    $("inputValue").textContent = fmtRaw(lamports,9) + " SOL";
-    $("outputValue").textContent = fmtRaw(q.outputAmount,6) + " USDC";
-    $("minimumValue").textContent = fmtRaw(q.otherAmountThreshold,6) + " USDC";
-    $("impactValue").textContent = impact.toFixed(3) + "%";
-    $("poolsValue").textContent = q.routePlan.length + " route hop(s)";
-    $("feeValue").textContent = totalFee ? (totalFee / 1e9).toFixed(6) + " SOL (network fee estimate)" : "Unavailable";
+    const cpmmIndex=tx.message.compiledInstructions.findIndex(ix=>
+      tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
+    if(cpmmIndex<0) fail("SDK-built transaction does not contain a direct CPMM instruction");
+    const cpmmData=new Uint8Array(tx.message.compiledInstructions[cpmmIndex].data);
+    if(cpmmData.length!==24 || [...cpmmData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("")!==CPMM_SWAP_DISC ||
+       readU64(cpmmData,8)!==BigInt(lamports)) fail("SDK CPMM instruction discriminator/input mismatch");
+    for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumOut.toBigInt()>>BigInt(i*8))&255n);
+    tx.message.compiledInstructions[cpmmIndex].data=cpmmData;
+
+    const q={inputMint:SOL,outputMint:USDC,inputAmount:String(lamports),
+      outputAmount:swapResult.outputAmount.toString(),otherAmountThreshold:minimumOut.toString(),
+      priceImpactPct:impact,routePlan:[{poolId:POOL}]};
+    const reviewedBytes=snapshotUnsignedTransaction(tx);
+    const semanticAudit=await inspectDirectCpmmTransaction(tx,q,reviewedBytes);
+    if(semanticAudit.directCpmm!=="verified" || semanticAudit.resolvedAccountCount!==16 ||
+       semanticAudit.runtime.adversarialRejected!==true) {
+      fail("fresh direct CPMM browser semantic audit did not pass all release checks");
+    }
+    const fee=await connection.getFeeForMessage(tx.message,"confirmed");
+    const totalFee=fee.value===null?0:fee.value;
+    prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
+      programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
+      preparedAt:Date.now(),walletAddress:wallet.toBase58(),semanticAudit};
+    $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
+    $("outputValue").textContent=fmtRaw(q.outputAmount,6)+" USDC";
+    $("minimumValue").textContent=fmtRaw(q.otherAmountThreshold,6)+" USDC";
+    $("impactValue").textContent=impact.toFixed(3)+"%";
+    $("poolsValue").textContent="1 direct CPMM pool";
+    $("feeValue").textContent=totalFee?(totalFee/1e9).toFixed(6)+" SOL (network fee estimate)":"Unavailable";
     $("review").classList.remove("hidden");
-    $("execute").disabled = false;
-    status("Quote built and simulated on Devnet. Review all details, then explicitly approve in Phantom. Nothing has been signed or sent yet.","good");
+    $("execute").disabled=true;
+    $("execute").textContent="Phantom signing disabled";
+    status("Fresh single-pool CPMM transaction built. Canonical Devnet ALT, accounts, privileges, pool state, token transfers and one-unit-higher slippage rejection all passed. Phantom signing remains disabled.","good");
   }
   function invalidatePrepared(reason) {
     prepared = null;
@@ -746,6 +789,7 @@
     if (reason) status(reason, "warning");
   }
   async function execute() {
+    throw new Error("Phantom signing is disabled. The fresh browser audit passed, but the signing release gate has not been authorized.");
     if (!prepared || !provider || !wallet) throw new Error("No reviewed transaction is ready.");
     if (Date.now() - prepared.preparedAt > 60000) {
       invalidatePrepared("Review expired after 60 seconds. Request a fresh quote and transaction.");
