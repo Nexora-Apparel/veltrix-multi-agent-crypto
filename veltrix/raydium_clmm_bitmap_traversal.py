@@ -70,7 +70,12 @@ def _validate_extension(pool_address: str, extension, snapshot: RaydiumClmmTickA
         raise RaydiumClmmBitmapTraversalError("bitmap extension words belong to a different pool")
     if extension.address != snapshot.bitmap_extension_address:
         raise RaydiumClmmBitmapTraversalError("decoded bitmap extension address differs from the CPI snapshot")
-    if extension.data_sha256 != snapshot.bitmap_extension_sha256:
+    if (
+        extension.data_sha256 != snapshot.bitmap_extension_sha256
+        or not isinstance(extension.data_sha256, str)
+        or len(extension.data_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in extension.data_sha256)
+    ):
         raise RaydiumClmmBitmapTraversalError("decoded bitmap extension digest differs from the CPI snapshot")
     if (
         len(extension.positive_bitmaps) != EXTENSION_BITMAP_BLOCKS * EXTENSION_BITMAP_WORDS_PER_BLOCK
