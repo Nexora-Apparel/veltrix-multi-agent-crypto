@@ -31,6 +31,7 @@ from veltrix.solana_rpc_simulation import (
     SolanaRpcAdapterError,
     SolanaRpcSimulationAdapter,
 )
+from veltrix.simulation_gate import SimulationEvidence
 from veltrix.transaction_validator import TransactionValidationResult
 
 
@@ -169,6 +170,25 @@ def fixture(*, owner=None, data=b"pool-state-data-contents", lamports=2_000_000,
             allowed_dex_labels=("Raydium CLMM",),
         ),
     )
+    simulation = SimulationEvidence(
+        message_sha256=route_inspection.message_sha256,
+        recent_blockhash=order.recent_blockhash,
+        cluster="mainnet-beta",
+        genesis_hash="test-genesis",
+        provider_id="rpc-primary",
+        response_id="simulation-500",
+        observed_at_epoch_ms=1_000_000,
+        context_slot=500,
+        current_block_height=900,
+        last_valid_block_height=950,
+        simulation_error=None,
+        units_consumed=100_000,
+        fee_lamports=5_000,
+        token_balances=(),
+        top_level_program_ids=(JUPITER_V6_PROGRAM_ID,),
+        inner_program_ids=(str(dex_program),),
+        inner_instruction_count=1,
+    )
     pairs = tuple(sorted((
         (JUPITER_V6_PROGRAM_ID, "Jupiter V6"),
         (str(dex_program), "Raydium CLMM"),
@@ -202,18 +222,18 @@ def fixture(*, owner=None, data=b"pool-state-data-contents", lamports=2_000_000,
         session=session,
         clock_ms=lambda: 1_005_000,
     )
-    return order, route_inspection, registry, route_policy, rpc, session, str(dex_program), str(amm_key)
+    return order, route_inspection, registry, route_policy, simulation, rpc, session, str(dex_program), str(amm_key)
 
 
-def fetch(values=None, *, min_context_slot=500, policy=None):
-    order, inspection, registry, route_policy, rpc, *_ = values or fixture()
+def fetch(values=None, *, policy=None):
+    order, inspection, registry, route_policy, simulation, rpc, *_ = values or fixture()
     return fetch_dex_pool_owner_evidence(
         order,
         route_inspection=inspection,
         registry=registry,
         route_policy=route_policy,
+        simulation=simulation,
         rpc_adapter=rpc,
-        min_context_slot=min_context_slot,
         policy=policy,
     )
 
@@ -224,6 +244,8 @@ def test_accepts_pinned_pool_owner_and_records_account_data_hash():
     dex_program, amm_key = values[-2], values[-1]
     assert result.execution_ready is False
     assert result.context_slot == 500
+    assert result.simulation_context_slot == 500
+    assert result.simulation_response_id == "simulation-500"
     assert result.provider_id == "rpc-primary"
     assert len(result.accounts) == 1
     account = result.accounts[0]
@@ -237,10 +259,10 @@ def test_accepts_pinned_pool_owner_and_records_account_data_hash():
 
 def test_requests_pool_accounts_at_or_after_simulation_slot():
     values = fixture()
-    result = fetch(values, min_context_slot=499)
-    request = next(call for call in values[5].calls if call["method"] == "getMultipleAccounts")
-    assert request["params"][1]["minContextSlot"] == 499
-    assert result.context_slot >= 499
+    result = fetch(values)
+    request = next(call for call in values[6].calls if call["method"] == "getMultipleAccounts")
+    assert request["params"][1]["minContextSlot"] == 500
+    assert result.context_slot >= result.simulation_context_slot
 
 
 def test_rejects_pool_account_owned_by_another_program():
@@ -266,7 +288,7 @@ def test_rejects_missing_pool_account_or_zero_lamports():
 
 def test_rejects_snapshot_older_than_simulation_slot():
     with pytest.raises(SolanaRpcAdapterError, match="older than the required simulation slot"):
-        fetch(fixture(slot=499), min_context_slot=500)
+        fetch(fixture(slot=499))
 
 
 def test_rejects_wrong_cluster_genesis():
@@ -283,7 +305,7 @@ def test_rejects_pool_data_outside_configured_size_bounds():
 
 def test_rejects_registry_label_without_exactly_one_pinned_program():
     values = fixture()
-    order, inspection, registry, route_policy, rpc, *_ = values
+    order, inspection, registry, route_policy, simulation, rpc, *_ = values
     other = str(Pubkey.new_unique())
     pairs = tuple(sorted(registry.program_labels + ((other, "Raydium CLMM"),)))
     registry = JupiterProgramRegistrySnapshot(
@@ -298,14 +320,14 @@ def test_rejects_registry_label_without_exactly_one_pinned_program():
             route_inspection=inspection,
             registry=registry,
             route_policy=route_policy,
+            simulation=simulation,
             rpc_adapter=rpc,
-            min_context_slot=500,
         )
 
 
 def test_rejects_route_inspection_not_bound_to_exact_order_message():
     values = fixture()
-    order, inspection, registry, route_policy, rpc, *_ = values
+    order, inspection, registry, route_policy, simulation, rpc, *_ = values
     inspection = dataclasses.replace(inspection, message_sha256="0" * 64)
     with pytest.raises(DexPoolEvidenceError, match="exact order message"):
         fetch_dex_pool_owner_evidence(
@@ -313,6 +335,6 @@ def test_rejects_route_inspection_not_bound_to_exact_order_message():
             route_inspection=inspection,
             registry=registry,
             route_policy=route_policy,
+            simulation=simulation,
             rpc_adapter=rpc,
-            min_context_slot=500,
         )
