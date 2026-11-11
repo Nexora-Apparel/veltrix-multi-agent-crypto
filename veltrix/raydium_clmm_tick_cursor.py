@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from veltrix.raydium_clmm_pool_state import RAYDIUM_MAX_TICK, RAYDIUM_MIN_TICK
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
 from veltrix.raydium_clmm_replay_bundle import RaydiumClmmReplayAccountBundle
+from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolState
+from veltrix.raydium_clmm_tick_array_mutation import RaydiumClmmTickArrayBitmapExtension
+from veltrix.raydium_clmm_bitmap_cursor import (
+    RaydiumBitmapCursorError,
+    first_raydium_tick_array_start_index,
+    next_initialized_raydium_tick_array_start_index,
+)
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
@@ -260,4 +267,101 @@ def select_next_initialized_tick_from_bitmap_sequence(
         )
     raise RaydiumTickCursorError(
         "bitmap proves initialized arrays but no next initialized tick exists in the supplied direction"
+    )
+
+
+def select_next_initialized_tick_from_live_bitmap(
+    pool: RaydiumClmmPoolState,
+    *,
+    tick_arrays: tuple[RaydiumClmmTickArray, ...],
+    current_tick_index: int,
+    zero_for_one: bool,
+    bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
+) -> RaydiumBitmapTickSelection:
+    """Select the next tick from the current mutated PoolState/extension bitmap.
+
+    Unlike the one-shot CPI traversal proof selector, this function can be
+    called after each boundary mutation. It re-reads the updated bitmap and
+    therefore skips arrays whose last initialized tick was just removed.
+    """
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumTickCursorError("decoded Raydium PoolState is required")
+    if not isinstance(tick_arrays, tuple) or not tick_arrays:
+        raise RaydiumTickCursorError("supplied TickArrayState accounts are required")
+    if not isinstance(zero_for_one, bool):
+        raise RaydiumTickCursorError("swap direction must be boolean")
+    if not RAYDIUM_MIN_TICK <= current_tick_index <= RAYDIUM_MAX_TICK:
+        raise RaydiumTickCursorError("current tick is outside the Raydium protocol range")
+    by_start = {}
+    for item in tick_arrays:
+        if not isinstance(item, RaydiumClmmTickArray):
+            raise RaydiumTickCursorError("tick-array set contains a malformed account")
+        if item.pool_address != pool.pool_address or item.tick_spacing != pool.tick_spacing:
+            raise RaydiumTickCursorError("tick-array set contains an account for a different pool/spacing")
+        if item.start_tick_index in by_start:
+            raise RaydiumTickCursorError("tick-array set contains duplicate start indices")
+        by_start[item.start_tick_index] = item
+
+    try:
+        first_contains_current, first_start = first_raydium_tick_array_start_index(
+            pool,
+            zero_for_one=zero_for_one,
+            bitmap_extension=bitmap_extension,
+        )
+    except RaydiumBitmapCursorError as exc:
+        raise RaydiumTickCursorError(str(exc)) from exc
+    first_array = by_start.get(first_start)
+    if first_array is None:
+        raise RaydiumTickCursorError(
+            f"required initialized TickArrayState account is missing: {first_start}"
+        )
+
+    visited = [first_start]
+    if first_contains_current:
+        result = find_next_initialized_tick_in_array(
+            first_array,
+            current_tick_index=current_tick_index,
+            tick_spacing=pool.tick_spacing,
+            zero_for_one=zero_for_one,
+        )
+        if result is not None:
+            return RaydiumBitmapTickSelection(
+                cursor=result,
+                sequence_index=0,
+                visited_array_starts=tuple(visited),
+            )
+    else:
+        result = first_initialized_tick_in_array(
+            first_array, zero_for_one=zero_for_one
+        )
+        return RaydiumBitmapTickSelection(
+            cursor=result,
+            sequence_index=0,
+            visited_array_starts=tuple(visited),
+        )
+
+    try:
+        next_start = next_initialized_raydium_tick_array_start_index(
+            pool,
+            last_tick_array_start_index=first_start,
+            zero_for_one=zero_for_one,
+            bitmap_extension=bitmap_extension,
+        )
+    except RaydiumBitmapCursorError as exc:
+        raise RaydiumTickCursorError(str(exc)) from exc
+    if next_start is None:
+        raise RaydiumTickCursorError("no initialized tick array remains in the swap direction")
+    next_array = by_start.get(next_start)
+    if next_array is None:
+        raise RaydiumTickCursorError(
+            f"required initialized TickArrayState account is missing: {next_start}"
+        )
+    visited.append(next_start)
+    result = first_initialized_tick_in_array(
+        next_array, zero_for_one=zero_for_one
+    )
+    return RaydiumBitmapTickSelection(
+        cursor=result,
+        sequence_index=1,
+        visited_array_starts=tuple(visited),
     )
