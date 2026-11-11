@@ -107,7 +107,7 @@ class JupiterSwapEffectResult:
     input_delta_raw: int
     output_delta_raw: int
     minimum_output_amount_raw: int
-    exact_output_amount_raw: int
+    quoted_output_amount_raw: int
     simulation_context_slot: int
 
 
@@ -204,6 +204,6 @@ def evaluate_jupiter_swap_effects(
         input_delta_raw=input_delta,
         output_delta_raw=output_delta,
         minimum_output_amount_raw=order.minimum_output_amount_raw,
-        exact_output_amount_raw=order.output_amount_raw,
+        quoted_output_amount_raw=order.output_amount_raw,
         simulation_context_slot=simulation.context_slot,
     )
