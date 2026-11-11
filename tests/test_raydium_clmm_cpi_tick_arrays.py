@@ -28,6 +28,7 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_DATA_LENGTH,
     RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
+    derive_raydium_clmm_tick_array_address,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.simulation_gate import SimulationEvidence
@@ -88,8 +89,8 @@ def fixture(*, reverse=False, include_bitmap=True, slot=503, bad_bitmap_pool=Fal
     key = lambda: str(Pubkey.new_unique())
     taker, mint0, mint1, pool_address = key(), key(), key(), key()
     amm_config, observation = key(), key()
-    tick0 = key()
-    tick1 = key()
+    tick0 = derive_raydium_clmm_tick_array_address(pool_address=pool_address, start_tick_index=0)
+    tick1 = derive_raydium_clmm_tick_array_address(pool_address=pool_address, start_tick_index=-600)
     bitmap = derive_raydium_clmm_tick_array_bitmap_extension_address(pool_address=pool_address)
     message = b"raydium-cpi-traversal-message"
     digest = hashlib.sha256(message).hexdigest()
