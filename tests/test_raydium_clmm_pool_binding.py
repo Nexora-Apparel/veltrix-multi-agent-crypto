@@ -44,6 +44,7 @@ from veltrix.simulation_gate import SimulatedAccountState, SimulationEvidence, S
 from veltrix.transaction_validator import TransactionValidationResult
 from veltrix.raydium_clmm_simulation_state import (
     RaydiumClmmSimulationStateError,
+    build_raydium_clmm_account_commitments,
     evaluate_raydium_clmm_simulation_state_binding,
 )
 
@@ -202,6 +203,46 @@ def evaluate(values=None):
     )
 
 
+def evaluate_simulation_state(values=None, *, validation=None, simulation=None, simulation_gate=None):
+    order, cpi, pool_check, pool_evidence, vaults, ticks, aux, base_simulation = values or fixture()
+    simulation = simulation or base_simulation
+    commitments = build_raydium_clmm_account_commitments(
+        cpi, pool_evidence=pool_evidence, vault_snapshot=vaults,
+        tick_array_snapshot=ticks, aux_snapshot=aux,
+    )
+    validation = validation or TransactionValidationResult(
+        message_sha256=order.message_sha256 if hasattr(order, "message_sha256") else hashlib.sha256(order.message_bytes).hexdigest(),
+        message_size=len(order.message_bytes),
+        fee_payer=order.fee_payer,
+        required_signers=(order.fee_payer,),
+        program_ids=(cpi.program_id,),
+        instruction_count=1,
+        account_keys=tuple(item.address for item in commitments),
+    )
+    simulation_gate = simulation_gate or SimulationGateResult(
+        approved=True,
+        message_sha256=hashlib.sha256(order.message_bytes).hexdigest(),
+        provider_id=simulation.provider_id,
+        response_id=simulation.response_id,
+        context_slot=simulation.context_slot,
+        units_consumed=simulation.units_consumed,
+        fee_lamports=simulation.fee_lamports,
+        verified_token_account_count=0,
+    )
+    return evaluate_raydium_clmm_simulation_state_binding(
+        order,
+        validation=validation,
+        simulation=simulation,
+        simulation_gate=simulation_gate,
+        pool_check=pool_check,
+        cpi=cpi,
+        pool_evidence=pool_evidence,
+        vault_snapshot=vaults,
+        tick_array_snapshot=ticks,
+        aux_snapshot=aux,
+    )
+
+
 def test_accepts_exact_same_order_pool_vault_and_tick_evidence():
     result = evaluate()
     assert result.passed is True
@@ -344,3 +385,85 @@ def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
     )
     result = evaluate(tuple(values))
     assert result.tick_array_addresses == (values[1].tick_array_accounts[0],)
+
+
+def test_binds_all_decoded_raydium_accounts_to_same_simulation_pre_state():
+    result = evaluate_simulation_state()
+    assert result.passed is True
+    assert result.execution_ready is False
+    assert len(result.bound_account_addresses) == 6
+    assert {role for _, role in result.account_roles} == {
+        "pool_state", "pool_vault", "tick_array", "amm_config", "observation_state"
+    }
+    post_hashes = dict(result.post_state_sha256)
+    pre_hashes = dict(result.pre_state_sha256)
+    assert post_hashes != pre_hashes
+
+
+def test_rejects_missing_simulated_raydium_account_state():
+    values = list(fixture())
+    changed = __import__("dataclasses").replace(
+        values[7], account_states=values[7].account_states[:-1]
+    )
+    with pytest.raises(RaydiumClmmSimulationStateError, match="omitted required Raydium"):
+        evaluate_simulation_state(tuple(values), simulation=changed)
+
+
+def test_rejects_simulation_pre_state_hash_that_differs_from_decoded_pool_evidence():
+    values = list(fixture())
+    states = list(values[7].account_states)
+    original = states[0]
+    tampered = b"X" + original.pre_data[1:]
+    states[0] = __import__("dataclasses").replace(
+        original,
+        pre_data=tampered,
+        pre_data_sha256=hashlib.sha256(tampered).hexdigest(),
+    )
+    changed = __import__("dataclasses").replace(values[7], account_states=tuple(states))
+    with pytest.raises(RaydiumClmmSimulationStateError, match="pre-state does not match decoded pool_state"):
+        evaluate_simulation_state(tuple(values), simulation=changed)
+
+
+def test_rejects_simulation_pre_state_with_wrong_account_owner():
+    values = list(fixture())
+    states = list(values[7].account_states)
+    states[0] = __import__("dataclasses").replace(
+        states[0], pre_owner=CLASSIC_TOKEN_PROGRAM_ID, post_owner=CLASSIC_TOKEN_PROGRAM_ID
+    )
+    changed = __import__("dataclasses").replace(values[7], account_states=tuple(states))
+    with pytest.raises(RaydiumClmmSimulationStateError, match="pre-state does not match decoded pool_state"):
+        evaluate_simulation_state(tuple(values), simulation=changed)
+
+
+def test_rejects_raydium_account_missing_from_validated_transaction_keys():
+    values = list(fixture())
+    commitments = build_raydium_clmm_account_commitments(
+        values[1], pool_evidence=values[3], vault_snapshot=values[4],
+        tick_array_snapshot=values[5], aux_snapshot=values[6],
+    )
+    validation = TransactionValidationResult(
+        message_sha256=hashlib.sha256(values[0].message_bytes).hexdigest(),
+        message_size=len(values[0].message_bytes),
+        fee_payer=values[0].fee_payer,
+        required_signers=(values[0].fee_payer,),
+        program_ids=(values[1].program_id,),
+        instruction_count=1,
+        account_keys=tuple(item.address for item in commitments[:-1]),
+    )
+    with pytest.raises(RaydiumClmmSimulationStateError, match="absent from the validated"):
+        evaluate_simulation_state(tuple(values), validation=validation)
+
+
+def test_rejects_post_state_account_layout_length_change():
+    values = list(fixture())
+    states = list(values[7].account_states)
+    original = states[3]
+    post_data = original.post_data[:-1]
+    states[3] = __import__("dataclasses").replace(
+        original,
+        post_data=post_data,
+        post_data_sha256=hashlib.sha256(post_data).hexdigest(),
+    )
+    changed = __import__("dataclasses").replace(values[7], account_states=tuple(states))
+    with pytest.raises(RaydiumClmmSimulationStateError, match="pre-state does not match decoded tick_array"):
+        evaluate_simulation_state(tuple(values), simulation=changed)
