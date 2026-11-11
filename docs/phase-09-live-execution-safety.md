@@ -290,3 +290,17 @@ Implemented in `veltrix/meteora_cpi_semantics.py`, with adversarial coverage in 
 - Rejects unknown inner programs, Token-2022 token programs, non-empty transfer-hook slices, wrong stack depth, account aliases, exact-output/mixed-DEX paths and incomplete CPI evidence.
 
 This is a narrow classic-SPL exact-input `swap2` decoder. It does not support `swap`, exact-output variants, Token-2022 transfer hooks, or other Meteora instructions. It does not independently decode LB pair/bin-array account data, verify pool ownership/state, or recompute Meteora's bin pricing. The pinned IDL/source revision must be reviewed before upgrades. No signing or broadcast is introduced.
+
+
+### 09.18 — Raydium CPMM swap_base_input CPI semantic gate
+
+Implemented in `veltrix/raydium_cpmm_cpi_semantics.py`, with adversarial coverage in `tests/test_raydium_cpmm_cpi_semantics.py`.
+
+- Pins `raydium-io/raydium-cp-swap` source revision `3d69122790e97cd6aff24e8ba95940793773f58c` and mainnet program ID `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`.
+- Decodes only the 24-byte Anchor `swap_base_input` instruction: discriminator, exact input amount and minimum output amount.
+- Requires direct depth-2 CPI under the exact Jupiter route instruction and matches CPI count/order to the quote route steps.
+- Binds payer to taker, pool state to quoted AMM key, vault authority to the program-derived PDA, input/output mints and user accounts to the route token-index flow and final taker classic SPL ATAs.
+- Requires both token program accounts to be classic SPL Token, exact input amount, positive minimum output no greater than quoted route-step output, and the exact 13-account layout.
+- Rejects exact-output, Token-2022, unknown CPI programs, wrong PDA/account layout, mixed DEX routes, malformed payloads and incomplete simulation evidence.
+
+This gate does not independently inspect CPMM pool/config/vault account contents, verify token-vault mint ownership against on-chain account data, or recompute constant-product math and creator/protocol fees. Those remain separate state-evidence requirements. No signer, broadcast, or live execution is introduced.
