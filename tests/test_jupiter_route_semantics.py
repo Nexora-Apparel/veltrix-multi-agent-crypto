@@ -19,7 +19,7 @@ from veltrix.jupiter_route_semantics import (
     evaluate_jupiter_route_semantics,
 )
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
-from veltrix.jupiter_swap_effects import JupiterSwapEffectResult
+from veltrix.jupiter_swap_effects import JupiterSwapEffectResult, derive_associated_token_address
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -152,8 +152,8 @@ def evaluate(values=None, swap_effects=None):
     effects = swap_effects or JupiterSwapEffectResult(
         passed=True,
         message_sha256=hashlib.sha256(order.message_bytes).hexdigest(),
-        input_token_account="input-ata",
-        output_token_account="output-ata",
+        input_token_account=derive_associated_token_address(order.taker, order.input_mint),
+        output_token_account=derive_associated_token_address(order.taker, order.output_mint),
         input_delta_raw=-order.input_amount_raw,
         output_delta_raw=order.output_amount_raw,
         minimum_output_amount_raw=order.minimum_output_amount_raw,
@@ -284,6 +284,36 @@ def test_rejects_encoded_amounts_and_fees_outside_policy(field, value, expected_
         policy = dataclasses.replace(policy, max_slippage_bps=100)
     with pytest.raises(JupiterRouteSemanticError, match=expected_error):
         evaluate((order, validation, simulation, sim_gate, program_gate, policy))
+
+
+
+def test_rejects_simulation_blockhash_height_and_inner_trace_mismatches():
+    order, validation, simulation, sim_gate, program_gate, policy = fixture()
+    simulation = dataclasses.replace(simulation, recent_blockhash="different-blockhash")
+    with pytest.raises(JupiterRouteSemanticError, match="blockhash or last-valid"):
+        evaluate((order, validation, simulation, sim_gate, program_gate, policy))
+
+    order, validation, simulation, sim_gate, program_gate, policy = fixture()
+    program_gate = dataclasses.replace(program_gate, inner_program_ids=("different-program",))
+    with pytest.raises(JupiterRouteSemanticError, match="inner IDs differ"):
+        evaluate((order, validation, simulation, sim_gate, program_gate, policy))
+
+
+def test_rejects_effect_gate_token_accounts_not_derived_from_order():
+    order, validation, simulation, sim_gate, program_gate, policy = fixture()
+    bad_effects = JupiterSwapEffectResult(
+        passed=True,
+        message_sha256=hashlib.sha256(order.message_bytes).hexdigest(),
+        input_token_account="not-the-input-ata",
+        output_token_account=derive_associated_token_address(order.taker, order.output_mint),
+        input_delta_raw=-order.input_amount_raw,
+        output_delta_raw=order.output_amount_raw,
+        minimum_output_amount_raw=order.minimum_output_amount_raw,
+        exact_output_amount_raw=order.output_amount_raw,
+        simulation_context_slot=simulation.context_slot,
+    )
+    with pytest.raises(JupiterRouteSemanticError, match="effect evidence differs"):
+        evaluate((order, validation, simulation, sim_gate, program_gate, policy), bad_effects)
 
 
 def test_rejects_unknown_route_label_even_when_program_is_pinned():
