@@ -9,6 +9,7 @@ on:
       - "veltrix/raydium_clmm_pool_state.py"
       - "veltrix/raydium_clmm_limit_orders.py"
       - "veltrix/raydium_clmm_tick_arrays.py"
+      - "veltrix/raydium_clmm_tick_crossing.py"
       - "scripts/export_raydium_differential_vectors.py"
       - "rust-oracle/**"
       - ".github/workflows/raydium-rust-differential.yml"
