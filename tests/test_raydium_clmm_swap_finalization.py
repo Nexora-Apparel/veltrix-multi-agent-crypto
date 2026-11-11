@@ -357,21 +357,23 @@ def parity_fixture():
         execution_ready=False,
     )
     return (
-        pool, pool_raw, tick_raw, observation_raw, execution, finalized,
+        pool, pool_raw, tick_array, tick_raw, observation, observation_raw, execution, finalized,
         simulation, vault_snapshot, message_sha,
     )
 
 
 def test_simulation_reconciles_exact_account_bytes_and_both_pool_vault_deltas():
     (
-        pool, pool_raw, tick_raw, observation_raw, execution, finalized,
+        pool, pool_raw, tick_array, tick_raw, observation, observation_raw, execution, finalized,
         simulation, vault_snapshot, message_sha,
     ) = parity_fixture()
     report = reconcile_raydium_swap_simulation(
         pool, execution, finalized, simulation, vault_snapshot,
         expected_message_sha256=message_sha,
         initial_pool_account_data=pool_raw,
+        initial_observation=observation,
         initial_observation_account_data=observation_raw,
+        initial_tick_arrays=(tick_array,),
         initial_tick_array_account_data=(tick_raw,),
     )
     assert report.passed is True
@@ -384,7 +386,7 @@ def test_simulation_reconciles_exact_account_bytes_and_both_pool_vault_deltas():
 
 def test_simulation_parity_fails_closed_on_account_bytes_or_vault_delta_mismatch():
     (
-        pool, pool_raw, tick_raw, observation_raw, execution, finalized,
+        pool, pool_raw, tick_array, tick_raw, observation, observation_raw, execution, finalized,
         simulation, vault_snapshot, message_sha,
     ) = parity_fixture()
     first = simulation.account_states[0]
