@@ -398,3 +398,17 @@ Implemented in `veltrix/raydium_clmm_cpi.py`, pinned to `raydium-io/raydium-clmm
 This gate decodes the swap call and validates its user-facing token-account semantics. It does not yet prove the CPI's pool/vault/tick-array accounts against the independently fetched PoolState, vault and TickArrayState evidence from Phases 09.22–09.24. That cross-evidence binding is the next required gate. It also does not calculate executable liquidity or sign/submit transactions.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.27 — Raydium CLMM CPI-to-pool/vault/tick evidence binding
+
+Implemented in `veltrix/raydium_clmm_pool_binding.py` with adversarial coverage in `tests/test_raydium_clmm_pool_binding.py`.
+
+- Binds the exact simulated Raydium CLMM CPI pool address to the independently decoded, source-pinned PoolState account and verifies the fetched account owner and SHA-256 data digest.
+- Binds the Jupiter input/output mint direction to the PoolState mint pair, then requires the CPI input/output vault addresses to match the corresponding mint-specific PoolState vaults.
+- Requires exactly the two verified vault accounts, with the expected pool authority, classic SPL Token program, initialized state, positive lamports, and exact pool/mint identity.
+- Requires the CPI tick-array account set to match the independently fetched and decoded tick-array snapshot; every array must belong to the same pool and use the PoolState tick spacing.
+- Requires the pool, vault, tick-array and simulation evidence to share the exact message digest, RPC response identity, provider, cluster, genesis hash and simulation context slot. Account snapshot slots must be monotonically non-decreasing from pool to vault to tick arrays.
+- The result is explicitly evidence-only and always returns `execution_ready=false`.
+
+Limitations: the current tick-array collector only proves the current array; a swap requiring additional traversal arrays is rejected until every CPI-referenced array is independently fetched and decoded in CPI traversal order. This gate does not yet calculate executable liquidity/depth, verify all account metas including AMM config/observation roles at this final composition boundary, or authorize signing. No signer, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
