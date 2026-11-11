@@ -26,6 +26,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTick,
     RaydiumClmmTickArray,
     derive_raydium_clmm_tick_array_address,
+    encode_raydium_clmm_tick_array,
     raydium_current_tick_array_start,
 )
 
@@ -336,9 +337,13 @@ def apply_raydium_tick_array_mutation(
     ticks = list(tick_array.ticks)
     ticks[offset] = updated_tick
     next_array = replace(
-        tick_array, initialized_tick_count=count, ticks=tuple(ticks), recent_epoch=recent_epoch, data_sha256=""
+        tick_array, initialized_tick_count=count, ticks=tuple(ticks),
+        recent_epoch=recent_epoch, data_sha256="",
     )
-    # A mutated in-memory state has no account-byte commitment until serialized.
+    encoded_tick_array = encode_raydium_clmm_tick_array(next_array)
+    next_array = replace(
+        next_array, data_sha256=hashlib.sha256(encoded_tick_array).hexdigest()
+    )
     return RaydiumTickArrayMutationResult(
         pool=next_pool, tick_array=next_array, bitmap_extension=next_extension,
         initialized_before=array_was_initialized, initialized_after=array_is_initialized,
