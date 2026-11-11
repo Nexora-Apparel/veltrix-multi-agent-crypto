@@ -26,6 +26,8 @@ from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
+    RaydiumClmmTickArrayBitmapExtension as RaydiumClmmSnapshotBitmapExtension,
+    RaydiumClmmTickArraySnapshot,
     derive_raydium_clmm_tick_array_address,
     encode_raydium_clmm_tick_array,
     raydium_current_tick_array_start,
@@ -411,4 +413,109 @@ def apply_raydium_tick_array_mutation(
         pool=next_pool, tick_array=next_array, bitmap_extension=next_extension,
         initialized_before=array_was_initialized, initialized_after=array_is_initialized,
         bitmap_changed=bitmap_changed,
+    )
+
+
+def to_mutation_bitmap_extension(
+    extension: RaydiumClmmSnapshotBitmapExtension,
+) -> RaydiumClmmTickArrayBitmapExtension:
+    """Convert the verified flat RPC bitmap words to the mutation module's 14×8 rows."""
+    if not isinstance(extension, RaydiumClmmSnapshotBitmapExtension):
+        raise RaydiumTickArrayMutationError("verified snapshot bitmap extension is required")
+    if (
+        not isinstance(extension.data_bytes, bytes)
+        or len(extension.data_bytes) != TICK_ARRAY_BITMAP_EXTENSION_LENGTH
+        or hashlib.sha256(extension.data_bytes).hexdigest() != extension.data_sha256
+    ):
+        raise RaydiumTickArrayMutationError("snapshot bitmap extension bytes do not match their SHA-256 commitment")
+    if extension.data_bytes[:8] != TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR:
+        raise RaydiumTickArrayMutationError("snapshot bitmap extension discriminator is invalid")
+    try:
+        pool = Pubkey.from_string(extension.pool_address)
+        address = str(Pubkey.from_string(extension.address))
+        if address != derive_raydium_tick_array_bitmap_extension_address(extension.pool_address):
+            raise ValueError("non-canonical bitmap extension PDA")
+    except Exception as exc:
+        raise RaydiumTickArrayMutationError("snapshot bitmap extension identity or PDA is invalid") from exc
+    if extension.data_bytes[8:40] != bytes(pool):
+        raise RaydiumTickArrayMutationError("snapshot bitmap extension pool bytes differ from its decoded identity")
+    if (
+        len(extension.positive_bitmaps) != EXTENSION_BITMAPS * 8
+        or len(extension.negative_bitmaps) != EXTENSION_BITMAPS * 8
+        or any(isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= U64_MAX
+               for word in (*extension.positive_bitmaps, *extension.negative_bitmaps))
+    ):
+        raise RaydiumTickArrayMutationError("snapshot bitmap extension must contain 112 valid u64 words per direction")
+    positive_bytes = tuple(
+        int.from_bytes(extension.data_bytes[40 + index * 8:48 + index * 8], "little")
+        for index in range(EXTENSION_BITMAPS * 8)
+    )
+    negative_offset = 40 + EXTENSION_BITMAPS * 8 * 8
+    negative_bytes = tuple(
+        int.from_bytes(extension.data_bytes[negative_offset + index * 8:negative_offset + (index + 1) * 8], "little")
+        for index in range(EXTENSION_BITMAPS * 8)
+    )
+    if positive_bytes != extension.positive_bitmaps or negative_bytes != extension.negative_bitmaps:
+        raise RaydiumTickArrayMutationError("snapshot bitmap words differ from committed account bytes")
+    positive = tuple(
+        tuple(extension.positive_bitmaps[index * 8:(index + 1) * 8])
+        for index in range(EXTENSION_BITMAPS)
+    )
+    negative = tuple(
+        tuple(extension.negative_bitmaps[index * 8:(index + 1) * 8])
+        for index in range(EXTENSION_BITMAPS)
+    )
+    return RaydiumClmmTickArrayBitmapExtension(
+        address=address,
+        pool_address=str(pool),
+        positive_bitmaps=positive,
+        negative_bitmaps=negative,
+        data_sha256=extension.data_sha256,
+    )
+
+
+def to_snapshot_bitmap_extension(
+    extension: RaydiumClmmTickArrayBitmapExtension,
+) -> RaydiumClmmSnapshotBitmapExtension:
+    """Convert mutated 14×8 words back to the exact flat RPC snapshot representation."""
+    if not isinstance(extension, RaydiumClmmTickArrayBitmapExtension):
+        raise RaydiumTickArrayMutationError("mutation bitmap extension is required")
+    encoded = encode_raydium_tick_array_bitmap_extension(extension)
+    digest = hashlib.sha256(encoded).hexdigest()
+    positive = tuple(word for row in extension.positive_bitmaps for word in row)
+    negative = tuple(word for row in extension.negative_bitmaps for word in row)
+    return RaydiumClmmSnapshotBitmapExtension(
+        address=extension.address,
+        pool_address=extension.pool_address,
+        positive_bitmaps=positive,
+        negative_bitmaps=negative,
+        data_sha256=digest,
+        data_bytes=encoded,
+    )
+
+
+def update_tick_array_snapshot_bitmap_extension(
+    snapshot: RaydiumClmmTickArraySnapshot,
+    extension: RaydiumClmmTickArrayBitmapExtension | None,
+) -> RaydiumClmmTickArraySnapshot:
+    """Return the same CPI snapshot with its bitmap extension updated to committed bytes."""
+    if not isinstance(snapshot, RaydiumClmmTickArraySnapshot):
+        raise RaydiumTickArrayMutationError("verified tick-array snapshot is required")
+    if extension is None:
+        if snapshot.bitmap_extension_address is not None:
+            raise RaydiumTickArrayMutationError("cannot discard a bitmap extension supplied in the CPI account list")
+        return replace(
+            snapshot,
+            bitmap_extension_address=None,
+            bitmap_extension_sha256=None,
+            bitmap_extension=None,
+        )
+    converted = to_snapshot_bitmap_extension(extension)
+    if snapshot.bitmap_extension_address != converted.address:
+        raise RaydiumTickArrayMutationError("updated bitmap extension PDA differs from the supplied CPI account")
+    return replace(
+        snapshot,
+        bitmap_extension_address=converted.address,
+        bitmap_extension_sha256=converted.data_sha256,
+        bitmap_extension=converted,
     )
