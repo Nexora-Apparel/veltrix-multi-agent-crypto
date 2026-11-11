@@ -426,3 +426,17 @@ Implemented in `veltrix/raydium_clmm_aux_accounts.py`, pinned to the same Raydiu
 - Added adversarial tests for wrong CPI account roles, invalid config PDA/owner/fees, observation pool mismatch, stale/future observations, uninitialized state, and invalid ring indexes.
 
 Remaining limitations: this is account-role and provenance validation, not a complete dynamic-fee or economic-depth model. The current gate still does not reconstruct all swap-loop tick traversal, validate every tick-array bitmap extension/remaining-account role, simulate price impact from executable liquidity, or prove that pool reserves can satisfy the requested size under a defined slippage bound. No signing, Jupiter `/execute`, wallet approval, transaction submission, broadcast, or live execution is introduced.
+
+
+### 09.28 — CPI-ordered Raydium tick-array and bitmap-extension evidence
+
+Implemented in `veltrix/raydium_clmm_cpi_tick_arrays.py`.
+
+- Fetches every trailing account key recorded by the exact simulated Raydium CLMM CPI, preserving the original CPI account-meta order and requiring a provider-pinned snapshot no older than simulation, pool, or vault evidence.
+- Classifies each account strictly by the pinned source layout: 10,240-byte `TickArrayState` or 1,832-byte `TickArrayBitmapExtension`. Unknown sizes, missing accounts, duplicate keys, unexpected owners, executable accounts, zero-lamport accounts, malformed discriminators, and cross-pool accounts fail closed.
+- Decodes every referenced tick array, validates the canonical PDA from its embedded start index, pool identity, tick spacing alignment, all 60 tick records, initialized-tick count, and liquidity-net/gross consistency.
+- Validates the optional bitmap-extension PDA, Raydium owner, discriminator, account length, and embedded pool ID. Its raw account digest is retained.
+- Requires the decoded tick arrays to be strictly ordered in the swap direction derived from the Jupiter input mint. The final CPI-to-pool binding now requires exact equality between CPI trailing account order and the snapshot order; bitmap-extension accounts are not misclassified as tick arrays.
+- Generalized the tick-array decoder to validate arrays outside the current tick's own array while retaining current-array checks when explicitly requested.
+
+Remaining limitation: strict order and account identity do not yet prove that no initialized tick-array boundary was skipped. The next step must decode the PoolState in-range bitmap and optional extension bitmaps, reproduce Raydium's `first_tick_array_index_with_extension_info` / `next_initialized_tick_array_start_index` traversal, and prove the exact sequence of initialized arrays consumed by the swap loop. This stage also does not calculate executable liquidity/depth or price impact. All results remain evidence-only; signing, Jupiter `/execute`, transaction submission, broadcast, and live execution remain disabled.
