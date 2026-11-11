@@ -16,7 +16,9 @@ def test_phantom_page_is_devnet_only_and_has_no_secret_input():
 
 def test_swap_limits_and_impact_gate_are_present():
     source = PAGE.read_text(encoding="utf-8")
-    assert "MAX_LAMPORTS = 5000000" in source
+    assert "TEST_LAMPORTS = 1000000" in source
+    assert "MAX_LAMPORTS = TEST_LAMPORTS" in source
+    assert "lamports !== TEST_LAMPORTS" in source
     assert "lamports > MAX_LAMPORTS" in source
     assert "RESERVE_LAMPORTS = 50000000" in source
     assert "MAX_IMPACT = 2" in source
@@ -28,7 +30,7 @@ def test_phantom_signing_requires_explicit_user_click_and_confirmation():
     assert 'id="execute"' in source
     assert 'addEventListener("click"' in source
     assert "window.confirm(" in source
-    assert "provider.signAndSendTransaction(tx" in source
+    assert "provider.signAndSendTransaction(finalTx" in source
     assert "await provider.connect()" in source
 
 
@@ -70,3 +72,28 @@ def test_missing_negative_or_excessive_price_impact_fails_closed():
 def test_amount_is_locked_during_quote_and_signing_operations():
     source = PAGE.read_text(encoding="utf-8")
     assert '$("amount").disabled = value' in source
+
+
+
+def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "snapshotUnsignedTransaction(tx)" in source
+    assert "assertExactReviewedBytes(" in source
+    assert "reviewedBytes" in source
+    assert "bytesEqual(currentBytes, reviewedBytes)" in source
+    assert "roundTrip.serialize(), bytes" in source
+    assert "finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i])" in source
+
+
+def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "built.data.length !== 1" in source
+    assert "Date.now() - prepared.preparedAt > 60000" in source
+    assert "prepared.walletAddress !== wallet.toBase58()" in source
+
+
+def test_browser_semantic_verifier_remains_fail_closed():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "Transaction intent verification is incomplete. Phantom signing is disabled." in source
+    inspect = source.split("function inspectTransaction(tx)", 1)[1].split("async function prepareQuote()", 1)[0]
+    assert "throw new Error(" in inspect
