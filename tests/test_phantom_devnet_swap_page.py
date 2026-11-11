@@ -50,3 +50,18 @@ def test_no_automatic_execution_on_page_load():
     assert "window.onload" not in script
     assert "addEventListener('load'" not in script
     assert 'addEventListener("load"' not in script
+
+
+def test_quote_and_signing_are_invalidated_on_account_or_amount_change():
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'on("accountChanged"' in source
+    assert 'on("disconnect"' in source
+    assert '$("amount").addEventListener("input"' in source
+    assert "provider.publicKey.equals(wallet)" in source
+    assert "invalidatePrepared(" in source
+
+
+def test_missing_negative_or_excessive_price_impact_fails_closed():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "impact < 0 || impact > MAX_IMPACT" in source
+    assert "Price impact is missing, invalid or above" in source
