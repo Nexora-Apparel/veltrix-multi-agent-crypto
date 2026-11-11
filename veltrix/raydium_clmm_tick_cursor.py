@@ -2,22 +2,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from veltrix.raydium_clmm_pool_state import RAYDIUM_MAX_TICK, RAYDIUM_MIN_TICK
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
 from veltrix.raydium_clmm_replay_bundle import RaydiumClmmReplayAccountBundle
-from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolState
+from veltrix.raydium_clmm_pool_state import (
+    RaydiumClmmPoolState,
+    encode_raydium_clmm_pool_state,
+)
 from veltrix.raydium_clmm_tick_array_mutation import RaydiumClmmTickArrayBitmapExtension
 from veltrix.raydium_clmm_bitmap_cursor import (
     RaydiumBitmapCursorError,
     first_raydium_tick_array_start_index,
     next_initialized_raydium_tick_array_start_index,
 )
+from veltrix.raydium_clmm_tick_array_mutation import encode_raydium_tick_array_bitmap_extension
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
     raydium_current_tick_array_start,
+    encode_raydium_clmm_tick_array,
 )
 
 
@@ -286,6 +292,24 @@ def select_next_initialized_tick_from_live_bitmap(
     """
     if not isinstance(pool, RaydiumClmmPoolState):
         raise RaydiumTickCursorError("decoded Raydium PoolState is required")
+    if not pool.account_data or hashlib.sha256(pool.account_data).hexdigest() != pool.account_data_sha256:
+        raise RaydiumTickCursorError("PoolState account bytes do not match their commitment")
+    try:
+        if encode_raydium_clmm_pool_state(pool) != pool.account_data:
+            raise RaydiumTickCursorError("PoolState fields differ from committed account bytes")
+    except Exception as exc:
+        if isinstance(exc, RaydiumTickCursorError):
+            raise
+        raise RaydiumTickCursorError(f"PoolState serialization validation failed: {exc}") from exc
+    if bitmap_extension is not None:
+        try:
+            extension_bytes = encode_raydium_tick_array_bitmap_extension(bitmap_extension)
+            if hashlib.sha256(extension_bytes).hexdigest() != bitmap_extension.data_sha256:
+                raise RaydiumTickCursorError("bitmap-extension account bytes do not match their commitment")
+        except Exception as exc:
+            if isinstance(exc, RaydiumTickCursorError):
+                raise
+            raise RaydiumTickCursorError(f"bitmap-extension validation failed: {exc}") from exc
     if not isinstance(tick_arrays, tuple) or not tick_arrays:
         raise RaydiumTickCursorError("supplied TickArrayState accounts are required")
     if not isinstance(zero_for_one, bool):
@@ -298,6 +322,14 @@ def select_next_initialized_tick_from_live_bitmap(
             raise RaydiumTickCursorError("tick-array set contains a malformed account")
         if item.pool_address != pool.pool_address or item.tick_spacing != pool.tick_spacing:
             raise RaydiumTickCursorError("tick-array set contains an account for a different pool/spacing")
+        try:
+            array_bytes = encode_raydium_clmm_tick_array(item)
+            if hashlib.sha256(array_bytes).hexdigest() != item.data_sha256:
+                raise RaydiumTickCursorError("TickArrayState bytes do not match their commitment")
+        except Exception as exc:
+            if isinstance(exc, RaydiumTickCursorError):
+                raise
+            raise RaydiumTickCursorError(f"TickArrayState validation failed: {exc}") from exc
         if item.start_tick_index in by_start:
             raise RaydiumTickCursorError("tick-array set contains duplicate start indices")
         by_start[item.start_tick_index] = item
