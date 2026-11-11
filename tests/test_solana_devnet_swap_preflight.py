@@ -65,7 +65,7 @@ def test_simulation_never_signs_or_sends():
     # End-to-end orchestration contract: RPC methods must never include sendTransaction.
     assert DEVNET_GENESIS_HASH.endswith("PkrZBG")
     assert SOL_MINT != DEVNET_USDC_MINT
-    assert DEFAULT_AMOUNT_LAMPORTS == 10_000_000
+    assert DEFAULT_AMOUNT_LAMPORTS == 1_000_000
     assert len(ALLOWED_RAYDIUM_PROGRAMS) >= 4
 
 
@@ -120,3 +120,45 @@ def test_full_quote_build_and_simulation_path_is_unsigned():
     assert evidence.swap_executed is False
     assert evidence.live_trading is False
     assert all(method not in {"sendTransaction","sendRawTransaction"} for _,method in session.calls)
+
+
+def test_quote_above_two_percent_impact_fails_before_pool_lookup_or_build():
+    from veltrix.solana_devnet_swap_preflight import MAX_PRICE_IMPACT_PCT
+
+    class ImpactSession:
+        def __init__(self):
+            self.calls = []
+        def post(self, url, **kwargs):
+            method = kwargs["json"]["method"]
+            self.calls.append(("POST", method))
+            if method == "getGenesisHash":
+                result = DEVNET_GENESIS_HASH
+            elif method == "getBalance":
+                result = {"value": 5_000_000_000}
+            elif method == "getAccountInfo":
+                result = {"value": {"owner": "Tokenkeg", "data": ["", "base64"]}}
+            else:
+                raise AssertionError("unexpected RPC method: " + method)
+            return Response({"result": result})
+        def get(self, url, **kwargs):
+            self.calls.append(("GET", url))
+            return Response({"success": True, "data": {
+                "inputMint": SOL_MINT,
+                "outputMint": DEVNET_USDC_MINT,
+                "outputAmount": "1000",
+                "otherAmountThreshold": "990",
+                "priceImpactPct": MAX_PRICE_IMPACT_PCT + 0.01,
+                "routePlan": [{"poolId": "11111111111111111111111111111111"}],
+            }})
+
+    session = ImpactSession()
+    try:
+        RaydiumDevnetSwapPreflight(session=session).run(
+            "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
+        )
+    except DevnetSwapPreflightError as exc:
+        assert "safety ceiling" in str(exc)
+    else:
+        raise AssertionError("high-impact quote must fail closed")
+    assert not any(method == "BUILD" for _, method in session.calls)
+    assert not any(url.endswith("/pools/info/ids") for method, url in session.calls if method == "GET")
