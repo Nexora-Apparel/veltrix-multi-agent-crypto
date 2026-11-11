@@ -388,7 +388,12 @@ def test_simulation_parity_fails_closed_on_account_bytes_or_vault_delta_mismatch
         simulation, vault_snapshot, message_sha,
     ) = parity_fixture()
     first = simulation.account_states[0]
-    corrupted = replace(first, post_data=first.post_data[:-1] + bytes([first.post_data[-1] ^ 1]))
+    corrupted_data = first.post_data[:-1] + bytes([first.post_data[-1] ^ 1])
+    corrupted = replace(
+        first,
+        post_data=corrupted_data,
+        post_data_sha256=hashlib.sha256(corrupted_data).hexdigest(),
+    )
     bad_account_simulation = replace(
         simulation, account_states=(corrupted,) + simulation.account_states[1:]
     )
