@@ -420,6 +420,8 @@ class SolanaRpcSimulationAdapter:
             raise SolanaRpcAdapterError("tracked account addresses must not contain duplicates")
 
         addresses = list(dict.fromkeys(token_addresses + list(tracked_account_addresses)))
+        if len(addresses) > 100:
+            raise SolanaRpcAdapterError("combined token and tracked account set exceeds the 100-account RPC limit")
         from solders.pubkey import Pubkey
         for address in addresses:
             try:
@@ -465,6 +467,8 @@ class SolanaRpcSimulationAdapter:
             current_slot=lookup_context_slot,
             minimum_context_slot=minimum_context_slot,
         )
+        if any(address not in validation.account_keys for address in tracked_account_addresses):
+            raise SolanaRpcAdapterError("every tracked simulation account must be present in the validated transaction account list")
 
         pre_result = self._rpc(
             "getMultipleAccounts",
