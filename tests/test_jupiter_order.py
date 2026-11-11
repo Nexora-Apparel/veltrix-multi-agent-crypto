@@ -127,6 +127,14 @@ def request(body, policy=None):
     )
 
 
+
+def test_order_policy_rejects_routers_without_semantic_decoder():
+    assert JupiterOrderPolicy().allowed_routers == ("metis",)
+    for router in ("dflow", "okx", "jupiterz"):
+        with pytest.raises(JupiterOrderIntakeError, match="only Metis"):
+            JupiterOrderPolicy(allowed_routers=(router,))
+
+
 def test_accepts_unsigned_v0_order_and_extracts_exact_message():
     body, message, transaction = order_fixture()
     result = request(body)

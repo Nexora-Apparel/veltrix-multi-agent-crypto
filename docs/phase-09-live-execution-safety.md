@@ -232,3 +232,16 @@ Implemented in `veltrix/jupiter_swap_effects.py`, with classic-token program own
 - The effect gate does not decode DEX instructions or authorize signing. It must be combined with the pinned program trace gate, semantic instruction policy, risk preflight, and operator authorization.
 
 No Jupiter `/execute`, Phantom signing, transaction submission, or live execution is introduced.
+
+
+### 09.14 — Router scope reduced to the semantically supported Metis path
+
+The `/order` adapter and Jupiter program-trace policy now approve **Metis only**.
+
+- Jupiter Swap API V2 `/order` can return Metis, JupiterZ, Dflow, or OKX transactions. These are not interchangeable transaction formats or trust boundaries.
+- The current downstream trace model assumes a Jupiter V6 aggregator top-level instruction plus DEX CPI evidence. It is not a valid semantic decoder for Dflow or OKX transactions, and JupiterZ has a separate RFQ/market-maker signing and expiry path.
+- Order intake and the trace policy therefore reject Dflow, OKX and JupiterZ until each has its own independently reviewed instruction, signer, fee-payer, expiry, and simulation-effect decoder.
+- The default allowed-router policy is now `("metis",)`; explicitly configuring another router is a configuration error, not an override.
+- This narrows coverage but prevents a route label or generic program allowlist from being mistaken for semantic approval of a different router.
+
+No transaction signing or submission is enabled.
