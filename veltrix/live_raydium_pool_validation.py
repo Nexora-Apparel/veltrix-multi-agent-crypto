@@ -96,6 +96,17 @@ def decode_token_vault(account, expected_mint: str, expected_authority: str) -> 
     }
 
 
+
+def require_stable_pool_dependencies(
+    discovered: tuple[str, ...], authoritative: tuple[str, ...]
+) -> None:
+    """Fail closed if PoolState references changed before the authoritative snapshot."""
+    if discovered != authoritative:
+        raise ValueError(
+            "PoolState dependencies changed between discovery and authoritative snapshot; retry validation"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pool", default=DEFAULT_POOL)
@@ -168,10 +179,10 @@ def main() -> int:
         authoritative_pool.token_vault_0,
         authoritative_pool.token_vault_1,
     )
-    if authoritative_dependencies != addresses:
-        raise SystemExit(
-            "PoolState dependencies changed between discovery and authoritative snapshot; retry validation"
-        )
+    try:
+        require_stable_pool_dependencies(addresses, authoritative_dependencies)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     pool = authoritative_pool
 
     def evidence(address: str, label: str) -> DexPoolAccountEvidence:
