@@ -255,7 +255,7 @@ def cross_raydium_tick(
     next_liquidity = liquidity + liquidity_delta
     if not 0 <= next_liquidity <= U128_MAX:
         raise RaydiumTickTransitionError("tick crossing liquidity delta underflows or overflows u128")
-    next_tick_current = tick.tick - 1 if zero_for_one else tick.tick
+    next_tick_current = tick.tick_index - 1 if zero_for_one else tick.tick_index
     if not -(1 << 31) <= next_tick_current < (1 << 31):
         raise RaydiumTickTransitionError("post-crossing current tick overflows i32")
     return RaydiumTickCrossingResult(
