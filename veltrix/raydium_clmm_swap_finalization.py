@@ -140,8 +140,14 @@ def _encode_reward(data: bytearray, offset: int, reward: RaydiumClmmRewardInfo) 
         _uint(value, 64, name)
     _uint(reward.emissions_per_second_x64, 128, "emissions_per_second_x64")
     _uint(reward.reward_growth_global_x64, 128, "reward_growth_global_x64")
-    if reward.reward_claimed > reward.reward_total_emitted:
-        raise RaydiumSwapFinalizationError("reward claimed amount exceeds total emitted")
+    if reward.reward_claimed > reward.reward_total_emitted or reward.end_time < reward.open_time:
+        raise RaydiumSwapFinalizationError("reward time or claimed-total invariant is invalid")
+    default_key = str(Pubkey.default())
+    if reward.initialized:
+        if reward.reward_state == 0 or reward.token_vault == default_key or reward.authority == default_key:
+            raise RaydiumSwapFinalizationError("initialized RewardInfo has invalid state, vault or authority")
+    elif reward.reward_state != 0:
+        raise RaydiumSwapFinalizationError("uninitialized RewardInfo has a non-uninitialized state")
     data[offset] = reward.reward_state
     _put_uint(data, offset + 1, 8, reward.open_time, "reward open_time")
     _put_uint(data, offset + 9, 8, reward.end_time, "reward end_time")
@@ -155,7 +161,7 @@ def _encode_reward(data: bytearray, offset: int, reward: RaydiumClmmRewardInfo) 
     _put_uint(data, offset + 153, 16, reward.reward_growth_global_x64, "reward global growth")
 
 
-def _encode_dynamic_fee(data: bytearray, info: RaydiumClmmDynamicFeeInfo) -> None:
+def _encode_dynamic_fee(data: bytearray, info: RaydiumClmmDynamicFeeInfo, tick_spacing: int) -> None:
     if not isinstance(info, RaydiumClmmDynamicFeeInfo) or len(info.padding) != 46:
         raise RaydiumSwapFinalizationError("dynamic-fee state or its reserved padding is invalid")
     _put_uint(data, 0, 2, info.filter_period, "filter_period")
@@ -182,6 +188,9 @@ def _encode_dynamic_fee(data: bytearray, info: RaydiumClmmDynamicFeeInfo) -> Non
         or info.decay_period <= info.filter_period
         or not 0 < info.reduction_factor < RAYDIUM_DYNAMIC_FEE_REDUCTION_DENOMINATOR
         or info.dynamic_fee_control >= RAYDIUM_DYNAMIC_FEE_CONTROL_DENOMINATOR
+        or info.max_volatility_accumulator * tick_spacing > 0xFFFFFFFF
+        or info.volatility_reference > info.max_volatility_accumulator
+        or info.volatility_accumulator > info.max_volatility_accumulator
         or any(info.padding)
     ):
         raise RaydiumSwapFinalizationError("dynamic-fee state violates pinned protocol constraints")
@@ -221,7 +230,7 @@ def _serialize_pool(
             reward,
         )
     dynamic = bytearray(RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH)
-    _encode_dynamic_fee(dynamic, pool.dynamic_fee_info)
+    _encode_dynamic_fee(dynamic, pool.dynamic_fee_info, pool.tick_spacing)
     start = RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET
     data[start:start + RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH] = dynamic
 
@@ -269,6 +278,8 @@ def _serialize_tick_array(
         _put_uint(data, offset + 116, 8, tick.order_phase, "tick order_phase")
         _put_uint(data, offset + 124, 8, tick.orders_amount, "tick orders_amount")
         _put_uint(data, offset + 132, 8, tick.part_filled_orders_remaining, "tick part-filled amount")
+        if tick.unfilled_ratio_x64 > (1 << 64):
+            raise RaydiumSwapFinalizationError("tick unfilled ratio exceeds the pinned Q64.64 unity bound")
         _put_uint(data, offset + 140, 16, tick.unfilled_ratio_x64, "tick unfilled ratio")
         if len(tick.padding) != 3 or any(tick.padding):
             raise RaydiumSwapFinalizationError("tick reserved padding must remain three zero u32 values")
@@ -301,7 +312,8 @@ def _encode_bitmap_extension(
             if len(row) != 8:
                 raise RaydiumSwapFinalizationError("bitmap extension row must contain eight u64 words")
             for word in row:
-                data.extend(int(word).to_bytes(8, "little"))
+                _uint(word, 64, "bitmap-extension word")
+                data.extend(word.to_bytes(8, "little"))
     if len(data) != TICK_ARRAY_BITMAP_EXTENSION_LENGTH:
         raise RaydiumSwapFinalizationError("serialized bitmap extension has an invalid length")
     return bytes(data)
@@ -324,6 +336,8 @@ def _serialize_observation(
         raise RaydiumSwapFinalizationError("ObservationState initialized flag must be boolean")
     data[8] = int(state.initialized)
     _put_uint(data, 9, 8, state.recent_epoch, "ObservationState recent_epoch")
+    if state.observation_index >= RAYDIUM_OBSERVATION_COUNT:
+        raise RaydiumSwapFinalizationError("ObservationState ring index is outside the 100-entry buffer")
     _put_uint(data, 17, 2, state.observation_index, "ObservationState ring index")
     if data[19:51] != _pubkey_bytes(state.pool_id, "ObservationState pool ID"):
         raise RaydiumSwapFinalizationError("ObservationState pool ID differs from its original account bytes")
