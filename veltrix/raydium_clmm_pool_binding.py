@@ -175,15 +175,22 @@ def evaluate_raydium_clmm_cpi_pool_binding(
     if observed_vaults != expected_vaults or len(vault_snapshot.vaults) != 2:
         raise RaydiumClmmPoolBindingError("vault snapshot does not exactly cover the pool's two ordered mint/vault pairs")
 
+    cpi_account_order = tuple(tick_array_snapshot.cpi_account_order)
     cpi_tick_arrays = tuple(cpi.tick_array_accounts)
     snapshot_tick_arrays = tuple(item.address for item in tick_array_snapshot.tick_arrays)
+    bitmap_extension = tick_array_snapshot.bitmap_extension_address
     if (
-        not cpi_tick_arrays
-        or len(set(cpi_tick_arrays)) != len(cpi_tick_arrays)
-        or set(cpi_tick_arrays) != set(snapshot_tick_arrays)
-        or len(snapshot_tick_arrays) != len(cpi_tick_arrays)
+        not cpi_account_order
+        or cpi_account_order != cpi_tick_arrays
+        or len(set(cpi_account_order)) != len(cpi_account_order)
+        or (bitmap_extension is not None and bitmap_extension not in cpi_account_order)
     ):
-        raise RaydiumClmmPoolBindingError("CPI tick-array accounts do not exactly match the verified tick-array snapshot")
+        raise RaydiumClmmPoolBindingError("verified tick-array snapshot does not preserve the exact CPI remaining-account order")
+    expected_tick_array_order = tuple(
+        address for address in cpi_account_order if address != bitmap_extension
+    )
+    if not expected_tick_array_order or snapshot_tick_arrays != expected_tick_array_order:
+        raise RaydiumClmmPoolBindingError("CPI tick-array accounts do not exactly match the decoded traversal arrays in order")
     if any(item.pool_address != pool.pool_address for item in tick_array_snapshot.tick_arrays):
         raise RaydiumClmmPoolBindingError("tick-array snapshot contains an array for a different pool")
     if any(item.tick_spacing != pool.tick_spacing for item in tick_array_snapshot.tick_arrays):
@@ -232,7 +239,7 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         pool_address=pool.pool_address,
         input_vault=cpi.input_vault,
         output_vault=cpi.output_vault,
-        tick_array_addresses=cpi_tick_arrays,
+        tick_array_addresses=snapshot_tick_arrays,
         pool_account_sha256=pool.account_data_sha256,
         vault_snapshot_slot=vault_snapshot.context_slot,
         tick_array_snapshot_slot=tick_array_snapshot.context_slot,
