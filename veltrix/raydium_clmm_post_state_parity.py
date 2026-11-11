@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 
+from solders.pubkey import Pubkey
+
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
 )
@@ -13,11 +15,17 @@ from veltrix.raydium_clmm_vaults import (
     TOKEN_ACCOUNT_INITIALIZED,
     RaydiumClmmVaultSnapshot,
 )
-from veltrix.simulation_gate import SimulationEvidence
+from veltrix.simulation_gate import ExpectedTokenDelta, SimulationEvidence
 
 
 class RaydiumSwapPostStateParityError(ValueError):
     """Raised when simulated account bytes or vault deltas do not match replay."""
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumSwapSimulationPlan:
+    observed_account_addresses: tuple[str, ...]
+    expected_token_deltas: tuple[ExpectedTokenDelta, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +41,58 @@ class RaydiumSwapPostStateParityResult:
     amount_0_delta_raw: int
     amount_1_delta_raw: int
     execution_ready: bool = False
+
+
+def build_raydium_swap_simulation_plan(
+    finalization: RaydiumSwapFinalizationResult,
+) -> RaydiumSwapSimulationPlan:
+    """Build exact simulateTransaction account captures and pool-vault deltas."""
+    if not isinstance(finalization, RaydiumSwapFinalizationResult):
+        raise RaydiumSwapPostStateParityError("serialized Raydium swap finalization is required")
+    pool = finalization.pool
+    if not isinstance(finalization.zero_for_one, bool):
+        raise RaydiumSwapPostStateParityError("finalized swap direction must be boolean")
+    addresses = [
+        pool.pool_address,
+        finalization.observation.address,
+        *(array.address for array in finalization.tick_arrays),
+    ]
+    if finalization.bitmap_extension is not None:
+        addresses.append(finalization.bitmap_extension.address)
+    try:
+        if any(str(Pubkey.from_string(address)) != address for address in addresses):
+            raise ValueError("non-canonical")
+    except Exception as exc:
+        raise RaydiumSwapPostStateParityError("simulation plan contains a non-canonical account address") from exc
+    if len(addresses) != len(set(addresses)):
+        raise RaydiumSwapPostStateParityError("simulation plan contains duplicate observed account addresses")
+
+    amount0 = finalization.settlement.amount_0
+    amount1 = finalization.settlement.amount_1
+    delta0 = amount0 if finalization.zero_for_one else -amount0
+    delta1 = -amount1 if finalization.zero_for_one else amount1
+    expected_deltas = (
+        ExpectedTokenDelta(
+            token_account=pool.token_vault_0,
+            mint=pool.token_mint_0,
+            owner=pool.pool_address,
+            delta_raw=delta0,
+        ),
+        ExpectedTokenDelta(
+            token_account=pool.token_vault_1,
+            mint=pool.token_mint_1,
+            owner=pool.pool_address,
+            delta_raw=delta1,
+        ),
+    )
+    if set(addresses).intersection(item.token_account for item in expected_deltas):
+        raise RaydiumSwapPostStateParityError("pool vaults must be tracked as token balances, not observed program accounts")
+    if len(addresses) + len(expected_deltas) > 100:
+        raise RaydiumSwapPostStateParityError("simulation account capture exceeds the 100-account limit")
+    return RaydiumSwapSimulationPlan(
+        observed_account_addresses=tuple(addresses),
+        expected_token_deltas=expected_deltas,
+    )
 
 
 def verify_raydium_swap_post_state_parity(
