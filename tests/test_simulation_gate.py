@@ -6,6 +6,7 @@ import pytest
 from veltrix.simulation_gate import (
     ExpectedTokenDelta,
     SimulatedTokenBalance,
+    SimulatedAccountState,
     SimulationEvidence,
     SimulationGateError,
     SimulationGatePolicy,
@@ -258,3 +259,87 @@ def test_rejects_invalid_policy_with_no_rpc_allowlist():
 def test_rejects_invalid_balance_values():
     with pytest.raises(SimulationGateError, match="non-negative integer"):
         SimulatedTokenBalance("account", "mint", "owner", -1, 0)
+
+
+def test_simulation_evidence_accepts_hash_bound_raw_pre_post_account_state():
+    _, _, _, evidence, _ = valid_fixture()
+    pre_data = b"verified-pool-pre-state"
+    post_data = b"verified-pool-post-state"
+    state = SimulatedAccountState(
+        address="observed-pool",
+        pre_owner="raydium-program",
+        post_owner="raydium-program",
+        pre_lamports=10,
+        post_lamports=10,
+        pre_executable=False,
+        post_executable=False,
+        pre_data=pre_data,
+        post_data=post_data,
+        pre_data_sha256=__import__("hashlib").sha256(pre_data).hexdigest(),
+        post_data_sha256=__import__("hashlib").sha256(post_data).hexdigest(),
+    )
+    changed = dataclasses.replace(evidence, account_states=(state,))
+    assert changed.account_states[0].pre_data == pre_data
+    assert changed.account_states[0].post_data == post_data
+
+
+def test_simulated_account_state_rejects_tampered_raw_data_digest():
+    pre_data = b"before"
+    post_data = b"after!"
+    with pytest.raises(SimulationGateError, match="does not match"):
+        SimulatedAccountState(
+            address="observed-pool",
+            pre_owner="raydium-program",
+            post_owner="raydium-program",
+            pre_lamports=1,
+            post_lamports=1,
+            pre_executable=False,
+            post_executable=False,
+            pre_data=pre_data,
+            post_data=post_data,
+            pre_data_sha256="0" * 64,
+            post_data_sha256=__import__("hashlib").sha256(post_data).hexdigest(),
+        )
+
+
+def test_simulation_evidence_rejects_raw_state_duplicate_of_token_account():
+    _, _, _, evidence, _ = valid_fixture()
+    raw = b"token account raw bytes"
+    state = SimulatedAccountState(
+        address=evidence.token_balances[0].token_account,
+        pre_owner="token-program",
+        post_owner="token-program",
+        pre_lamports=1,
+        post_lamports=1,
+        pre_executable=False,
+        post_executable=False,
+        pre_data=raw,
+        post_data=raw,
+        pre_data_sha256=__import__("hashlib").sha256(raw).hexdigest(),
+        post_data_sha256=__import__("hashlib").sha256(raw).hexdigest(),
+    )
+    with pytest.raises(SimulationGateError, match="must not duplicate tracked token"):
+        dataclasses.replace(evidence, account_states=(state,))
+
+
+def test_simulation_gate_binds_raw_account_state_to_validated_message_keys():
+    intent, validation, _, evidence, _ = valid_fixture()
+    raw = b"observed account pre/post"
+    state = SimulatedAccountState(
+        address="observed-account",
+        pre_owner="owner-program",
+        post_owner="owner-program",
+        pre_lamports=1,
+        post_lamports=1,
+        pre_executable=False,
+        post_executable=False,
+        pre_data=raw,
+        post_data=raw,
+        pre_data_sha256=__import__("hashlib").sha256(raw).hexdigest(),
+        post_data_sha256=__import__("hashlib").sha256(raw).hexdigest(),
+    )
+    evidence = dataclasses.replace(evidence, account_states=(state,))
+    validated = dataclasses.replace(validation, account_keys=("observed-account",))
+    assert evaluate(evidence, intent=intent, validation=validated).approved is True
+    with pytest.raises(SimulationGateError, match="outside the validated transaction"):
+        evaluate(evidence, intent=intent, validation=validation)
