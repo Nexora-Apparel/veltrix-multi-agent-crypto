@@ -34,7 +34,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     derive_raydium_clmm_tick_array_address,
     encode_raydium_clmm_tick_array,
 )
-from veltrix.raydium_clmm_tick_math import Q64
+from veltrix.raydium_clmm_tick_math import Q64, get_sqrt_price_at_tick
 from veltrix.raydium_clmm_vaults import (
     CLASSIC_SPL_TOKEN_PROGRAM_ID,
     RaydiumClmmVaultAccount,
@@ -353,7 +353,7 @@ def test_replay_advances_across_two_initialized_tick_arrays_after_first_crossing
         bundle,
         traversal,
         amount_specified=20,
-        sqrt_price_limit_x64=Q64 - 1,
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(-20),
         base_fee_rate=0,
         protocol_fee_rate=0,
         fund_fee_rate=0,
