@@ -12,6 +12,7 @@ import hashlib
 import struct
 
 from solders.message import from_bytes_versioned
+from solders.pubkey import Pubkey
 
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.jupiter_swap_effects import (
@@ -49,6 +50,7 @@ SUPPORTED_SWAP_VARIANTS = (
 class JupiterRouteSemanticPolicy:
     jupiter_program_ids: tuple[str, ...]
     label_to_variant_index: tuple[tuple[str, int], ...] = SUPPORTED_SWAP_VARIANTS
+    supported_routers: tuple[str, ...] = ("metis",)
     max_slippage_bps: int = 100
     max_platform_fee_bps: int = 0
     max_route_steps: int = MAX_ROUTE_PLAN_STEPS
@@ -60,6 +62,16 @@ class JupiterRouteSemanticPolicy:
                 raise JupiterRouteSemanticError(f"{field} must be a non-empty immutable tuple")
             if len(set(value)) != len(value):
                 raise JupiterRouteSemanticError(f"{field} must not contain duplicates")
+        for program_id in self.jupiter_program_ids:
+            try:
+                if str(Pubkey.from_string(program_id)) != program_id:
+                    raise ValueError("non-canonical")
+            except Exception as exc:
+                raise JupiterRouteSemanticError("jupiter_program_ids contains an invalid public key") from exc
+        if not isinstance(self.supported_routers, tuple) or not self.supported_routers:
+            raise JupiterRouteSemanticError("supported_routers must be a non-empty immutable tuple")
+        if any(router != "metis" for router in self.supported_routers) or len(set(self.supported_routers)) != len(self.supported_routers):
+            raise JupiterRouteSemanticError("only the Metis Jupiter v6 route format is supported")
         if not isinstance(self.label_to_variant_index, tuple) or not self.label_to_variant_index:
             raise JupiterRouteSemanticError("label_to_variant_index must be a non-empty immutable tuple")
         labels = []
@@ -235,7 +247,7 @@ def evaluate_jupiter_route_semantics(
         raise JupiterRouteSemanticError("simulation reported an execution error")
     if order.taker != order.fee_payer or validation.fee_payer != order.taker:
         raise JupiterRouteSemanticError("order taker is not the validated fee payer")
-    if order.router not in {"metis", "dflow", "okx"}:
+    if order.router not in policy.supported_routers:
         raise JupiterRouteSemanticError("Jupiter router is outside supported semantic policy")
     if order.input_amount_raw <= 0 or order.output_amount_raw <= 0:
         raise JupiterRouteSemanticError("order amounts must be positive")
