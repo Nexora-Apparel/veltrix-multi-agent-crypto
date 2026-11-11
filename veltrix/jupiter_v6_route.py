@@ -64,12 +64,12 @@ class JupiterV6RoutePolicy:
 
 @dataclass(frozen=True, slots=True)
 class DecodedJupiterRouteStep:
-    amm_key: str
     swap_variant: int
     dex_label: str
     percent: int
     input_index: int
     output_index: int
+    amm_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
