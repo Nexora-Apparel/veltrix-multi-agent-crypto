@@ -20,24 +20,6 @@ on:
       - 'tests/test_solana_devnet_transaction_audit.py'
       - 'tests/test_solana_devnet_ephemeral_swap.py'
       - '.github/workflows/raydium-devnet-swap-preflight.yml'
-  workflow_dispatch:
-    inputs:
-      wallet_address:
-        description: "Public Solana wallet address only; never enter a private key or seed phrase"
-        required: true
-        type: string
-        default: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
-      amount_lamports:
-        description: "Devnet SOL input in lamports (default 0.001 SOL; maximum 0.05 SOL)"
-        required: true
-        type: string
-        default: "1000000"
-      try_ephemeral_swap:
-        description: "Attempt a disposable-wallet swap only if the Devnet faucet is available"
-        required: false
-        type: boolean
-        default: false
-
 permissions:
   contents: read
 
@@ -92,49 +74,5 @@ jobs:
         with:
           name: direct-devnet-cpmm-unsigned
           path: artifacts/devnet-cpmm-unsigned.json
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Discover route, build unsigned transaction and simulate on Devnet
-        env:
-          WALLET_ADDRESS: ${{ inputs.wallet_address || 'FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U' }}
-          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports || '1000000' }}
-        run: |
-          mkdir -p artifacts
-          python -m veltrix.solana_devnet_swap_preflight \
-            --wallet "$WALLET_ADDRESS" \
-            --amount-lamports "$AMOUNT_LAMPORTS" \
-            --output artifacts/raydium-devnet-swap-preflight.json
-      - name: Resolve captured ALT and audit transaction semantics against canonical Devnet
-        run: |
-          mkdir -p artifacts
-          python -m veltrix.solana_devnet_transaction_audit \
-            --fixture tests/fixtures/raydium_devnet_swap_v0_fixture.json \
-            --output artifacts/raydium-devnet-transaction-audit.json
-      - name: Upload live transaction audit evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: raydium-devnet-transaction-audit
-          path: artifacts/raydium-devnet-transaction-audit.json
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Execute one capped disposable-wallet Devnet swap (opt-in)
-        if: success() && inputs.try_ephemeral_swap == true
-        run: |
-          python -m veltrix.solana_devnet_ephemeral_swap --output artifacts/raydium-devnet-ephemeral-swap.json
-      - name: Upload disposable-wallet swap evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: raydium-devnet-ephemeral-swap
-          path: artifacts/raydium-devnet-ephemeral-swap.json
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Upload Devnet swap evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: raydium-devnet-swap-preflight
-          path: artifacts/raydium-devnet-swap-preflight.json
           if-no-files-found: warn
           retention-days: 14
