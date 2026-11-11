@@ -272,16 +272,26 @@ def evaluate_jupiter_route_semantics(
         raise JupiterRouteSemanticError("program trace inner IDs differ from the simulation evidence")
     expected_input_ata = derive_associated_token_address(order.taker, order.input_mint)
     expected_output_ata = derive_associated_token_address(order.taker, order.output_mint)
-    if (
-        swap_effects.input_token_account != expected_input_ata
-        or swap_effects.output_token_account != expected_output_ata
-        or swap_effects.input_delta_raw != -order.input_amount_raw
-        or swap_effects.output_delta_raw != order.output_amount_raw
-        or swap_effects.minimum_output_amount_raw != order.minimum_output_amount_raw
-        or swap_effects.exact_output_amount_raw != order.output_amount_raw
-        or swap_effects.simulation_context_slot != simulation.context_slot
-    ):
-        raise JupiterRouteSemanticError("quote-to-balance effect evidence differs from the Jupiter order or simulation")
+    effect_mismatches = []
+    if swap_effects.input_token_account != expected_input_ata:
+        effect_mismatches.append("input ATA")
+    if swap_effects.output_token_account != expected_output_ata:
+        effect_mismatches.append("output ATA")
+    if swap_effects.input_delta_raw != -order.input_amount_raw:
+        effect_mismatches.append("input delta")
+    if swap_effects.output_delta_raw != order.output_amount_raw:
+        effect_mismatches.append("output delta")
+    if swap_effects.minimum_output_amount_raw != order.minimum_output_amount_raw:
+        effect_mismatches.append("minimum output")
+    if swap_effects.exact_output_amount_raw != order.output_amount_raw:
+        effect_mismatches.append("exact output")
+    if swap_effects.simulation_context_slot != simulation.context_slot:
+        effect_mismatches.append("simulation slot")
+    if effect_mismatches:
+        raise JupiterRouteSemanticError(
+            "quote-to-balance effect evidence differs from the Jupiter order or simulation: "
+            + ", ".join(effect_mismatches)
+        )
     if order.taker != order.fee_payer or validation.fee_payer != order.taker:
         raise JupiterRouteSemanticError("order taker is not the validated fee payer")
     if order.router not in policy.supported_routers:
