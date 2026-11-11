@@ -35,7 +35,7 @@ def test_phantom_signing_requires_explicit_user_click_and_confirmation():
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "numRequiredSignatures !== 1" in source
-    assert "ALLOWED.has(id)" in source
+    assert "Transaction intent verification is incomplete. Phantom signing is disabled." in source
     assert "simulateTransaction(tx" in source
     assert "fee payer" in source.lower()
     assert "canonical Devnet" in source
