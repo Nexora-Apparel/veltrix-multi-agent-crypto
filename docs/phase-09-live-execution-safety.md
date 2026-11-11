@@ -597,3 +597,19 @@ Implemented in `veltrix/raydium_clmm_limit_orders.py`, pinned to `states/tick_ar
 **Proof boundary:** this module performs one initialized-tick limit-order match only. It does not decide when a tick is reached, integrate order matching into the swap loop, mutate tick-array bitmaps/counts, cross liquidity, split LP/protocol/fund fees, update rewards/oracles, or reconcile vault balances. Full swap replay remains unimplemented.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.38 — Raydium ObservationState update transition
+
+Ported the pinned `ObservationState::update` behavior from `states/oracle.rs` at source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`, building on the Phase 09.34 account decoder.
+
+- Initializes the current ring slot on the first update without advancing the index.
+- Enforces the 15-second minimum observation interval.
+- Uses u32 saturating timestamp subtraction and i64 saturating tick-times-delta multiplication.
+- Advances the 100-slot ring with wrap from slot 99 to slot 0.
+- Uses i64 wrapping addition for cumulative tick values.
+- Preserves all untouched observations and immutable account identity/hash metadata.
+
+**Proof boundary:** this is the oracle account transition only. It is not yet sequenced at the exact post-swap point in the complete Raydium instruction replay, and it does not calculate TWAP, consult historical observations, or prove observation sufficiency for a trading strategy.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
