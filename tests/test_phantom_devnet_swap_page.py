@@ -180,3 +180,12 @@ def test_browser_verifier_checks_pool_token_programs_and_all_privileges():
     assert "effective signer/writable privilege mismatch" in source
     assert "pool vault token-program owner does not match pool state" in source
     assert "pool mint account owner does not match pool token-program declarations" in source
+
+
+
+def test_adversarial_node_harness_is_wired_into_ci():
+    workflow = PAGE.parents[1] / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml"
+    harness = PAGE.parents[1] / "tests" / "phantom_verifier_adversarial.mjs"
+    assert harness.exists()
+    assert "node tests/phantom_verifier_adversarial.mjs" in workflow.read_text(encoding="utf-8")
+    assert "window.__VELTRIX_TEST__ === true" in PAGE.read_text(encoding="utf-8")
