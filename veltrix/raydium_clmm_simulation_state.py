@@ -19,6 +19,10 @@ from veltrix.raydium_clmm_aux_accounts import (
     RaydiumClmmAuxAccountSnapshot,
 )
 from veltrix.raydium_clmm_cpi import RAYDIUM_CLMM_SOURCE_COMMIT, RaydiumClmmCpiResult
+from veltrix.raydium_clmm_bitmap_traversal import (
+    RaydiumClmmBitmapTraversalError,
+    verify_raydium_clmm_bitmap_traversal,
+)
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_LENGTH,
@@ -106,6 +110,7 @@ def build_raydium_clmm_account_commitments(
         pool_account.owner_program_id != RAYDIUM_CLMM_PROGRAM_ID
         or pool_account.expected_program_id != RAYDIUM_CLMM_PROGRAM_ID
         or pool_account.executable is not False
+        or pool_account.data_length != RAYDIUM_POOL_STATE_LENGTH
     ):
         raise RaydiumClmmSimulationStateError("PoolState owner or executable metadata is invalid")
     commitments = [
@@ -270,6 +275,21 @@ def evaluate_raydium_clmm_simulation_state_binding(
         )
     ):
         raise RaydiumClmmSimulationStateError("tick-array snapshot does not preserve exact CPI account and bitmap-extension evidence")
+    if not (
+        pool_evidence.context_slot <= vault_snapshot.context_slot
+        and vault_snapshot.context_slot <= tick_array_snapshot.context_slot
+        and tick_array_snapshot.context_slot <= aux_snapshot.context_slot
+    ):
+        raise RaydiumClmmSimulationStateError("Raydium account evidence context slots are not monotonically fresh")
+    try:
+        verify_raydium_clmm_bitmap_traversal(
+            order,
+            pool_check=pool_check,
+            pool_evidence=pool_evidence,
+            tick_array_snapshot=tick_array_snapshot,
+        )
+    except RaydiumClmmBitmapTraversalError as exc:
+        raise RaydiumClmmSimulationStateError(f"Raydium bitmap traversal proof is invalid: {exc}") from exc
 
     commitments = build_raydium_clmm_account_commitments(
         cpi,
