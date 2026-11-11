@@ -78,6 +78,11 @@ class RaydiumSwapFinalizationResult:
     observation: RaydiumClmmObservationState
     observation_data: bytes
     settlement: RaydiumSwapSettlement
+    zero_for_one: bool
+    source_pool_sha256: str
+    source_tick_array_sha256: tuple[str, ...]
+    source_bitmap_extension_sha256: str | None
+    source_observation_sha256: str
 
 
 def _uint(value: int, bits: int, field: str) -> None:
@@ -446,6 +451,7 @@ def finalize_raydium_swap_state(
     elif session.source_bitmap_extension is not None:
         raise RaydiumSwapFinalizationError("bitmap-extension account disappeared from the working set")
 
+    source_observation_sha256 = observation.data_sha256
     observation_after = observation
     if state.tick != source_pool.tick_current:
         observation_after = apply_raydium_observation_update(
@@ -465,4 +471,9 @@ def finalize_raydium_swap_state(
         observation=observation_after,
         observation_data=observation_data,
         settlement=settlement,
+        zero_for_one=state.zero_for_one,
+        source_pool_sha256=session.source_pool_sha256,
+        source_tick_array_sha256=session.source_tick_array_sha256,
+        source_bitmap_extension_sha256=session.source_bitmap_extension_sha256,
+        source_observation_sha256=source_observation_sha256,
     )
