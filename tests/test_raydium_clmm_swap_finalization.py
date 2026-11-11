@@ -31,6 +31,7 @@ from veltrix.simulation_gate import (
     SimulationEvidence,
 )
 from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
     RAYDIUM_POOL_STATE_LENGTH,
     RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET,
