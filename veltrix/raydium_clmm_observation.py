@@ -141,42 +141,6 @@ def decode_raydium_observation_state(
     )
 
 
-def apply_raydium_observation_update(
-    state: RaydiumObservationState,
-    *,
-    block_timestamp: int,
-    tick: int,
-) -> RaydiumObservationState:
-    if not isinstance(state, RaydiumObservationState):
-        raise RaydiumObservationError("decoded ObservationState is required")
-    if isinstance(block_timestamp, bool) or not isinstance(block_timestamp, int) or not 0 <= block_timestamp <= 0xFFFFFFFF:
-        raise RaydiumObservationError("block_timestamp must fit u32")
-    if isinstance(tick, bool) or not isinstance(tick, int) or not -(1 << 31) <= tick < (1 << 31):
-        raise RaydiumObservationError("tick must fit i32")
-
-    observations = list(state.observations)
-    index = state.observation_index
-    if not state.initialized:
-        observations[index] = RaydiumObservation(block_timestamp, 0, (0, 0, 0, 0))
-        return replace(state, initialized=True, observations=tuple(observations))
-
-    last = observations[index]
-    delta_time = max(0, block_timestamp - last.block_timestamp)
-    if delta_time < RAYDIUM_OBSERVATION_UPDATE_DURATION:
-        return state
-
-    delta_cumulative = tick * delta_time
-    delta_cumulative = max(-(1 << 63), min((1 << 63) - 1, delta_cumulative))
-    cumulative = ((last.tick_cumulative + delta_cumulative + (1 << 63)) % (1 << 64)) - (1 << 63)
-    next_index = 0 if index == RAYDIUM_OBSERVATION_COUNT - 1 else index + 1
-    observations[next_index] = RaydiumObservation(block_timestamp, cumulative, (0, 0, 0, 0))
-    return replace(
-        state,
-        observation_index=next_index,
-        observations=tuple(observations),
-    )
-
-
 RAYDIUM_OBSERVATION_UPDATE_DURATION = 15
 I64_MIN = -(1 << 63)
 I64_MAX = (1 << 63) - 1
