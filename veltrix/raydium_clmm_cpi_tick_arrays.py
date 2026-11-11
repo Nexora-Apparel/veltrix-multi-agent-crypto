@@ -118,6 +118,7 @@ def decode_raydium_clmm_tick_array_bitmap_extension(
         positive_bitmaps=positive,
         negative_bitmaps=negative,
         data_sha256=hashlib.sha256(data).hexdigest(),
+        data_bytes=data,
     )
 
 
