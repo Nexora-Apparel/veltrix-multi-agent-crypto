@@ -37,7 +37,6 @@ def test_phantom_signing_requires_explicit_user_click_and_confirmation():
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "numRequiredSignatures !== 1" in source
-    assert "Transaction intent verification is incomplete. Phantom signing is disabled." in source
     assert "simulateTransaction(tx" in source
     assert "fee payer" in source.lower()
     assert "canonical Devnet" in source
@@ -95,5 +94,56 @@ def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
 def test_browser_semantic_verifier_remains_fail_closed():
     source = PAGE.read_text(encoding="utf-8")
     assert "Transaction intent verification is incomplete. Phantom signing is disabled." in source
-    inspect = source.split("function inspectTransaction(tx)", 1)[1].split("async function prepareQuote()", 1)[0]
-    assert "throw new Error(" in inspect
+    assert "function inspectTransaction(tx, quote, reviewedBytes)" in source
+    assert "async function resolveV0Accounts(message)" in source
+    assert "async function verifyCpmmCpi(tx, policy, reviewedBytes)" in source
+    assert "Transaction intent rejected:" in source
+    assert "function inspectTransaction(tx, quote, reviewedBytes)" in source
+
+
+
+def test_browser_v0_decoder_resolves_canonical_devnet_alt_and_privileges():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "AddressLookupTableAccount.deserialize(data)" in source
+    assert "AddressLookupTab1e1111111111111111111111111" in source
+    assert "getGenesisHash" in source
+    assert 'commitment:"finalized"' in source
+    assert "lastExtendedSlot" in source
+    assert "lastExtendedSlotStartIndex" in source
+    assert "lookup.writableIndexes" in source
+    assert "lookup.readonlyIndexes" in source
+    assert "effectivePrivileges(message, resolved)" in source
+    assert "compiled instruction index out of bounds" in source
+
+
+def test_browser_router_policy_checks_full_setup_route_cleanup_and_compute_budget():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeRouterPolicy(message, resolved, quote)" in source
+    assert "ROUTER_ACCOUNT_COUNT = 17" in source
+    assert "expectedSetup" in source
+    assert "expectedRoute" in source
+    assert "expectedCleanup" in source
+    assert "compute-unit price invalid" in source
+    assert "compute-unit limit outside policy" in source
+    assert "readU64(route.data,1) !== BigInt(TEST_LAMPORTS)" in source
+
+
+def test_browser_cpmm_policy_checks_live_pool_and_inner_swap_cpi():
+    source = PAGE.read_text(encoding="utf-8").read_text(encoding="utf-8")
+    assert "function decodeTokenAccount(" in source
+    assert "function verifyPoolAndAccounts(" in source
+    assert "findProgramAddressSync([POOL_AUTH_SEED]" in source
+    assert "function verifyCpmmCpi(tx, policy, reviewedBytes)" in source
+    assert "CPMM_SWAP_DISC" in source
+    assert "innerInstructions:true" in source
+    assert "expected exactly one CPMM CPI" in source
+    assert "outerMinimumEnforced:true" in source
+
+
+def test_browser_semantic_audit_runs_before_review_and_before_signing():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "await inspectTransaction(tx, q, snapshot)" in source
+    assert "await inspectTransaction(tx, prepared.quote, prepared.reviewedBytes[i])" in source
+    assert "Transaction intent rejected:" in source
+    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "inspectTransaction(tx, quote, reviewedBytes)" in source
