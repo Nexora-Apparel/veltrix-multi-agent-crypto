@@ -135,15 +135,16 @@ def _extension_location(start_tick_index: int, tick_spacing: int) -> tuple[str, 
         raise RaydiumTickArrayMutationError("tick-array start index must fit i32")
     if start_tick_index % ticks_per_array:
         raise RaydiumTickArrayMutationError("tick-array start index is not canonically aligned")
-    if -max_tick_in_bitmap < start_tick_index < max_tick_in_bitmap:
+    if -max_tick_in_bitmap <= start_tick_index < max_tick_in_bitmap:
         raise RaydiumTickArrayMutationError("tick-array belongs in the PoolState default bitmap")
     if start_tick_index == 0:
         raise RaydiumTickArrayMutationError("zero tick-array start index is invalid for extension")
-    boundary = RAYDIUM_MAX_TICK
-    if max_tick_in_bitmap >= boundary or -max_tick_in_bitmap <= RAYDIUM_MIN_TICK:
+    if max_tick_in_bitmap >= RAYDIUM_MAX_TICK or -max_tick_in_bitmap <= RAYDIUM_MIN_TICK:
         raise RaydiumTickArrayMutationError("extension bitmap is not valid for this tick spacing")
-    if start_tick_index < RAYDIUM_MIN_TICK or start_tick_index > RAYDIUM_MAX_TICK:
-        raise RaydiumTickArrayMutationError("tick-array start index exceeds protocol tick bounds")
+    min_array_start = (RAYDIUM_MIN_TICK // ticks_per_array) * ticks_per_array
+    max_array_start = (RAYDIUM_MAX_TICK // ticks_per_array) * ticks_per_array
+    if not min_array_start <= start_tick_index <= max_array_start:
+        raise RaydiumTickArrayMutationError("tick-array start index exceeds protocol tick-array bounds")
     magnitude_remainder = abs(start_tick_index) % max_tick_in_bitmap
     bitmap_offset = magnitude_remainder // ticks_per_array
     if start_tick_index < 0 and magnitude_remainder:
@@ -160,7 +161,7 @@ def _extension_location(start_tick_index: int, tick_spacing: int) -> tuple[str, 
 
 def _read_bitmap_bit(pool: RaydiumClmmPoolState, extension, start: int) -> bool:
     ticks_per_array = _ticks_per_array(pool.tick_spacing)
-    if -ticks_per_array * EXTENSION_BITMAP_BITS < start < ticks_per_array * EXTENSION_BITMAP_BITS:
+    if -ticks_per_array * EXTENSION_BITMAP_BITS <= start < ticks_per_array * EXTENSION_BITMAP_BITS:
         offset = start // ticks_per_array + DEFAULT_BITMAP_HALF
         if not 0 <= offset < DEFAULT_BITMAP_BITS:
             raise RaydiumTickArrayMutationError("default bitmap offset is outside 1024 bits")
