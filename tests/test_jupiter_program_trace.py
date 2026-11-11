@@ -216,6 +216,7 @@ def test_accepts_order_route_when_simulated_cpi_trace_matches_registry():
     assert result.jupiter_route.instruction_name == "route"
     assert result.jupiter_route.fully_decoded is False
     assert result.jupiter_route.remaining_account_count == 2
+    assert result.execution_ready is False
 
 
 def test_route_gate_returns_decoded_compute_budget_values():
