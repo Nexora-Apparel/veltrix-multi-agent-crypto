@@ -278,8 +278,6 @@ def fetch_raydium_clmm_aux_account_snapshot(
         or rpc_adapter.expected_genesis_hash != simulation.genesis_hash
     ):
         raise RaydiumClmmAuxAccountError("auxiliary account RPC adapter differs from the simulation provider")
-    if hashlib.sha256(simulation.message_sha256.encode()).hexdigest() == "":
-        raise RaydiumClmmAuxAccountError("unreachable digest validation")
     expected: dict[str, tuple[str, str]] = {}
     for check in pool_checks:
         pool = check.pool
