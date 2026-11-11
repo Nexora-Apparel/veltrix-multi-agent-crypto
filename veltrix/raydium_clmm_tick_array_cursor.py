@@ -30,6 +30,12 @@ def _validate_array(tick_array: RaydiumClmmTickArray) -> None:
         raise RaydiumTickArrayCursorError("TickArrayState must contain exactly 60 tick records")
     if isinstance(tick_array.tick_spacing, bool) or not isinstance(tick_array.tick_spacing, int) or not 1 <= tick_array.tick_spacing <= 0xFFFF:
         raise RaydiumTickArrayCursorError("TickArrayState tick spacing must fit a positive u16")
+    if not isinstance(tick_array.address, str) or not tick_array.address or tick_array.address.strip() != tick_array.address:
+        raise RaydiumTickArrayCursorError("TickArrayState address must be a canonical non-empty string")
+    if not isinstance(tick_array.pool_address, str) or not tick_array.pool_address or tick_array.pool_address.strip() != tick_array.pool_address:
+        raise RaydiumTickArrayCursorError("TickArrayState pool address must be a canonical non-empty string")
+    if not isinstance(tick_array.data_sha256, str) or len(tick_array.data_sha256) != 64 or any(char not in "0123456789abcdef" for char in tick_array.data_sha256):
+        raise RaydiumTickArrayCursorError("TickArrayState data hash must be lowercase SHA-256")
     if isinstance(tick_array.start_tick_index, bool) or not isinstance(tick_array.start_tick_index, int) or not -(1 << 31) <= tick_array.start_tick_index < (1 << 31):
         raise RaydiumTickArrayCursorError("TickArrayState start index must fit i32")
     expected_start = raydium_current_tick_array_start(
@@ -37,6 +43,15 @@ def _validate_array(tick_array: RaydiumClmmTickArray) -> None:
     )
     if expected_start != tick_array.start_tick_index:
         raise RaydiumTickArrayCursorError("TickArrayState start index is not aligned to its spacing")
+    initialized_count = 0
+    for index, tick in enumerate(tick_array.ticks):
+        if not isinstance(tick, RaydiumClmmTick) or not isinstance(tick.initialized, bool):
+            raise RaydiumTickArrayCursorError("TickArrayState contains a malformed tick record")
+        if tick.tick_index != tick_array.start_tick_index + index * tick_array.tick_spacing:
+            raise RaydiumTickArrayCursorError("TickArrayState tick indices do not match canonical array offsets")
+        initialized_count += int(tick.initialized)
+    if tick_array.initialized_tick_count != initialized_count:
+        raise RaydiumTickArrayCursorError("TickArrayState initialized count differs from its tick records")
 
 
 def first_initialized_tick(
