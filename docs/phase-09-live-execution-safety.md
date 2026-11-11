@@ -381,3 +381,20 @@ Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.p
 - Legacy/manual evidence may still contain only the compact trace, but DEX semantic gates must require detailed records and reject absent instruction bytes/account keys.
 
 This captures raw simulation evidence only. It does not by itself identify which inner CPI belongs to which Jupiter route step, decode DEX instruction payloads, prove account roles, or validate tick-array traversal. No signing, submission, broadcast or live execution is added.
+
+
+### 09.26 — Raydium CLMM CPI semantic binding
+
+Implemented in `veltrix/raydium_clmm_cpi.py`, pinned to `raydium-io/raydium-clmm` source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Decodes only the legacy classic-SPL `swap` CPI instruction with exact Borsh layout: discriminator, input amount, minimum output threshold, Q64.64 sqrt-price limit and canonical boolean `is_base_input`.
+- Rejects `swap_v2`, malformed payloads, unsupported instruction discriminators, noncanonical booleans and non-positive amounts.
+- Supports only one direct Metis/Jupiter route hop labelled Raydium CLMM; multi-hop and Token-2022 routes remain rejected.
+- Requires exactly one Raydium CLMM CPI in the detailed simulation trace, nested directly under the validated Jupiter route instruction (stack height 2).
+- Checks CPI payer, taker input/output classic SPL ATAs, classic token program, distinct vaults, account-key canonicality, and fixed account positions.
+- Binds the CPI amount to the exact Jupiter route input; checks the CPI minimum-output threshold against the route quote and local slippage ceiling.
+- Uses the complete raw inner-CPI instruction records from Phase 09.25; compact program IDs alone are insufficient.
+
+This gate decodes the swap call and validates its user-facing token-account semantics. It does not yet prove the CPI's pool/vault/tick-array accounts against the independently fetched PoolState, vault and TickArrayState evidence from Phases 09.22–09.24. That cross-evidence binding is the next required gate. It also does not calculate executable liquidity or sign/submit transactions.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
