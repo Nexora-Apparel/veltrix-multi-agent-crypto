@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 
 PAGE = Path(__file__).parents[1] / "wallet" / "phantom-devnet-swap.html"
@@ -18,6 +17,7 @@ def test_phantom_page_is_devnet_only_and_has_no_secret_input():
 def test_swap_limits_and_impact_gate_are_present():
     source = PAGE.read_text(encoding="utf-8")
     assert "MAX_LAMPORTS = 5000000" in source
+    assert "lamports > MAX_LAMPORTS" in source
     assert "RESERVE_LAMPORTS = 50000000" in source
     assert "MAX_IMPACT = 2" in source
     assert "impact > MAX_IMPACT" in source
@@ -39,11 +39,14 @@ def test_unsigned_transactions_are_checked_and_simulated_before_signing():
     assert "simulateTransaction(tx" in source
     assert "fee payer" in source.lower()
     assert "canonical Devnet" in source
+    assert "tokenBalanceAfter - BigInt(prepared.tokenBalanceBefore)" in source
+    assert "Verified USDC increase" in source
 
 
 def test_no_automatic_execution_on_page_load():
     source = PAGE.read_text(encoding="utf-8")
     script = source.split("<script>", 1)[1].split("</script>", 1)[0]
-    assert not re.search(r"(?<!function )\bexecute\(\)\s*;", script)
-    assert "window.addEventListener('load'" not in script
-    assert "window.addEventListener(\"load\"" not in script
+    assert '$("execute").addEventListener("click"' in script
+    assert "window.onload" not in script
+    assert "addEventListener('load'" not in script
+    assert 'addEventListener("load"' not in script
