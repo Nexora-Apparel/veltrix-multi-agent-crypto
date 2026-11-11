@@ -67,3 +67,56 @@ def test_simulation_never_signs_or_sends():
     assert SOL_MINT != DEVNET_USDC_MINT
     assert DEFAULT_AMOUNT_LAMPORTS == 10_000_000
     assert len(ALLOWED_RAYDIUM_PROGRAMS) >= 4
+
+
+def test_full_quote_build_and_simulation_path_is_unsigned():
+    import base64
+    from veltrix.solana_devnet_swap_preflight import (
+        RAYDIUM_DEVNET_API, RAYDIUM_DEVNET_TRADE_API, DEFAULT_WALLET
+    )
+    pool_id = "11111111111111111111111111111111"
+    tx_b64 = base64.b64encode(b"unsigned-versioned-tx").decode()
+    class FullSession:
+        def __init__(self): self.calls=[]
+        def post(self, url, **kwargs):
+            self.calls.append((url, kwargs["json"]["method"]))
+            method=kwargs["json"]["method"]
+            if method == "getGenesisHash": data={"result": DEVNET_GENESIS_HASH}
+            elif method == "getBalance": data={"result":{"value":5_000_000_000}}
+            elif method == "getAccountInfo" and kwargs["json"]["params"][0] == DEVNET_USDC_MINT:
+                data={"result":{"value":{"owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","data":["","base64"]}}}
+            elif method == "getAccountInfo":
+                data={"result":{"value":{"owner":next(iter(ALLOWED_RAYDIUM_PROGRAMS),"DRaya7Kj3aMWQSy19kSjvmuwq9docCHofyP9kanQGaav"),"data":["","base64"]}}}
+            elif method == "simulateTransaction":
+                data={"result":{"value":{"err":None,"logs":["simulation ok"]}}}
+            else: raise AssertionError("unexpected RPC method: "+method)
+            return Response(data)
+        def get(self, url, **kwargs):
+            self.calls.append((url, "GET"))
+            if url.endswith("/compute/swap-base-in"):
+                data={"success":True,"data":{"inputMint":SOL_MINT,"outputMint":DEVNET_USDC_MINT,"outputAmount":"12345","otherAmountThreshold":"12000","priceImpactPct":0.001,"routePlan":[{"poolId":pool_id}]}}
+            elif url == f"{RAYDIUM_DEVNET_API}/pools/info/ids":
+                data={"success":True,"data":[{"id":pool_id}]}
+            else: raise AssertionError("unexpected GET: "+url)
+            return Response(data)
+        def post_json_placeholder(self, url, **kwargs): pass
+    session=FullSession()
+    # The transaction build endpoint is an HTTP POST, distinguish it from JSON-RPC.
+    original_post=session.post
+    def post(url, **kwargs):
+        if url == f"{RAYDIUM_DEVNET_TRADE_API}/transaction/swap-base-in":
+            session.calls.append((url,"BUILD"))
+            return Response({"success":True,"data":[{"transaction":tx_b64}]})
+        return original_post(url, **kwargs)
+    session.post=post
+    evidence=RaydiumDevnetSwapPreflight(session=session).run(DEFAULT_WALLET)
+    assert evidence.status == "simulation_succeeded"
+    assert evidence.quote_received and evidence.unsigned_transaction_built
+    assert evidence.simulation_attempted and evidence.simulation_succeeded
+    assert evidence.route_pool_ids == [pool_id]
+    assert evidence.transaction_signed is False
+    assert evidence.transaction_submitted is False
+    assert evidence.transaction_broadcast is False
+    assert evidence.swap_executed is False
+    assert evidence.live_trading is False
+    assert all(method not in {"sendTransaction","sendRawTransaction"} for _,method in session.calls)
