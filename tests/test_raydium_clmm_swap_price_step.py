@@ -132,6 +132,8 @@ def test_no_price_change_is_a_zero_amount_noop_and_preserves_fee_state():
 def test_dynamic_fee_max_accumulator_disables_spacing_bound_for_this_step():
     state = fee_state()
     info = dynamic_info(
+        tick_spacing_index_reference=0,
+        volatility_reference=100_000,
         volatility_accumulator=100_000,
         max_volatility_accumulator=100_000,
     )
