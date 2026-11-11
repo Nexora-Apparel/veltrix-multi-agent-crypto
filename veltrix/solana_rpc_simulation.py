@@ -612,7 +612,9 @@ class SolanaRpcSimulationAdapter:
                 post_data_sha256=hashlib.sha256(post_account.data).hexdigest(),
             ))
 
-        raw_logs = value.get("logs") or []
+        raw_logs = value.get("logs", [])
+        if raw_logs is None:
+            raw_logs = []
         if not isinstance(raw_logs, list) or len(raw_logs) > 512 or any(
             not isinstance(line, str) or len(line) > 4096 for line in raw_logs
         ) or sum(len(line.encode("utf-8")) for line in raw_logs if isinstance(line, str)) > 65_536:
