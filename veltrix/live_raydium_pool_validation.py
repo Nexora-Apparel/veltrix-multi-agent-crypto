@@ -49,7 +49,7 @@ class HeliusHeaderSession:
     def post(self, endpoint, *, json, headers, timeout, allow_redirects):
         request_headers = dict(headers)
         if self._api_key:
-            request_headers["api-key"] = self._api_key
+            request_headers["X-Api-Key"] = self._api_key
         return self._session.post(
             endpoint, json=json, headers=request_headers,
             timeout=timeout, allow_redirects=allow_redirects,
