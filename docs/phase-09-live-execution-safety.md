@@ -439,23 +439,23 @@ Implemented in `veltrix/raydium_clmm_cpi_tick_arrays.py`.
 - Requires the decoded tick arrays to be strictly ordered in the swap direction derived from the Jupiter input mint. The final CPI-to-pool binding now requires exact equality between CPI trailing account order and the snapshot order; bitmap-extension accounts are not misclassified as tick arrays.
 - Generalized the tick-array decoder to validate arrays outside the current tick's own array while retaining current-array checks when explicitly requested.
 
-Remaining limitation: strict order and account identity do not yet prove that no initialized tick-array boundary was skipped. The next step must decode the PoolState in-range bitmap and optional extension bitmaps, reproduce Raydium's `first_tick_array_index_with_extension_info` / `next_initialized_tick_array_start_index` traversal, and prove the exact sequence of initialized arrays consumed by the swap loop. This stage also does not calculate executable liquidity/depth or price impact. All results remain evidence-only; signing, Jupiter `/execute`, transaction submission, broadcast, and live execution remain disabled.
+Remaining limitations at the end of 09.28: strict order and account identity alone did not prove that no initialized tick-array boundary was skipped. Phase 09.29 below adds the source-pinned bitmap traversal proof. Executable liquidity/depth and price impact remain separate gaps. All results remain evidence-only; signing, Jupiter `/execute`, transaction submission, broadcast, and live execution remain disabled.
 
 
 #### Pinned PoolState allocation-size correction
 
-A source-layout audit corrected the full PoolState account allocation from the earlier 1,544-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
+A source-layout audit corrected the full PoolState account allocation from the earlier 1,576-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
 
 
 ### 09.29 — Reproduce PoolState and extension bitmap traversal
 
 Implemented in `veltrix/raydium_clmm_bitmap_traversal.py`.
 
-- Reads the 1,024-bit default initialized-array bitmap already decoded from the pinned 1,544-byte PoolState at the source-defined `tick_array_bitmap` field offset.
-- Decodes and retains the extension account's 14 positive and 14 negative 512-bit bitmap blocks (each block is eight little-endian u64 words), bound to the validated extension PDA, pool ID, provider snapshot and SHA-256 digest.
+- Reads the 1,024-bit default initialized-array bitmap at the source-defined `tick_array_bitmap` offset and independently compares its 16 u64 words, current tick, tick spacing, and mint pair against the raw owner-verified 1,544-byte PoolState account.
+- Decodes and retains the extension account's 14 positive and 14 negative 512-bit bitmap blocks (each block is eight little-endian u64 words), bound to the canonical extension PDA, pool ID, raw account bytes, provider snapshot and SHA-256 digest. The verifier rechecks that the retained decoded words reproduce the exact raw account bytes.
 - Reproduces the pinned Raydium default bitmap index mapping (`start / (60 * tick_spacing) + 512`) and the extension block/bit mapping on both positive and negative tick ranges.
 - Starts from the PoolState current tick's containing array, determines whether it is initialized, then reproduces the next initialized-array search in swap direction.
-- Requires the decoded CPI-supplied array sequence to equal the bitmap-derived initialized-array sequence exactly, with initialized tick records in every supplied array. This deliberately accepts a conservative subset of CPI account layouts and rejects unused/uninitialized padding rather than assuming the swap loop's account-consumption behavior.
+- Requires the decoded CPI-supplied array sequence to equal the bitmap-derived initialized-array sequence exactly from the current array through the final supplied array. Every supplied array must be bitmap-marked initialized and contain initialized tick records; uninitialized extras, skipped initialized arrays, reordered arrays, and altered bitmap objects fail closed.
 - Preserves the exact CPI trailing-account order and returns a bounded-interval proof, never an execution authorization.
 
 **Proof boundary:** this proves bitmap completeness only from the current tick-array boundary through the last array supplied in the CPI account list. It does not prove how many arrays the simulated swap actually consumed, that no further array beyond the final supplied account was needed, that the quote's amount/price limit would stop within the supplied range, or the exact initialized ticks/liquidity transitions consumed by the swap. Those require binding the full simulation execution trace/state transition to the account sequence and independently replaying the pinned swap loop. Executable liquidity/depth and price-impact calculation remain separate gaps.
