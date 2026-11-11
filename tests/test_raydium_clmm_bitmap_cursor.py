@@ -110,7 +110,7 @@ def test_missing_extension_is_reported_only_when_spacing_requires_it():
     ) is None
 
 
-@pytest.mark.parametrize("start,side", [(307_200, "positive"), (-307_200, "negative")])
+@pytest.mark.parametrize("start,side", [(307_200, "positive"), (-307_800, "negative")])
 def test_extension_bitmap_search_crosses_default_boundary(start, side):
     p = pool(spacing=10, current_tick=start - 600 if side == "positive" else start + 600)
     positive = [list(row) for row in tuple((0,) * 8 for _ in range(14))]
