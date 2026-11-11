@@ -33,7 +33,7 @@ from veltrix.simulation_gate import (
 from veltrix.transaction_validator import TransactionValidationResult
 
 
-def swap_data(amount=1_000, threshold=1_980, sqrt_limit=0, is_base_input=1):
+def swap_data(amount=1_000, threshold=1_980, sqrt_limit=1, is_base_input=1):
     return (
         RAYDIUM_CLMM_SWAP_DISCRIMINATOR
         + struct.pack("<QQ", amount, threshold)
@@ -212,6 +212,7 @@ def test_decoder_accepts_exact_classic_token_swap_payload():
         (swap_data(is_base_input=2), "canonical Borsh boolean"),
         (swap_data(amount=0), "must be positive"),
         (swap_data(threshold=0), "must be positive"),
+        (swap_data(sqrt_limit=0), "sqrt-price limit must be non-zero"),
     ],
 )
 def test_decoder_rejects_malformed_or_unsupported_swap_payloads(data, message):
@@ -359,3 +360,12 @@ def test_rejects_duplicate_remaining_tick_array_account():
     values[2] = dataclasses.replace(simulation, inner_instructions=(cpi,))
     with pytest.raises(RaydiumClmmCpiError, match="unexpectedly alias"):
         evaluate(tuple(values))
+
+
+def test_rejects_cpi_minimum_output_below_jupiter_order_threshold():
+    values = list(fixture())
+    simulation = values[2]
+    cpi = dataclasses.replace(simulation.inner_instructions[0], data=swap_data(threshold=1_940))
+    values[2] = dataclasses.replace(simulation, inner_instructions=(cpi,))
+    with pytest.raises(RaydiumClmmCpiError, match="below Jupiter's order threshold"):
+        evaluate(tuple(values), RaydiumClmmCpiPolicy(max_slippage_bps=300))
