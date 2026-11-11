@@ -360,6 +360,7 @@ class RaydiumTickArrayMutationSession:
     pool: RaydiumClmmPoolState
     tick_arrays: tuple[RaydiumClmmTickArray, ...]
     bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None
+    source_bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None
 
 
 def create_raydium_tick_array_mutation_session(
@@ -408,6 +409,7 @@ def create_raydium_tick_array_mutation_session(
         pool=pool,
         tick_arrays=tick_arrays,
         bitmap_extension=bitmap_extension,
+        source_bitmap_extension=bitmap_extension,
     )
 
 

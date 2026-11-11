@@ -111,6 +111,7 @@ class RaydiumClmmPoolState:
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     dynamic_fee_info: RaydiumClmmDynamicFeeInfo = RaydiumClmmDynamicFeeInfo()
     reward_infos: tuple[RaydiumClmmRewardInfo, ...] = (RaydiumClmmRewardInfo(),) * RAYDIUM_POOL_REWARD_COUNT
+    raw_data: bytes = b""
 
     @property
     def swaps_enabled(self) -> bool:
@@ -367,6 +368,7 @@ def decode_raydium_clmm_pool_state(
         tick_array_bitmap=tick_array_bitmap,
         dynamic_fee_info=dynamic_fee_info,
         reward_infos=tuple(reward_infos),
+        raw_data=data,
     )
 
 

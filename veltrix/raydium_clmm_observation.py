@@ -44,6 +44,7 @@ class RaydiumClmmObservationState:
     observations: tuple[RaydiumClmmObservation, ...]
     padding: bytes
     data_sha256: str
+    raw_data: bytes = b""
 
 
 def derive_raydium_clmm_observation_address(pool_address: str) -> tuple[str, int]:
@@ -142,6 +143,7 @@ def decode_raydium_clmm_observation_state(
         observations=tuple(observations),
         padding=padding,
         data_sha256=account.data_sha256,
+        raw_data=data,
     )
 
 
