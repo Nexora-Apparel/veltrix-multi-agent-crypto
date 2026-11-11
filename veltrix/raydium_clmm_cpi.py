@@ -228,11 +228,13 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("Raydium CLMM CPI does not use the classic SPL Token program")
     if input_vault == output_vault or input_account == output_account:
         raise RaydiumClmmCpiError("Raydium CLMM CPI input/output token accounts or vaults unexpectedly alias")
-    if len(set(accounts[:10])) != 10:
-        raise RaydiumClmmCpiError("Raydium CLMM fixed account positions unexpectedly alias")
+    if len(set(accounts)) != len(accounts):
+        raise RaydiumClmmCpiError("Raydium CLMM CPI fixed or remaining tick-array accounts unexpectedly alias")
 
     decoded = decode_raydium_clmm_swap(cpi.data)
     quoted_step = order.route_plan[0]
+    if pool_state != quoted_step.amm_key:
+        raise RaydiumClmmCpiError("Raydium CLMM CPI pool account differs from the quoted AMM pool key")
     if not decoded.is_base_input:
         raise RaydiumClmmCpiError("Raydium CLMM CPI must use exact-input mode")
     if decoded.amount_raw != quoted_step.input_amount_raw or decoded.amount_raw != order.input_amount_raw:
