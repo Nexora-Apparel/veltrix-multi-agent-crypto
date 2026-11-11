@@ -386,6 +386,8 @@ def encode_raydium_clmm_pool_state(pool: RaydiumClmmPoolState) -> bytes:
         raise RaydiumClmmPoolStateError("PoolState source commit differs from the pinned layout")
     if not isinstance(pool.account_data, bytes) or len(pool.account_data) != RAYDIUM_POOL_STATE_LENGTH:
         raise RaydiumClmmPoolStateError("original verified PoolState bytes are required for lossless serialization")
+    if hashlib.sha256(pool.account_data).hexdigest() != pool.account_data_sha256:
+        raise RaydiumClmmPoolStateError("original PoolState bytes differ from the stored SHA-256 commitment")
     expected_pool_address = derive_raydium_clmm_pool_address(
         amm_config=pool.amm_config,
         token_mint_0=pool.token_mint_0,
