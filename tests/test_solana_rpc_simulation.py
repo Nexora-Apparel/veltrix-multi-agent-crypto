@@ -844,3 +844,39 @@ def test_simulation_rejects_observed_account_not_in_validated_message():
             last_valid_block_height=950,
             observed_account_addresses=(unreferenced,),
         )
+
+
+def test_simulation_can_capture_all_non_program_transaction_accounts_deterministically():
+    raw, intent, tx_policy, expected, fixture_data = fixture()
+    observed = intent.fee_payer
+    owner = str(Pubkey.new_unique())
+    fixture_data["simulation_addresses"] = fixture_data["addresses"] + [observed]
+    fixture_data["pre_accounts"].append(raw_account_info(owner, b"pre-state"))
+    fixture_data["post_accounts"].append(raw_account_info(owner, b"post-state"))
+    result = adapter(FakeSession(fixture_data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+        capture_all_non_program_accounts=True,
+    )
+    assert tuple(item.address for item in result.evidence.account_states) == (observed,)
+    assert result.evidence.account_states[0].pre_data == b"pre-state"
+    assert result.evidence.account_states[0].post_data == b"post-state"
+
+
+def test_simulation_rejects_mixing_explicit_and_automatic_account_capture():
+    raw, intent, tx_policy, expected, fixture_data = fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="cannot be combined"):
+        adapter(FakeSession(fixture_data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            observed_account_addresses=(intent.fee_payer,),
+            capture_all_non_program_accounts=True,
+        )
