@@ -274,3 +274,12 @@ def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
     assert 'throw new Error("Phantom signing is disabled.' in source
     assert '$("execute").disabled = true' in source
     assert '$("execute").textContent="Phantom signing disabled"' in source
+
+
+
+def test_devnet_ci_uses_fresh_direct_cpmm_audit_without_stale_router_fixture():
+    workflow = (PAGE.parents[1] / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml").read_text(encoding="utf-8")
+    assert "node tests/phantom_direct_cpmm_live_audit.mjs" in workflow
+    assert "python -m veltrix.solana_devnet_transaction_audit" not in workflow
+    assert "python -m veltrix.solana_devnet_swap_preflight" not in workflow
+    assert "try_ephemeral_swap" not in workflow
