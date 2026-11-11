@@ -286,12 +286,14 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     output_account = account_map[key_strings[3]]
     _expect(associated_token_address(WALLET, WSOL, TOKEN) == key_strings[1], "input account is not the wallet WSOL ATA")
     _expect(associated_token_address(WALLET, USDC, TOKEN) == key_strings[3], "output account is not the wallet USDC ATA")
-    _expect(input_account is not None, "wrapped-SOL input ATA is missing; setup cannot be independently validated")
-    in_mint, in_owner, _ = token_account_fields(input_account, expected_programs={TOKEN})
-    _expect((in_mint, in_owner) == (WSOL, WALLET), "input token account mint/owner mismatch")
-    _expect(output_account is not None, "Devnet USDC output ATA is missing")
-    out_mint, out_owner, _ = token_account_fields(output_account, expected_programs={TOKEN})
-    _expect((out_mint, out_owner) == (USDC, WALLET), "output token account mint/owner mismatch")
+    input_account_present = input_account is not None
+    output_account_present = output_account is not None
+    if input_account_present:
+        in_mint, in_owner, _ = token_account_fields(input_account, expected_programs={TOKEN})
+        _expect((in_mint, in_owner) == (WSOL, WALLET), "input token account mint/owner mismatch")
+    if output_account_present:
+        out_mint, out_owner, _ = token_account_fields(output_account, expected_programs={TOKEN})
+        _expect((out_mint, out_owner) == (USDC, WALLET), "output token account mint/owner mismatch")
 
     vault_in = account_map[key_strings[7]]
     vault_out = account_map[key_strings[8]]
@@ -356,6 +358,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(all(item[1] in allowed_inner_programs for item in inner_flat),
             "simulation contains an unrecognized CPI program")
     allowed_user_atas = {key_strings[1], key_strings[3]}
+    created_user_atas: set[str] = set()
     for _, program, account_indexes, data in inner_flat:
         if program == ATA_PROGRAM:
             names = [key_strings[index] for index in account_indexes]
@@ -367,6 +370,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             _expect((ata, mint, token_program) in {
                 (key_strings[1], WSOL, TOKEN), (key_strings[3], USDC, TOKEN)
             } and system_program == SYSTEM, "associated-token CPI mint/program tuple is unexpected")
+            created_user_atas.add(ata)
         elif program == SYSTEM:
             _expect(len(data) >= 4, "System Program CPI data is truncated")
             tag = int.from_bytes(data[:4], "little")
@@ -386,6 +390,10 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
                         "System Transfer is not the exact wrapped-SOL funding transfer")
             else:
                 raise AuditError(f"disallowed System Program CPI instruction {tag}")
+    _expect(input_account_present or key_strings[1] in created_user_atas,
+            "missing wrapped-SOL ATA is not created by the inspected setup CPI")
+    _expect(output_account_present or key_strings[3] in created_user_atas,
+            "missing Devnet USDC ATA is not created by the inspected setup CPI")
     allowed_transfer_pairs = {(key_strings[1], key_strings[7]), (key_strings[8], key_strings[3])}
     token_transfer_amounts: list[tuple[str, str, int]] = []
     for _, program, account_indexes, data in inner_flat:
