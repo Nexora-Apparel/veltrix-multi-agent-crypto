@@ -260,3 +260,19 @@ Implemented in `veltrix/solana_rpc_simulation.py` and `veltrix/simulation_gate.p
 - Legacy/manual evidence may still carry only the compact program-ID trace; DEX semantic gates must require detailed records and reject missing detail. This preserves existing unit-test fixtures without treating absent CPI bytes as verified.
 - This change captures evidence only. It does not yet decode Raydium/Meteora CPI payloads or prove pool/account semantics.
 - Missing inner trace remains an empty trace and cannot satisfy the existing Jupiter program trace gate. No signing, submission, broadcast or live execution is added.
+
+
+### 09.16 — Raydium CLMM swap_v2 CPI semantic gate
+
+Implemented in `veltrix/raydium_cpi_semantics.py`, with adversarial coverage in `tests/test_raydium_cpi_semantics.py`.
+
+- Pins the Raydium CLMM mainnet program ID and source revision `raydium-io/raydium-clmm` commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+- Decodes only the 41-byte Anchor `swap_v2` instruction: discriminator, exact input amount, minimum output threshold, Q64.64 sqrt-price limit and canonical Borsh exact-input boolean.
+- Requires the CPI to be a direct depth-2 child of the exact Jupiter route instruction and matches the CPI count/order to the quote route steps.
+- Binds Raydium pool state to the quoted AMM key, input/output mints to the route step, input/output token accounts to the Jupiter token-index flow and final taker classic SPL ATAs, and input amount to the exact quote route-step input.
+- Requires the classic SPL Token program and the pinned Token-2022/memo account positions in the Raydium `SwapSingleV2` layout. Token-2022 token accounts are not supported by this gate.
+- Requires non-zero minimum output not exceeding the quoted route-step output, zero custom sqrt-price limit, bounded tick-array remaining accounts, no account aliasing, and no unknown inner CPI program.
+
+This gate deliberately supports only all-Ray­dium-CLMM, exact-input `swap_v2` routes using classic SPL tokens. It rejects legacy `swap`, exact-output, Token-2022 assets, mixed-DEX routes, and unknown Raydium CPI layouts. The source revision is pinned; upgrades require a reviewed source/IDL diff and new fixtures.
+
+This does not prove on-chain pool state, tick-array ownership/content, oracle freshness, or actual pool price impact beyond the successful RPC simulation. It is not a signer or execution adapter. No transaction is signed or broadcast.
