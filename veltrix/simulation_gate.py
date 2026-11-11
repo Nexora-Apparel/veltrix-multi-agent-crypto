@@ -61,6 +61,30 @@ class SimulatedTokenBalance:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulatedInnerInstruction:
+    """Resolved CPI instruction bytes and account keys returned by RPC simulation."""
+
+    outer_instruction_index: int
+    program_id: str
+    account_keys: tuple[str, ...]
+    data: bytes
+    stack_height: int | None = None
+
+    def __post_init__(self) -> None:
+        _nonnegative_int(self.outer_instruction_index, "outer_instruction_index")
+        _nonempty(self.program_id, "inner instruction program_id")
+        if not isinstance(self.account_keys, tuple):
+            raise SimulationGateError("inner instruction account_keys must be an immutable tuple")
+        for account in self.account_keys:
+            _nonempty(account, "inner instruction account key")
+        if not isinstance(self.data, bytes) or len(self.data) > 4096:
+            raise SimulationGateError("inner instruction data must be immutable bytes no longer than 4096 bytes")
+        if self.stack_height is not None:
+            if isinstance(self.stack_height, bool) or not isinstance(self.stack_height, int) or self.stack_height < 1:
+                raise SimulationGateError("inner instruction stack_height must be a positive integer or None")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -79,6 +103,7 @@ class SimulationEvidence:
     top_level_program_ids: tuple[str, ...] = ()
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
+    inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -106,6 +131,15 @@ class SimulationEvidence:
         _nonnegative_int(self.inner_instruction_count, "inner_instruction_count")
         if self.inner_instruction_count != len(self.inner_program_ids):
             raise SimulationGateError("inner instruction count does not match the captured program trace")
+        if not isinstance(self.inner_instructions, tuple) or any(
+            not isinstance(item, SimulatedInnerInstruction) for item in self.inner_instructions
+        ):
+            raise SimulationGateError("inner_instructions must be an immutable tuple of validated CPI instructions")
+        if self.inner_instructions:
+            if len(self.inner_instructions) != self.inner_instruction_count:
+                raise SimulationGateError("detailed inner instruction count differs from the program trace")
+            if tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids:
+                raise SimulationGateError("detailed inner instruction program IDs differ from the program trace")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")

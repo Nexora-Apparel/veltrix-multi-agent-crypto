@@ -248,3 +248,15 @@ Implemented in `veltrix/jupiter_route_semantics.py`, pinned to Jupiter's public 
 - This first slice supports only the Metis router, the Jupiter v6 `route` instruction, and explicitly mapped unit-payload DEX variants (Raydium, Meteora, Raydium CLMM, Meteora DLMM, Raydium CPMM). It rejects other routers, Jupiter instruction variants, DEX enum variants, Token-2022, optional destination accounts, and platform-fee accounts.
 - It does not decode DEX-specific CPI payloads or prove pool account semantics. Those remain separate mandatory gates; unknown or unsupported instructions remain rejected.
 - No signing, Jupiter `/execute`, wallet signature request, transaction submission, or broadcast is implemented.
+
+
+### 09.15 — raw inner-CPI instruction evidence
+
+Implemented in `veltrix/solana_rpc_simulation.py` and `veltrix/simulation_gate.py`.
+
+- Simulation evidence now optionally carries immutable `SimulatedInnerInstruction` records containing the outer instruction index, resolved CPI program ID, resolved ordered account keys, decoded instruction bytes and stack height.
+- The RPC adapter strictly decodes the base58 `data` field, bounds encoded/decoded data size, validates outer instruction indexes, and resolves every program/account index against the transaction validator's resolved account-key order (including loaded address-table keys).
+- Evidence construction checks that detailed instruction count and ordered program IDs exactly match the already-captured inner-program trace. A mismatch fails closed.
+- Legacy/manual evidence may still carry only the compact program-ID trace; DEX semantic gates must require detailed records and reject missing detail. This preserves existing unit-test fixtures without treating absent CPI bytes as verified.
+- This change captures evidence only. It does not yet decode Raydium/Meteora CPI payloads or prove pool/account semantics.
+- Missing inner trace remains an empty trace and cannot satisfy the existing Jupiter program trace gate. No signing, submission, broadcast or live execution is added.
