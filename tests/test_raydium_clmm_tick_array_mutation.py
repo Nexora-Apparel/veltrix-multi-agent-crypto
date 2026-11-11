@@ -353,11 +353,11 @@ def test_tick_array_serializer_roundtrips_exact_layout_and_preserves_opaque_acco
 def test_bitmap_extension_serializer_roundtrips_all_positive_and_negative_words():
     p = pool()
     positive = tuple(
-        tuple(((side + 1) * 1000 + group * 10 + word) for word in range(8))
+        tuple(((group + 1) * 1000 + word) for word in range(8))
         for group in range(14)
     )
     negative = tuple(
-        tuple(((side + 1) * 2000 + group * 10 + word) for word in range(8))
+        tuple(((group + 1) * 2000 + word) for word in range(8))
         for group in range(14)
     )
     extension = RaydiumClmmTickArrayBitmapExtension(
