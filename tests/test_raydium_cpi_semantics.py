@@ -8,7 +8,8 @@ from solders.pubkey import Pubkey
 
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
-from veltrix.jupiter_route_semantics import JupiterRouteSemanticResult
+from veltrix.jupiter_route_semantics import DecodedJupiterRouteStep, JupiterRouteSemanticResult
+from veltrix.jupiter_swap_effects import derive_associated_token_address
 from veltrix.raydium_cpi_semantics import (
     CLASSIC_TOKEN_PROGRAM_ID,
     MEMO_PROGRAM_ID,
@@ -50,8 +51,8 @@ def fixture():
         taker,                    # payer
         other_accounts[0],        # amm_config
         pool,                     # pool_state / Jupiter ammKey
-        other_accounts[1],        # input token account
-        other_accounts[2],        # output token account
+        derive_associated_token_address(taker, input_mint),  # input token account
+        derive_associated_token_address(taker, output_mint), # output token account
         other_accounts[3],        # input vault
         other_accounts[4],        # output vault
         other_accounts[5],        # observation state
@@ -161,7 +162,7 @@ def fixture():
         message_sha256=digest,
         jupiter_program_id=jupiter,
         instruction_index=0,
-        route_steps=(),
+        route_steps=(DecodedJupiterRouteStep(26, 100, 0, 1),),
         input_amount_raw=1_000,
         quoted_output_amount_raw=2_000,
         slippage_bps=50,
