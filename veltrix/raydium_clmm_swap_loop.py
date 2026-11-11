@@ -329,7 +329,7 @@ def apply_raydium_swap_loop_boundary(
         reward_growths = tuple(
             RaydiumRewardGrowth(
                 initialized=reward.initialized,
-                growth_global_x64=reward.reward_growth_global_x64,
+                reward_growth_global_x64=reward.reward_growth_global_x64,
             )
             for reward in updated_reward_infos
         )
@@ -367,10 +367,10 @@ def apply_raydium_swap_loop_boundary(
     if dynamic_fee_state is not None:
         dynamic_fee_state = advance_dynamic_fee_index(
             dynamic_fee_state,
-            tick=current_tick,
+            tick=tick_current,
             tick_next=tick_next,
-            sqrt_price_x64=current_sqrt_price_x64,
-            sqrt_price_next_x64=pre_step.swap_step.sqrt_price_next_x64,
+            sqrt_price_x64=pre_step.swap_step.sqrt_price_next_x64,
+            sqrt_price_next_x64=tick_boundary_price_x64,
             zero_for_one=zero_for_one,
             is_skipped_tick_spacing=pre_step.spacing_bound.reached_target,
         )
