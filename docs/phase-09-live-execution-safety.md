@@ -461,3 +461,19 @@ Implemented in `veltrix/raydium_clmm_bitmap_traversal.py`.
 **Proof boundary:** this proves bitmap completeness only from the current tick-array boundary through the last array supplied in the CPI account list. It does not prove how many arrays the simulated swap actually consumed, that no further array beyond the final supplied account was needed, that the quote's amount/price limit would stop within the supplied range, or the exact initialized ticks/liquidity transitions consumed by the swap. Those require binding the full simulation execution trace/state transition to the account sequence and independently replaying the pinned swap loop. Executable liquidity/depth and price-impact calculation remain separate gaps.
 
 All results remain evidence-only. No wallet signing, Jupiter `/execute`, transaction submission, broadcast, or live execution is enabled.
+
+
+### 09.30 — Atomic simulation pre/post account-state capture
+
+Implemented in `veltrix/solana_rpc_simulation.py` and `veltrix/simulation_gate.py`.
+
+- Adds an optional explicit `tracked_account_addresses` set to the read-only `simulate()` adapter. Tracked accounts must be canonical public keys present in the already validated transaction account list; duplicates are rejected.
+- Caps tracked program accounts at 32, combined token plus tracked accounts at the RPC 100-account request ceiling, and each raw account payload at 16,384 bytes. This covers the pinned Raydium PoolState, TickArrayState, bitmap extension, vault, AMM config, and observation layouts without accepting unbounded payloads.
+- Fetches pre-state account data at the same confirmed context slot used for token-account pre-state, then requests those same accounts from `simulateTransaction` using the RPC `accounts` response option and the exact same `minContextSlot`.
+- Returns immutable `SimulatedAccountState` records containing address, owner, lamports, executable flag, raw pre/post bytes, and SHA-256 digests. Hashes are recomputed and validated when the evidence object is constructed.
+- Rejects missing pre/post accounts, malformed owner/data encodings, data-size violations, owner or executable-status changes, context mismatches, non-transaction accounts, and duplicate tracked records.
+- Leaves existing token-balance validation intact; tracked program accounts are additional evidence and are not treated as token accounts.
+
+**Proof boundary:** these are RPC-reported simulated post-state bytes, not a locally executed replay of the Raydium swap. They do not independently establish which tick-array accounts were actually consumed, prove all state transitions are economically correct, or authorize signing/submission. Next stage: decode the pre/post PoolState and TickArrayState bytes and independently replay the pinned Raydium swap loop, then compare the replayed state transition with the simulation result. Provider support for the requested `simulateTransaction.accounts` response is mandatory; missing account data fails closed.
+
+No wallet signing, Jupiter `/execute`, transaction submission, broadcast, or live execution is introduced.
