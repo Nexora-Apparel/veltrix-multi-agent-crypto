@@ -232,3 +232,17 @@ Implemented in `veltrix/jupiter_swap_effects.py`, with classic-token program own
 - The effect gate does not decode DEX instructions or authorize signing. It must be combined with the pinned program trace gate, semantic instruction policy, risk preflight, and operator authorization.
 
 No Jupiter `/execute`, Phantom signing, transaction submission, or live execution is introduced.
+
+
+### 09.14 — Jupiter v6 route instruction semantic decoder
+
+Implemented in `veltrix/jupiter_route_semantics.py`, pinned to Jupiter's public v6 IDL schema snapshot at `jup-ag/instruction-parser` commit `e6f77951377847c579112e6a16d8c17c5c092485`.
+
+- Decodes only the Anchor `route` instruction discriminator and Borsh layout. It requires an exact payload length, bounded route-plan vector, positive raw amounts, valid token indexes, and no trailing bytes.
+- Compares the encoded DEX enum variant and split percentage of each step to the Jupiter order's quote route plan. It reconstructs a token-index-to-mint map and rejects conflicting mint mappings, non-contiguous indexes, or a route that does not start with the order input mint.
+- Requires encoded `inAmount` and `quotedOutAmount` to match the exact Jupiter order. Enforces local maximum slippage and platform-fee basis points.
+- Re-checks the exact message digest across order, structural validation, RPC simulation, SimulationGate, and Jupiter program-trace gate. It binds router, top-level program IDs and route labels to the prior gate evidence.
+- Requires the seven account positions from the pinned IDL to resolve to the classic SPL Token program, taker authority, taker's input/output classic ATAs, output mint, and omitted optional accounts represented by the Jupiter program sentinel.
+- This first slice supports only the Metis router, the Jupiter v6 `route` instruction, and explicitly mapped unit-payload DEX variants (Raydium, Meteora, Raydium CLMM, Meteora DLMM, Raydium CPMM). It rejects other routers, Jupiter instruction variants, DEX enum variants, Token-2022, optional destination accounts, and platform-fee accounts.
+- It does not decode DEX-specific CPI payloads or prove pool account semantics. Those remain separate mandatory gates; unknown or unsupported instructions remain rejected.
+- No signing, Jupiter `/execute`, wallet signature request, transaction submission, or broadcast is implemented.
