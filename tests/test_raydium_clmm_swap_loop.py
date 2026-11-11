@@ -9,8 +9,20 @@ from veltrix.raydium_clmm_dynamic_fee import (
     compute_total_fee_rate,
 )
 from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
+from veltrix.raydium_clmm_observation import (
+    RAYDIUM_OBSERVATION_COUNT,
+    RaydiumClmmObservation,
+    RaydiumClmmObservationState,
+    derive_raydium_clmm_observation_address,
+    encode_raydium_clmm_observation_state,
+)
 from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmDynamicFeeInfo,
+    RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_POOL_STATE_DISCRIMINATOR,
+    RAYDIUM_POOL_STATE_LENGTH,
+    derive_raydium_clmm_pool_address,
+    encode_raydium_clmm_pool_state,
     RaydiumClmmPoolState,
     RaydiumClmmRewardInfo,
 )
@@ -25,6 +37,7 @@ from veltrix.raydium_clmm_swap_loop import (
     RaydiumSwapLoopError,
     compute_raydium_swap_loop_pre_step,
     apply_raydium_swap_loop_boundary,
+    finalize_raydium_swap_loop,
 )
 from veltrix.raydium_clmm_tick_math import Q64, get_sqrt_price_at_tick
 
@@ -350,3 +363,128 @@ def test_non_boundary_step_does_not_match_orders_or_mutate_accounts():
     assert result.limit_order_match.amount_in == 0
     assert result.pool == pool
     assert result.tick_array == tick_array
+
+
+def finalization_fixture():
+    program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
+    config = Pubkey.new_unique()
+    mint0, mint1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
+    creator, vault0, vault1 = (
+        Pubkey.new_unique(), Pubkey.new_unique(), Pubkey.new_unique()
+    )
+    pool_address, bump = Pubkey.find_program_address(
+        [b"pool", bytes(config), bytes(mint0), bytes(mint1)], program
+    )
+    observation_address, _ = derive_raydium_clmm_observation_address(
+        str(pool_address)
+    )
+    pool = RaydiumClmmPoolState(
+        pool_address=str(pool_address),
+        bump=bump,
+        amm_config=str(config),
+        pool_creator=str(creator),
+        token_mint_0=str(mint0),
+        token_mint_1=str(mint1),
+        token_vault_0=str(vault0),
+        token_vault_1=str(vault1),
+        observation_key=observation_address,
+        mint_decimals_0=6,
+        mint_decimals_1=6,
+        tick_spacing=1,
+        liquidity=1_000_000,
+        sqrt_price_x64=Q64,
+        tick_current=0,
+        status=0,
+        fee_on=0,
+        seed_index=0,
+        account_data=bytes(RAYDIUM_POOL_STATE_LENGTH),
+        account_data_sha256=hashlib.sha256(bytes(RAYDIUM_POOL_STATE_LENGTH)).hexdigest(),
+    )
+    pool_bytes = encode_raydium_clmm_pool_state(pool)
+    pool = replace(
+        pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    observation = RaydiumClmmObservationState(
+        address=observation_address,
+        initialized=False,
+        recent_epoch=1,
+        observation_index=0,
+        pool_id=str(pool_address),
+        observations=tuple(
+            RaydiumClmmObservation(0, 0, bytes(32))
+            for _ in range(RAYDIUM_OBSERVATION_COUNT)
+        ),
+        padding=bytes(32),
+        data_sha256="",
+    )
+    observation_bytes = encode_raydium_clmm_observation_state(observation)
+    observation = replace(
+        observation,
+        data_sha256=hashlib.sha256(observation_bytes).hexdigest(),
+    )
+    state = fee_state(
+        amount_specified_remaining=900,
+        amount_calculated=50,
+        liquidity=1_000_000,
+        fee_growth_global_x64=123,
+        lp_fee=10,
+        protocol_fee=2,
+        fund_fee=1,
+    )
+    return pool, observation, state
+
+
+def test_finalization_updates_observation_with_old_tick_then_settles_and_persists_pool():
+    pool, observation, state = finalization_fixture()
+    result = finalize_raydium_swap_loop(
+        pool,
+        observation,
+        state,
+        amount_specified=1000,
+        final_tick=-5,
+        final_sqrt_price_x64=get_sqrt_price_at_tick(-5),
+        final_liquidity=900_000,
+        block_timestamp=1000,
+        zero_for_one=True,
+        is_base_input=True,
+        dynamic_fee_state=None,
+    )
+    assert result.observation.initialized is True
+    assert result.observation.observations[0].block_timestamp == 1000
+    assert result.observation.observations[0].tick_cumulative == 0
+    assert result.observation.data_sha256 == hashlib.sha256(
+        encode_raydium_clmm_observation_state(result.observation)
+    ).hexdigest()
+    assert result.settlement.amount_0 > 0
+    assert result.settlement.amount_1 > 0
+    assert result.pool.tick_current == -5
+    assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(-5)
+    assert result.pool.liquidity == 900_000
+    assert result.pool.account_data_sha256 == hashlib.sha256(
+        result.pool.account_data
+    ).hexdigest()
+    assert encode_raydium_clmm_pool_state(result.pool) == result.pool.account_data
+
+
+def test_finalization_does_not_write_observation_when_tick_is_unchanged():
+    pool, observation, state = finalization_fixture()
+    result = finalize_raydium_swap_loop(
+        pool,
+        observation,
+        state,
+        amount_specified=1000,
+        final_tick=pool.tick_current,
+        final_sqrt_price_x64=Q64,
+        final_liquidity=pool.liquidity,
+        block_timestamp=1000,
+        zero_for_one=True,
+        is_base_input=True,
+        dynamic_fee_state=None,
+    )
+    assert result.observation == observation
+    assert result.pool.tick_current == pool.tick_current
+    assert result.pool.account_data_sha256 == hashlib.sha256(
+        result.pool.account_data
+    ).hexdigest()
