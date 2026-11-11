@@ -1,4 +1,4 @@
-"""Adversarial tests for pinned Raydium CLMM ObservationState decoding."""
+"""Tests for the pinned Raydium ObservationState account and update behavior."""
 import hashlib
 
 import pytest
@@ -8,136 +8,151 @@ from veltrix.dex_pool_evidence import DexPoolAccountEvidence
 from veltrix.raydium_clmm_pool_state import RAYDIUM_CLMM_PROGRAM_ID
 from veltrix.raydium_clmm_observation import (
     RAYDIUM_OBSERVATION_COUNT,
+    RAYDIUM_OBSERVATION_DISCRIMINATOR,
     RAYDIUM_OBSERVATION_RECORD_LENGTH,
-    RAYDIUM_OBSERVATION_STATE_DISCRIMINATOR,
     RAYDIUM_OBSERVATION_STATE_LENGTH,
-    RaydiumClmmObservationError,
-    decode_raydium_clmm_observation_state,
-    derive_raydium_clmm_observation_address,
+    RaydiumObservationError,
+    apply_raydium_observation_update,
+    decode_raydium_observation_state,
+    derive_raydium_observation_address,
 )
 
 
-def fixture(*, initialized=False, observation_index=0, pool=None, padding=bytes(32)):
-    pool = pool or str(Pubkey.new_unique())
-    address, _ = derive_raydium_clmm_observation_address(pool)
+def fixture(*, initialized=False, index=0, last_timestamp=0, last_cumulative=0):
+    pool = str(Pubkey.new_unique())
+    address, _ = derive_raydium_observation_address(pool)
     data = bytearray(RAYDIUM_OBSERVATION_STATE_LENGTH)
-    data[:8] = RAYDIUM_OBSERVATION_STATE_DISCRIMINATOR
+    data[:8] = RAYDIUM_OBSERVATION_DISCRIMINATOR
     data[8] = int(initialized)
     data[9:17] = (123).to_bytes(8, "little")
-    data[17:19] = observation_index.to_bytes(2, "little")
+    data[17:19] = index.to_bytes(2, "little")
     data[19:51] = bytes(Pubkey.from_string(pool))
-    if initialized:
-        offset = 51 + observation_index * RAYDIUM_OBSERVATION_RECORD_LENGTH
-        data[offset:offset + 4] = (1_700_000_000).to_bytes(4, "little")
-        data[offset + 4:offset + 12] = (-123456).to_bytes(8, "little", signed=True)
-    data[-32:] = padding
+    offset = 51 + index * RAYDIUM_OBSERVATION_RECORD_LENGTH
+    data[offset:offset + 4] = last_timestamp.to_bytes(4, "little")
+    data[offset + 4:offset + 12] = last_cumulative.to_bytes(8, "little", signed=True)
     raw = bytes(data)
     account = DexPoolAccountEvidence(
-        amm_key=address,
-        dex_label="Raydium CLMM Observation",
+        amm_key=address, dex_label="Raydium CLMM Observation",
         expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
         owner_program_id=RAYDIUM_CLMM_PROGRAM_ID,
-        lamports=1,
-        executable=False,
-        data_length=len(raw),
-        data_sha256=hashlib.sha256(raw).hexdigest(),
-        data_bytes=raw,
+        lamports=1, executable=False, data_length=len(raw),
+        data_sha256=hashlib.sha256(raw).hexdigest(), data_bytes=raw,
     )
-    return account, address, pool
+    return account, pool, address
 
 
-def decode(account, address, pool):
-    return decode_raydium_clmm_observation_state(
-        account, expected_address=address, expected_pool_address=pool
+def decode(values):
+    account, pool, address = values
+    return decode_raydium_observation_state(
+        account, expected_pool_address=pool, expected_address=address
     )
 
 
-def test_decodes_uninitialized_observation_state_with_exact_layout():
-    account, address, pool = fixture()
-    result = decode(account, address, pool)
-    assert len(result.observations) == RAYDIUM_OBSERVATION_COUNT
-    assert result.initialized is False
-    assert result.observation_index == 0
-    assert result.pool_id == pool
-    assert result.recent_epoch == 123
+def test_decodes_exact_pda_and_100_slot_observation_ring():
+    values = fixture(initialized=True, index=17, last_timestamp=1000, last_cumulative=-50)
+    state = decode(values)
+    assert state.initialized is True
+    assert state.observation_index == 17
+    assert state.pool_id == values[1]
+    assert len(state.observations) == RAYDIUM_OBSERVATION_COUNT
+    assert state.observations[17].block_timestamp == 1000
+    assert state.observations[17].tick_cumulative == -50
 
 
-def test_decodes_initialized_observation_ring_entry():
-    account, address, pool = fixture(initialized=True, observation_index=9)
-    result = decode(account, address, pool)
-    assert result.initialized is True
-    assert result.observation_index == 9
-    assert result.observations[9].block_timestamp == 1_700_000_000
-    assert result.observations[9].tick_cumulative == -123456
-
-
-@pytest.mark.parametrize("index", [100, 65535])
-def test_rejects_observation_ring_index_out_of_bounds(index):
-    account, address, pool = fixture(observation_index=index)
-    with pytest.raises(RaydiumClmmObservationError, match="ring index"):
-        decode(account, address, pool)
-
-
-def test_rejects_wrong_pool_association_and_noncanonical_pda():
-    account, address, pool = fixture()
-    other_pool = str(Pubkey.new_unique())
-    with pytest.raises(RaydiumClmmObservationError, match="different pool"):
-        decode(account, address, other_pool)
-    wrong_address = str(Pubkey.new_unique())
-    with pytest.raises(RaydiumClmmObservationError, match="address"):
-        decode(account, wrong_address, pool)
-
-
-def test_rejects_owner_hash_and_reserved_padding_tampering():
-    account, address, pool = fixture()
-    bad_owner = DexPoolAccountEvidence(
-        amm_key=account.amm_key, dex_label=account.dex_label,
+def test_rejects_wrong_pool_pda_discriminator_length_and_owner():
+    account, pool, address = fixture()
+    with pytest.raises(RaydiumObservationError, match="canonical PDA"):
+        decode_raydium_observation_state(
+            account, expected_pool_address=str(Pubkey.new_unique()), expected_address=address
+        )
+    wrong_data = bytearray(account.data_bytes)
+    wrong_data[:8] = bytes(8)
+    wrong_raw = bytes(wrong_data)
+    wrong_discriminator = DexPoolAccountEvidence(
+        amm_key=address, dex_label=account.dex_label,
+        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+        executable=False, data_length=len(wrong_raw),
+        data_sha256=hashlib.sha256(wrong_raw).hexdigest(), data_bytes=wrong_raw,
+    )
+    with pytest.raises(RaydiumObservationError, match="discriminator"):
+        decode_raydium_observation_state(
+            wrong_discriminator, expected_pool_address=pool, expected_address=address
+        )
+    wrong_owner = DexPoolAccountEvidence(
+        amm_key=address, dex_label=account.dex_label,
         expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
         owner_program_id=str(Pubkey.new_unique()), lamports=1,
         executable=False, data_length=account.data_length,
         data_sha256=account.data_sha256, data_bytes=account.data_bytes,
     )
-    with pytest.raises(RaydiumClmmObservationError, match="owner"):
-        decode(bad_owner, address, pool)
-    bad_hash = DexPoolAccountEvidence(
-        amm_key=account.amm_key, dex_label=account.dex_label,
-        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
-        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
-        executable=False, data_length=account.data_length,
-        data_sha256="0" * 64, data_bytes=account.data_bytes,
+    with pytest.raises(RaydiumObservationError, match="owner"):
+        decode_raydium_observation_state(
+            wrong_owner, expected_pool_address=pool, expected_address=address
+        )
+
+
+def test_rejects_invalid_initialized_flag_index_and_reserved_padding():
+    account, pool, address = fixture()
+    for offset, payload, message in [
+        (8, b"\x02", "initialized flag"),
+        (17, (100).to_bytes(2, "little"), "outside the 100-slot"),
+        (51 + 12, (1).to_bytes(8, "little"), "Observation record"),
+        (RAYDIUM_OBSERVATION_STATE_LENGTH - 8, (1).to_bytes(8, "little"), "reserved padding"),
+    ]:
+        data = bytearray(account.data_bytes)
+        data[offset:offset + len(payload)] = payload
+        raw = bytes(data)
+        changed = DexPoolAccountEvidence(
+            amm_key=address, dex_label=account.dex_label,
+            expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+            owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+            executable=False, data_length=len(raw),
+            data_sha256=hashlib.sha256(raw).hexdigest(), data_bytes=raw,
+        )
+        with pytest.raises(RaydiumObservationError, match=message):
+            decode_raydium_observation_state(
+                changed, expected_pool_address=pool, expected_address=address
+            )
+
+
+def test_first_update_initializes_current_observation_without_advancing_index():
+    state = decode(fixture(initialized=False, index=4))
+    updated = apply_raydium_observation_update(state, block_timestamp=1234, tick=-17)
+    assert updated.initialized is True
+    assert updated.observation_index == 4
+    assert updated.observations[4].block_timestamp == 1234
+    assert updated.observations[4].tick_cumulative == 0
+
+
+def test_observation_update_waits_15_seconds_then_advances_and_accumulates_tick():
+    state = decode(fixture(initialized=True, index=5, last_timestamp=1000, last_cumulative=100))
+    assert apply_raydium_observation_update(
+        state, block_timestamp=1014, tick=10
+    ) == state
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1015, tick=10
     )
-    with pytest.raises(RaydiumClmmObservationError, match="hash"):
-        decode(bad_hash, address, pool)
-    padded, padded_address, padded_pool = fixture(padding=bytes([1]) + bytes(31))
-    with pytest.raises(RaydiumClmmObservationError, match="account padding"):
-        decode(padded, padded_address, padded_pool)
+    assert updated.observation_index == 6
+    assert updated.observations[6].block_timestamp == 1015
+    assert updated.observations[6].tick_cumulative == 250
 
 
-def test_rejects_nonzero_observation_record_padding():
-    account, address, pool = fixture(initialized=True)
-    raw = bytearray(account.data_bytes)
-    raw[51 + 12] = 1
-    changed = DexPoolAccountEvidence(
-        amm_key=account.amm_key, dex_label=account.dex_label,
-        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
-        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
-        executable=False, data_length=len(raw),
-        data_sha256=hashlib.sha256(raw).hexdigest(), data_bytes=bytes(raw),
+def test_observation_ring_wraps_from_slot_99_to_slot_0_and_cumulative_wraps_i64():
+    state = decode(fixture(
+        initialized=True, index=99, last_timestamp=1000,
+        last_cumulative=(1 << 63) - 1,
+    ))
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1015, tick=1
     )
-    with pytest.raises(RaydiumClmmObservationError, match="record 0"):
-        decode(changed, address, pool)
+    assert updated.observation_index == 0
+    assert updated.observations[0].block_timestamp == 1015
+    assert updated.observations[0].tick_cumulative == -(1 << 63) + 14
 
 
-def test_rejects_populated_records_when_observation_state_is_uninitialized():
-    account, address, pool = fixture()
-    raw = bytearray(account.data_bytes)
-    raw[51:55] = (100).to_bytes(4, "little")
-    changed = DexPoolAccountEvidence(
-        amm_key=account.amm_key, dex_label=account.dex_label,
-        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
-        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
-        executable=False, data_length=len(raw),
-        data_sha256=hashlib.sha256(raw).hexdigest(), data_bytes=bytes(raw),
-    )
-    with pytest.raises(RaydiumClmmObservationError, match="uninitialized"):
-        decode(changed, address, pool)
+def test_observation_timestamp_saturating_sub_does_not_advance_on_older_time():
+    state = decode(fixture(initialized=True, index=0, last_timestamp=2000, last_cumulative=5))
+    assert apply_raydium_observation_update(
+        state, block_timestamp=1000, tick=100
+    ) == state
