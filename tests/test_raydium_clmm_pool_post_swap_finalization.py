@@ -80,7 +80,7 @@ def dynamic_state():
     return RaydiumDynamicFeeSwapState(info, 10, 1000, 3)
 
 
-def iteration(*, fee_state=None, tick=12, price=1 << 65, dynamic=None, should_break=True):
+def iteration(*, fee_state=None, tick=12, price=1 << 65, dynamic=None, should_break=True, swap_complete=True):
     return RaydiumClmmSwapInnerIterationResult(
         fee_state=fee_state or RaydiumFeeAccountingState(
             amount_specified_remaining=0,
@@ -103,6 +103,7 @@ def iteration(*, fee_state=None, tick=12, price=1 << 65, dynamic=None, should_br
         reached_initialized_tick=False,
         crossed_tick=False,
         should_break=should_break,
+        swap_complete=swap_complete,
     )
 
 
@@ -176,9 +177,9 @@ def test_dynamic_fee_variables_copy_only_mutable_values_and_preserve_configurati
 
 
 def test_finalization_rejects_unterminated_loop_invalid_fee_mode_and_overflow():
-    with pytest.raises(RaydiumPoolPostSwapFinalizationError, match="terminated"):
+    with pytest.raises(RaydiumPoolPostSwapFinalizationError, match="entire swap"):
         finalize_raydium_pool_after_swap(
-            pool(), iteration(should_break=False), zero_for_one=True
+            pool(), iteration(should_break=False, swap_complete=False), zero_for_one=True
         )
     with pytest.raises(RaydiumPoolPostSwapFinalizationError, match="fee_on"):
         finalize_raydium_pool_after_swap(
