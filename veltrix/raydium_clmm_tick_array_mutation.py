@@ -238,7 +238,11 @@ def _flip_bitmap(pool: RaydiumClmmPoolState, extension, start: int):
         words = list(pool.tick_array_bitmap)
         word, bit = divmod(offset, 64)
         words[word] ^= 1 << bit
-        return replace(pool, tick_array_bitmap=tuple(words), account_data_sha256=""), extension
+        return replace(
+            pool,
+            tick_array_bitmap=tuple(words),
+            account_data_sha256=pool.account_data_sha256 if pool.account_data else "",
+        ), extension
     if extension is None:
         raise RaydiumTickArrayMutationError("overflow tick-array requires its bitmap extension")
     side, array_offset, bit_offset = _extension_location(start, pool.tick_spacing)
