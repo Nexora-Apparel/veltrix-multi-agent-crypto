@@ -549,3 +549,19 @@ Implemented in `veltrix/raydium_clmm_dynamic_fee.py` and `veltrix/raydium_clmm_o
 **Proof boundary:** these are deterministic fee/oracle primitives. They are not yet composed into the full swap loop; the replay must still apply them at the exact points in Raydium's loop, alongside tick-array traversal, fee splitting, limit-order matching, tick crossing, reward growth and vault settlement.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.36 — Tick crossing and FIFO limit-order transitions
+
+Implemented in `veltrix/raydium_clmm_tick_transitions.py`.
+
+- Ports TickState crossing: wrapping subtraction of global fee-growth values, reward-growth-outside updates only for initialized rewards, and the directional liquidity-net sign.
+- Applies the exact post-crossing tick convention: `tick_next - 1` for zero-for-one and `tick_next` for one-for-zero, with u128 liquidity underflow/overflow rejection.
+- Ports Q64.64 sqrt-price-to-token-0-price conversion with source rounding direction, limit-order input rounding up and output rounding down.
+- Ports limit-order exact-input and exact-output matching for fee-on-input and fee-on-output modes.
+- Preserves FIFO cohort behavior: consume `part_filled_orders_remaining` first, update `unfilled_ratio_x64`, then advance `order_phase` and create the next part-filled cohort from `orders_amount`.
+- Adds adversarial tests for crossing wraparound, reward initialization, liquidity bounds, all fee/exactness combinations, cohort exhaustion and remaining-order caps.
+
+**Proof boundary:** these are pure tick transitions. They are not yet orchestrated in the complete swap loop with bitmap traversal, dynamic-fee spacing bounds, global fee splitting, protocol/fund fees, reward emissions, observation updates, or vault settlement.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
