@@ -211,3 +211,58 @@ def test_rejects_invalid_policy_with_no_rpc_allowlist():
 def test_rejects_invalid_balance_values():
     with pytest.raises(SimulationGateError, match="non-negative integer"):
         SimulatedTokenBalance("account", "mint", "owner", -1, 0)
+
+
+def test_simulation_account_snapshot_preserves_missing_and_existing_state():
+    missing = SimulationAccountSnapshot(
+        address="missing-account",
+        pre_exists=False,
+        pre_owner=None,
+        pre_executable=None,
+        pre_lamports=0,
+        pre_data=b"",
+        post_exists=True,
+        post_owner="system-owner",
+        post_executable=False,
+        post_lamports=1,
+        post_data=b"created",
+    )
+    assert missing.pre_exists is False
+    assert missing.post_exists is True
+    assert missing.post_data == b"created"
+
+
+def test_simulation_account_snapshot_rejects_nonempty_missing_state():
+    with pytest.raises(SimulationGateError, match="missing pre account must have empty state"):
+        SimulationAccountSnapshot(
+            address="missing-account",
+            pre_exists=False,
+            pre_owner="owner",
+            pre_executable=False,
+            pre_lamports=0,
+            pre_data=b"",
+            post_exists=False,
+            post_owner=None,
+            post_executable=None,
+            post_lamports=0,
+            post_data=b"",
+        )
+
+
+def test_simulation_evidence_rejects_duplicate_account_snapshot_addresses():
+    _, _, _, evidence, _ = valid_fixture()
+    snapshot = SimulationAccountSnapshot(
+        address="account-1",
+        pre_exists=True,
+        pre_owner="owner",
+        pre_executable=False,
+        pre_lamports=1,
+        pre_data=b"before",
+        post_exists=True,
+        post_owner="owner",
+        post_executable=False,
+        post_lamports=1,
+        post_data=b"after",
+    )
+    with pytest.raises(SimulationGateError, match="duplicate addresses"):
+        dataclasses.replace(evidence, account_snapshots=(snapshot, snapshot))
