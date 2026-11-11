@@ -153,13 +153,20 @@ def reconcile_raydium_clmm_swap_vault_snapshots(
     _validate_snapshot_binding(before, loop_settlement)
     if (
         after.route_message_sha256 != before.route_message_sha256
+        or after.simulation_response_id != before.simulation_response_id
+        or after.simulation_context_slot != before.simulation_context_slot
         or after.provider_id != before.provider_id
         or after.cluster != before.cluster
         or after.genesis_hash != before.genesis_hash
         or after.context_slot < before.context_slot
-        or after.simulation_context_slot < before.simulation_context_slot
+        or after.context_slot < after.simulation_context_slot
     ):
         raise RaydiumSwapVaultSettlementError("post-swap vault snapshot provenance or context slot is inconsistent")
+    if (
+        loop_settlement.settlement.transfer_fee_0 != 0
+        or loop_settlement.settlement.transfer_fee_1 != 0
+    ):
+        raise RaydiumSwapVaultSettlementError("non-zero transfer-fee extensions are outside the pinned classic-token swap path")
     token0_before, token1_before = _vault_roles(before, loop_settlement.loop.pool)
     token0_after, token1_after = _vault_roles(after, loop_settlement.loop.pool)
     if (
