@@ -263,3 +263,17 @@ The Jupiter program-trace gate now separates top-level transaction instructions 
 - The transaction must contain exactly one approved Jupiter aggregator instruction.
 
 This is a stricter allowlist boundary, not a substitute for decoding Compute Budget instruction payloads or DEX account layouts. If a future supported route requires additional programs, it must receive an explicit program- and instruction-specific decoder rather than broadening the generic allowlist.
+
+
+### 09.17 — Compute Budget instruction decoder
+
+Implemented in `veltrix/compute_budget.py` with adversarial tests in `tests/test_compute_budget.py`.
+
+- Decodes only Solana Compute Budget `SetComputeUnitLimit` (tag 2, exact u32 payload) and `SetComputeUnitPrice` (tag 3, exact u64 payload).
+- Rejects deprecated `RequestUnits`, heap-frame requests, loaded-account-size overrides, unknown discriminators, malformed lengths, account metas and duplicate limit/price instructions.
+- Enforces a 300,000 CU default request ceiling, a 10,000,000 micro-lamport/CU price ceiling and a 5,000,000 lamport estimated-priority-fee ceiling. Policy can be tightened further.
+- If no explicit limit is present, estimates priority fees using Solana's 200,000 CU default for this single-swap instruction shape.
+- Binds decoding to the exact message SHA-256, structural validator's static/resolved account-key order, top-level program IDs and instruction count.
+- This decoder is currently a separate validation component; the complete swap orchestrator must call it before any future signer boundary is considered.
+
+No signing, transaction submission or live execution is added.
