@@ -19,7 +19,10 @@ from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
 from veltrix.raydium_clmm_dynamic_fee import RaydiumDynamicFeeSwapState
 from veltrix.raydium_clmm_swap_inner_iteration import RaydiumClmmSwapInnerIterationResult
 from veltrix.raydium_clmm_pool_post_swap_finalization import finalize_raydium_pool_after_swap
-from veltrix.raydium_clmm_tick_array_mutation import _flip_bitmap
+from veltrix.raydium_clmm_tick_array_mutation import (
+    RaydiumClmmTickArrayBitmapExtension,
+    _flip_bitmap,
+)
 from veltrix.raydium_clmm_limit_orders import RaydiumLimitOrderMatch
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
 from veltrix.raydium_clmm_tick_math import Q64
@@ -489,6 +492,44 @@ def tick_array_bitmap_vectors() -> list[dict]:
             "tick_spacing": 10,
             "start_index": start_index,
             "expected_bitmap": list(updated_pool.tick_array_bitmap),
+        })
+
+    for start_index in (307200, 307800, -307800, -308400, 443400, -444000):
+        pool = RaydiumClmmPoolState(
+            pool_address=str(Pubkey.new_unique()),
+            bump=1,
+            amm_config=str(Pubkey.new_unique()),
+            pool_creator=str(Pubkey.new_unique()),
+            token_mint_0=str(Pubkey.new_unique()),
+            token_mint_1=str(Pubkey.new_unique()),
+            token_vault_0=str(Pubkey.new_unique()),
+            token_vault_1=str(Pubkey.new_unique()),
+            observation_key=str(Pubkey.new_unique()),
+            mint_decimals_0=6,
+            mint_decimals_1=6,
+            tick_spacing=10,
+            liquidity=1000,
+            sqrt_price_x64=Q64,
+            tick_current=0,
+            status=0,
+            fee_on=0,
+            seed_index=0,
+            account_data_sha256="a" * 64,
+            tick_array_bitmap=(0,) * 16,
+        )
+        extension = RaydiumClmmTickArrayBitmapExtension(
+            address=str(Pubkey.new_unique()),
+            pool_address=pool.pool_address,
+            positive_bitmaps=tuple((0,) * 8 for _ in range(14)),
+            negative_bitmaps=tuple((0,) * 8 for _ in range(14)),
+            data_sha256="b" * 64,
+        )
+        _, updated_extension = _flip_bitmap(pool, extension, start_index)
+        cases.append({
+            "tick_spacing": 10,
+            "start_index": start_index,
+            "extension_positive": [list(row) for row in updated_extension.positive_bitmaps],
+            "extension_negative": [list(row) for row in updated_extension.negative_bitmaps],
         })
     return cases
 
