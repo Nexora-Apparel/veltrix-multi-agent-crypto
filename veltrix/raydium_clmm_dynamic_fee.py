@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_SOURCE_COMMIT,
+    RAYDIUM_FEE_RATE_DENOMINATOR,
     RaydiumClmmDynamicFeeInfo,
 )
 from veltrix.raydium_clmm_tick_math import (
@@ -143,7 +144,7 @@ def compute_total_fee_rate(
     info: RaydiumClmmDynamicFeeInfo,
     tick_spacing: int,
 ) -> int:
-    _integer(base_fee_rate, "base fee rate", MAX_FEE_RATE_NUMERATOR)
+    _integer(base_fee_rate, "base fee rate", RAYDIUM_FEE_RATE_DENOMINATOR - 1)
     if info.enabled:
         return min(
             base_fee_rate + compute_dynamic_fee_rate(info, tick_spacing=tick_spacing),
@@ -162,7 +163,7 @@ def initialize_dynamic_fee_swap_state(
 ) -> RaydiumDynamicFeeSwapState:
     if not info.enabled:
         raise RaydiumDynamicFeeError("dynamic-fee swap state cannot be initialized from disabled configuration")
-    _integer(base_fee_rate, "base fee rate", MAX_FEE_RATE_NUMERATOR)
+    _integer(base_fee_rate, "base fee rate", RAYDIUM_FEE_RATE_DENOMINATOR - 1)
     index = tick_spacing_index_from_tick(tick, tick_spacing)
     updated = update_dynamic_fee_reference(
         info, tick_spacing_index=index, current_timestamp=block_timestamp
