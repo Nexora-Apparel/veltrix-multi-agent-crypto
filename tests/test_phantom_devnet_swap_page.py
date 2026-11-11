@@ -91,12 +91,11 @@ def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
     assert "prepared.walletAddress !== wallet.toBase58()" in source
 
 
-def test_browser_semantic_verifier_remains_fail_closed():
+def test_browser_semantic_verifier_has_no_signing_bypass():
     source = PAGE.read_text(encoding="utf-8")
     assert "async function inspectTransaction(tx, quote, reviewedBytes)" in source
-    assert "function inspectTransaction(tx, quote, reviewedBytes)" in source
     assert "async function resolveV0Accounts(message)" in source
-    assert "async function verifyCpmmCpi(tx, policy, reviewedBytes)" in source
+    assert "async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence)" in source
     assert "Transaction intent rejected:" in source
     assert "function inspectTransaction(tx, quote, reviewedBytes)" in source
 
@@ -133,7 +132,7 @@ def test_browser_cpmm_policy_checks_live_pool_and_inner_swap_cpi():
     assert "function decodeTokenAccount(" in source
     assert "function verifyPoolAndAccounts(" in source
     assert "findProgramAddressSync([POOL_AUTH_SEED]" in source
-    assert "function verifyCpmmCpi(tx, policy, reviewedBytes)" in source
+    assert "async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence)" in source
     assert "CPMM_SWAP_DISC" in source
     assert "innerInstructions:true" in source
     assert "expected exactly one CPMM CPI" in source
@@ -147,3 +146,22 @@ def test_browser_semantic_audit_runs_before_review_and_before_signing():
     assert "Transaction intent rejected:" in source
     assert "provider.signAndSendTransaction(finalTx" in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
+
+
+
+def test_browser_inner_cpi_policy_rejects_unexpected_effects():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "const allowedPrograms = new Set([CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM])" in source
+    assert "unexpected inner CPI program" in source
+    assert "System transfer is not exact wrapped-SOL funding" in source
+    assert "SPL transfer authority mismatch" in source
+    assert "CloseAccount recipient/authority mismatch" in source
+    assert "unexpected SPL transfer source/destination/amount" in source
+    assert "outerMinimumEnforced:true" in source
+
+
+def test_pool_vault_direction_is_bound_to_mint_order():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "expectedVaultIn" in source
+    assert "expectedVaultOut" in source
+    assert "router vault direction does not match WSOL-to-USDC pool mint order" in source
