@@ -183,7 +183,7 @@ def evaluate_raydium_clmm_cpis(
     if any(step.label != "Raydium CLMM" for step in order.route_plan):
         raise RaydiumCpiSemanticError("this DEX semantic gate supports only all-Raydium-CLMM routes")
     if any(step.swap_variant_index != 26 for step in route_semantics.route_steps):
-        raise RaydiumCpiSemanticError("decoded Jupiter route contains a non-Ray​​dium-CLMM swap enum")
+        raise RaydiumCpiSemanticError("decoded Jupiter route contains a non-CLMM swap enum")
 
     dex_cpis = []
     for inner in simulation.inner_instructions:
