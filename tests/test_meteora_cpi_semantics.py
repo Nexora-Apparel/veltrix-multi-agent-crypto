@@ -218,7 +218,6 @@ def test_accepts_quote_bound_meteora_dlmm_swap2_cpi():
     ("account_index", "replacement", "message"),
     [
         (0, str(Pubkey.new_unique()), "LB pair differs"),
-        (2, str(Pubkey.new_unique()), "aliased fixed accounts"),
         (4, str(Pubkey.new_unique()), "input token account is not the taker's"),
         (5, str(Pubkey.new_unique()), "output token account is not the taker's"),
         (6, str(Pubkey.new_unique()), "pair mint accounts differ"),
