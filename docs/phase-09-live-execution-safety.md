@@ -534,3 +534,18 @@ Implemented in `veltrix/raydium_clmm_pool_state.py`, `veltrix/raydium_clmm_tick_
 **Proof boundary:** these decoders expose the state needed for replay; they do not yet calculate dynamic fee decay, tick-crossing fee/reward updates, FIFO limit-order consumption, or observation-state changes. The next replay stage must use these decoded fields and the pinned source algorithms rather than treating a pool as a static-fee/no-order pool by assumption.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.35 — Dynamic-fee state transitions and observation oracle
+
+Implemented in `veltrix/raydium_clmm_dynamic_fee.py` and `veltrix/raydium_clmm_observation.py`.
+
+- Ports Rust-compatible signed tick-spacing-index behavior, including truncation toward zero for negative ticks and the additional decrement for non-aligned negative ticks.
+- Ports DynamicFeeInfo filter/decay/reset windows, saturating elapsed-time handling, volatility-reference decay, scaled index-distance accumulation and maximum-volatility clamping.
+- Ports the quadratic dynamic-fee formula with exact ceiling division, the 10% fee-rate cap, total base-plus-dynamic fee calculation, skipped-spacing index updates and dynamic-fee spacing-bounded price calculation.
+- Decodes the 4,483-byte ObservationState account, validates its canonical PDA, owner, pool identity, ring index, all 100 observation records and reserved padding.
+- Ports the observation update cadence: first-write initialization, 15-second minimum interval, 100-slot ring wrap, saturating timestamp subtraction, saturating tick multiplication and wrapping i64 cumulative addition.
+
+**Proof boundary:** these are deterministic fee/oracle primitives. They are not yet composed into the full swap loop; the replay must still apply them at the exact points in Raydium's loop, alongside tick-array traversal, fee splitting, limit-order matching, tick crossing, reward growth and vault settlement.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
