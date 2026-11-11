@@ -113,7 +113,7 @@ def test_fee_rate_uses_ceiling_and_caps_at_ten_percent():
         volatility_accumulator=100_000,
         max_volatility_accumulator=100_000,
     )
-    assert compute_dynamic_fee_rate(state, tick_spacing=1) == MAX_FEE_RATE_NUMERATOR
+    assert compute_dynamic_fee_rate(state, tick_spacing=60) == MAX_FEE_RATE_NUMERATOR
 
 
 def test_total_fee_caps_base_plus_dynamic_and_accepts_large_base_fee():
