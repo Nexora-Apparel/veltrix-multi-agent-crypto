@@ -297,6 +297,12 @@ def evaluate_raydium_pool_state(
         raise RaydiumPoolStateError("Raydium CPI vault accounts differ from the pool state")
     if {pool_pre.token_mint_0, pool_pre.token_mint_1} != {order.input_mint, order.output_mint}:
         raise RaydiumPoolStateError("Raydium pool mint pair differs from the Jupiter route")
+    if order.input_mint == pool_pre.token_mint_0:
+        expected_input_vault, expected_output_vault = pool_pre.token_vault_0, pool_pre.token_vault_1
+    else:
+        expected_input_vault, expected_output_vault = pool_pre.token_vault_1, pool_pre.token_vault_0
+    if (cpi.input_vault, cpi.output_vault) != (expected_input_vault, expected_output_vault):
+        raise RaydiumPoolStateError("Raydium CPI vault direction does not match the route input/output mints")
 
     input_vault_pre = decode_classic_token_account(input_vault_snapshot.pre_data)
     input_vault_post = decode_classic_token_account(input_vault_snapshot.post_data)
