@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from veltrix.raydium_clmm_bitmap_traversal import (
+    RaydiumClmmBitmapTraversalError,
+    first_tick_array_index_with_extension_info,
+    next_initialized_tick_array_start_index,
+)
+from veltrix.raydium_clmm_pool_state import RAYDIUM_CLMM_SOURCE_COMMIT, RaydiumClmmPoolState
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
@@ -315,4 +321,93 @@ def search_next_initialized_tick(
         tick=None,
         first_tick_array_contains_pool_tick=True,
         requires_array_advance=True,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumClmmTickArrayTraversalStep:
+    tick: RaydiumClmmTick
+    queue: RaydiumClmmTickArrayQueue
+    first_tick_array_contains_pool_tick: bool
+    array_advanced: bool
+    next_array_start_index: int | None = None
+
+
+def initialize_raydium_tick_array_queue(
+    pool: RaydiumClmmPoolState,
+    *,
+    tick_array_snapshot: RaydiumClmmTickArraySnapshot,
+    zero_for_one: bool,
+) -> tuple[RaydiumClmmTickArrayQueue, bool]:
+    """Select the first bitmap-valid array and preserve Rust's current-array flag."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumTickArrayCursorError("decoded Raydium PoolState is required")
+    if pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT:
+        raise RaydiumTickArrayCursorError("PoolState source revision is not pinned")
+    try:
+        contains_current, first_start = first_tick_array_index_with_extension_info(
+            pool,
+            tick_array_snapshot=tick_array_snapshot,
+            zero_for_one=zero_for_one,
+        )
+    except RaydiumClmmBitmapTraversalError as exc:
+        raise RaydiumTickArrayCursorError(f"first initialized tick-array selection failed: {exc}") from exc
+    queue = RaydiumClmmTickArrayQueue.from_snapshot(
+        pool_address=pool.pool_address,
+        tick_spacing=pool.tick_spacing,
+        snapshot=tick_array_snapshot,
+    )
+    return queue.select_first(first_start), contains_current
+
+
+def select_next_tick_for_swap(
+    pool: RaydiumClmmPoolState,
+    *,
+    tick_array_snapshot: RaydiumClmmTickArraySnapshot,
+    queue: RaydiumClmmTickArrayQueue,
+    current_tick_index: int,
+    zero_for_one: bool,
+    first_tick_array_contains_pool_tick: bool,
+) -> RaydiumClmmTickArrayTraversalStep:
+    """Reproduce swap.rs:575-612 current-array search, first-array fallback and bitmap advance."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumTickArrayCursorError("decoded Raydium PoolState is required")
+    if not isinstance(queue, RaydiumClmmTickArrayQueue):
+        raise RaydiumTickArrayCursorError("ordered Raydium tick-array queue is required")
+    if queue.pool_address != pool.pool_address or queue.tick_spacing != pool.tick_spacing:
+        raise RaydiumTickArrayCursorError("tick-array queue does not belong to the active PoolState")
+    search = search_next_initialized_tick(
+        queue,
+        current_tick_index=current_tick_index,
+        zero_for_one=zero_for_one,
+        first_tick_array_contains_pool_tick=first_tick_array_contains_pool_tick,
+    )
+    if search.tick is not None:
+        return RaydiumClmmTickArrayTraversalStep(
+            tick=search.tick,
+            queue=queue,
+            first_tick_array_contains_pool_tick=search.first_tick_array_contains_pool_tick,
+            array_advanced=False,
+        )
+    if not search.requires_array_advance:
+        raise RaydiumTickArrayCursorError("current tick-array search ended without a tick or an advance request")
+    try:
+        next_start = next_initialized_tick_array_start_index(
+            pool,
+            tick_array_snapshot=tick_array_snapshot,
+            last_tick_array_start_index=queue.current.start_tick_index,
+            zero_for_one=zero_for_one,
+        )
+    except RaydiumClmmBitmapTraversalError as exc:
+        raise RaydiumTickArrayCursorError(f"next bitmap-selected tick-array lookup failed: {exc}") from exc
+    if next_start is None:
+        raise RaydiumTickArrayCursorError("liquidity is insufficient in the requested swap direction")
+    advanced_queue = queue.advance_to(next_start)
+    tick = first_initialized_tick(advanced_queue.current, zero_for_one=zero_for_one)
+    return RaydiumClmmTickArrayTraversalStep(
+        tick=tick,
+        queue=advanced_queue,
+        first_tick_array_contains_pool_tick=True,
+        array_advanced=True,
+        next_array_start_index=next_start,
     )
