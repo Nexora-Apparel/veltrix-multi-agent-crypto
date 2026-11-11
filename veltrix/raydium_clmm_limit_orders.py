@@ -74,8 +74,12 @@ def limit_order_output_with_price(
     if price == 0 or not isinstance(zero_for_one, bool):
         raise RaydiumLimitOrderError("price must be positive and direction boolean")
     if zero_for_one:
-        return (amount_in * price) // Q64
-    return (amount_in * Q64) // price
+        output = (amount_in * price) // Q64
+    else:
+        output = (amount_in * Q64) // price
+    if output > U128_MAX:
+        raise RaydiumLimitOrderError("limit-order output exceeds u128")
+    return output
 
 
 def limit_order_input_with_price(
@@ -142,6 +146,8 @@ def match_limit_order(
     if ratio > Q64:
         raise RaydiumLimitOrderError("unfilled ratio exceeds Q64.64 unity")
     total_unfilled = limit_order_unfilled_amount(orders, part_remaining)
+    if total_unfilled > 0 and tick.initialized is not True:
+        raise RaydiumLimitOrderError("non-empty limit-order state must be initialized")
     if amount == 0 or total_unfilled == 0:
         return RaydiumLimitOrderResult(
             tick,
