@@ -284,3 +284,18 @@ No signing, transaction submission or live execution is added.
 `evaluate_jupiter_route_programs` now invokes `validate_compute_budget_instructions` against the exact order message and structural validation result. A route-program gate cannot pass if the Compute Budget instruction payloads are malformed, duplicated, or exceed configured CU, micro-lamport price, or estimated priority-fee limits. The gate result carries the decoded compute-budget values for audit. Tests now use actual serialized v0 message fixtures rather than arbitrary message-byte placeholders.
 
 The DEX route instruction payload/account semantic decoder remains outstanding; this integration does not authorize signing.
+
+
+### 09.19 — Jupiter V6 route payload and fixed-account inspector
+
+Implemented in `veltrix/jupiter_v6_route.py` with adversarial route fixtures in `tests/test_jupiter_v6_route.py`.
+
+- Recognizes only the Jupiter V6 exact-in `route` and `sharedAccountsRoute` Anchor discriminators; rejects other Jupiter instruction variants.
+- Decodes the Borsh route-plan vector and a reviewed subset of Jupiter V6 Swap enum variants (Raydium, Orca Whirlpool, Invariant, Meteora, Raydium CLMM, Meteora DLMM, Raydium CLMM V2 and Raydium CPMM). Unknown enum variants fail closed.
+- Binds each on-chain DEX enum, percent/bps split and topological token indexes to the Jupiter order routePlan.
+- Binds the on-chain input amount, quoted output amount, slippage BPS and zero platform-fee policy to the exact order.
+- Validates the fixed classic-SPL Token, taker, input/output ATA, mint, shared-route authority PDA, event-authority PDA and Jupiter program account roles.
+- Requires each quoted AMM key to appear in the instruction's trailing remaining accounts.
+- Explicitly returns `fully_decoded=false` when DEX-specific remaining account roles are present. Pool/vault/tick-array and DEX-specific writable/read-only account layouts remain a release blocker; this inspector is not a signer authorization.
+
+No signing, `/execute`, broadcast or live execution is introduced.
