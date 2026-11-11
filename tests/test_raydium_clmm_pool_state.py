@@ -111,15 +111,29 @@ def test_decodes_pinned_pool_state_header_and_rederives_pda():
 
 def test_validates_route_hop_mint_pair_in_either_direction():
     _, _, snapshot, inspection, _, mint_a, mint_b = fixture()
-    result = validate_raydium_clmm_pool_for_route(snapshot, inspection)
+    order = __import__("tests.test_raydium_clmm_pool_state", fromlist=["fixture"]).fixture()[1]
+    # Build the quote independently from the decoded route instruction.
+    from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
+    order = JupiterOrderTransaction(
+        provider_id="jupiter-swap-v2", request_id="r", quote_id=None,
+        observed_at_epoch_ms=1, taker="taker", fee_payer="taker",
+        input_mint=mint_a, output_mint=mint_b, input_amount_raw=1,
+        output_amount_raw=1, minimum_output_amount_raw=1, price_impact_pct=0.0,
+        fee_bps=0.0, router="metis", transaction_version=0,
+        last_valid_block_height=1, recent_blockhash="blockhash",
+        message_bytes=b"message", serialized_transaction_bytes=b"tx",
+        route_plan=(JupiterRouteStep(inspection.route_steps[0].amm_key, "Raydium CLMM", mint_a, mint_b, 1, 1, 100.0, 10_000),),
+        signature_fee_lamports=1, prioritization_fee_lamports=0, rent_fee_lamports=0,
+    )
+    result = validate_raydium_clmm_pool_for_route(snapshot, inspection, order)
     assert len(result) == 1 and result[0].passed is True
-    reverse_step = dataclasses.replace(
-        inspection.route_steps[0],
+    reverse_order = dataclasses.replace(
+        order,
         input_mint=mint_b,
         output_mint=mint_a,
+        route_plan=(dataclasses.replace(order.route_plan[0], input_mint=mint_b, output_mint=mint_a),),
     )
-    reverse_inspection = dataclasses.replace(inspection, route_steps=(reverse_step,))
-    assert validate_raydium_clmm_pool_for_route(snapshot, reverse_inspection)[0].passed is True
+    assert validate_raydium_clmm_pool_for_route(snapshot, inspection, reverse_order)[0].passed is True
 
 
 @pytest.mark.parametrize(
@@ -150,8 +164,15 @@ def test_rejects_invalid_pool_state_header_fields(offset, value, message):
 
 def test_rejects_wrong_pool_pda_or_owner_evidence():
     _, evidence, _, _, pool_address, *_ = fixture()
-    with pytest.raises(RaydiumClmmPoolStateError, match="PDA"):
-        decode_raydium_clmm_pool_state(evidence, expected_pool_address=str(Pubkey.new_unique()))
+    changed_data = bytearray(evidence.data_bytes)
+    changed_data[8] = (changed_data[8] + 1) % 256
+    changed = dataclasses.replace(
+        evidence,
+        data_bytes=bytes(changed_data),
+        data_sha256=hashlib.sha256(changed_data).hexdigest(),
+    )
+    with pytest.raises(RaydiumClmmPoolStateError, match="bump|PDA"):
+        decode_raydium_clmm_pool_state(changed, expected_pool_address=pool_address)
     wrong_owner = dataclasses.replace(evidence, owner_program_id=str(Pubkey.new_unique()))
     with pytest.raises(RaydiumClmmPoolStateError, match="owner"):
         decode_raydium_clmm_pool_state(wrong_owner, expected_pool_address=pool_address)
@@ -187,27 +208,33 @@ def test_rejects_noncanonical_mint_order_and_aliasing_vaults():
 
 
 def test_rejects_route_mints_that_do_not_match_pool():
-    _, _, snapshot, inspection, *_ = fixture()
-    wrong = dataclasses.replace(
-        inspection.route_steps[0],
-        input_mint=str(Pubkey.new_unique()),
-        output_mint=str(Pubkey.new_unique()),
+    _, _, snapshot, inspection, _, mint_a, mint_b = fixture()
+    from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
+    order = JupiterOrderTransaction(
+        provider_id="jupiter-swap-v2", request_id="r", quote_id=None,
+        observed_at_epoch_ms=1, taker="taker", fee_payer="taker",
+        input_mint=str(Pubkey.new_unique()), output_mint=str(Pubkey.new_unique()),
+        input_amount_raw=1, output_amount_raw=1, minimum_output_amount_raw=1,
+        price_impact_pct=0.0, fee_bps=0.0, router="metis", transaction_version=0,
+        last_valid_block_height=1, recent_blockhash="blockhash", message_bytes=b"message",
+        serialized_transaction_bytes=b"tx",
+        route_plan=(JupiterRouteStep(inspection.route_steps[0].amm_key, "Raydium CLMM",
+            str(Pubkey.new_unique()), str(Pubkey.new_unique()), 1, 1, 100.0, 10_000),),
+        signature_fee_lamports=1, prioritization_fee_lamports=0, rent_fee_lamports=0,
     )
     with pytest.raises(RaydiumClmmPoolStateError, match="mints do not match"):
-        validate_raydium_clmm_pool_for_route(
-            snapshot,
-            dataclasses.replace(inspection, route_steps=(wrong,)),
-        )
+        validate_raydium_clmm_pool_for_route(snapshot, inspection, order)
 
 
 def test_rejects_duplicate_pool_evidence_and_missing_raydium_pool():
     _, evidence, snapshot, inspection, *_ = fixture()
     duplicate = dataclasses.replace(snapshot, accounts=(evidence, evidence))
+    order = __import__("tests.test_raydium_clmm_pool_state", fromlist=["fixture"]).fixture()[0]
     with pytest.raises(RaydiumClmmPoolStateError, match="duplicate"):
-        validate_raydium_clmm_pool_for_route(duplicate, inspection)
+        validate_raydium_clmm_pool_for_route(duplicate, inspection, order)
     missing = dataclasses.replace(snapshot, accounts=())
     with pytest.raises(RaydiumClmmPoolStateError, match="no matching pool"):
-        validate_raydium_clmm_pool_for_route(missing, inspection)
+        validate_raydium_clmm_pool_for_route(missing, inspection, order)
 
 
 def test_rejects_mismatched_route_message_digest():
@@ -216,6 +243,7 @@ def test_rejects_mismatched_route_message_digest():
         validate_raydium_clmm_pool_for_route(
             dataclasses.replace(snapshot, route_message_sha256="0" * 64),
             inspection,
+            order,
         )
 
 
