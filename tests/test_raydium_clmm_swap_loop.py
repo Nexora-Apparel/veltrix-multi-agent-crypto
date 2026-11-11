@@ -20,8 +20,9 @@ from veltrix.raydium_clmm_swap_loop import (
     RaydiumClmmSwapLoopError,
     run_raydium_clmm_swap_loop,
 )
-from veltrix.raydium_clmm_swap_transaction_settlement import (
-    settle_raydium_clmm_swap_transaction,
+from veltrix.raydium_clmm_swap_loop_settlement import (
+    RaydiumSwapLoopSettlementError,
+    settle_raydium_clmm_swap_loop,
 )
 from veltrix.raydium_clmm_tick_array_cursor import RaydiumClmmTickArrayQueue
 from veltrix.raydium_clmm_tick_arrays import (
@@ -195,20 +196,22 @@ def test_outer_loop_crosses_intermediate_tick_then_continues_until_amount_exhaus
     assert result.tick_array_snapshot.tick_arrays[0].ticks[2].initialized is True
     assert result.pool.account_data_sha256 == hashlib.sha256(result.pool.account_data).hexdigest()
 
-    settled = settle_raydium_clmm_swap_transaction(
-        result.pool,
+    settled = settle_raydium_clmm_swap_loop(
+        result,
         make_observation(result.pool),
-        result.final_iteration,
-        amount_specified=result.amount_specified,
-        zero_for_one=result.zero_for_one,
-        is_base_input=result.is_base_input,
-        sqrt_price_limit_x64=result.sqrt_price_limit_x64,
         other_amount_threshold=0,
         block_timestamp=1_700_000_000,
     )
-    assert settled.amounts.amount_1 == result.amount_specified
-    assert settled.amount_returned > 0
-    assert settled.state.pool.tick_current == result.final_iteration.tick
+    assert settled.settlement.amounts.amount_1 == result.amount_specified
+    assert settled.settlement.amount_returned > 0
+    assert settled.settlement.state.pool.tick_current == result.final_iteration.tick
+    with pytest.raises(RaydiumSwapLoopSettlementError, match="not reached"):
+        settle_raydium_clmm_swap_loop(
+            replace(result, swap_complete=False),
+            make_observation(result.pool),
+            other_amount_threshold=0,
+            block_timestamp=1_700_000_000,
+        )
 
 
 def test_outer_loop_stops_at_user_price_limit_even_with_remaining_amount():
