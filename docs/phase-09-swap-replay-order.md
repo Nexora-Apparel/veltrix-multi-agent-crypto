@@ -57,3 +57,20 @@ A future Python replay implementation must provide:
 - byte-for-byte post-state serialization and vault/token delta reconciliation.
 
 Until those criteria and the blockers in `phase-09-differential-regression-status.md` are satisfied, this ordering document is not execution authorization.
+
+
+## Outer `exact_internal` transfer wrapper
+
+Pinned `instructions/swap.rs::exact_internal` lines 834–1,004 add constraints after `swap_internal` returns:
+
+1. Capture input/output vault balances before the internal swap.
+2. Determine `zero_for_one` from whether the input vault mint equals PoolState token mint 0.
+3. Require the input/output vault addresses to be exactly PoolState vault 0/vault 1 in the selected direction.
+4. Require the internal result to have both `amount_0` and `amount_1` non-zero.
+5. For zero-for-one, transfer token 0 from user to vault 0, then token 1 from vault 1 to user.
+6. For one-for-zero, transfer token 1 from user to vault 1, then token 0 from vault 0 to user.
+7. Reload both vault accounts after transfers and verify price monotonicity.
+8. With no explicit sqrt-price limit, enforce full-fill constraints against the original exact-input/output amount.
+9. Return actual output received for exact-input, or actual input spent for exact-output, based on the reloaded vault balances.
+
+The Python vault settlement helper added in PR #94 models the corresponding pool-vault amount deltas and binds both vaults to PoolState. It does **not** yet replay user token-account state, actual CPI transfers, account reloads, or the wrapper's full-fill checks. Those remain mandatory before a complete transaction replay can be certified.
