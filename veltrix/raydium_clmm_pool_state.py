@@ -135,7 +135,11 @@ def decode_raydium_clmm_pool_state(
     if account.expected_program_id != RAYDIUM_CLMM_PROGRAM_ID or account.owner_program_id != RAYDIUM_CLMM_PROGRAM_ID:
         raise RaydiumClmmPoolStateError("pool account owner is not the pinned Raydium CLMM program")
     data = account.data_bytes
-    if not isinstance(data, bytes) or len(data) != RAYDIUM_POOL_STATE_LENGTH:
+    if account.executable is not False:
+        raise RaydiumClmmPoolStateError("Raydium pool account must be non-executable")
+    if isinstance(account.lamports, bool) or not isinstance(account.lamports, int) or account.lamports <= 0:
+        raise RaydiumClmmPoolStateError("Raydium pool account must have positive lamports")
+    if not isinstance(data, bytes) or account.data_length != len(data) or len(data) != RAYDIUM_POOL_STATE_LENGTH:
         raise RaydiumClmmPoolStateError("Raydium PoolState account length differs from the pinned 1576-byte layout")
     if hashlib.sha256(data).hexdigest() != account.data_sha256:
         raise RaydiumClmmPoolStateError("pool account data hash differs from owner evidence")
@@ -161,6 +165,9 @@ def decode_raydium_clmm_pool_state(
     fee_on = data[390]
     seed_index = int.from_bytes(data[391:393], "little")
 
+    default_key = str(Pubkey.default())
+    if default_key in {amm_config, pool_creator, mint_0, mint_1, vault_0, vault_1, observation}:
+        raise RaydiumClmmPoolStateError("Raydium pool header contains a default public key")
     if mint_0 == mint_1:
         raise RaydiumClmmPoolStateError("Raydium pool token mints must be distinct")
     if bytes(Pubkey.from_string(mint_0)) >= bytes(Pubkey.from_string(mint_1)):
@@ -225,8 +232,12 @@ def validate_raydium_clmm_pool_for_route(
         raise RaydiumClmmPoolStateError("Jupiter V6 route inspection is required")
     if not isinstance(order, JupiterOrderTransaction):
         raise RaydiumClmmPoolStateError("Jupiter order quote is required to bind route-hop mints")
-    if snapshot.route_message_sha256 != route_inspection.message_sha256:
-        raise RaydiumClmmPoolStateError("pool evidence and Jupiter route inspection message digests differ")
+    order_digest = hashlib.sha256(order.message_bytes).hexdigest()
+    if (
+        snapshot.route_message_sha256 != route_inspection.message_sha256
+        or order_digest != route_inspection.message_sha256
+    ):
+        raise RaydiumClmmPoolStateError("pool evidence, Jupiter order and route inspection message digests differ")
     by_address = {account.amm_key: account for account in snapshot.accounts}
     if len(by_address) != len(snapshot.accounts):
         raise RaydiumClmmPoolStateError("pool evidence contains duplicate AMM addresses")
