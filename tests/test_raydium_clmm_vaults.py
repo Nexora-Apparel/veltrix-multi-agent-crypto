@@ -15,6 +15,7 @@ from veltrix.raydium_clmm_vaults import (
     apply_raydium_clmm_swap_vault_settlement,
     apply_raydium_clmm_vault_delta,
     encode_raydium_clmm_vault_account,
+    validate_raydium_exact_internal_settlement,
     derive_raydium_clmm_vault_address,
     fetch_raydium_clmm_vault_snapshot,
 )
@@ -352,4 +353,118 @@ def test_swap_vault_settlement_rejects_zero_amounts_and_wrong_pool_identity():
         apply_raydium_clmm_swap_vault_settlement(
             wrong_pool, vault_0, vault_1,
             amount_0=1, amount_1=1, zero_for_one=True,
+        )
+
+
+@pytest.mark.parametrize("zero_for_one", [True, False])
+@pytest.mark.parametrize("is_base_input", [True, False])
+def test_exact_internal_validator_matches_directional_vault_reload_and_return_value(
+    zero_for_one, is_base_input
+):
+    values = fixture()
+    snapshot = fetch(values)
+    pool_state = values[1][0].pool
+    before_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    before_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    after_0, after_1 = apply_raydium_clmm_swap_vault_settlement(
+        pool_state, before_0, before_1,
+        amount_0=100,
+        amount_1=80,
+        zero_for_one=zero_for_one,
+    )
+    specified = (
+        (100 if zero_for_one else 80)
+        if is_base_input
+        else (80 if zero_for_one else 100)
+    )
+    result = validate_raydium_exact_internal_settlement(
+        pool_state,
+        before_0, before_1, after_0, after_1,
+        amount_0=100,
+        amount_1=80,
+        zero_for_one=zero_for_one,
+        is_base_input=is_base_input,
+        amount_specified=specified,
+        sqrt_price_before_x64=(1 << 64) + 100 if zero_for_one else (1 << 64),
+        sqrt_price_after_x64=(1 << 64) if zero_for_one else (1 << 64) + 100,
+        sqrt_price_limit_x64=0,
+    )
+    expected_result = (
+        (80 if zero_for_one else 100)
+        if is_base_input
+        else (100 if zero_for_one else 80)
+    )
+    assert result == expected_result
+
+
+@pytest.mark.parametrize("zero_for_one", [True, False])
+def test_exact_internal_validator_allows_partial_fill_only_with_price_limit(zero_for_one):
+    values = fixture()
+    snapshot = fetch(values)
+    pool_state = values[1][0].pool
+    before_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    before_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    after_0, after_1 = apply_raydium_clmm_swap_vault_settlement(
+        pool_state, before_0, before_1,
+        amount_0=100, amount_1=80, zero_for_one=zero_for_one,
+    )
+    result = validate_raydium_exact_internal_settlement(
+        pool_state,
+        before_0, before_1, after_0, after_1,
+        amount_0=100, amount_1=80,
+        zero_for_one=zero_for_one,
+        is_base_input=True,
+        amount_specified=150,
+        sqrt_price_before_x64=(1 << 64) + 100 if zero_for_one else (1 << 64),
+        sqrt_price_after_x64=(1 << 64) if zero_for_one else (1 << 64) + 100,
+        sqrt_price_limit_x64=(1 << 64) - 1 if zero_for_one else (1 << 64) + 200,
+    )
+    assert result == (80 if zero_for_one else 100)
+
+
+def test_exact_internal_validator_rejects_partial_fill_without_price_limit():
+    values = fixture()
+    snapshot = fetch(values)
+    pool_state = values[1][0].pool
+    before_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    before_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    after_0, after_1 = apply_raydium_clmm_swap_vault_settlement(
+        pool_state, before_0, before_1,
+        amount_0=100, amount_1=80, zero_for_one=True,
+    )
+    with pytest.raises(RaydiumClmmVaultError, match="did not fill"):
+        validate_raydium_exact_internal_settlement(
+            pool_state,
+            before_0, before_1, after_0, after_1,
+            amount_0=100, amount_1=80,
+            zero_for_one=True,
+            is_base_input=True,
+            amount_specified=150,
+            sqrt_price_before_x64=(1 << 64) + 100,
+            sqrt_price_after_x64=(1 << 64),
+            sqrt_price_limit_x64=0,
+        )
+
+
+def test_exact_internal_validator_rejects_wrong_price_direction():
+    values = fixture()
+    snapshot = fetch(values)
+    pool_state = values[1][0].pool
+    before_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    before_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    after_0, after_1 = apply_raydium_clmm_swap_vault_settlement(
+        pool_state, before_0, before_1,
+        amount_0=100, amount_1=80, zero_for_one=True,
+    )
+    with pytest.raises(RaydiumClmmVaultError, match="wrong direction"):
+        validate_raydium_exact_internal_settlement(
+            pool_state,
+            before_0, before_1, after_0, after_1,
+            amount_0=100, amount_1=80,
+            zero_for_one=True,
+            is_base_input=True,
+            amount_specified=100,
+            sqrt_price_before_x64=(1 << 64),
+            sqrt_price_after_x64=(1 << 64) + 100,
+            sqrt_price_limit_x64=0,
         )
