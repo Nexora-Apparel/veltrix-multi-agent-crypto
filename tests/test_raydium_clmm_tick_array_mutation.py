@@ -110,7 +110,7 @@ def test_invalid_tick_array_offset_and_wrong_array_are_rejected():
         apply_raydium_tick_array_mutation(p, a, tick_index=1, updated_tick=tick(1))
 
 
-def test_initialized_count_underflow_overflow_and_stale_count_are_rejected():
+def test_initialized_count_stale_count_is_rejected_before_any_transition():
     p = pool()
     empty = array(p)
     # A zero count cannot be decremented by a valid decoded state; stale records are rejected first.
@@ -121,7 +121,7 @@ def test_initialized_count_underflow_overflow_and_stale_count_are_rejected():
     # A 60-slot array cannot overflow u8; count integrity is checked before mutation.
     with pytest.raises(RaydiumTickArrayMutationError, match="stale before mutation"):
         apply_raydium_tick_array_mutation(p, replace(full, initialized_tick_count=59),
-            tick_index=60, updated_tick=tick(60))
+            tick_index=0, updated_tick=tick(0))
 
 
 def test_bitmap_extension_decode_checks_pda_pool_and_layout():
