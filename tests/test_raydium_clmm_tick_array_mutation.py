@@ -21,6 +21,7 @@ from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
     RaydiumTickArrayMutationError,
     apply_raydium_tick_array_mutation,
+    encode_raydium_tick_array_bitmap_extension,
     decode_raydium_tick_array_bitmap_extension,
     derive_raydium_tick_array_bitmap_extension_address,
     TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR,
@@ -147,6 +148,7 @@ def test_bitmap_extension_decode_checks_pda_pool_and_layout():
     assert decoded.address == address
     assert len(decoded.positive_bitmaps) == 14
     assert len(decoded.negative_bitmaps) == 14
+    assert encode_raydium_tick_array_bitmap_extension(decoded) == bytes(data)
 
 
 
@@ -244,7 +246,9 @@ def test_extension_bitmap_mutation_updates_only_the_correct_side():
     )
     assert result.bitmap_changed is True
     assert any(any(word for word in row) for row in result.bitmap_extension.positive_bitmaps)
-    assert result.bitmap_extension.data_sha256 == ""
+    assert result.bitmap_extension.data_sha256 == hashlib.sha256(
+        encode_raydium_tick_array_bitmap_extension(result.bitmap_extension)
+    ).hexdigest()
     assert not any(any(word for word in row) for row in result.bitmap_extension.negative_bitmaps)
 
 
