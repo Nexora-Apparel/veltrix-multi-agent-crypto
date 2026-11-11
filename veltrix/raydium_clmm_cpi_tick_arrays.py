@@ -169,6 +169,7 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
 
     arrays = []
     bitmap_extension_address = None
+    bitmap_extension_sha256 = None
     seen = set()
     for account in snapshot.accounts:
         if account.address in seen:
@@ -195,6 +196,7 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
                 data=account.data,
                 expected_pool_address=pool.pool_address,
             )
+            bitmap_extension_sha256 = hashlib.sha256(account.data).hexdigest()
         else:
             raise RaydiumClmmCpiTickArrayError("CPI trailing account is neither a pinned TickArrayState nor bitmap extension")
 
@@ -218,5 +220,6 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
         tick_arrays=tuple(arrays),
         cpi_account_order=tuple(cpi.tick_array_accounts),
         bitmap_extension_address=bitmap_extension_address,
+        bitmap_extension_sha256=bitmap_extension_sha256,
         execution_ready=False,
     )
