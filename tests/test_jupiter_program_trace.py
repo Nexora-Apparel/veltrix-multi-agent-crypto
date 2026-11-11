@@ -145,6 +145,54 @@ def test_accepts_order_route_when_simulated_cpi_trace_matches_jupiter_registry()
     assert len(result.dex_program_ids) == 1
 
 
+def test_rejects_top_level_system_or_token_program_instructions():
+    for extra_program in (
+        "11111111111111111111111111111111",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    ):
+        order, validation, simulation, gate, registry, policy = fixture()
+        programs = validation.program_ids + (extra_program,)
+        validation = dataclasses.replace(validation, program_ids=programs)
+        simulation = dataclasses.replace(simulation, top_level_program_ids=programs)
+        with pytest.raises(JupiterProgramTraceError, match="top-level message invokes"):
+            evaluate((order, validation, simulation, gate, registry, policy))
+
+
+def test_rejects_system_and_associated_token_programs_in_inner_cpi_trace():
+    for extra_program in (
+        "11111111111111111111111111111111",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+    ):
+        order, validation, simulation, gate, registry, policy = fixture()
+        simulation = dataclasses.replace(
+            simulation,
+            inner_program_ids=(extra_program,),
+            inner_instruction_count=1,
+        )
+        with pytest.raises(JupiterProgramTraceError, match="inner CPI trace invokes"):
+            evaluate((order, validation, simulation, gate, registry, policy))
+
+
+def test_requires_exactly_one_jupiter_aggregator_instruction():
+    order, validation, simulation, gate, registry, policy = fixture()
+    programs = validation.program_ids + validation.program_ids
+    validation = dataclasses.replace(validation, program_ids=programs)
+    simulation = dataclasses.replace(simulation, top_level_program_ids=programs)
+    with pytest.raises(JupiterProgramTraceError, match="exactly one approved Jupiter"):
+        evaluate((order, validation, simulation, gate, registry, policy))
+
+
+def test_rejects_system_program_in_standard_allowlist_configuration():
+    _, _, _, _, _, policy = fixture()
+    with pytest.raises(JupiterProgramTraceError, match="standard programs are limited"):
+        dataclasses.replace(
+            policy,
+            standard_program_ids=policy.standard_program_ids + ("11111111111111111111111111111111",),
+        )
+
+
 def test_rejects_unapproved_route_label():
     order, validation, simulation, gate, registry, policy = fixture()
     policy = dataclasses.replace(policy, allowed_dex_labels=("Orca Whirlpool",))
