@@ -581,3 +581,19 @@ Implemented in `veltrix/raydium_clmm_tick_crossing.py`, matching pinned `TickSta
 **Proof boundary:** this primitive deliberately refuses ticks containing outstanding limit orders. It does not update tick-array initialized counts/bitmaps, consume FIFO limit orders, advance tick/price state, or compose the complete swap loop. Those remain separate required components.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.37 — FIFO limit-order matching and cohort accounting
+
+Implemented in `veltrix/raydium_clmm_limit_orders.py`, matching pinned `TickState::match_limit_order_with_sqrt_price`.
+
+- Ports Q64.64 sqrt-price-to-price conversion with exact floor/ceiling direction.
+- Ports limit-order input/output conversion for both swap directions, with U128 intermediate and U64 result bounds.
+- Ports exact-input and exact-output matching for fee-on-input and fee-on-output modes.
+- Preserves the source's asymmetric fee calculations: fee-on-input gross-up when order depth caps a fill, and fee-on-output deduction after gross order consumption.
+- Consumes `part_filled_orders_remaining` before newly opened `orders_amount`, updates Q64.64 unfilled ratios with floor division, advances FIFO order phase with saturating u64 behavior, and preserves the residual cohort.
+- Checks total unfilled amount, order state, fee denominator, arithmetic bounds and empty/zero-input no-op behavior.
+
+**Proof boundary:** this matches one tick's order book only. It does not iterate multiple tick boundaries, update the pool swap state, or settle protocol/fund fees and vault transfers. Full replay still requires composing it with dynamic fees, tick crossing, price steps, tick-array traversal, observation updates and settlement.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
