@@ -87,6 +87,13 @@ def test_rounds_priority_fee_up_to_whole_lamports():
     assert result.estimated_priority_fee_lamports == 1
 
 
+def test_accepts_zero_compute_unit_price():
+    message, validation = fixture((set_price(0),))
+    result = validate_compute_budget_instructions(message, validation=validation)
+    assert result.compute_unit_price_micro_lamports == 0
+    assert result.estimated_priority_fee_lamports == 0
+
+
 def test_rejects_duplicate_compute_budget_instructions():
     message, validation = fixture((set_limit(200_000), set_limit(250_000)))
     with pytest.raises(ComputeBudgetError, match="duplicate SetComputeUnitLimit"):
@@ -107,7 +114,6 @@ def test_rejects_duplicate_compute_budget_instructions():
         b"\xff",
         b"\x02",
         b"\x02" + b"\x00" * 5,
-        b"\x03" + b"\x00" * 8,
         b"\x03" + b"\x00" * 9,
     ],
 )
