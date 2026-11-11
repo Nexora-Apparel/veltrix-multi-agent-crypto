@@ -111,7 +111,7 @@ def test_post_state_validator_rejects_wrong_anchor_discriminator():
 
 def test_post_state_validator_rejects_owner_and_pre_hash_mismatch():
     binding, commitment, state = _fixture()
-    wrong_owner = replace(state, post_owner="WrongProgram111111111111111111111111111")
+    wrong_owner = replace(state, pre_owner="WrongProgram111111111111111111111111111", post_owner="WrongProgram111111111111111111111111111")
     with pytest.raises(RaydiumClmmSimulationStateError, match="owner"):
         validate_raydium_clmm_post_state_commitments(
             binding, commitments=(commitment,), account_states=(wrong_owner,)
