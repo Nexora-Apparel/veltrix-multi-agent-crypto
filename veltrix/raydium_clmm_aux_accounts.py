@@ -334,7 +334,8 @@ def fetch_raydium_clmm_aux_account_snapshot(
                 observed_at_epoch_ms=simulation.observed_at_epoch_ms, policy=policy,
             )
             observations.append(observation)
-    if seen != set(expected) or len(configs) != len(pool_checks) or len(observations) != len(pool_checks):
+    unique_config_addresses = {item.pool.amm_config for item in pool_checks}
+    if seen != set(expected) or len(configs) != len(unique_config_addresses) or len(observations) != len(pool_checks):
         raise RaydiumClmmAuxAccountError("auxiliary account snapshot omitted a required config or observation")
     return RaydiumClmmAuxAccountSnapshot(
         route_message_sha256=digest,
