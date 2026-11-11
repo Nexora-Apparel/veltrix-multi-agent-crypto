@@ -37,7 +37,7 @@ def state(amount=10_000):
 
 
 def test_limit_order_boundary_uses_precomputed_fee_and_applies_fee_split():
-    before = state()
+    before = state(100)
     result = apply_raydium_limit_order_boundary(
         tick(),
         before,
@@ -55,7 +55,7 @@ def test_limit_order_boundary_uses_precomputed_fee_and_applies_fee_split():
     assert result.tick.orders_amount == 0
     assert result.tick.part_filled_orders_remaining == 901
     assert result.tick.order_phase == 1
-    assert result.fee_state.amount_specified_remaining == 9900
+    assert result.fee_state.amount_specified_remaining == 0
     assert result.fee_state.amount_calculated == 99
     assert result.fee_state.lp_fee + result.fee_state.protocol_fee + result.fee_state.fund_fee == 1
 
