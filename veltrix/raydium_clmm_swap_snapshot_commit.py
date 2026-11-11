@@ -9,7 +9,6 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArraySnapshot,
 )
 from veltrix.raydium_clmm_tick_array_mutation import (
-    RaydiumClmmTickArrayBitmapExtension as MutationBitmapExtension,
     RaydiumTickArrayMutationError,
     to_mutation_bitmap_extension,
     update_tick_array_snapshot_bitmap_extension,
