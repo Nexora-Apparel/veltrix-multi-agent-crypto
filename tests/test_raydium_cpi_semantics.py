@@ -213,10 +213,11 @@ def test_rejects_malformed_or_unsupported_swap_v2_payload(data, message):
 
 
 def test_accepts_quote_bound_classic_token_raydium_clmm_cpi():
-    result = evaluate()
+    values = fixture()
+    result = evaluate(values)
     assert result.passed is True
     assert result.cpi_count == 1
-    assert result.pool_ids == (fixture()[0].route_plan[0].amm_key,)
+    assert result.pool_ids == (values[0].route_plan[0].amm_key,)
     assert result.input_amounts_raw == (1_000,)
     assert result.minimum_output_amounts_raw == (1_900,)
 
@@ -226,7 +227,7 @@ def test_accepts_quote_bound_classic_token_raydium_clmm_cpi():
     [
         (0, str(Pubkey.new_unique()), "payer differs"),
         (2, str(Pubkey.new_unique()), "pool state differs"),
-        (8, TOKEN_2022_PROGRAM_ID, "classic SPL Token"),
+        (8, str(Pubkey.new_unique()), "classic SPL Token"),
         (9, str(Pubkey.new_unique()), "token-2022 or memo"),
         (10, str(Pubkey.new_unique()), "token-2022 or memo"),
         (11, str(Pubkey.new_unique()), "vault mint accounts differ"),
@@ -299,6 +300,7 @@ def test_rejects_unapproved_inner_program_and_mixed_dex_route():
         order,
         route_plan=(dataclasses.replace(order.route_plan[0], label="Meteora"),),
     )
+    program_gate = dataclasses.replace(program_gate, route_labels=("Meteora",))
     with pytest.raises(RaydiumCpiSemanticError, match="only all"):
         evaluate((order, validation, simulation, sim_gate, program_gate, route_semantics, policy))
 
