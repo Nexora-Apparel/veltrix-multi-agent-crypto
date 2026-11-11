@@ -463,10 +463,11 @@ fn python_pool_post_swap_finalization_vectors_match_pinned_raydium_pool_state() 
         let actual_protocol_1 = pool.protocol_fees_token_1;
         let actual_fund_0 = pool.fund_fees_token_0;
         let actual_fund_1 = pool.fund_fees_token_1;
-        let actual_dynamic_tick_reference = pool.dynamic_fee_info.tick_spacing_index_reference;
-        let actual_dynamic_volatility_reference = pool.dynamic_fee_info.volatility_reference;
-        let actual_dynamic_volatility_accumulator = pool.dynamic_fee_info.volatility_accumulator;
-        let actual_dynamic_timestamp = pool.dynamic_fee_info.last_update_timestamp;
+        let actual_dynamic_info = pool.dynamic_fee_info;
+        let actual_dynamic_tick_reference = actual_dynamic_info.tick_spacing_index_reference;
+        let actual_dynamic_volatility_reference = actual_dynamic_info.volatility_reference;
+        let actual_dynamic_volatility_accumulator = actual_dynamic_info.volatility_accumulator;
+        let actual_dynamic_timestamp = actual_dynamic_info.last_update_timestamp;
         let expected = &case["expected"];
 
         assert_eq!(actual_tick, expected["tick_current"].as_i64().unwrap() as i32);
