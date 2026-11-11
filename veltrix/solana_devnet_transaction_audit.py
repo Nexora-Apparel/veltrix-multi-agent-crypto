@@ -392,12 +392,6 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             and any(ROUTER in line and "failed" in line for line in negative_logs),
             "negative route failed without demonstrating the expected outer minimum-output rejection")
     outer_minimum_enforcement_verified = True
-    if actual_cpi_minimum == 0:
-        # The inner CPMM has no local floor, but the deployed router's outer threshold was
-        # demonstrated against the same transaction with a one-unit-higher impossible floor.
-        unsafe_reasons.clear()
-    elif actual_cpi_minimum < MIN_OUTPUT:
-        unsafe_reasons.append("inner CPMM minimum output is below the reviewed threshold despite outer check")
 
     inner_groups = value.get("innerInstructions")
     _expect(isinstance(inner_groups, list), "Devnet simulation did not return inner-instruction metadata")
@@ -432,6 +426,8 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             "inner CPMM instruction is not the pinned SwapBaseInput layout")
     actual_cpi_input = read_u64(cpi_data, 8)
     actual_cpi_minimum = read_u64(cpi_data, 16)
+    if actual_cpi_minimum and actual_cpi_minimum < MIN_OUTPUT:
+        unsafe_reasons.append("inner CPMM minimum output is below the reviewed threshold despite outer check")
     _expect(actual_cpi_input == INPUT_AMOUNT,
             "inner CPMM input differs from the reviewed amount: " + str(actual_cpi_input))
     unsafe_reasons: list[str] = []
