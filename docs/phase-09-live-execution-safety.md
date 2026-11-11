@@ -336,3 +336,19 @@ Implemented in `veltrix/raydium_clmm_pool_state.py`, pinned to Raydium's upstrea
 Limitations: this is pool-header validation, not a complete tradeability proof. It does not yet verify vault account owners/mints/balances, tick arrays and initialized liquidity around the current tick, observation freshness, dynamic fee config, reward/fee state, or the complete DEX CPI account ordering. It does not calculate executable price impact or depth. A successful result remains read-only evidence and does not set execution eligibility.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.23 — Raydium CLMM vault token-account verification
+
+Implemented in `veltrix/raydium_clmm_vaults.py` using Raydium CLMM's pinned source commit from Phase 09.22.
+
+- Re-derives each pool vault PDA using `pool_vault`, pool address and corresponding pool mint.
+- Fetches both vault accounts through the same provider-pinned HTTPS RPC adapter, with confirmed commitment and `minContextSlot` no earlier than both pool evidence and simulation.
+- Requires matching provider, cluster, genesis hash, response identity and context provenance.
+- Supports only classic SPL Token vaults in this path; requires the exact 165-byte token-account layout and classic Token program account owner.
+- Decodes token mint, token authority, raw balance and account state. Requires the mint to match the pool's ordered mint pair, the token authority to equal the Raydium pool PDA, and state to be initialized (not frozen).
+- Rejects unexpected delegate, native/wrapped-SOL, or close-authority options, executable accounts, zero-lamport accounts, malformed account lengths and incomplete RPC snapshots.
+
+Limitations: this verifies vault identity and token-account metadata, not the vault's economic sufficiency. It does not verify mint freeze/transfer-fee extensions, vault reserve minimums, tick-array initialized liquidity, pool observation freshness, or dynamic fees. Token-2022 and wrapped-native routes remain unsupported. The result is evidence only and never grants execution eligibility.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
