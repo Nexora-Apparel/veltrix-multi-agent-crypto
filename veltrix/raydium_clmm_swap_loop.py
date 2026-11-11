@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import hashlib
 
 from veltrix.raydium_clmm_dynamic_fee import (
     RaydiumDynamicFeeError,
@@ -11,7 +12,10 @@ from veltrix.raydium_clmm_dynamic_fee import (
 from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_SOURCE_COMMIT,
+    RAYDIUM_POOL_STATE_LENGTH,
     RaydiumClmmPoolState,
+    RaydiumClmmPoolStateError,
+    encode_raydium_clmm_pool_state,
 )
 from veltrix.raydium_clmm_rewards import (
     RaydiumRewardUpdateError,
@@ -123,6 +127,14 @@ def run_raydium_clmm_swap_loop(
         raise RaydiumClmmSwapLoopError("PoolState source revision is not pinned")
     if pool.swaps_enabled is not True:
         raise RaydiumClmmSwapLoopError("PoolState swap status is disabled")
+    if not isinstance(pool.account_data, bytes) or len(pool.account_data) != RAYDIUM_POOL_STATE_LENGTH:
+        raise RaydiumClmmSwapLoopError("verified raw PoolState account bytes are required for safe bitmap/state commits")
+    try:
+        canonical_pool_bytes = encode_raydium_clmm_pool_state(pool)
+    except RaydiumClmmPoolStateError as exc:
+        raise RaydiumClmmSwapLoopError(f"PoolState source-byte validation failed: {exc}") from exc
+    if canonical_pool_bytes != pool.account_data or hashlib.sha256(pool.account_data).hexdigest() != pool.account_data_sha256:
+        raise RaydiumClmmSwapLoopError("PoolState raw bytes and SHA-256 do not match the decoded state")
     if not isinstance(tick_array_snapshot, RaydiumClmmTickArraySnapshot):
         raise RaydiumClmmSwapLoopError("verified CPI tick-array snapshot is required")
     if not isinstance(tick_array_queue, RaydiumClmmTickArrayQueue) or tick_array_queue.current is None:
