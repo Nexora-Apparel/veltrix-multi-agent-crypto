@@ -334,10 +334,13 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
         outer_index = group.get("index")
         for inner in group.get("instructions", []):
             program_index = inner.get("programIdIndex")
-            _expect(isinstance(program_index, int) and program_index < len(key_strings),
-                    "inner CPI has an invalid program index")
+            program_address = inner.get("programId")
+            if isinstance(program_index, int) and 0 <= program_index < len(key_strings):
+                program_address = key_strings[program_index]
+            _expect(isinstance(program_address, str) and bool(program_address),
+                    "inner CPI has no resolvable program identity: " + repr(inner))
             data = b58decode(inner.get("data", ""))
-            inner_flat.append((outer_index, key_strings[program_index], list(inner.get("accounts", [])), data))
+            inner_flat.append((outer_index, program_address, list(inner.get("accounts", [])), data))
     cpmm_cpis = [item for item in inner_flat if item[1] == CPMM]
     _expect(len(cpmm_cpis) == 1, "simulation must contain exactly one CPMM CPI")
     cpi_outer_index, _, cpi_account_indexes, cpi_data = cpmm_cpis[0]
