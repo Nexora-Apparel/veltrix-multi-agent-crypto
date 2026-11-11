@@ -48,25 +48,6 @@ class RaydiumClmmSimulationStateTransition:
     execution_ready: bool = False
 
 
-def _pool_evidence_from_state(
-    state: SimulatedAccountState,
-    *,
-    address: str,
-    expected_program_id: str,
-) -> DexPoolAccountEvidence:
-    return DexPoolAccountEvidence(
-        amm_key=address,
-        dex_label="Raydium CLMM",
-        expected_program_id=expected_program_id,
-        owner_program_id=state.pre_owner if state.pre_data_sha256 else state.post_owner,
-        lamports=state.pre_lamports if state.pre_data_sha256 else state.post_lamports,
-        executable=state.pre_executable,
-        data_length=len(state.pre_data),
-        data_sha256=state.pre_data_sha256,
-        data_bytes=state.pre_data,
-    )
-
-
 def _pool_account(
     *,
     address: str,
@@ -295,6 +276,8 @@ def verify_raydium_clmm_simulation_state_transition(
             or extension_state.post_owner != RAYDIUM_CLMM_PROGRAM_ID
             or extension_state.pre_executable is not False
             or extension_state.post_executable is not False
+            or extension_state.pre_lamports <= 0
+            or extension_state.post_lamports <= 0
         ):
             raise RaydiumClmmSimulationStateError("simulation changed or failed to bind the immutable tick-array bitmap extension")
 
