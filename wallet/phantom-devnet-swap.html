@@ -515,7 +515,10 @@
     }));
     const q = quote.data;
     if (quote.success !== true || !q || q.inputMint !== SOL || q.outputMint !== USDC) throw new Error("Raydium did not return a valid Devnet SOL/USDC quote.");
-    if (!Array.isArray(q.routePlan) || !q.routePlan.length) throw new Error("Quote has no route.");
+    if (!Array.isArray(q.routePlan) || q.routePlan.length !== 1 ||
+        q.routePlan[0].poolId !== POOL) {
+      throw new Error("Only the independently audited single-hop Devnet CPMM pool is accepted. Multi-hop or changed-pool routes are rejected.");
+    }
     const impact = Number(q.priceImpactPct);
     if (!Number.isFinite(impact) || impact < 0 || impact > MAX_IMPACT) throw new Error("Price impact is missing, invalid or above the 2% safety ceiling. No transaction built.");
     const built = await json(TRADE + "/transaction/swap-base-in", {
