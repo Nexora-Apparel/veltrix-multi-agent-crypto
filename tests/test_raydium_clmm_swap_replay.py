@@ -225,6 +225,11 @@ def test_full_local_replay_matches_boundary_fifo_crossing_and_staged_settlement(
     assert result.outer_iterations == 1
     assert result.inner_iterations == 1
     assert result.boundary_crossings == 1
+    assert len(result.trace) == 1
+    assert result.trace[0].fifo_amount_in == 10
+    assert result.trace[0].tick_crossed is True
+    assert result.trace[0].boundary_reached is True
+    assert len(result.trace_sha256) == 64
     assert result.settlement.amount_0 == 10
     assert result.settlement.amount_1 == 10
     assert result.final_bundle.pool.tick_current == -1
@@ -366,6 +371,10 @@ def test_replay_advances_across_two_initialized_tick_arrays_after_first_crossing
     assert result.outer_iterations == 2
     assert result.inner_iterations == 2
     assert result.boundary_crossings == 1
+    assert len(result.trace) == 2
+    assert result.trace[0].tick_array_start_index == 0
+    assert result.trace[1].tick_array_start_index == -60
+    assert result.trace[1].current_tick_before == -1
     assert result.final_bundle.pool.sqrt_price_x64 < Q64
     assert len(result.final_bundle.tick_arrays) == 2
     assert result.amount_specified_remaining == 0
@@ -413,6 +422,9 @@ def test_replay_updates_dynamic_fee_before_boundary_fifo_and_persists_it():
     )
     assert result.amount_specified_remaining == 0
     assert result.final_bundle.pool.dynamic_fee_info.volatility_accumulator > 0
+    assert len(result.trace) == 1
+    assert result.trace[0].total_fee_rate >= 1000
+    assert result.trace[0].volatility_accumulator_after > result.trace[0].volatility_accumulator_before
     assert result.final_bundle.pool.tick_current == 0
     final_tick = result.final_bundle.tick_arrays[0].ticks[0]
     assert final_tick.orders_amount + final_tick.part_filled_orders_remaining > 0
@@ -484,7 +496,33 @@ def test_exact_output_one_for_zero_replay_uses_opposite_vault_deltas():
     )
     assert result.amount_specified_remaining == 0
     assert result.outer_iterations == 1
+    assert len(result.trace) == 1
+    assert result.trace[0].tick_next == 1
+    assert result.trace[0].current_tick_before == 0
     assert result.final_bundle.pool.sqrt_price_x64 > Q64
     vaults = {vault.address: vault for vault in result.final_bundle.vaults}
     assert vaults[result.final_bundle.pool.token_vault_0].amount_raw < 1000
     assert vaults[result.final_bundle.pool.token_vault_1].amount_raw > 1000
+
+
+def test_replay_trace_hash_is_deterministic_and_trace_limit_fails_closed():
+    bundle, traversal = make_replay_bundle()
+    kwargs = dict(
+        amount_specified=10,
+        sqrt_price_limit_x64=Q64 - 1,
+        base_fee_rate=0,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+        block_timestamp=1000,
+        recent_epoch=2,
+        zero_for_one=True,
+        is_base_input=True,
+    )
+    first = replay_raydium_clmm_swap(bundle, traversal, **kwargs)
+    second = replay_raydium_clmm_swap(bundle, traversal, **kwargs)
+    assert first.trace_sha256 == second.trace_sha256
+    assert first.trace == second.trace
+    with pytest.raises(RaydiumSwapReplayError, match="max_trace_steps"):
+        replay_raydium_clmm_swap(
+            bundle, traversal, **kwargs, max_trace_steps=0
+        )
