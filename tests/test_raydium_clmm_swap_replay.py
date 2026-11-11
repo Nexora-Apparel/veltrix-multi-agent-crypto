@@ -17,6 +17,7 @@ from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_LENGTH,
     RaydiumClmmPoolState,
+    RaydiumClmmDynamicFeeInfo,
     derive_raydium_clmm_pool_address,
     encode_raydium_clmm_pool_state,
 )
@@ -368,3 +369,51 @@ def test_replay_advances_across_two_initialized_tick_arrays_after_first_crossing
     assert result.final_bundle.pool.sqrt_price_x64 < Q64
     assert len(result.final_bundle.tick_arrays) == 2
     assert result.amount_specified_remaining == 0
+
+
+def test_replay_updates_dynamic_fee_before_boundary_fifo_and_persists_it():
+    bundle, traversal = make_replay_bundle()
+    info = RaydiumClmmDynamicFeeInfo(
+        filter_period=60,
+        decay_period=3600,
+        reduction_factor=5000,
+        dynamic_fee_control=1000,
+        max_volatility_accumulator=100_000,
+        tick_spacing_index_reference=0,
+        volatility_reference=10_000,
+        volatility_accumulator=0,
+        last_update_timestamp=999,
+        padding=bytes(46),
+    )
+    pool = replace(bundle.pool, dynamic_fee_info=info)
+    pool_bytes = encode_raydium_clmm_pool_state(pool)
+    pool = replace(
+        pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    bundle = build_raydium_clmm_replay_account_bundle(
+        pool,
+        tick_arrays=bundle.tick_arrays,
+        observation=bundle.observation,
+        vaults=bundle.vaults,
+    )
+    result = replay_raydium_clmm_swap(
+        bundle,
+        traversal,
+        amount_specified=10,
+        sqrt_price_limit_x64=Q64 - 1,
+        base_fee_rate=1000,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+        block_timestamp=1000,
+        recent_epoch=2,
+        zero_for_one=True,
+        is_base_input=True,
+    )
+    assert result.amount_specified_remaining == 0
+    assert result.final_bundle.pool.dynamic_fee_info.volatility_accumulator > 0
+    assert result.final_bundle.pool.tick_current == 0
+    final_tick = result.final_bundle.tick_arrays[0].ticks[0]
+    assert final_tick.orders_amount + final_tick.part_filled_orders_remaining > 0
+    assert result.boundary_crossings == 0
