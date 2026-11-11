@@ -492,3 +492,21 @@ def test_live_bitmap_cursor_fails_closed_when_initialized_array_account_is_missi
             current_tick_index=0,
             zero_for_one=True,
         )
+
+
+def test_live_bitmap_cursor_rejects_stale_pool_and_tick_array_commitments():
+    pool, tick_array, observation, vaults = fixture()
+    with pytest.raises(RaydiumTickCursorError, match="PoolState account bytes"):
+        select_next_initialized_tick_from_live_bitmap(
+            replace(pool, account_data_sha256="0" * 64),
+            tick_arrays=(tick_array,),
+            current_tick_index=0,
+            zero_for_one=True,
+        )
+    with pytest.raises(RaydiumTickCursorError, match="TickArrayState bytes"):
+        select_next_initialized_tick_from_live_bitmap(
+            pool,
+            tick_arrays=(replace(tick_array, data_sha256="0" * 64),),
+            current_tick_index=0,
+            zero_for_one=True,
+        )
