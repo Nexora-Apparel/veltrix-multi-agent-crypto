@@ -100,7 +100,7 @@ def test_timestamp_regression_uses_saturating_elapsed_time_but_advances_last_upd
     assert result.reward_growth_global_x64 == 0
 
 
-def test_emission_arithmetic_overflow_follows_source_zero_fallback():
+def test_extreme_emission_rate_caps_total_and_recomputes_growth_from_remaining_budget():
     original = reward(
         emissions_per_second_x64=U128_MAX,
         last_update_time=0,
@@ -108,8 +108,8 @@ def test_emission_arithmetic_overflow_follows_source_zero_fallback():
         end_time=U64_MAX,
     )
     result = update(original, timestamp=U64_MAX, liquidity=1)
-    assert result.reward_total_emitted == 0
-    assert result.reward_growth_global_x64 == 0
+    assert result.reward_total_emitted == U64_MAX
+    assert result.reward_growth_global_x64 == U64_MAX * Q64
 
 
 def test_growth_global_wraps_u128():
