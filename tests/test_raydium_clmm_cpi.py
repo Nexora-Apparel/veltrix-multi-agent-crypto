@@ -108,13 +108,14 @@ def test_decoder_rejects_malformed_or_unsupported_swap_payloads(data, match):
 
 
 def test_accepts_single_hop_raydium_clmm_cpi_matching_jupiter_order():
-    result = evaluate()
+    values = fixture()
+    result = evaluate(values)
     assert result.passed is True
     assert result.amount_raw == 1_000
     assert result.minimum_output_raw == 1_980
     assert result.stack_height == 2
     assert result.source_commit == RAYDIUM_CLMM_SOURCE_COMMIT
-    assert result.pool_state == fixture()[0].route_plan[0].amm_key
+    assert result.pool_state == values[0].route_plan[0].amm_key
 
 
 def test_rejects_wrong_pool_or_outer_instruction_binding():
@@ -170,7 +171,7 @@ def test_rejects_wrong_payer_user_accounts_token_program_or_duplicate_tick_array
 
 
 @pytest.mark.parametrize("threshold,match", [
-    (1_979, "below Jupiter's order threshold"),
+    (1_949, "below Jupiter's order threshold"),
     (2_001, "exceeds the quoted"),
 ])
 def test_rejects_minimum_output_threshold_outside_quote(threshold, match):
