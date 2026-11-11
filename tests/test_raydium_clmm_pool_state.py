@@ -13,6 +13,8 @@ from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
     RAYDIUM_POOL_STATE_LENGTH,
+    RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET,
+    RaydiumClmmDynamicFeeInfo,
     RaydiumClmmPoolStateError,
     decode_raydium_clmm_pool_state,
     derive_raydium_clmm_pool_address,
@@ -300,3 +302,83 @@ def test_pool_pda_seed_index_is_included_in_seed_derivation():
     )
     with pytest.raises(RaydiumClmmPoolStateError, match="PDA"):
         decode_raydium_clmm_pool_state(altered_evidence, expected_pool_address=pool_address)
+
+
+def _with_dynamic_fee(raw, *, filter_period=0, decay_period=0, reduction_factor=0,
+                      dynamic_fee_control=0, max_volatility_accumulator=0,
+                      tick_spacing_index_reference=0, volatility_reference=0,
+                      volatility_accumulator=0, last_update_timestamp=0, padding=bytes(46)):
+    data = bytearray(raw)
+    offset = RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET
+    data[offset:offset + 2] = filter_period.to_bytes(2, "little")
+    data[offset + 2:offset + 4] = decay_period.to_bytes(2, "little")
+    data[offset + 4:offset + 6] = reduction_factor.to_bytes(2, "little")
+    data[offset + 6:offset + 10] = dynamic_fee_control.to_bytes(4, "little")
+    data[offset + 10:offset + 14] = max_volatility_accumulator.to_bytes(4, "little")
+    data[offset + 14:offset + 18] = tick_spacing_index_reference.to_bytes(4, "little", signed=True)
+    data[offset + 18:offset + 22] = volatility_reference.to_bytes(4, "little")
+    data[offset + 22:offset + 26] = volatility_accumulator.to_bytes(4, "little")
+    data[offset + 26:offset + 34] = last_update_timestamp.to_bytes(8, "little")
+    data[offset + 34:offset + 80] = padding
+    return bytes(data)
+
+
+def test_decodes_disabled_dynamic_fee_as_exact_zero_state():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    pool = decode_raydium_clmm_pool_state(evidence, expected_pool_address=pool_address)
+    assert pool.dynamic_fee_info == RaydiumClmmDynamicFeeInfo()
+    assert pool.dynamic_fee_info.enabled is False
+
+
+def test_decodes_valid_enabled_dynamic_fee_parameters():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    changed = _with_dynamic_fee(
+        raw, filter_period=10, decay_period=30, reduction_factor=5000,
+        dynamic_fee_control=1000, max_volatility_accumulator=1_000_000,
+        tick_spacing_index_reference=-12, volatility_reference=20_000,
+        volatility_accumulator=30_000, last_update_timestamp=123456,
+    )
+    changed_evidence = dataclasses.replace(
+        evidence, data_bytes=changed, data_length=len(changed),
+        data_sha256=hashlib.sha256(changed).hexdigest(),
+    )
+    pool = decode_raydium_clmm_pool_state(changed_evidence, expected_pool_address=pool_address)
+    assert pool.dynamic_fee_info.enabled is True
+    assert pool.dynamic_fee_info.filter_period == 10
+    assert pool.dynamic_fee_info.decay_period == 30
+    assert pool.dynamic_fee_info.dynamic_fee_control == 1000
+    assert pool.dynamic_fee_info.tick_spacing_index_reference == -12
+    assert pool.dynamic_fee_info.volatility_accumulator == 30_000
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"filter_period": 10},
+    {"filter_period": 10, "decay_period": 10, "reduction_factor": 1,
+     "dynamic_fee_control": 1, "max_volatility_accumulator": 1},
+    {"filter_period": 10, "decay_period": 20, "reduction_factor": 10_000,
+     "dynamic_fee_control": 1, "max_volatility_accumulator": 1},
+    {"filter_period": 10, "decay_period": 20, "reduction_factor": 1,
+     "dynamic_fee_control": 100_000, "max_volatility_accumulator": 1},
+    {"filter_period": 10, "decay_period": 20, "reduction_factor": 1,
+     "dynamic_fee_control": 1, "max_volatility_accumulator": 0xFFFFFFFF},
+])
+def test_rejects_invalid_dynamic_fee_configuration(kwargs):
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    changed = _with_dynamic_fee(raw, **kwargs)
+    changed_evidence = dataclasses.replace(
+        evidence, data_bytes=changed, data_length=len(changed),
+        data_sha256=hashlib.sha256(changed).hexdigest(),
+    )
+    with pytest.raises(RaydiumClmmPoolStateError, match="dynamic-fee"):
+        decode_raydium_clmm_pool_state(changed_evidence, expected_pool_address=pool_address)
+
+
+def test_rejects_nonzero_reserved_dynamic_fee_padding():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    changed = _with_dynamic_fee(raw, padding=bytes([1]) + bytes(45))
+    changed_evidence = dataclasses.replace(
+        evidence, data_bytes=changed, data_length=len(changed),
+        data_sha256=hashlib.sha256(changed).hexdigest(),
+    )
+    with pytest.raises(RaydiumClmmPoolStateError, match="disabled dynamic-fee"):
+        decode_raydium_clmm_pool_state(changed_evidence, expected_pool_address=pool_address)

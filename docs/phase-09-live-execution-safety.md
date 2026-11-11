@@ -520,3 +520,32 @@ Implemented in `veltrix/raydium_clmm_swap_step_math.py`, matching the pinned `li
 **Proof boundary:** this is a single price segment only. It does not walk initialized ticks, cross liquidity boundaries, update dynamic volatility fees, match limit orders, update fee/reward growth outside, account for protocol/fund fees, update observation state, or reconcile vault transfers. It cannot be used as a complete Raydium swap replay until those source paths are implemented and composed.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.34 — Decode replay-critical Raydium fee and tick state
+
+Implemented in `veltrix/raydium_clmm_pool_state.py`, `veltrix/raydium_clmm_tick_arrays.py`, and `veltrix/raydium_clmm_replay_config.py`.
+
+- Extends PoolState decoding to include the exact 80-byte `DynamicFeeInfo` at the pinned source offset. Validates disabled-all-zero state and enabled parameters against the source denominators, decay-period ordering and volatility-accumulator bounds.
+- Adds owner/hash/PDA-verified `AmmConfig` decoding (117-byte Anchor account), including protocol/trade/fund fee rates and pool tick-spacing consistency.
+- Extends each decoded `TickState` with both fee-growth-outside values, all three reward-growth-outside values, FIFO order phase, order counts, part-filled remainder, Q64.64 unfilled ratio and reserved padding.
+- Preserves the existing 168-byte TickState record layout and 10,240-byte TickArrayState account layout. Existing consumers retain backward-compatible defaults for newly exposed tick fields.
+
+**Proof boundary:** these decoders expose the state needed for replay; they do not yet calculate dynamic fee decay, tick-crossing fee/reward updates, FIFO limit-order consumption, or observation-state changes. The next replay stage must use these decoded fields and the pinned source algorithms rather than treating a pool as a static-fee/no-order pool by assumption.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.34 addendum — Decode Raydium ObservationState
+
+Implemented in `veltrix/raydium_clmm_observation.py`.
+
+- Pins the 4,483-byte Anchor account layout: discriminator, initialized flag, recent epoch, ring index, pool ID, 100 observation records and account padding.
+- Re-derives the canonical observation PDA from the exact upstream seeds `["observation", pool_state]`.
+- Verifies account owner/program, executable flag, lamports, address, PDA, discriminator, exact length, data hash and pool association.
+- Decodes each record's u32 block timestamp, signed i64 tick cumulative and 32 reserved bytes; rejects non-zero reserved record/account padding, invalid ring indices and populated records in an uninitialized state.
+- Allows the valid freshly-created uninitialized observation account; it does not fabricate an initialized price history.
+
+**Proof boundary:** decoding does not yet replay oracle updates, consult historical TWAPs, or prove that an observation history is sufficient for any strategy. It is a source-layout and identity gate only.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
