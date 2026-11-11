@@ -20,6 +20,7 @@ from veltrix.jupiter_swap_effects import (
     derive_associated_token_address,
 )
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
+from veltrix.jupiter_swap_effects import JupiterSwapEffectResult
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -217,6 +218,7 @@ def evaluate_jupiter_route_semantics(
     simulation: SimulationEvidence,
     simulation_gate: SimulationGateResult,
     program_gate: JupiterRouteProgramGateResult,
+    swap_effects: JupiterSwapEffectResult,
     policy: JupiterRouteSemanticPolicy,
 ) -> JupiterRouteSemanticResult:
     """Require the exact serialized Jupiter route instruction to encode the approved quote."""
@@ -230,6 +232,8 @@ def evaluate_jupiter_route_semantics(
         raise JupiterRouteSemanticError("successful SimulationGate approval is required")
     if not isinstance(program_gate, JupiterRouteProgramGateResult) or program_gate.passed is not True:
         raise JupiterRouteSemanticError("successful Jupiter program trace gate is required")
+    if not isinstance(swap_effects, JupiterSwapEffectResult) or swap_effects.passed is not True:
+        raise JupiterRouteSemanticError("successful Jupiter quote-to-balance effect gate is required")
     if not isinstance(policy, JupiterRouteSemanticPolicy):
         raise JupiterRouteSemanticError("Jupiter route semantic policy is required")
 
@@ -237,6 +241,7 @@ def evaluate_jupiter_route_semantics(
     if any(value != digest for value in (
         validation.message_sha256, simulation.message_sha256,
         simulation_gate.message_sha256, program_gate.message_sha256,
+        swap_effects.message_sha256,
     )):
         raise JupiterRouteSemanticError("order, validation, simulation and program trace digests differ")
     if simulation.provider_id != simulation_gate.provider_id or simulation.response_id != simulation_gate.response_id:
@@ -245,6 +250,14 @@ def evaluate_jupiter_route_semantics(
         raise JupiterRouteSemanticError("simulation evidence and gate result context slots differ")
     if simulation.simulation_error is not None:
         raise JupiterRouteSemanticError("simulation reported an execution error")
+    if (
+        swap_effects.input_delta_raw != -order.input_amount_raw
+        or swap_effects.output_delta_raw != order.output_amount_raw
+        or swap_effects.minimum_output_amount_raw != order.minimum_output_amount_raw
+        or swap_effects.exact_output_amount_raw != order.output_amount_raw
+        or swap_effects.simulation_context_slot != simulation.context_slot
+    ):
+        raise JupiterRouteSemanticError("quote-to-balance effect evidence differs from the Jupiter order or simulation")
     if order.taker != order.fee_payer or validation.fee_payer != order.taker:
         raise JupiterRouteSemanticError("order taker is not the validated fee payer")
     if order.router not in policy.supported_routers:
