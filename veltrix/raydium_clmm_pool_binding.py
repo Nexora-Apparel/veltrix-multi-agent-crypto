@@ -17,6 +17,7 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolRouteCheck,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
+from veltrix.raydium_clmm_aux_accounts import RaydiumClmmAuxAccountSnapshot
 from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArraySnapshot,
@@ -53,6 +54,7 @@ def evaluate_raydium_clmm_cpi_pool_binding(
     pool_evidence: object,
     vault_snapshot: RaydiumClmmVaultSnapshot,
     tick_array_snapshot: RaydiumClmmTickArraySnapshot,
+    aux_snapshot: RaydiumClmmAuxAccountSnapshot,
     simulation: SimulationEvidence,
 ) -> RaydiumClmmPoolBindingResult:
     """Bind CPI pool/vault/tick accounts to same-order, same-provider snapshots."""
@@ -70,6 +72,8 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         raise RaydiumClmmPoolBindingError("verified Raydium vault snapshot is required")
     if not isinstance(tick_array_snapshot, RaydiumClmmTickArraySnapshot):
         raise RaydiumClmmPoolBindingError("verified Raydium tick-array snapshot is required")
+    if not isinstance(aux_snapshot, RaydiumClmmAuxAccountSnapshot):
+        raise RaydiumClmmPoolBindingError("verified Raydium AMM config and observation snapshot is required")
     if not isinstance(simulation, SimulationEvidence):
         raise RaydiumClmmPoolBindingError("simulation evidence is required")
 
@@ -80,6 +84,7 @@ def evaluate_raydium_clmm_cpi_pool_binding(
     if (
         vault_snapshot.route_message_sha256 != digest
         or tick_array_snapshot.route_message_sha256 != digest
+        or aux_snapshot.route_message_sha256 != digest
         or simulation.message_sha256 != digest
     ):
         raise RaydiumClmmPoolBindingError("pool, vault, tick-array and simulation message digests differ")
@@ -93,6 +98,7 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         or pool_evidence.simulation_response_id != simulation.response_id
         or vault_snapshot.simulation_response_id != simulation.response_id
         or tick_array_snapshot.simulation_response_id != simulation.response_id
+        or aux_snapshot.simulation_response_id != simulation.response_id
     ):
         raise RaydiumClmmPoolBindingError("CPI pool or evidence response identity differs from the approved simulation")
     if (
@@ -100,6 +106,19 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         or pool_check.route_output_mint != order.output_mint
     ):
         raise RaydiumClmmPoolBindingError("decoded pool route mint direction differs from the Jupiter order")
+
+    configs = {item.address: item for item in aux_snapshot.amm_configs}
+    observations = {item.address: item for item in aux_snapshot.observations}
+    config = configs.get(pool.amm_config)
+    observation = observations.get(pool.observation_key)
+    if config is None or observation is None:
+        raise RaydiumClmmPoolBindingError("verified AMM config or observation account is missing for the decoded pool")
+    if cpi.amm_config != pool.amm_config or cpi.observation_state != pool.observation_key:
+        raise RaydiumClmmPoolBindingError("CPI AMM config or observation account role differs from PoolState")
+    if config.tick_spacing != pool.tick_spacing:
+        raise RaydiumClmmPoolBindingError("AMM config tick spacing differs from PoolState")
+    if observation.pool_address != pool.pool_address or observation.initialized is not True:
+        raise RaydiumClmmPoolBindingError("observation account is not initialized for the decoded pool")
     if not pool.swaps_enabled:
         raise RaydiumClmmPoolBindingError("Raydium pool swap status is disabled")
     if pool.liquidity <= 0 or pool.sqrt_price_x64 <= 0 or pool.tick_spacing <= 0:
@@ -183,17 +202,22 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         or pool_evidence.genesis_hash != simulation.genesis_hash
         or vault_snapshot.genesis_hash != simulation.genesis_hash
         or tick_array_snapshot.genesis_hash != simulation.genesis_hash
+        or aux_snapshot.provider_id != simulation.provider_id
+        or aux_snapshot.cluster != simulation.cluster
+        or aux_snapshot.genesis_hash != simulation.genesis_hash
     ):
         raise RaydiumClmmPoolBindingError("pool, vault, tick-array and simulation provider/cluster provenance differs")
     if (
         pool_evidence.simulation_context_slot != simulation.context_slot
         or vault_snapshot.simulation_context_slot != simulation.context_slot
         or tick_array_snapshot.simulation_context_slot != simulation.context_slot
+        or aux_snapshot.simulation_context_slot != simulation.context_slot
     ):
         raise RaydiumClmmPoolBindingError("account snapshots are not bound to the exact simulation context slot")
     if not (
         pool_evidence.context_slot <= vault_snapshot.context_slot
         and vault_snapshot.context_slot <= tick_array_snapshot.context_slot
+        and tick_array_snapshot.context_slot <= aux_snapshot.context_slot
     ):
         raise RaydiumClmmPoolBindingError("pool, vault and tick-array snapshot slots are not monotonically fresh")
 
