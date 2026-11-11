@@ -27,16 +27,9 @@ from veltrix.jupiter_v6_route import (
     JupiterV6RouteInspection,
 )
 from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolRouteCheck
-from veltrix.raydium_clmm_tick_arrays import (
-    RAYDIUM_MAX_TICK if False else RAYDIUM_TICK_ARRAY_SEED,
-)
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTickArraySnapshot
-from veltrix.raydium_clmm_vaults import (
-    RaydiumClmmVaultSnapshot,
-    RaydiumClmmVaultAccount,
-)
+from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
-from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
 from veltrix.transaction_validator import TransactionValidationResult
 
 
@@ -142,8 +135,6 @@ def _find_jupiter_outer_instruction(
     discriminator = (
         ROUTE_DISCRIMINATOR
         if route_inspection.instruction_name == "route"
-        else SHARED_ACCOUNTS_ROUTE_DISCRIMINATOR
-        if route_inspection.instruction_name == "sharedAccountsRoute"
         else None
     )
     if discriminator is None:
@@ -234,6 +225,13 @@ def evaluate_raydium_clmm_cpi(
             raise RaydiumClmmCpiError("pool, vault, tick-array and simulation provenance differs")
     if simulation.simulation_error is not None:
         raise RaydiumClmmCpiError("simulation reported an execution error")
+    if (
+        pool_evidence.provider_id != simulation.provider_id
+        or pool_evidence.cluster != simulation.cluster
+        or pool_evidence.genesis_hash != simulation.genesis_hash
+        or pool_evidence.context_slot < simulation.context_slot
+    ):
+        raise RaydiumClmmCpiError("pool account evidence provider or slot differs from simulation")
     if (
         tuple(program_gate.top_level_program_ids) != tuple(validation.program_ids)
         or tuple(simulation.top_level_program_ids) != tuple(validation.program_ids)
