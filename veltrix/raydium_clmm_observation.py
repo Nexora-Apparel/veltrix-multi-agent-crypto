@@ -1,7 +1,7 @@
 """Pinned Raydium CLMM ObservationState decoder and PDA verification."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 from solders.pubkey import Pubkey
@@ -142,4 +142,54 @@ def decode_raydium_clmm_observation_state(
         observations=tuple(observations),
         padding=padding,
         data_sha256=account.data_sha256,
+    )
+
+
+RAYDIUM_OBSERVATION_UPDATE_DURATION = 15
+I64_MIN = -(1 << 63)
+I64_MAX = (1 << 63) - 1
+
+
+def apply_raydium_observation_update(
+    state: RaydiumClmmObservationState,
+    *,
+    block_timestamp: int,
+    tick: int,
+) -> RaydiumClmmObservationState:
+    """Port ObservationState::update from the pinned Raydium oracle.rs."""
+    if not isinstance(state, RaydiumClmmObservationState):
+        raise RaydiumClmmObservationError("decoded Raydium ObservationState is required")
+    if isinstance(block_timestamp, bool) or not isinstance(block_timestamp, int) or not 0 <= block_timestamp <= 0xFFFFFFFF:
+        raise RaydiumClmmObservationError("block_timestamp must fit u32")
+    if isinstance(tick, bool) or not isinstance(tick, int) or not -(1 << 31) <= tick < (1 << 31):
+        raise RaydiumClmmObservationError("tick must fit i32")
+
+    observations = list(state.observations)
+    index = state.observation_index
+    if not state.initialized:
+        current = observations[index]
+        observations[index] = replace(
+            current, block_timestamp=block_timestamp, tick_cumulative=0
+        )
+        return replace(state, initialized=True, observations=tuple(observations))
+
+    last = observations[index]
+    delta_time = max(0, block_timestamp - last.block_timestamp)
+    if delta_time < RAYDIUM_OBSERVATION_UPDATE_DURATION:
+        return state
+
+    delta_tick_cumulative = max(I64_MIN, min(I64_MAX, tick * delta_time))
+    next_cumulative = (
+        (last.tick_cumulative + delta_tick_cumulative - I64_MIN) % (1 << 64)
+    ) + I64_MIN
+    next_index = 0 if index == RAYDIUM_OBSERVATION_COUNT - 1 else index + 1
+    observations[next_index] = replace(
+        observations[next_index],
+        block_timestamp=block_timestamp,
+        tick_cumulative=next_cumulative,
+    )
+    return replace(
+        state,
+        observation_index=next_index,
+        observations=tuple(observations),
     )

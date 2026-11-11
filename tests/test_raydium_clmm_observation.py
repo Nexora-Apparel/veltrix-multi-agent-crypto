@@ -12,6 +12,7 @@ from veltrix.raydium_clmm_observation import (
     RAYDIUM_OBSERVATION_STATE_DISCRIMINATOR,
     RAYDIUM_OBSERVATION_STATE_LENGTH,
     RaydiumClmmObservationError,
+    apply_raydium_observation_update,
     decode_raydium_clmm_observation_state,
     derive_raydium_clmm_observation_address,
 )
@@ -141,3 +142,70 @@ def test_rejects_populated_records_when_observation_state_is_uninitialized():
     )
     with pytest.raises(RaydiumClmmObservationError, match="uninitialized"):
         decode(changed, address, pool)
+
+
+def test_first_observation_write_initializes_current_slot_without_advancing():
+    account, address, pool = fixture(observation_index=4)
+    state = decode(account, address, pool)
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1_700_000_100, tick=-17
+    )
+    assert updated.initialized is True
+    assert updated.observation_index == 4
+    assert updated.observations[4].block_timestamp == 1_700_000_100
+    assert updated.observations[4].tick_cumulative == 0
+
+
+def test_observation_update_respects_15_second_boundary():
+    account, address, pool = fixture(initialized=True, observation_index=5)
+    state = decode(account, address, pool)
+    assert apply_raydium_observation_update(
+        state, block_timestamp=1_700_000_014, tick=10
+    ) == state
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1_700_000_015, tick=10
+    )
+    assert updated.observation_index == 6
+    assert updated.observations[6].block_timestamp == 1_700_000_015
+    assert updated.observations[6].tick_cumulative == -123306
+
+
+def test_observation_ring_wraps_and_i64_cumulative_uses_wrapping_addition():
+    account, address, pool = fixture(initialized=True, observation_index=99)
+    raw = bytearray(account.data_bytes)
+    offset = 51 + 99 * RAYDIUM_OBSERVATION_RECORD_LENGTH
+    raw[offset + 4:offset + 12] = ((1 << 63) - 1).to_bytes(8, "little", signed=True)
+    updated_account = DexPoolAccountEvidence(
+        amm_key=account.amm_key, dex_label=account.dex_label,
+        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+        executable=False, data_length=len(raw),
+        data_sha256=hashlib.sha256(raw).hexdigest(), data_bytes=bytes(raw),
+    )
+    state = decode(updated_account, address, pool)
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1_700_000_015, tick=1
+    )
+    assert updated.observation_index == 0
+    assert updated.observations[0].block_timestamp == 1_700_000_015
+    assert updated.observations[0].tick_cumulative == -(1 << 63) + 14
+
+
+def test_timestamp_regression_saturates_elapsed_time_to_zero():
+    account, address, pool = fixture(initialized=True)
+    state = decode(account, address, pool)
+    assert apply_raydium_observation_update(
+        state, block_timestamp=1_699_999_999, tick=100
+    ) == state
+
+
+@pytest.mark.parametrize("timestamp,tick", [
+    (-1, 0), (1 << 32, 0), (1, -(1 << 31) - 1), (1, 1 << 31),
+])
+def test_observation_update_rejects_values_outside_source_integer_domains(timestamp, tick):
+    account, address, pool = fixture(initialized=True)
+    state = decode(account, address, pool)
+    with pytest.raises(RaydiumClmmObservationError):
+        apply_raydium_observation_update(
+            state, block_timestamp=timestamp, tick=tick
+        )
