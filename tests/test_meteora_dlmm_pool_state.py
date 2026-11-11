@@ -245,9 +245,15 @@ def test_rejects_missing_pool_or_reserve_account_snapshots():
 
 def test_rejects_lb_pair_reserve_or_mint_link_mismatch():
     order, simulation, gate, cpi, effects = fixture()
-    decoded = cpi.decoded_swaps[0]
-    changed = dataclasses.replace(decoded, reserve_x=pubkey())
-    cpi = dataclasses.replace(cpi, decoded_swaps=(changed,))
+    changed_data = bytearray(simulation.account_states[0].pre_data)
+    changed_data[LB_PAIR_OFFSETS["reserve_x"]:LB_PAIR_OFFSETS["reserve_x"] + 32] = bytes(Pubkey.from_string(pubkey()))
+    changed_snapshot = dataclasses.replace(
+        simulation.account_states[0],
+        pre_data=bytes(changed_data),
+        post_data=bytes(changed_data),
+    )
+    states = (changed_snapshot,) + simulation.account_states[1:]
+    simulation = dataclasses.replace(simulation, account_states=states)
     with pytest.raises(MeteoraDlmmPoolStateError, match="on-chain LB-pair state"):
         evaluate((order, simulation, gate, cpi, effects))
 
