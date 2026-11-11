@@ -290,6 +290,8 @@ def evaluate_simulation(
 
     if evidence.message_sha256 != validation.message_sha256:
         raise SimulationGateError("simulation message digest does not match validated transaction")
+    if not {item.address for item in evidence.account_states}.issubset(set(validation.account_keys)):
+        raise SimulationGateError("simulated raw account-state evidence references an account outside the validated transaction message")
     if evidence.recent_blockhash != intent.recent_blockhash:
         raise SimulationGateError("simulation blockhash does not match approved transaction intent")
     if evidence.cluster != policy.expected_cluster or evidence.genesis_hash != policy.expected_genesis_hash:
