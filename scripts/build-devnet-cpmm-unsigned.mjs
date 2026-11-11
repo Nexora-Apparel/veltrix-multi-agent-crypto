@@ -17,7 +17,7 @@ async function main() {
   if (process.env.CLUSTER && process.env.CLUSTER !== "devnet") fail("cluster override is not permitted");
   const connection = new Connection(RPC, "confirmed");
   if (await connection.getGenesisHash() !== GENESIS) fail("RPC genesis hash mismatch");
-  const owner = { publicKey: new PublicKey(WALLET) }; // public-key-only owner; intentionally has no signing capability
+  const owner = new PublicKey(WALLET); // public-key-only owner; intentionally has no signing capability
   const raydium = await Raydium.load({
     owner, connection, cluster:"devnet", disableFeatureCheck:true, disableLoadToken:true,
     blockhashCommitment:"finalized",
