@@ -101,6 +101,12 @@ class RaydiumClmmPoolState:
     fee_on: int
     seed_index: int
     account_data_sha256: str
+    fee_growth_global_0_x64: int = 0
+    fee_growth_global_1_x64: int = 0
+    protocol_fees_token_0: int = 0
+    protocol_fees_token_1: int = 0
+    fund_fees_token_0: int = 0
+    fund_fees_token_1: int = 0
     tick_array_bitmap: tuple[int, ...] = (0,) * RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     dynamic_fee_info: RaydiumClmmDynamicFeeInfo = RaydiumClmmDynamicFeeInfo()
@@ -212,6 +218,10 @@ def decode_raydium_clmm_pool_state(
     liquidity = int.from_bytes(data[237:253], "little")
     sqrt_price_x64 = int.from_bytes(data[253:269], "little")
     tick_current = struct.unpack_from("<i", data, 269)[0]
+    fee_growth_global_0_x64 = int.from_bytes(data[277:293], "little")
+    fee_growth_global_1_x64 = int.from_bytes(data[293:309], "little")
+    protocol_fees_token_0 = int.from_bytes(data[309:317], "little")
+    protocol_fees_token_1 = int.from_bytes(data[317:325], "little")
     status = data[389]
     fee_on = data[390]
     seed_index = int.from_bytes(data[391:393], "little")
@@ -220,6 +230,9 @@ def decode_raydium_clmm_pool_state(
         int.from_bytes(data[bitmap_start + index * 8:bitmap_start + (index + 1) * 8], "little")
         for index in range(RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS)
     )
+    fund_fees_token_0 = int.from_bytes(data[1064:1072], "little")
+    fund_fees_token_1 = int.from_bytes(data[1072:1080], "little")
+
     reward_infos = []
     for reward_index in range(RAYDIUM_POOL_REWARD_COUNT):
         reward_offset = RAYDIUM_POOL_REWARD_INFO_OFFSET + reward_index * RAYDIUM_POOL_REWARD_INFO_LENGTH
@@ -343,6 +356,12 @@ def decode_raydium_clmm_pool_state(
         fee_on=fee_on,
         seed_index=seed_index,
         account_data_sha256=account.data_sha256,
+        fee_growth_global_0_x64=fee_growth_global_0_x64,
+        fee_growth_global_1_x64=fee_growth_global_1_x64,
+        protocol_fees_token_0=protocol_fees_token_0,
+        protocol_fees_token_1=protocol_fees_token_1,
+        fund_fees_token_0=fund_fees_token_0,
+        fund_fees_token_1=fund_fees_token_1,
         tick_array_bitmap=tick_array_bitmap,
         dynamic_fee_info=dynamic_fee_info,
         reward_infos=tuple(reward_infos),
