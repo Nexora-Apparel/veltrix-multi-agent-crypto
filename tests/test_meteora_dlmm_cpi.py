@@ -48,6 +48,7 @@ def make_accounts(order):
         CLASSIC_TOKEN_PROGRAM_ID,
         event_authority,
         METEORA_DLMM_PROGRAM_ID,
+        str(Pubkey.new_unique()),  # remaining bin array account
     )
 
 
@@ -218,7 +219,7 @@ def test_decodes_pinned_meteora_dlmm_swap_instruction():
         (swap_data(discriminator=b"12345678"), None, "not the pinned"),
         (swap_data(amount_in=0), None, "must be positive"),
         (swap_data(minimum_out=0), None, "must be positive"),
-        (swap_data(), (), "exactly 15 IDL accounts"),
+        (swap_data(), (), "15 fixed IDL accounts plus 1..16 remaining"),
     ],
 )
 def test_rejects_invalid_meteora_swap_payload_or_account_count(data, accounts, message):
@@ -316,4 +317,16 @@ def test_rejects_bitmap_extension_when_policy_disables_it():
             swap_data(),
             tuple(accounts),
             policy=MeteoraDlmmSwapPolicy(allow_bitmap_extension=False),
+        )
+
+
+
+def test_rejects_meteora_swap_without_remaining_bin_array_accounts():
+    order, *_ = fixture()
+    accounts = make_accounts(order)[:15]
+    with pytest.raises(MeteoraDlmmCpiError, match="15 fixed IDL accounts plus 1..16"):
+        decode_meteora_dlmm_swap(
+            swap_data(),
+            accounts,
+            policy=MeteoraDlmmSwapPolicy(),
         )
