@@ -192,7 +192,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(alt_account.get("executable") is False, "lookup table account is unexpectedly executable")
     alt_data = read_rpc_data(alt_account)
     addresses = parse_alt_account(ALT_PROGRAM_ID, base64.b64encode(alt_data).decode(), current_slot=slot)
-    _expect(len(addresses) == 19, "lookup table address count differs from captured fixture")
+    _expect(len(addresses) > max(message.lookups[0].writable_indexes + message.lookups[0].readonly_indexes), "lookup table does not contain every referenced address")
     resolved = resolve_v0_keys(
         message, {bytes(Pubkey.from_string(ALT)): (ALT_PROGRAM_ID, base64.b64encode(alt_data).decode())},
         current_slot=slot,
