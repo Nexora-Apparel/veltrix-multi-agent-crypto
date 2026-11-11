@@ -190,7 +190,9 @@ def verify_raydium_clmm_simulation_state_transition(
 
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if (
-        simulation.message_sha256 != digest
+        pool_check.route_input_mint != order.input_mint
+        or pool_check.route_output_mint != order.output_mint
+        or simulation.message_sha256 != digest
         or pool_evidence.route_message_sha256 != digest
         or tick_array_snapshot.route_message_sha256 != digest
         or simulation.simulation_error is not None
@@ -223,10 +225,32 @@ def verify_raydium_clmm_simulation_state_transition(
             + ",".join(sorted(missing))
         )
 
+    expected_tick_order = tuple(
+        address for address in tick_array_snapshot.cpi_account_order
+        if address != tick_array_snapshot.bitmap_extension_address
+    )
+    observed_tick_order = tuple(item.address for item in tick_array_snapshot.tick_arrays)
+    if (
+        not tick_array_snapshot.cpi_account_order
+        or expected_tick_order != observed_tick_order
+        or len(set(tick_array_snapshot.cpi_account_order)) != len(tick_array_snapshot.cpi_account_order)
+        or (tick_array_snapshot.bitmap_extension_address is not None
+            and tick_array_snapshot.bitmap_extension_address not in tick_array_snapshot.cpi_account_order)
+    ):
+        raise RaydiumClmmSimulationStateError("tick-array snapshot does not preserve the exact CPI remaining-account order")
+
     pool_accounts = [item for item in pool_evidence.accounts if item.amm_key == pool_address]
     if len(pool_accounts) != 1:
         raise RaydiumClmmSimulationStateError("owner-verified pool snapshot must contain exactly one PoolState")
     pool_account = pool_accounts[0]
+    if (
+        pool_account.owner_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.expected_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.executable is not False
+        or pool_account.lamports <= 0
+        or hashlib.sha256(pool_account.data_bytes).hexdigest() != pool_account.data_sha256
+    ):
+        raise RaydiumClmmSimulationStateError("owner-verified PoolState account metadata or hash is invalid")
     pool_state = account_states[pool_address]
     if (
         pool_state.pre_data_sha256 != pool_account.data_sha256
