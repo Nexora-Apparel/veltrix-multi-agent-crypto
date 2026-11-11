@@ -202,9 +202,12 @@
       if (confirmation.value.err) throw new Error("Devnet transaction failed: " + JSON.stringify(confirmation.value.err));
       confirmed.push(signature);
     }
+    const tokenBalanceAfter = await tokenBalanceRaw();
+    const tokenDelta = tokenBalanceAfter - BigInt(prepared.tokenBalanceBefore);
+    if (tokenDelta <= 0n) throw new Error("Transactions confirmed, but no positive Devnet USDC balance increase was verified. Signatures: " + confirmed.join(", "));
     prepared = null; $("execute").disabled = true;
     await refreshBalance();
-    status("Confirmed Devnet transaction(s):\n" + confirmed.join("\n") + "\nCheck the signatures on a Solana Devnet explorer. This did not touch Mainnet.","good");
+    status("Confirmed Devnet transaction(s):\n" + confirmed.join("\n") + "\nVerified USDC increase: " + fmtRaw(tokenDelta,6) + " USDC. This did not touch Mainnet.","good");
   }
   $("connect").addEventListener("click", async () => {
     setBusy(true); try { await connect(); } catch(e) { status(e.message || String(e),"warning"); } finally { setBusy(false); }
