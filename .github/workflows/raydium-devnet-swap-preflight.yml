@@ -8,6 +8,7 @@ on:
       - 'wallet/phantom-devnet-swap.html'
       - 'package.json'
       - 'scripts/build-devnet-cpmm-unsigned.mjs'
+      - 'tests/phantom_direct_cpmm_live_audit.mjs'
       - 'tests/test_phantom_devnet_swap_page.py'
       - 'docs/phantom-devnet-swap.md'
       - 'veltrix/solana_devnet_swap_preflight.py'
@@ -76,6 +77,15 @@ jobs:
           npm install --no-audit --no-fund
           mkdir -p artifacts
           npm run devnet:cpmm:build
+          node tests/phantom_direct_cpmm_live_audit.mjs
+      - name: Upload exact-byte browser semantic audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-direct-cpmm-live-audit
+          path: artifacts/browser-direct-cpmm-audit.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload direct CPMM unsigned transaction evidence
         if: always()
         uses: actions/upload-artifact@v4
