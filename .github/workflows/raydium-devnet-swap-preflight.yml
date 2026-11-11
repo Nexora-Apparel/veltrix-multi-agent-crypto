@@ -21,10 +21,10 @@ on:
         type: string
         default: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
       amount_lamports:
-        description: "Devnet SOL input in lamports (default 0.01 SOL; maximum 0.05 SOL)"
+        description: "Devnet SOL input in lamports (default 0.001 SOL; maximum 0.05 SOL)"
         required: true
         type: string
-        default: "10000000"
+        default: "1000000"
       try_ephemeral_swap:
         description: "Attempt a disposable-wallet swap only if the Devnet faucet is available"
         required: false
@@ -64,7 +64,7 @@ jobs:
       - name: Discover route, build unsigned transaction and simulate on Devnet
         env:
           WALLET_ADDRESS: ${{ inputs.wallet_address || 'FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U' }}
-          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports || '10000000' }}
+          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports || '1000000' }}
         run: |
           mkdir -p artifacts
           python -m veltrix.solana_devnet_swap_preflight \
