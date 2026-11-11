@@ -348,3 +348,34 @@ def test_tick_array_serializer_roundtrips_exact_layout_and_preserves_opaque_acco
         original, data_sha256=hashlib.sha256(raw).hexdigest()
     )
     assert encode_raydium_clmm_tick_array(decoded) == raw
+
+
+def test_bitmap_extension_serializer_roundtrips_all_positive_and_negative_words():
+    p = pool()
+    positive = tuple(
+        tuple(((side + 1) * 1000 + group * 10 + word) for word in range(8))
+        for group in range(14)
+    )
+    negative = tuple(
+        tuple(((side + 1) * 2000 + group * 10 + word) for word in range(8))
+        for group in range(14)
+    )
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=derive_raydium_tick_array_bitmap_extension_address(p.pool_address),
+        pool_address=p.pool_address,
+        positive_bitmaps=positive,
+        negative_bitmaps=negative,
+        data_sha256="",
+    )
+    encoded = encode_raydium_tick_array_bitmap_extension(extension)
+    decoded = decode_raydium_tick_array_bitmap_extension(
+        address=extension.address,
+        owner=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data=encoded,
+        expected_pool_address=p.pool_address,
+    )
+    assert decoded.positive_bitmaps == positive
+    assert decoded.negative_bitmaps == negative
+    assert encode_raydium_tick_array_bitmap_extension(decoded) == encoded
