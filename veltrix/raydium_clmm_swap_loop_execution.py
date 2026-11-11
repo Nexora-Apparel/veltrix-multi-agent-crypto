@@ -35,6 +35,7 @@ class RaydiumSwapLoopExecutionError(ValueError):
 @dataclass(frozen=True, slots=True)
 class RaydiumSwapLoopExecution:
     state: RaydiumSwapLoopState
+    updated_reward_infos: tuple[RaydiumClmmRewardInfo, ...]
     tick_arrays: tuple[RaydiumClmmTickArray, ...]
     bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None
     mutation: RaydiumTickArrayMutationResult | None
@@ -165,6 +166,7 @@ def execute_raydium_swap_loop(
         reason = "iteration_limit"
     return RaydiumSwapLoopExecution(
         state=state,
+        updated_reward_infos=updated_reward_infos,
         tick_arrays=tuple(working_arrays),
         bitmap_extension=bitmap_extension,
         mutation=mutation_context,
