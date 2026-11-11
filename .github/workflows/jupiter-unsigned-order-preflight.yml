@@ -25,7 +25,6 @@ jobs:
       - name: Request unsigned Jupiter order only
         env:
           JUPITER_API_KEY: ${{ secrets.JUPITER_API_KEY }}
-          JUPITER_TAKER_PUBLIC_KEY: ${{ vars.JUPITER_TAKER_PUBLIC_KEY }}
           LIVE_TRADING: "false"
         run: |
           mkdir -p artifacts
