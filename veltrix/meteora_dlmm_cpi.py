@@ -23,7 +23,8 @@ from veltrix.transaction_validator import TransactionValidationResult
 METEORA_DLMM_PROGRAM_ID = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
 METEORA_DLMM_IDL_COMMIT = "1532e540db41ac405dbf4c5bb2ddfceaa1f98ff1"
 METEORA_DLMM_SWAP_DISCRIMINATOR = bytes((248, 198, 158, 145, 225, 117, 135, 200))
-METEORA_DLMM_SWAP_ACCOUNT_COUNT = 15
+METEORA_DLMM_SWAP_BASE_ACCOUNT_COUNT = 15
+MAX_METEORA_REMAINING_BIN_ARRAYS = 16
 CLASSIC_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 OPTIONAL_ACCOUNT_SENTINEL = METEORA_DLMM_PROGRAM_ID
 
@@ -62,6 +63,7 @@ class DecodedMeteoraDlmmSwap:
     user_token_in: str
     user_token_out: str
     bitmap_extension: str
+    remaining_bin_array_accounts: tuple[str, ...]
     token_x_mint: str
     token_y_mint: str
     oracle: str
@@ -86,8 +88,12 @@ def decode_meteora_dlmm_swap(data: bytes, account_keys: tuple[str, ...], *, poli
         raise MeteoraDlmmCpiError("Meteora DLMM swap data must contain the 8-byte discriminator and two u64 arguments")
     if data[:8] != METEORA_DLMM_SWAP_DISCRIMINATOR:
         raise MeteoraDlmmCpiError("inner Meteora instruction is not the pinned DLMM swap variant")
-    if not isinstance(account_keys, tuple) or len(account_keys) != METEORA_DLMM_SWAP_ACCOUNT_COUNT:
-        raise MeteoraDlmmCpiError("Meteora DLMM swap must contain exactly 15 IDL accounts")
+    if (
+        not isinstance(account_keys, tuple)
+        or not METEORA_DLMM_SWAP_BASE_ACCOUNT_COUNT + 1 <= len(account_keys)
+        or len(account_keys) > METEORA_DLMM_SWAP_BASE_ACCOUNT_COUNT + MAX_METEORA_REMAINING_BIN_ARRAYS
+    ):
+        raise MeteoraDlmmCpiError("Meteora DLMM swap must contain 15 fixed IDL accounts plus 1..16 remaining bin-array accounts")
     for key in account_keys:
         try:
             if str(Pubkey.from_string(key)) != key:
@@ -120,6 +126,15 @@ def decode_meteora_dlmm_swap(data: bytes, account_keys: tuple[str, ...], *, poli
         raise MeteoraDlmmCpiError("Meteora DLMM event authority PDA does not match the pinned program")
     if account_keys[14] != policy.program_id:
         raise MeteoraDlmmCpiError("Meteora DLMM self-program account does not match the pinned program")
+    remaining_bin_arrays = account_keys[METEORA_DLMM_SWAP_BASE_ACCOUNT_COUNT:]
+    if any(
+        address == OPTIONAL_ACCOUNT_SENTINEL
+        or address in account_keys[:METEORA_DLMM_SWAP_BASE_ACCOUNT_COUNT]
+        for address in remaining_bin_arrays
+    ):
+        raise MeteoraDlmmCpiError("Meteora remaining bin-array accounts contain a sentinel or duplicate fixed account")
+    if len(set(remaining_bin_arrays)) != len(remaining_bin_arrays):
+        raise MeteoraDlmmCpiError("Meteora remaining bin-array accounts contain duplicates")
     return DecodedMeteoraDlmmSwap(
         amount_in=amount_in,
         minimum_amount_out=minimum_amount_out,
@@ -129,6 +144,7 @@ def decode_meteora_dlmm_swap(data: bytes, account_keys: tuple[str, ...], *, poli
         user_token_in=account_keys[4],
         user_token_out=account_keys[5],
         bitmap_extension=account_keys[1],
+        remaining_bin_array_accounts=remaining_bin_arrays,
         token_x_mint=account_keys[6],
         token_y_mint=account_keys[7],
         oracle=account_keys[8],
