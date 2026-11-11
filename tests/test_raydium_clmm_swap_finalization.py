@@ -51,7 +51,7 @@ def make_pool():
         pool_creator=str(Pubkey.new_unique()), token_mint_0=mint0,
         token_mint_1=mint1, token_vault_0=str(Pubkey.new_unique()),
         token_vault_1=str(Pubkey.new_unique()),
-        observation_key=str(Pubkey.new_unique()), mint_decimals_0=6,
+        observation_key=derive_raydium_clmm_observation_address(pool_key)[0], mint_decimals_0=6,
         mint_decimals_1=6, tick_spacing=10, liquidity=10_000,
         sqrt_price_x64=get_sqrt_price_at_tick(0), tick_current=0,
         status=0, fee_on=0, seed_index=0, account_data_sha256="",
@@ -59,6 +59,7 @@ def make_pool():
     )
     raw = bytearray(RAYDIUM_POOL_STATE_LENGTH)
     raw[:8] = RAYDIUM_POOL_STATE_DISCRIMINATOR
+    raw[201:233] = bytes(Pubkey.from_string(values["observation_key"]))
     _put(raw, 237, 16, values["liquidity"])
     _put(raw, 253, 16, values["sqrt_price_x64"])
     _put(raw, 269, 4, 0)
