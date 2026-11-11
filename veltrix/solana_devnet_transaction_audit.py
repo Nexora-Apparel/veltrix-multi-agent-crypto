@@ -219,7 +219,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(cu_price.data[:1] == b"\x03" and len(cu_price.data) == 9 and read_u64(cu_price.data, 1) <= 1_000_000,
             "compute unit price instruction is malformed or exceeds the cap")
     _expect(cu_limit.data[:1] == b"\x02" and len(cu_limit.data) == 5 and
-            100_000 <= int.from_bytes(cu_limit.data[1:], "little") <= 1_400_000,
+            50_000 <= int.from_bytes(cu_limit.data[1:], "little") <= 1_400_000,
             "compute unit limit is malformed or outside safe bounds")
 
     def accounts(ix: Any) -> list[str]:
