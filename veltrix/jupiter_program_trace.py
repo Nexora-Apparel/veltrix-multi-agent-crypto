@@ -136,7 +136,7 @@ class JupiterRouteProgramPolicy:
     allowed_dex_labels: tuple[str, ...]
     allowed_dex_program_ids: tuple[str, ...]
     allowed_jupiter_program_ids: tuple[str, ...]
-    allowed_routers: tuple[str, ...] = ("metis", "dflow", "okx")
+    allowed_routers: tuple[str, ...] = ("metis",)
     jupiter_program_labels: tuple[str, ...] = ("Jupiter V6",)
     standard_program_ids: tuple[str, ...] = (
         SYSTEM_PROGRAM_ID,
@@ -156,8 +156,8 @@ class JupiterRouteProgramPolicy:
                 raise JupiterProgramTraceError(f"{field} contains an invalid value")
             if len(set(value)) != len(value):
                 raise JupiterProgramTraceError(f"{field} must not contain duplicates")
-        if any(router not in {"metis", "jupiterz", "dflow", "okx"} for router in self.allowed_routers):
-            raise JupiterProgramTraceError("allowed_routers contains an unknown router")
+        if set(self.allowed_routers) != {"metis"}:
+            raise JupiterProgramTraceError("only Metis is approved until alternate routers have independent semantic decoders")
         for field in ("allowed_dex_program_ids", "allowed_jupiter_program_ids", "standard_program_ids"):
             for program_id in getattr(self, field):
                 try:
