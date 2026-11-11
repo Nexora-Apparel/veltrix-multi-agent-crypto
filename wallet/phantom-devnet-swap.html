@@ -112,7 +112,7 @@
     status("Connected to canonical Devnet. No transaction has been signed or sent.","good");
   }
   async function tokenBalanceRaw() {
-    const response = await connection.getTokenAccountsByOwner(wallet, {mint:new solanaWeb3.PublicKey(USDC)}, {commitment:"confirmed"});
+    const response = await connection.getTokenAccountsByOwner(wallet, {mint:new solanaWeb3.PublicKey(USDC)}, {commitment:"confirmed",encoding:"jsonParsed"});
     return response.value.reduce((sum, row) => sum + BigInt(row.account.data.parsed.info.tokenAmount.amount), 0n);
   }
   async function refreshBalance() {
@@ -193,6 +193,8 @@
     const confirmed = [];
     for (const tx of prepared.txs) {
       inspectTransaction(tx);
+      const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
+      if (simulation.value.err) throw new Error("Pre-sign simulation failed; Phantom approval blocked: " + JSON.stringify(simulation.value.err));
       const result = await provider.signAndSendTransaction(tx, {preflightCommitment:"confirmed",maxRetries:3});
       const signature = typeof result === "string" ? result : result.signature;
       if (!signature) throw new Error("Phantom did not return a transaction signature.");
