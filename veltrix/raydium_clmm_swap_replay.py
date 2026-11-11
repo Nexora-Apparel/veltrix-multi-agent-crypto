@@ -5,7 +5,9 @@ submission, or broadcast. It returns a fully staged immutable account bundle.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+import hashlib
+import json
 
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
 from veltrix.raydium_clmm_bitmap_cursor import (
@@ -50,6 +52,45 @@ class RaydiumSwapReplayError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class RaydiumClmmSwapReplayStepTrace:
+    outer_iteration: int
+    inner_iteration: int
+    tick_array_start_index: int
+    tick_next: int
+    current_tick_before: int
+    current_tick_after: int
+    current_sqrt_price_x64: int
+    target_sqrt_price_x64: int
+    tick_boundary_price_x64: int
+    spacing_bounded_price_x64: int
+    spacing_bounded_tick: int | None
+    spacing_target_reached: bool
+    total_fee_rate: int
+    amount_remaining_before: int
+    amount_remaining_after: int
+    swap_step_amount_in: int
+    swap_step_amount_out: int
+    swap_step_fee_amount: int
+    fifo_amount_in: int
+    fifo_amount_out: int
+    fifo_fee_amount: int
+    sqrt_price_next_x64: int
+    boundary_reached: bool
+    tick_crossed: bool
+    liquidity_before: int
+    liquidity_next: int
+    fee_growth_global_before_x64: int
+    fee_growth_global_after_x64: int
+    dynamic_fee_index_before: int | None
+    dynamic_fee_index_after: int | None
+    volatility_accumulator_before: int | None
+    volatility_accumulator_after: int | None
+    bitmap_changed: bool
+    initialized_tick_count_after: int | None
+
+
+
+@dataclass(frozen=True, slots=True)
 class RaydiumClmmSwapReplayResult:
     final_bundle: RaydiumClmmReplayAccountBundle
     settlement: RaydiumSwapSettlement
@@ -57,6 +98,8 @@ class RaydiumClmmSwapReplayResult:
     inner_iterations: int
     boundary_crossings: int
     amount_specified_remaining: int
+    trace: tuple[RaydiumClmmSwapReplayStepTrace, ...]
+    trace_sha256: str
     execution_ready: bool = False
 
 
@@ -155,6 +198,7 @@ def replay_raydium_clmm_swap(
     is_base_input: bool,
     max_outer_iterations: int = 256,
     max_inner_iterations: int = 512,
+    max_trace_steps: int = 10_000,
 ) -> RaydiumClmmSwapReplayResult:
     """Run the deterministic swap loop and return an atomically staged account bundle.
 
@@ -196,6 +240,7 @@ def replay_raydium_clmm_swap(
     for value, field in (
         (max_outer_iterations, "max_outer_iterations"),
         (max_inner_iterations, "max_inner_iterations"),
+        (max_trace_steps, "max_trace_steps"),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise RaydiumSwapReplayError(f"{field} must be a positive integer")
@@ -274,6 +319,7 @@ def replay_raydium_clmm_swap(
     outer_iterations = 0
     inner_iterations = 0
     boundary_crossings = 0
+    trace: list[RaydiumClmmSwapReplayStepTrace] = []
 
     while (
         fee_state.amount_specified_remaining != 0
@@ -308,13 +354,23 @@ def replay_raydium_clmm_swap(
 
         liquidity_next = fee_state.liquidity
         inner_completed = False
-        for _ in range(max_inner_iterations):
+        for inner_index in range(max_inner_iterations):
             if inner_iterations >= max_outer_iterations * max_inner_iterations:
                 raise RaydiumSwapReplayError("swap replay exceeded the global inner-step safety bound")
             previous_remaining = fee_state.amount_specified_remaining
             previous_price = current_sqrt_price_x64
             previous_tick = current_tick
             previous_dynamic_state = dynamic_fee_state
+            previous_liquidity = fee_state.liquidity
+            previous_fee_growth = fee_state.fee_growth_global_x64
+            previous_dynamic_index = (
+                dynamic_fee_state.tick_spacing_index
+                if dynamic_fee_state is not None else None
+            )
+            previous_volatility = (
+                dynamic_fee_state.info.volatility_accumulator
+                if dynamic_fee_state is not None else None
+            )
 
             pre_step = compute_raydium_swap_loop_pre_step(
                 fee_state,
@@ -357,6 +413,56 @@ def replay_raydium_clmm_swap(
                 tick_arrays[active_array_start_index] = active_tick_array
             if boundary.crossing is not None:
                 boundary_crossings += 1
+            if len(trace) >= max_trace_steps:
+                raise RaydiumSwapReplayError("swap replay exceeded max_trace_steps")
+            trace.append(RaydiumClmmSwapReplayStepTrace(
+                outer_iteration=outer_iterations,
+                inner_iteration=inner_index,
+                tick_array_start_index=active_array_start_index,
+                tick_next=cursor.tick.tick_index,
+                current_tick_before=previous_tick,
+                current_tick_after=current_tick,
+                current_sqrt_price_x64=previous_price,
+                target_sqrt_price_x64=target_price_x64,
+                tick_boundary_price_x64=tick_boundary_price_x64,
+                spacing_bounded_price_x64=pre_step.spacing_bound.sqrt_price_x64,
+                spacing_bounded_tick=pre_step.spacing_bound.bounded_tick,
+                spacing_target_reached=pre_step.spacing_bound.reached_target,
+                total_fee_rate=pre_step.total_fee_rate,
+                amount_remaining_before=previous_remaining,
+                amount_remaining_after=fee_state.amount_specified_remaining,
+                swap_step_amount_in=pre_step.swap_step.amount_in,
+                swap_step_amount_out=pre_step.swap_step.amount_out,
+                swap_step_fee_amount=pre_step.swap_step.fee_amount,
+                fifo_amount_in=boundary.limit_order_match.amount_in,
+                fifo_amount_out=boundary.limit_order_match.amount_out,
+                fifo_fee_amount=boundary.limit_order_match.amm_fee_amount,
+                sqrt_price_next_x64=current_sqrt_price_x64,
+                boundary_reached=boundary.boundary_reached,
+                tick_crossed=boundary.crossing is not None,
+                liquidity_before=previous_liquidity,
+                liquidity_next=liquidity_next,
+                fee_growth_global_before_x64=previous_fee_growth,
+                fee_growth_global_after_x64=fee_state.fee_growth_global_x64,
+                dynamic_fee_index_before=previous_dynamic_index,
+                dynamic_fee_index_after=(
+                    dynamic_fee_state.tick_spacing_index
+                    if dynamic_fee_state is not None else None
+                ),
+                volatility_accumulator_before=previous_volatility,
+                volatility_accumulator_after=(
+                    dynamic_fee_state.info.volatility_accumulator
+                    if dynamic_fee_state is not None else None
+                ),
+                bitmap_changed=(
+                    boundary.mutation.bitmap_changed
+                    if boundary.mutation is not None else False
+                ),
+                initialized_tick_count_after=(
+                    boundary.tick_array.initialized_tick_count
+                    if boundary.mutation is not None else None
+                ),
+            ))
             inner_iterations += 1
 
             if (
@@ -417,6 +523,13 @@ def replay_raydium_clmm_swap(
     except Exception as exc:
         raise RaydiumSwapReplayError(f"atomic staged account settlement failed: {exc}") from exc
 
+    trace_tuple = tuple(trace)
+    trace_payload = json.dumps(
+        [asdict(item) for item in trace_tuple],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
     return RaydiumClmmSwapReplayResult(
         final_bundle=final_bundle,
         settlement=finalized.settlement,
@@ -424,5 +537,7 @@ def replay_raydium_clmm_swap(
         inner_iterations=inner_iterations,
         boundary_crossings=boundary_crossings,
         amount_specified_remaining=fee_state.amount_specified_remaining,
+        trace=trace_tuple,
+        trace_sha256=hashlib.sha256(trace_payload).hexdigest(),
         execution_ready=False,
     )
