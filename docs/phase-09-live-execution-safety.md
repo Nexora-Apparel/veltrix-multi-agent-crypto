@@ -260,3 +260,17 @@ Implemented in `veltrix/solana_rpc_simulation.py` and `veltrix/simulation_gate.p
 - Legacy/manual evidence may still carry only the compact program-ID trace; DEX semantic gates must require detailed records and reject missing detail. This preserves existing unit-test fixtures without treating absent CPI bytes as verified.
 - This change captures evidence only. It does not yet decode Raydium/Meteora CPI payloads or prove pool/account semantics.
 - Missing inner trace remains an empty trace and cannot satisfy the existing Jupiter program trace gate. No signing, submission, broadcast or live execution is added.
+
+
+### 09.16 — Raydium CLMM single-hop CPI semantic gate
+
+Implemented in `veltrix/raydium_clmm_cpi.py`, pinned to `raydium-io/raydium-clmm` source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Decodes only the classic-token Anchor `swap` instruction discriminator and exact Borsh arguments: input amount, minimum output threshold, Q64.64 sqrt-price limit, and canonical boolean `is_base_input`.
+- Rejects `swap_v2`, malformed lengths, non-canonical booleans, zero amounts, and unsupported discriminators.
+- Requires exactly one Raydium CLMM CPI at stack height 2 under the already validated Jupiter route instruction, with complete raw CPI evidence.
+- Verifies the ten fixed `SwapSingle` account positions against the pinned source layout: payer, AMM config, pool, user input/output accounts, input/output vaults, observation, classic SPL Token program, and first tick array. Remaining tick-array accounts are bounded.
+- This first gate only supports a single-hop Metis Jupiter route labelled Raydium CLMM. The payer and user token accounts must be the taker and the taker's pre-existing classic SPL ATAs.
+- Binds the CPI input amount to the exact route input and requires the DEX minimum-output threshold to be no greater than the quoted route output and no lower than the maximum-slippage floor derived from both local policy and the encoded Jupiter slippage.
+- This is not a complete Raydium pool-state validator: it does not fetch/verify AMM config, pool, vault, observation or tick-array account ownership/data, nor does it independently prove pool mint/vault relationships. Those checks remain release blockers.
+- Token-2022, `swap_v2`, multi-hop/split routes, other Raydium instruction families, and other DEXes remain unsupported. No signing, submission, broadcast or live execution is added.
