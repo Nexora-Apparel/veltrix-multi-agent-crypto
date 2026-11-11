@@ -7,7 +7,10 @@ from solders.pubkey import Pubkey
 
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_POOL_STATE_LENGTH,
     RaydiumClmmPoolState,
+    derive_raydium_clmm_pool_address,
+    encode_raydium_clmm_pool_state,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
@@ -379,3 +382,68 @@ def test_bitmap_extension_serializer_roundtrips_all_positive_and_negative_words(
     assert decoded.positive_bitmaps == positive
     assert decoded.negative_bitmaps == negative
     assert encode_raydium_tick_array_bitmap_extension(decoded) == encoded
+
+
+def test_bitmap_flip_preserves_original_pool_hash_until_exact_post_state_is_serialized():
+    program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
+    config = Pubkey.new_unique()
+    mint0, mint1 = sorted(
+        (Pubkey.new_unique(), Pubkey.new_unique()), key=bytes
+    )
+    pool_address, bump = Pubkey.find_program_address(
+        [b"pool", bytes(config), bytes(mint0), bytes(mint1)], program
+    )
+    address = str(pool_address)
+    config_s, mint0_s, mint1_s = str(config), str(mint0), str(mint1)
+    assert derive_raydium_clmm_pool_address(
+        amm_config=config_s,
+        token_mint_0=mint0_s,
+        token_mint_1=mint1_s,
+        bump=bump,
+    ) == address
+
+    words = [0] * 16
+    words[8] = 1
+    original = bytes(RAYDIUM_POOL_STATE_LENGTH)
+    p = RaydiumClmmPoolState(
+        pool_address=address,
+        bump=bump,
+        amm_config=config_s,
+        pool_creator=str(Pubkey.new_unique()),
+        token_mint_0=mint0_s,
+        token_mint_1=mint1_s,
+        token_vault_0=str(Pubkey.new_unique()),
+        token_vault_1=str(Pubkey.new_unique()),
+        observation_key=str(Pubkey.new_unique()),
+        mint_decimals_0=6,
+        mint_decimals_1=6,
+        tick_spacing=1,
+        liquidity=100,
+        sqrt_price_x64=1 << 64,
+        tick_current=0,
+        status=0,
+        fee_on=0,
+        seed_index=0,
+        account_data_sha256=hashlib.sha256(original).hexdigest(),
+        tick_array_bitmap=tuple(words),
+        account_data=original,
+    )
+    encoded = encode_raydium_clmm_pool_state(p)
+    p = replace(
+        p,
+        account_data=encoded,
+        account_data_sha256=hashlib.sha256(encoded).hexdigest(),
+    )
+    a = array(p, start=0, initialized=1)
+    result = apply_raydium_tick_array_mutation(
+        p,
+        a,
+        recent_epoch=2,
+        tick_index=0,
+        updated_tick=tick(0, gross=0),
+    )
+    assert result.bitmap_changed is True
+    assert result.pool.account_data_sha256 == hashlib.sha256(result.pool.account_data).hexdigest()
+    assert result.pool.account_data_sha256 != ""
+    assert encode_raydium_clmm_pool_state(result.pool) == result.pool.account_data
+    assert bit(result.pool, 0) is False
