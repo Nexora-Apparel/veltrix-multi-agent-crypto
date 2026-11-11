@@ -24,10 +24,12 @@ from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_MAX_TICK,
     RAYDIUM_MIN_TICK,
     RaydiumClmmPoolRouteCheck,
+    RaydiumClmmPoolState,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTickArraySnapshot,
+    raydium_current_tick_array_start,
 )
 
 
@@ -330,3 +332,47 @@ def verify_raydium_clmm_bitmap_traversal(
         bounded_interval_complete=True,
         execution_ready=False,
     )
+
+
+def next_initialized_tick_array_start_index(
+    pool: RaydiumClmmPoolState,
+    *,
+    tick_array_snapshot: RaydiumClmmTickArraySnapshot,
+    last_tick_array_start_index: int,
+    zero_for_one: bool,
+) -> int | None:
+    """Return the next set bitmap boundary in swap direction, including extension words.
+
+    This is the pinned PoolState::next_tick_array_index_with_extension_info
+    search contract. It scans strictly beyond the normalized last array and
+    returns the first initialized boundary, or None when the direction is
+    exhausted. Missing extension evidence is rejected when the search crosses
+    the default bitmap range for a spacing that requires extension coverage.
+    """
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmBitmapTraversalError("decoded Raydium PoolState is required")
+    if not isinstance(tick_array_snapshot, RaydiumClmmTickArraySnapshot):
+        raise RaydiumClmmBitmapTraversalError("tick-array snapshot is required for bitmap extension validation")
+    if isinstance(last_tick_array_start_index, bool) or not isinstance(last_tick_array_start_index, int) or not -(1 << 31) <= last_tick_array_start_index < (1 << 31):
+        raise RaydiumClmmBitmapTraversalError("last tick-array start index must fit i32")
+    if not isinstance(zero_for_one, bool):
+        raise RaydiumClmmBitmapTraversalError("swap direction must be boolean")
+    tick_count = _tick_array_count(pool.tick_spacing)
+    if len(pool.tick_array_bitmap) != RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS or any(
+        isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= U64_MAX
+        for word in pool.tick_array_bitmap
+    ):
+        raise RaydiumClmmBitmapTraversalError("PoolState default bitmap must contain exactly sixteen valid u64 words")
+    last = raydium_current_tick_array_start(last_tick_array_start_index, pool.tick_spacing)
+    minimum, maximum = _valid_tick_array_bounds(tick_count)
+    if not minimum <= last <= maximum:
+        raise RaydiumClmmBitmapTraversalError("last tick-array start index is outside valid PoolState bitmap bounds")
+    extension = tick_array_snapshot.bitmap_extension
+    _validate_extension(pool.pool_address, extension, tick_array_snapshot)
+
+    candidate = last - tick_count if zero_for_one else last + tick_count
+    while minimum <= candidate <= maximum:
+        if _is_initialized(pool, extension, candidate, tick_count):
+            return candidate
+        candidate += -tick_count if zero_for_one else tick_count
+    return None
