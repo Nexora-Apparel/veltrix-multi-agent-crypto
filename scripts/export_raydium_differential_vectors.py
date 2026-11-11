@@ -6,6 +6,12 @@ import argparse
 import json
 from pathlib import Path
 
+from veltrix.raydium_clmm_dynamic_fee import (
+    tick_spacing_index_from_tick,
+    update_dynamic_fee_reference,
+    update_volatility_accumulator,
+)
+from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
@@ -80,6 +86,85 @@ SWAP_CASES = (
 )
 
 
+
+def make_dynamic_info() -> RaydiumClmmDynamicFeeInfo:
+    return RaydiumClmmDynamicFeeInfo(
+        filter_period=60,
+        decay_period=3600,
+        reduction_factor=5000,
+        dynamic_fee_control=1000,
+        max_volatility_accumulator=100000,
+        tick_spacing_index_reference=3,
+        volatility_reference=2000,
+        volatility_accumulator=4000,
+        last_update_timestamp=1000,
+        padding=bytes(46),
+    )
+
+
+def dynamic_fee_vectors() -> dict:
+    reference_cases = []
+    for name, timestamp, tick_index in (
+        ("inside_filter_window", 1059, 10),
+        ("at_decay_boundary", 1060, 10),
+        ("at_reset_boundary", 4600, 10),
+        ("backward_clock", 900, 10),
+    ):
+        result = update_dynamic_fee_reference(
+            make_dynamic_info(),
+            tick_spacing_index=tick_index,
+            current_timestamp=timestamp,
+        )
+        reference_cases.append({
+            "name": name,
+            "current_timestamp": timestamp,
+            "tick_spacing_index": tick_index,
+            "initial": {
+                "filter_period": 60,
+                "decay_period": 3600,
+                "reduction_factor": 5000,
+                "dynamic_fee_control": 1000,
+                "max_volatility_accumulator": 100000,
+                "tick_spacing_index_reference": 3,
+                "volatility_reference": 2000,
+                "volatility_accumulator": 4000,
+                "last_update_timestamp": 1000,
+            },
+            "expected": {
+                "tick_spacing_index_reference": result.tick_spacing_index_reference,
+                "volatility_reference": result.volatility_reference,
+                "volatility_accumulator": result.volatility_accumulator,
+                "last_update_timestamp": result.last_update_timestamp,
+            },
+        })
+
+    accumulator_cases = []
+    for name, tick_index in (("normal_delta", 8), ("capped_delta", 100)):
+        result = update_volatility_accumulator(
+            make_dynamic_info(),
+            tick_spacing_index=tick_index,
+        )
+        accumulator_cases.append({
+            "name": name,
+            "tick_spacing_index": tick_index,
+            "initial": {
+                "tick_spacing_index_reference": 3,
+                "volatility_reference": 2000,
+                "max_volatility_accumulator": 100000,
+            },
+            "expected_volatility_accumulator": result.volatility_accumulator,
+        })
+
+    spacing_cases = [
+        {"tick": tick, "tick_spacing": spacing, "expected": tick_spacing_index_from_tick(tick, spacing)}
+        for tick, spacing in ((-101, 10), (-100, 10), (-1, 10), (1, 10), (101, 10), (123, 1))
+    ]
+    return {
+        "reference_updates": reference_cases,
+        "volatility_updates": accumulator_cases,
+        "tick_spacing_indexes": spacing_cases,
+    }
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -118,6 +203,7 @@ def build_vectors() -> dict:
         "source_commit": "6d7a0f82d2f293c553c69aaf943377367c6c4cc6",
         "ticks": tick_vectors,
         "swap_steps": swap_vectors,
+        "dynamic_fee": dynamic_fee_vectors(),
     }
 
 
