@@ -77,6 +77,7 @@ class JupiterV6RouteInspection:
     message_sha256: str
     instruction_name: str
     program_id: str
+    instruction_index: int
     shared_authority_id: int | None
     route_steps: tuple[DecodedJupiterRouteStep, ...]
     input_amount_raw: int
@@ -289,7 +290,7 @@ def inspect_jupiter_v6_route(
     ]
     if len(matches) != 1:
         raise JupiterV6RouteError("transaction must contain exactly one locally pinned Jupiter V6 instruction")
-    _, instruction, program_id = matches[0]
+    instruction_index, instruction, program_id = matches[0]
     data = bytes(instruction.data)
     if data.startswith(ROUTE_DISCRIMINATOR):
         instruction_name = "route"
@@ -417,6 +418,7 @@ def inspect_jupiter_v6_route(
         message_sha256=digest,
         instruction_name=instruction_name,
         program_id=program_id,
+        instruction_index=instruction_index,
         shared_authority_id=authority_id,
         route_steps=bound_steps,
         input_amount_raw=input_amount,
