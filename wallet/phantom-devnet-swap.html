@@ -256,6 +256,7 @@
     const slot = Number(await rpcCall("getSlot", [{commitment:"finalized"}]));
     if (!Number.isSafeInteger(slot) || slot <= 0) fail("invalid finalized Devnet slot");
     const staticKeys = message.staticAccountKeys;
+    if (message.addressTableLookups.length !== 1) fail("exactly one audited address lookup table is required");
     const writableLoaded = [], readonlyLoaded = [], lookupEvidence = [];
     for (const lookup of message.addressTableLookups) {
       const tableKey = lookup.accountKey.toBase58();
@@ -274,6 +275,7 @@
     const resolved = [...staticKeys, ...writableLoaded, ...readonlyLoaded];
     const privileges = effectivePrivileges(message, resolved);
     const total = resolved.length;
+    if (total !== 18) fail("resolved account-key count differs from the audited transaction shape");
     for (const ix of message.compiledInstructions) {
       if (ix.programIdIndex >= total || ix.accountKeyIndexes.some(i => i >= total)) fail("compiled instruction index out of bounds");
     }
