@@ -473,31 +473,44 @@
     for(const group of value.innerInstructions) for(const ix of group.instructions||[]) inner.push(ix);
     const allowed=new Set([TOKEN,TOKEN_2022,SYSTEM,ATA_PROGRAM]);
     const transferProofs=[];
+    let outputAtaCreated=false, outputAtaInitialized=false, outputAtaImmutable=false;
     for(const ix of inner){
-      if(!Number.isInteger(ix.programIdIndex)||ix.programIdIndex>=policy.keys.length) fail("inner CPI program index invalid: "+JSON.stringify({ix,keys:policy.keys.length}));
-      const program=policy.keys[ix.programIdIndex];
-      if(!allowed.has(program)) fail("unexpected direct CPMM inner CPI program: "+program);
-      const accts=(ix.accounts||[]).map(index=>{
-        if(!Number.isInteger(index)||index<0||index>=policy.keys.length) fail("inner CPI account index invalid");
-        return policy.keys[index];
-      });
-      const data=b58decode(ix.data||"");
-      if(program===TOKEN || program===TOKEN_2022){
-        if(!data.length) fail("empty direct CPMM token CPI");
-        const tag=data[0];
-        if(tag===3 || tag===12){
-          const checked=tag===12;
-          if(data.length!==(checked?10:9) || accts.length!==(checked?4:3)) fail("direct CPMM token transfer layout mismatch");
-          const source=accts[0], destination=checked?accts[2]:accts[1];
-          const authority=checked?accts[3]:accts[2], amount=readU64(data,1);
-          if(checked && accts[1] !== (source===policy.inputAta?SOL:USDC)) fail("direct CPMM transfer checked mint mismatch");
-          if(authority!==policy.authority && authority!==wallet.toBase58()) fail("direct CPMM token transfer authority mismatch");
-          if(source===policy.inputAta && destination===policy.vaultIn && amount===BigInt(TEST_LAMPORTS)) transferProofs.push("input");
-          else if(source===policy.vaultOut && destination===policy.outputAta && amount===actualOutput) transferProofs.push("output");
-          else fail("direct CPMM token transfer source/destination/amount mismatch");
-        } else if(![1,9,17,18,21,22].includes(tag)) fail("unexpected direct CPMM SPL Token CPI tag "+tag);
+      const program=ix.programId || (Number.isInteger(ix.programIdIndex)?policy.keys[ix.programIdIndex]:null);
+      if(!program || !allowed.has(program)) fail("unexpected direct CPMM inner CPI program: "+String(program));
+      const parsed=ix.parsed, info=parsed&&parsed.info, type=parsed&&parsed.type;
+      if(!parsed || !info || typeof type!=="string") fail("direct CPMM inner CPI lacks parsed semantic metadata");
+      if(program===SYSTEM){
+        if(type!=="createAccount" || info.source!==wallet.toBase58() ||
+           info.newAccount!==policy.outputAta || info.owner!==TOKEN || Number(info.space)!==165 ||
+           !Number.isFinite(Number(info.lamports)) || Number(info.lamports)<=0 || Number(info.lamports)>5000000) {
+          fail("ATA rent-funded System createAccount semantics mismatch");
+        }
+        outputAtaCreated=true;
+      } else if(program===TOKEN || program===TOKEN_2022){
+        if(type==="getAccountDataSize"){
+          if(info.mint!==USDC || program!==TOKEN) fail("ATA size query mint/program mismatch");
+        } else if(type==="initializeImmutableOwner"){
+          if(info.account!==policy.outputAta || program!==TOKEN) fail("immutable-owner target mismatch");
+          outputAtaImmutable=true;
+        } else if(type==="initializeAccount3"){
+          if(info.account!==policy.outputAta || info.mint!==USDC || info.owner!==wallet.toBase58() || program!==TOKEN) {
+            fail("USDC ATA initialization owner/mint/program mismatch");
+          }
+          outputAtaInitialized=true;
+        } else if(type==="transferChecked"){
+          const source=info.source, destination=info.destination, mint=info.mint;
+          const authority=info.authority, amount=BigInt(String(info.tokenAmount?.amount));
+          if(source===policy.inputAta && destination===policy.vaultIn && mint===SOL &&
+             authority===wallet.toBase58() && amount===BigInt(TEST_LAMPORTS)) transferProofs.push("input");
+          else if(source===policy.vaultOut && destination===policy.outputAta && mint===USDC &&
+             authority===policy.authority && amount===actualOutput) transferProofs.push("output");
+          else fail("direct CPMM transferChecked source/destination/mint/authority/amount mismatch");
+        } else fail("unexpected parsed direct CPMM token CPI: "+type);
+      } else {
+        fail("unexpected nested direct CPMM program CPI: "+program);
       }
     }
+    if(!outputAtaCreated || !outputAtaInitialized || !outputAtaImmutable) fail("USDC ATA creation/initialization CPI proof incomplete");
     if(!transferProofs.includes("input")||!transferProofs.includes("output")) fail("direct CPMM exact input/output token transfer CPIs not proven");
     const altered=tx.message.compiledInstructions.map(ix=>{
       const program=tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58();
