@@ -474,6 +474,20 @@ Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.p
 - Retains bounded simulation logs and ties all account-state evidence to the same message digest, response ID, provider, cluster, genesis hash and context slot carried by `SimulationEvidence`.
 - Does not change the default call behavior: callers must explicitly request observed accounts. No automatic capture of every transaction key is enabled.
 
-**Integration boundary:** the adapter now has the evidence primitive, but the orchestration call site has not yet been changed to supply the complete Raydium account set. The next phase must derive a bounded, deterministic observed-account set from the validated transaction and CPI account trace, then bind the captured pre/post bytes to the independently decoded PoolState, vault, tick-array, bitmap-extension, AMM-config and observation evidence. Until that integration is complete, the new raw state records are not proof of swap-loop consumption.
+**Integration boundary at 09.30:** the adapter had the evidence primitive, but the complete Raydium account set was not yet bound to it. Phase 09.31 below adds deterministic bounded account capture and binds the captured pre-state commitments to the decoded Raydium evidence. This still does not prove swap-loop consumption.
 
 All account capture remains read-only simulation. No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast, or live execution is enabled.
+
+
+### 09.31 — Bind Raydium account evidence to simulated pre/post state
+
+Implemented in `veltrix/raydium_clmm_simulation_state.py`.
+
+- Adds a deterministic commitment set for the exact CPI pool, both vaults, every decoded tick array, optional bitmap extension, AMM config, and observation account.
+- Requires each commitment to exist in the validated transaction's resolved account keys and in the same `SimulationEvidence.account_states` capture.
+- Binds each captured pre-state owner, executable flag, lamports, byte length and SHA-256 to the independently decoded account evidence; this prevents a separately fetched snapshot from being silently treated as the transaction's actual simulation pre-state.
+- Retains each corresponding post-state SHA-256 and account role for subsequent state-transition replay. Post-state data length must remain consistent with the pinned account layout.
+- Revalidates the bitmap traversal proof, CPI remaining-account order, exact message digest, simulation response ID, provider, cluster, genesis hash, and monotonic account-snapshot slots before accepting the binding.
+- Adds an explicit `capture_all_non_program_accounts` mode to the RPC simulation adapter. It deterministically captures all validated transaction account keys except tracked token accounts and invoked program IDs, while enforcing the 100-account limit. Explicit observed-account lists and automatic capture cannot be mixed.
+
+**Proof boundary:** this binds the actual simulated pre-state to the decoded Raydium evidence and preserves the actual simulated post-state bytes. It does not yet decode the post-state PoolState/vault/tick-array changes, reproduce the pinned Raydium swap loop, identify exactly which ticks were crossed, or reconcile the resulting pool/vault state against the quoted input/output. Those remain the next replay stage. No signing, submission, broadcast, or live execution is enabled.

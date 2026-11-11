@@ -390,6 +390,7 @@ class SolanaRpcSimulationAdapter:
         minimum_context_slot: int,
         last_valid_block_height: int,
         observed_account_addresses: tuple[str, ...] = (),
+        capture_all_non_program_accounts: bool = False,
     ) -> RpcSimulationResult:
         """Validate and simulate the exact message; return normalized evidence.
 
@@ -415,6 +416,10 @@ class SolanaRpcSimulationAdapter:
             raise SolanaRpcAdapterError("expected token-account addresses must be unique")
         if not isinstance(observed_account_addresses, tuple):
             raise SolanaRpcAdapterError("observed_account_addresses must be an immutable tuple")
+        if not isinstance(capture_all_non_program_accounts, bool):
+            raise SolanaRpcAdapterError("capture_all_non_program_accounts must be a boolean")
+        if capture_all_non_program_accounts and observed_account_addresses:
+            raise SolanaRpcAdapterError("explicit observed addresses cannot be combined with automatic message-account capture")
         if len(observed_account_addresses) + len(token_addresses) > MAX_TRACKED_TOKEN_ACCOUNTS:
             raise SolanaRpcAdapterError("combined token and observed account count exceeds the 100-account limit")
         if len(set(observed_account_addresses)) != len(observed_account_addresses):
@@ -466,6 +471,16 @@ class SolanaRpcSimulationAdapter:
             current_slot=lookup_context_slot,
             minimum_context_slot=minimum_context_slot,
         )
+        if capture_all_non_program_accounts:
+            token_address_set = set(token_addresses)
+            program_id_set = set(validation.program_ids)
+            observed_account_addresses = tuple(
+                address for address in validation.account_keys
+                if address not in token_address_set and address not in program_id_set
+            )
+            if len(observed_account_addresses) + len(token_addresses) > MAX_TRACKED_TOKEN_ACCOUNTS:
+                raise SolanaRpcAdapterError("automatic non-program account capture exceeds the 100-account limit")
+            addresses = token_addresses + list(observed_account_addresses)
         if not set(observed_account_addresses).issubset(set(validation.account_keys)):
             raise SolanaRpcAdapterError("observed account address is not present in the validated transaction account keys")
 
