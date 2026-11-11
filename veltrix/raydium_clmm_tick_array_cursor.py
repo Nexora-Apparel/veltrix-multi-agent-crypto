@@ -221,8 +221,10 @@ class RaydiumClmmTickArrayQueue:
         """Pop in CPI order until the first bitmap-selected array is found."""
         if self.current is not None or self.next_index != 0 or self.consumed_addresses:
             raise RaydiumTickArrayCursorError("first tick array can only be selected from a fresh queue")
-        if isinstance(first_valid_start_index, bool) or not isinstance(first_valid_start_index, int):
-            raise RaydiumTickArrayCursorError("first valid tick-array start must be an integer")
+        if isinstance(first_valid_start_index, bool) or not isinstance(first_valid_start_index, int) or not -(1 << 31) <= first_valid_start_index < (1 << 31):
+            raise RaydiumTickArrayCursorError("first valid tick-array start must fit i32")
+        if raydium_current_tick_array_start(first_valid_start_index, self.tick_spacing) != first_valid_start_index:
+            raise RaydiumTickArrayCursorError("first valid tick-array start is not aligned to pool spacing")
         for index, array in enumerate(self.arrays):
             if array.pool_address != self.pool_address:
                 raise RaydiumTickArrayCursorError("consumed tick array belongs to a different pool")
@@ -242,8 +244,10 @@ class RaydiumClmmTickArrayQueue:
         """Pop the remaining CPI queue until the bitmap-selected next array is reached."""
         if self.current is None:
             raise RaydiumTickArrayCursorError("first tick array must be selected before advancing")
-        if isinstance(next_start_index, bool) or not isinstance(next_start_index, int):
-            raise RaydiumTickArrayCursorError("next tick-array start must be an integer")
+        if isinstance(next_start_index, bool) or not isinstance(next_start_index, int) or not -(1 << 31) <= next_start_index < (1 << 31):
+            raise RaydiumTickArrayCursorError("next tick-array start must fit i32")
+        if raydium_current_tick_array_start(next_start_index, self.tick_spacing) != next_start_index:
+            raise RaydiumTickArrayCursorError("next tick-array start is not aligned to pool spacing")
         if self.current.start_tick_index == next_start_index:
             return self
         for index in range(self.next_index, len(self.arrays)):
