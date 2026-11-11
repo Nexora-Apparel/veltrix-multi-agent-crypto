@@ -276,7 +276,7 @@ def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
     extension = RaydiumClmmTickArrayBitmapExtension(
         address=bitmap, pool_address=pool_address,
         positive_bitmaps=positive, negative_bitmaps=negative,
-        data_sha256=bitmap_hash,
+        data_sha256=bitmap_hash, data_bytes=bitmap_bytes,
     )
     values[1] = __import__("dataclasses").replace(
         values[1], tick_array_accounts=(values[1].tick_array_accounts[0], bitmap)
