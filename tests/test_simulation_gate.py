@@ -125,6 +125,9 @@ def test_rejects_bounded_output_delta_below_minimum():
         expected[0],
         ExpectedTokenDelta("token-account-2", "mint-1", "owner-2", None, minimum_delta_raw=240),
     )
+    balances = list(evidence.token_balances)
+    balances[1] = dataclasses.replace(balances[1], post_amount_raw=249)
+    evidence = dataclasses.replace(evidence, token_balances=tuple(balances))
     with pytest.raises(SimulationGateError, match="below the approved minimum"):
         evaluate(
             evidence,
