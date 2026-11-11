@@ -34,9 +34,12 @@ fn python_tick_math_vectors_match_pinned_raydium_rust() {
             .unwrap_or_else(|error| panic!("Rust tick math failed for tick {tick}: {error:?}"));
         assert_eq!(actual, expected, "sqrt price mismatch at tick {tick}");
 
-        let inverse = tick_math::get_tick_at_sqrt_price(actual)
-            .unwrap_or_else(|error| panic!("Rust inverse tick math failed at tick {tick}: {error:?}"));
-        assert_eq!(inverse, tick, "inverse tick mismatch at tick {tick}");
+        // Raydium deliberately excludes MAX_SQRT_PRICE_X64 from inverse lookup.
+        if tick < 443636 {
+            let inverse = tick_math::get_tick_at_sqrt_price(actual)
+                .unwrap_or_else(|error| panic!("Rust inverse tick math failed at tick {tick}: {error:?}"));
+            assert_eq!(inverse, tick, "inverse tick mismatch at tick {tick}");
+        }
     }
 }
 
