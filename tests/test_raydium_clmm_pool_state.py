@@ -18,6 +18,7 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmDynamicFeeInfo,
     RaydiumClmmPoolStateError,
     decode_raydium_clmm_pool_state,
+    encode_raydium_clmm_pool_state,
     derive_raydium_clmm_pool_address,
     validate_raydium_clmm_pool_for_route,
 )
@@ -444,3 +445,48 @@ def test_rejects_invalid_reward_state_time_or_claimed_total(kwargs):
         decode_raydium_clmm_pool_state(
             changed_evidence, expected_pool_address=pool_address
         )
+
+
+def test_pool_state_serializer_roundtrips_all_modeled_fields_and_preserves_reserved_bytes():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    # Give every opaque region a non-zero pattern to prove preservation.
+    original_bytes = bytearray(raw)
+    for start, end in ((273, 277), (393, 397), (1080, 1096), (1176, 1544)):
+        original_bytes[start:end] = bytes((index * 17 + start) % 256 for index in range(end - start))
+    original_raw = bytes(original_bytes)
+    source = dataclasses.replace(
+        evidence,
+        data_bytes=original_raw,
+        data_length=len(original_raw),
+        data_sha256=hashlib.sha256(original_raw).hexdigest(),
+    )
+    decoded = decode_raydium_clmm_pool_state(source, expected_pool_address=pool_address)
+    assert encode_raydium_clmm_pool_state(decoded) == original_raw
+
+    changed = dataclasses.replace(
+        decoded,
+        liquidity=decoded.liquidity + 1,
+        fee_growth_global_0_x64=7,
+        protocol_fees_token_1=11,
+        fund_fees_token_0=13,
+        tick_array_bitmap=(1,) + decoded.tick_array_bitmap[1:],
+    )
+    encoded = encode_raydium_clmm_pool_state(changed)
+    changed_evidence = dataclasses.replace(
+        source,
+        data_bytes=encoded,
+        data_length=len(encoded),
+        data_sha256=hashlib.sha256(encoded).hexdigest(),
+    )
+    reparsed = decode_raydium_clmm_pool_state(
+        changed_evidence, expected_pool_address=pool_address
+    )
+    assert reparsed.liquidity == changed.liquidity
+    assert reparsed.fee_growth_global_0_x64 == 7
+    assert reparsed.protocol_fees_token_1 == 11
+    assert reparsed.fund_fees_token_0 == 13
+    assert reparsed.tick_array_bitmap == changed.tick_array_bitmap
+    assert encoded[273:277] == original_raw[273:277]
+    assert encoded[393:397] == original_raw[393:397]
+    assert encoded[1080:1096] == original_raw[1080:1096]
+    assert encoded[1176:1544] == original_raw[1176:1544]
