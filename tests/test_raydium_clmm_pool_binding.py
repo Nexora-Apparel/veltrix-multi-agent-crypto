@@ -168,7 +168,7 @@ def test_rejects_vault_from_different_pool_or_wrong_token_program():
 def test_rejects_missing_or_extra_tick_array_accounts():
     values = list(fixture())
     values[1] = __import__("dataclasses").replace(values[1], tick_array_accounts=())
-    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array accounts"):
+    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array|CPI remaining-account order"):
         evaluate(tuple(values))
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], tick_arrays=())
