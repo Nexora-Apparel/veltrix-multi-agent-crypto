@@ -46,8 +46,8 @@ def array(p, start=0, initialized=0):
     for i in range(initialized):
         ticks[i] = replace(ticks[i], liquidity_gross=1, initialized=True)
     return RaydiumClmmTickArray(
-        address=derive_raydium_clmm_tick_array_address(pool_address=p.pool_address, start_recent_epoch=2, tick_index=start), pool_address=p.pool_address,
-        start_recent_epoch=2, tick_index=start, tick_spacing=p.tick_spacing,
+        address=derive_raydium_clmm_tick_array_address(pool_address=p.pool_address, start_tick_index=start), pool_address=p.pool_address,
+        start_tick_index=start, tick_spacing=p.tick_spacing,
         initialized_tick_count=initialized, recent_epoch=1,
         ticks=tuple(ticks), data_sha256="b" * 64,
     )
