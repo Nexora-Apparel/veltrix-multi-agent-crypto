@@ -12,6 +12,8 @@ from veltrix.raydium_clmm_dynamic_fee import (
     update_volatility_accumulator,
 )
 from veltrix.raydium_clmm_fee_accounting import (
+    RaydiumSwapSettlement,
+    settle_raydium_swap_amounts,
     RaydiumFeeAccountingState,
     apply_raydium_swap_amounts,
 )
@@ -19,6 +21,11 @@ from veltrix.raydium_clmm_limit_orders import (
     RaydiumLimitOrderMatch,
     match_raydium_limit_order,
 )
+from veltrix.raydium_clmm_observation import (
+    RaydiumClmmObservationState,
+    apply_raydium_observation_update,
+)
+from veltrix.raydium_clmm_pool_post_swap import apply_raydium_pool_after_swap
 from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolState,
     RaydiumClmmRewardInfo,
@@ -428,4 +435,85 @@ def apply_raydium_swap_loop_boundary(
         crossing=crossing,
         mutation=mutation,
         dynamic_fee_state=dynamic_fee_state,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumClmmSwapLoopFinalizationResult:
+    pool: RaydiumClmmPoolState
+    observation: RaydiumClmmObservationState
+    settlement: RaydiumSwapSettlement
+
+
+def finalize_raydium_swap_loop(
+    pool: RaydiumClmmPoolState,
+    observation: RaydiumClmmObservationState,
+    fee_state: RaydiumFeeAccountingState,
+    *,
+    amount_specified: int,
+    final_tick: int,
+    final_sqrt_price_x64: int,
+    final_liquidity: int,
+    block_timestamp: int,
+    zero_for_one: bool,
+    is_base_input: bool,
+    dynamic_fee_state: RaydiumDynamicFeeSwapState | None,
+) -> RaydiumClmmSwapLoopFinalizationResult:
+    """Mirror post-loop order: update observation with old tick, settle amounts, then persist PoolState."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumSwapLoopError("decoded Raydium PoolState is required")
+    if not isinstance(observation, RaydiumClmmObservationState):
+        raise RaydiumSwapLoopError("decoded Raydium ObservationState is required")
+    if not isinstance(fee_state, RaydiumFeeAccountingState):
+        raise RaydiumSwapLoopError("Raydium fee-accounting state is required")
+    if observation.pool_id != pool.pool_address or observation.address != pool.observation_key:
+        raise RaydiumSwapLoopError("ObservationState identity differs from PoolState")
+    if not isinstance(zero_for_one, bool) or not isinstance(is_base_input, bool):
+        raise RaydiumSwapLoopError("swap direction and exactness flags must be boolean")
+    if isinstance(block_timestamp, bool) or not isinstance(block_timestamp, int) or not 0 <= block_timestamp <= 0xFFFFFFFF:
+        raise RaydiumSwapLoopError("block timestamp must fit u32")
+    if isinstance(final_tick, bool) or not isinstance(final_tick, int) or not -(1 << 31) <= final_tick < (1 << 31):
+        raise RaydiumSwapLoopError("final tick must fit i32")
+    if isinstance(final_liquidity, bool) or not isinstance(final_liquidity, int) or not 0 <= final_liquidity < (1 << 128):
+        raise RaydiumSwapLoopError("final liquidity must fit u128")
+    if isinstance(final_sqrt_price_x64, bool) or not isinstance(final_sqrt_price_x64, int) or not 0 < final_sqrt_price_x64 < (1 << 128):
+        raise RaydiumSwapLoopError("final sqrt price must be a positive u128")
+    if dynamic_fee_state is not None and not isinstance(dynamic_fee_state, RaydiumDynamicFeeSwapState):
+        raise RaydiumSwapLoopError("final dynamic-fee state is malformed")
+
+    next_observation = observation
+    if final_tick != pool.tick_current:
+        # Upstream writes the previous PoolState tick before PoolState mutation.
+        next_observation = apply_raydium_observation_update(
+            observation,
+            block_timestamp=block_timestamp,
+            tick=pool.tick_current,
+        )
+
+    fee_on_token0 = _is_fee_on_token0(pool.fee_on, zero_for_one)
+    settlement = settle_raydium_swap_amounts(
+        fee_state,
+        amount_specified=amount_specified,
+        zero_for_one=zero_for_one,
+        is_base_input=is_base_input,
+        fee_on_token0=fee_on_token0,
+    )
+    updated_pool = apply_raydium_pool_after_swap(
+        pool,
+        tick_current=final_tick,
+        sqrt_price_x64=final_sqrt_price_x64,
+        liquidity=final_liquidity,
+        lp_fee=fee_state.lp_fee,
+        protocol_fee=fee_state.protocol_fee,
+        fund_fee=fee_state.fund_fee,
+        fee_growth_global_x64=fee_state.fee_growth_global_x64,
+        zero_for_one=zero_for_one,
+        dynamic_fee_info=(
+            dynamic_fee_state.info if dynamic_fee_state is not None else None
+        ),
+    )
+    return RaydiumClmmSwapLoopFinalizationResult(
+        pool=updated_pool,
+        observation=next_observation,
+        settlement=settlement,
     )
