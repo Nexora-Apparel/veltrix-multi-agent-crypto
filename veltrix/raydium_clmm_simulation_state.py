@@ -124,8 +124,12 @@ def build_raydium_clmm_account_commitments(
         )
     ]
 
-    if len(vault_snapshot.vaults) != 2:
-        raise RaydiumClmmSimulationStateError("exactly two decoded pool vaults are required")
+    if (
+        len(vault_snapshot.vaults) != 2
+        or {item.address for item in vault_snapshot.vaults} != {cpi.input_vault, cpi.output_vault}
+        or any(item.pool_address != cpi.pool_state for item in vault_snapshot.vaults)
+    ):
+        raise RaydiumClmmSimulationStateError("decoded vaults must exactly match the CPI input/output vaults and pool")
     for vault in vault_snapshot.vaults:
         commitments.append(RaydiumClmmAccountCommitment(
             address=vault.address,
@@ -158,6 +162,8 @@ def build_raydium_clmm_account_commitments(
             role="tick_array_bitmap_extension",
         ))
 
+    if aux_snapshot.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT:
+        raise RaydiumClmmSimulationStateError("auxiliary account source revision is not pinned")
     configs = [item for item in aux_snapshot.amm_configs if item.address == cpi.amm_config]
     observations = [item for item in aux_snapshot.observations if item.address == cpi.observation_state]
     if len(configs) != 1 or len(observations) != 1:
