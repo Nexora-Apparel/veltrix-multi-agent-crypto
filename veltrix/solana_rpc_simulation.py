@@ -273,6 +273,7 @@ class SolanaRpcSimulationAdapter:
         expected_token_deltas: tuple[ExpectedTokenDelta, ...],
         minimum_context_slot: int,
         last_valid_block_height: int,
+        capture_account_snapshots: bool = False,
     ) -> RpcSimulationResult:
         """Validate and simulate the exact message; return normalized evidence.
 
@@ -280,6 +281,8 @@ class SolanaRpcSimulationAdapter:
         same confirmed context slot. This intentionally rejects non-atomic
         snapshots rather than comparing balances from different banks.
         """
+        if not isinstance(capture_account_snapshots, bool):
+            raise SolanaRpcAdapterError("capture_account_snapshots must be a boolean")
         if not isinstance(expected_token_deltas, tuple) or not expected_token_deltas:
             raise SolanaRpcAdapterError("explicit expected token-account deltas are required")
         if len(expected_token_deltas) > MAX_TRACKED_TOKEN_ACCOUNTS:
@@ -342,9 +345,15 @@ class SolanaRpcSimulationAdapter:
             minimum_context_slot=minimum_context_slot,
         )
 
+        tracked_addresses = list(addresses)
+        if capture_account_snapshots:
+            tracked_addresses = list(dict.fromkeys(addresses + list(validation.account_keys)))
+            if len(tracked_addresses) > MAX_TRACKED_TOKEN_ACCOUNTS:
+                raise SolanaRpcAdapterError("transaction has too many accounts for bounded state snapshot capture")
+
         pre_result = self._rpc(
             "getMultipleAccounts",
-            [addresses, {
+            [tracked_addresses, {
                 "encoding": "base64",
                 "commitment": "confirmed",
                 "minContextSlot": max(minimum_context_slot, blockhash_slot, lookup_context_slot or 0),
