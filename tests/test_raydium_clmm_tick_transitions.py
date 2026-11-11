@@ -123,10 +123,11 @@ def test_limit_order_matches_exact_input_output_and_fee_modes(
     assert result.amount_out == expected_out
     assert result.amm_fee_amount == expected_fee
     assert updated.orders_amount == 0
-    assert updated.part_filled_orders_remaining == 1000 - (
-        100 if not is_base_input and not is_fee_on_input else
-        101 if not is_base_input and is_fee_on_input else 100
+    expected_gross_output = (
+        99 if is_base_input and is_fee_on_input else
+        100 if is_base_input or is_fee_on_input else 101
     )
+    assert updated.part_filled_orders_remaining == 1000 - expected_gross_output
     assert updated.order_phase == 1
 
 
