@@ -130,6 +130,9 @@
     return body;
   }
   function inspectTransaction(tx) {
+    // Fail closed until the full ALT-aware instruction-intent verifier is installed.
+    // Program allowlists and signer checks alone do not establish transaction intent.
+    throw new Error("Transaction intent verification is incomplete. Phantom signing is disabled.");
     const message = tx.message;
     const keys = message.staticAccountKeys;
     if (!keys.length || !keys[0].equals(wallet)) throw new Error("Unexpected transaction fee payer.");
