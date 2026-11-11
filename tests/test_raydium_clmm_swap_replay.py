@@ -417,3 +417,74 @@ def test_replay_updates_dynamic_fee_before_boundary_fifo_and_persists_it():
     final_tick = result.final_bundle.tick_arrays[0].ticks[0]
     assert final_tick.orders_amount + final_tick.part_filled_orders_remaining > 0
     assert result.boundary_crossings == 0
+
+
+def test_exact_output_one_for_zero_replay_uses_opposite_vault_deltas():
+    bundle, _ = make_replay_bundle()
+    pool = bundle.pool
+    original = bundle.tick_arrays[0]
+    ticks = list(original.ticks)
+    ticks[0] = replace(
+        ticks[0],
+        liquidity_net=0,
+        liquidity_gross=0,
+        orders_amount=0,
+        part_filled_orders_remaining=0,
+        initialized=False,
+    )
+    ticks[1] = replace(
+        ticks[1],
+        tick_index=1,
+        liquidity_net=25,
+        liquidity_gross=100,
+        orders_amount=10,
+        part_filled_orders_remaining=0,
+        initialized=True,
+    )
+    array = replace(
+        original,
+        ticks=tuple(ticks),
+        initialized_tick_count=1,
+        data_sha256="",
+    )
+    array_bytes = encode_raydium_clmm_tick_array(array)
+    array = replace(array, data_sha256=hashlib.sha256(array_bytes).hexdigest())
+    bundle = build_raydium_clmm_replay_account_bundle(
+        pool,
+        tick_arrays=(array,),
+        observation=bundle.observation,
+        vaults=bundle.vaults,
+    )
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True,
+        pool_address=pool.pool_address,
+        zero_for_one=False,
+        current_array_start_index=0,
+        first_initialized_array_start_index=0,
+        last_cpi_array_start_index=0,
+        expected_initialized_array_starts=(0,),
+        supplied_initialized_array_starts=(0,),
+        supplied_array_starts=(0,),
+        bitmap_extension_sha256=None,
+        bounded_interval_complete=True,
+        execution_ready=False,
+    )
+    result = replay_raydium_clmm_swap(
+        bundle,
+        traversal,
+        amount_specified=10,
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(2),
+        base_fee_rate=0,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+        block_timestamp=1000,
+        recent_epoch=2,
+        zero_for_one=False,
+        is_base_input=False,
+    )
+    assert result.amount_specified_remaining == 0
+    assert result.outer_iterations == 1
+    assert result.final_bundle.pool.sqrt_price_x64 > Q64
+    vaults = {vault.address: vault for vault in result.final_bundle.vaults}
+    assert vaults[result.final_bundle.pool.token_vault_0].amount_raw < 1000
+    assert vaults[result.final_bundle.pool.token_vault_1].amount_raw > 1000
