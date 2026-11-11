@@ -21,6 +21,7 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_DATA_LENGTH,
     RaydiumClmmTickArraySnapshot,
+    RaydiumClmmTickArrayBitmapExtension,
     decode_raydium_clmm_tick_array,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
@@ -80,6 +81,45 @@ def validate_raydium_clmm_tick_array_bitmap_extension(
     if observed_address != derive_raydium_clmm_tick_array_bitmap_extension_address(pool_address=expected_pool):
         raise RaydiumClmmCpiTickArrayError("bitmap extension address does not match the canonical pool PDA")
     return observed_address
+
+
+def decode_raydium_clmm_tick_array_bitmap_extension(
+    *,
+    address: str,
+    owner: str,
+    lamports: int,
+    executable: bool,
+    data: bytes,
+    expected_pool_address: str,
+) -> RaydiumClmmTickArrayBitmapExtension:
+    """Decode the pinned positive/negative 14x512-bit extension bitmap."""
+    validated_address = validate_raydium_clmm_tick_array_bitmap_extension(
+        address=address,
+        owner=owner,
+        lamports=lamports,
+        executable=executable,
+        data=data,
+        expected_pool_address=expected_pool_address,
+    )
+    positive_start = 40
+    words_per_side = 14 * 8
+    positive = tuple(
+        int.from_bytes(data[positive_start + index * 8:positive_start + (index + 1) * 8], "little")
+        for index in range(words_per_side)
+    )
+    negative_start = positive_start + words_per_side * 8
+    negative = tuple(
+        int.from_bytes(data[negative_start + index * 8:negative_start + (index + 1) * 8], "little")
+        for index in range(words_per_side)
+    )
+    return RaydiumClmmTickArrayBitmapExtension(
+        address=validated_address,
+        pool_address=str(Pubkey.from_string(expected_pool_address)),
+        positive_bitmaps=positive,
+        negative_bitmaps=negative,
+        data_sha256=hashlib.sha256(data).hexdigest(),
+        data_bytes=data,
+    )
 
 
 def fetch_raydium_clmm_cpi_tick_array_snapshot(
@@ -166,10 +206,13 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
         or len(snapshot.accounts) != len(cpi.tick_array_accounts)
     ):
         raise RaydiumClmmCpiTickArrayError("CPI tick-array RPC snapshot provenance, slot or account count is invalid")
+    if tuple(account.address for account in snapshot.accounts) != tuple(cpi.tick_array_accounts):
+        raise RaydiumClmmCpiTickArrayError("RPC account snapshot does not preserve the exact CPI trailing-account order")
 
     arrays = []
     bitmap_extension_address = None
     bitmap_extension_sha256 = None
+    bitmap_extension = None
     seen = set()
     for account in snapshot.accounts:
         if account.address in seen:
@@ -188,7 +231,7 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
         elif len(account.data) == TICK_ARRAY_BITMAP_EXTENSION_DATA_LENGTH:
             if bitmap_extension_address is not None:
                 raise RaydiumClmmCpiTickArrayError("CPI contains more than one bitmap extension account")
-            bitmap_extension_address = validate_raydium_clmm_tick_array_bitmap_extension(
+            bitmap_extension = decode_raydium_clmm_tick_array_bitmap_extension(
                 address=account.address,
                 owner=account.owner,
                 lamports=account.lamports,
@@ -196,7 +239,8 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
                 data=account.data,
                 expected_pool_address=pool.pool_address,
             )
-            bitmap_extension_sha256 = hashlib.sha256(account.data).hexdigest()
+            bitmap_extension_address = bitmap_extension.address
+            bitmap_extension_sha256 = bitmap_extension.data_sha256
         else:
             raise RaydiumClmmCpiTickArrayError("CPI trailing account is neither a pinned TickArrayState nor bitmap extension")
 
@@ -221,5 +265,6 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
         cpi_account_order=tuple(cpi.tick_array_accounts),
         bitmap_extension_address=bitmap_extension_address,
         bitmap_extension_sha256=bitmap_extension_sha256,
+        bitmap_extension=bitmap_extension,
         execution_ready=False,
     )

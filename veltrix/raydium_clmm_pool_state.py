@@ -22,6 +22,8 @@ RAYDIUM_CLMM_SOURCE_COMMIT = "6d7a0f82d2f293c553c69aaf943377367c6c4cc6"
 RAYDIUM_POOL_STATE_DISCRIMINATOR = hashlib.sha256(b"account:PoolState").digest()[:8]
 RAYDIUM_POOL_STATE_LENGTH = 1544
 RAYDIUM_POOL_HEADER_LENGTH = 397
+RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET = 904
+RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS = 16
 RAYDIUM_POOL_SEED = b"pool"
 RAYDIUM_MIN_TICK = -443636
 RAYDIUM_MAX_TICK = 443636
@@ -54,6 +56,7 @@ class RaydiumClmmPoolState:
     fee_on: int
     seed_index: int
     account_data_sha256: str
+    tick_array_bitmap: tuple[int, ...] = (0,) * RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
 
     @property
@@ -165,6 +168,11 @@ def decode_raydium_clmm_pool_state(
     status = data[389]
     fee_on = data[390]
     seed_index = int.from_bytes(data[391:393], "little")
+    bitmap_start = RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET
+    tick_array_bitmap = tuple(
+        int.from_bytes(data[bitmap_start + index * 8:bitmap_start + (index + 1) * 8], "little")
+        for index in range(RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS)
+    )
 
     default_key = str(Pubkey.default())
     if default_key in {amm_config, pool_creator, mint_0, mint_1, vault_0, vault_1, observation}:
@@ -218,6 +226,7 @@ def decode_raydium_clmm_pool_state(
         fee_on=fee_on,
         seed_index=seed_index,
         account_data_sha256=account.data_sha256,
+        tick_array_bitmap=tick_array_bitmap,
     )
 
 

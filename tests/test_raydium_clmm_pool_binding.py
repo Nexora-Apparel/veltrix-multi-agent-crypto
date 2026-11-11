@@ -18,6 +18,8 @@ from veltrix.raydium_clmm_pool_binding import (
 )
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET,
+    RAYDIUM_POOL_STATE_LENGTH,
     RaydiumClmmPoolRouteCheck,
     RaydiumClmmPoolState,
 )
@@ -30,6 +32,8 @@ from veltrix.raydium_clmm_aux_accounts import (
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArray,
     RaydiumClmmTickArraySnapshot,
+    RaydiumClmmTickArrayBitmapExtension,
+    RaydiumClmmTick,
     derive_raydium_clmm_tick_array_address,
 )
 from veltrix.simulation_gate import SimulationEvidence
@@ -41,7 +45,17 @@ def fixture():
     tick = derive_raydium_clmm_tick_array_address(pool_address=pool, start_tick_index=0)
     message = b"approved-raydium-message"
     digest = hashlib.sha256(message).hexdigest()
-    pool_bytes = b"source-pinned-pool-state"
+    pool_words = [0] * 16
+    pool_words[8] = 1  # default bitmap bit 512: current array at tick 0
+    pool_bytes_mut = bytearray(RAYDIUM_POOL_STATE_LENGTH)
+    pool_bytes_mut[73:105] = bytes(Pubkey.from_string(mint_in))
+    pool_bytes_mut[105:137] = bytes(Pubkey.from_string(mint_out))
+    pool_bytes_mut[235:237] = (10).to_bytes(2, "little")
+    pool_bytes_mut[269:273] = (0).to_bytes(4, "little", signed=True)
+    for index, word in enumerate(pool_words):
+        start = RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET + index * 8
+        pool_bytes_mut[start:start + 8] = word.to_bytes(8, "little")
+    pool_bytes = bytes(pool_bytes_mut)
     pool_hash = hashlib.sha256(pool_bytes).hexdigest()
     order = JupiterOrderTransaction(
         provider_id="jupiter-swap-v2", request_id="order", quote_id="quote",
@@ -62,7 +76,7 @@ def fixture():
         token_vault_0=vault0, token_vault_1=vault1, observation_key=observation,
         mint_decimals_0=6, mint_decimals_1=6, tick_spacing=10, liquidity=1000,
         sqrt_price_x64=1 << 64, tick_current=0, status=0, fee_on=0, seed_index=0,
-        account_data_sha256=pool_hash,
+        account_data_sha256=pool_hash, tick_array_bitmap=tuple(pool_words),
     )
     pool_check = RaydiumClmmPoolRouteCheck(True, pool_state, mint_in, mint_out)
     pool_account = DexPoolAccountEvidence(
@@ -84,7 +98,12 @@ def fixture():
     )
     tick_array = RaydiumClmmTickArray(
         address=tick, pool_address=pool, start_tick_index=0, tick_spacing=10,
-        initialized_tick_count=0, recent_epoch=1, ticks=(), data_sha256="c" * 64,
+        initialized_tick_count=1, recent_epoch=1,
+        ticks=(RaydiumClmmTick(
+            tick_index=0, liquidity_net=0, liquidity_gross=1,
+            orders_amount=0, part_filled_orders_remaining=0, initialized=True,
+        ),),
+        data_sha256="c" * 64,
     )
     tick_snapshot = RaydiumClmmTickArraySnapshot(
         digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503,
@@ -179,7 +198,7 @@ def test_rejects_missing_or_extra_tick_array_accounts():
 def test_rejects_stale_or_cross_provider_evidence():
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], provider_id="rpc-secondary")
-    with pytest.raises(RaydiumClmmPoolBindingError, match="provider/cluster"):
+    with pytest.raises(RaydiumClmmPoolBindingError, match="provider/cluster|pool and tick-array snapshots"):
         evaluate(tuple(values))
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], context_slot=501)
@@ -239,7 +258,26 @@ def test_rejects_tick_array_snapshot_that_omits_cpi_remaining_account_order():
 
 def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
     values = list(fixture())
-    bitmap = str(Pubkey.new_unique())
+    from veltrix.raydium_clmm_cpi_tick_arrays import (
+        TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR,
+        derive_raydium_clmm_tick_array_bitmap_extension_address,
+    )
+    pool_address = values[2].pool.pool_address
+    bitmap = derive_raydium_clmm_tick_array_bitmap_extension_address(pool_address=pool_address)
+    positive = (0,) * 112
+    negative = (0,) * 112
+    bitmap_bytes = (
+        TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+        + bytes(Pubkey.from_string(pool_address))
+        + b"".join(word.to_bytes(8, "little") for word in positive)
+        + b"".join(word.to_bytes(8, "little") for word in negative)
+    )
+    bitmap_hash = hashlib.sha256(bitmap_bytes).hexdigest()
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=bitmap, pool_address=pool_address,
+        positive_bitmaps=positive, negative_bitmaps=negative,
+        data_sha256=bitmap_hash, data_bytes=bitmap_bytes,
+    )
     values[1] = __import__("dataclasses").replace(
         values[1], tick_array_accounts=(values[1].tick_array_accounts[0], bitmap)
     )
@@ -247,7 +285,8 @@ def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
         values[5],
         cpi_account_order=(values[1].tick_array_accounts[0], bitmap),
         bitmap_extension_address=bitmap,
-        bitmap_extension_sha256="f" * 64,
+        bitmap_extension_sha256=bitmap_hash,
+        bitmap_extension=extension,
     )
     result = evaluate(tuple(values))
     assert result.tick_array_addresses == (values[1].tick_array_accounts[0],)

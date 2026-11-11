@@ -1,15 +1,20 @@
 """Adversarial tests for CPI-ordered Raydium CLMM tick-array evidence."""
 import base64
+import dataclasses
 import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
 
-from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
+from veltrix.dex_pool_evidence import DexPoolAccountEvidence, DexPoolEvidenceSnapshot
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.raydium_clmm_cpi import (
     RAYDIUM_CLMM_MAINNET_PROGRAM_ID,
     RaydiumClmmCpiResult,
+)
+from veltrix.raydium_clmm_bitmap_traversal import (
+    RaydiumClmmBitmapTraversalError,
+    verify_raydium_clmm_bitmap_traversal,
 )
 from veltrix.raydium_clmm_cpi_tick_arrays import (
     TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR,
@@ -22,6 +27,8 @@ from veltrix.raydium_clmm_cpi_tick_arrays import (
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_CLMM_SOURCE_COMMIT,
+    RAYDIUM_POOL_STATE_LENGTH,
+    RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET,
     RaydiumClmmPoolRouteCheck,
     RaydiumClmmPoolState,
 )
@@ -29,6 +36,8 @@ from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_DATA_LENGTH,
     RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
     derive_raydium_clmm_tick_array_address,
+    RaydiumClmmTickArray,
+    RaydiumClmmTick,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.simulation_gate import SimulationEvidence
@@ -70,7 +79,9 @@ def tick_array_data(pool, start):
     data[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
     data[8:40] = bytes(Pubkey.from_string(pool))
     data[40:44] = start.to_bytes(4, "little", signed=True)
-    data[10_124] = 0
+    data[44:48] = start.to_bytes(4, "little", signed=True)
+    data[64:80] = (1).to_bytes(16, "little")
+    data[10_124] = 1
     data[10_125:10_133] = (1).to_bytes(8, "little")
     return bytes(data)
 
@@ -105,20 +116,38 @@ def fixture(*, reverse=False, include_bitmap=True, slot=503, bad_bitmap_pool=Fal
         route_plan=(JupiterRouteStep(pool_address, "Raydium CLMM", mint0, mint1, 100, 190, 100.0, 10_000),),
         signature_fee_lamports=5000, prioritization_fee_lamports=0, rent_fee_lamports=0,
     )
+    pool_words = (0,) * 16
+    pool_data_mut = bytearray(RAYDIUM_POOL_STATE_LENGTH)
+    pool_data_mut[73:105] = bytes(Pubkey.from_string(mint0))
+    pool_data_mut[105:137] = bytes(Pubkey.from_string(mint1))
+    pool_data_mut[235:237] = (10).to_bytes(2, "little")
+    pool_data_mut[269:273] = (5).to_bytes(4, "little", signed=True)
+    for index, word in enumerate(pool_words):
+        offset = RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET + index * 8
+        pool_data_mut[offset:offset + 8] = word.to_bytes(8, "little")
+    pool_data = bytes(pool_data_mut)
+    pool_hash = hashlib.sha256(pool_data).hexdigest()
     pool = RaydiumClmmPoolState(
         pool_address=pool_address, bump=1, amm_config=amm_config,
         pool_creator=key(), token_mint_0=mint0, token_mint_1=mint1,
         token_vault_0=key(), token_vault_1=key(), observation_key=observation,
         mint_decimals_0=6, mint_decimals_1=6, tick_spacing=10,
         liquidity=1000, sqrt_price_x64=1 << 64, tick_current=5,
-        status=0, fee_on=0, seed_index=0, account_data_sha256="a" * 64,
+        status=0, fee_on=0, seed_index=0, account_data_sha256=pool_hash,
+        tick_array_bitmap=pool_words,
     )
     pool_check = RaydiumClmmPoolRouteCheck(True, pool, mint0, mint1)
+    pool_account = DexPoolAccountEvidence(
+        amm_key=pool_address, dex_label="Raydium CLMM",
+        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID, lamports=1, executable=False,
+        data_length=len(pool_data), data_sha256=pool_hash, data_bytes=pool_data,
+    )
     pool_evidence = DexPoolEvidenceSnapshot(
         route_message_sha256=digest, registry_sha256="registry",
         simulation_response_id="sim-cpi", simulation_context_slot=500,
         provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
-        context_slot=501, accounts=(),
+        context_slot=501, accounts=(pool_account,),
     )
     vaults = RaydiumClmmVaultSnapshot(
         route_message_sha256=digest, simulation_response_id="sim-cpi",
@@ -219,4 +248,223 @@ def test_rejects_wrong_bitmap_owner_length_and_discriminator():
             address=values[8], owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
             executable=False, data=bytes(TICK_ARRAY_BITMAP_EXTENSION_DATA_LENGTH),
             expected_pool_address=values[3].pool.pool_address,
+        )
+
+
+def _sync_pool_account(values, pool_check):
+    pool = pool_check.pool
+    evidence = values[2]
+    account = evidence.accounts[0]
+    raw = bytearray(account.data_bytes)
+    raw[73:105] = bytes(Pubkey.from_string(pool.token_mint_0))
+    raw[105:137] = bytes(Pubkey.from_string(pool.token_mint_1))
+    raw[235:237] = pool.tick_spacing.to_bytes(2, "little")
+    raw[269:273] = pool.tick_current.to_bytes(4, "little", signed=True)
+    for index, word in enumerate(pool.tick_array_bitmap):
+        offset = RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET + index * 8
+        raw[offset:offset + 8] = word.to_bytes(8, "little")
+    data = bytes(raw)
+    digest = hashlib.sha256(data).hexdigest()
+    pool = dataclasses.replace(pool, account_data_sha256=digest)
+    pool_check = dataclasses.replace(pool_check, pool=pool)
+    updated_account = dataclasses.replace(
+        account, data_bytes=data, data_length=len(data), data_sha256=digest
+    )
+    evidence = dataclasses.replace(evidence, accounts=(updated_account,))
+    return pool_check, evidence
+
+
+def _pool_check_with_initialized_arrays(values, starts):
+    pool_check = values[3]
+    words = [0] * 16
+    tick_count = 60 * pool_check.pool.tick_spacing
+    for start in starts:
+        bit = start // tick_count + 512
+        words[bit // 64] |= 1 << (bit % 64)
+    pool = dataclasses.replace(pool_check.pool, tick_array_bitmap=tuple(words))
+    return _sync_pool_account(values, dataclasses.replace(pool_check, pool=pool))
+
+
+def _synthetic_array(pool_address, start, tick_spacing=10):
+    address = derive_raydium_clmm_tick_array_address(
+        pool_address=pool_address, start_tick_index=start
+    )
+    return RaydiumClmmTickArray(
+        address=address, pool_address=pool_address, start_tick_index=start,
+        tick_spacing=tick_spacing, initialized_tick_count=1, recent_epoch=1,
+        ticks=(RaydiumClmmTick(
+            tick_index=start, liquidity_net=0, liquidity_gross=1,
+            orders_amount=0, part_filled_orders_remaining=0, initialized=True,
+        ),), data_sha256="a" * 64,
+    )
+
+
+def test_bitmap_traversal_proves_every_initialized_boundary_in_cpi_span():
+    values = fixture(include_bitmap=False)
+    snapshot = fetch(values)
+    pool_check, pool_evidence = _pool_check_with_initialized_arrays(values, (0, -600))
+    result = verify_raydium_clmm_bitmap_traversal(
+        values[0], pool_check=pool_check, pool_evidence=pool_evidence,
+        tick_array_snapshot=snapshot
+    )
+    assert result.passed is True
+    assert result.current_array_start_index == 0
+    assert result.first_initialized_array_start_index == 0
+    assert result.expected_initialized_array_starts == (0, -600)
+    assert result.bounded_interval_complete is True
+    assert result.execution_ready is False
+
+
+def test_bitmap_traversal_rejects_skipped_initialized_array_between_cpi_accounts():
+    values = fixture(include_bitmap=False)
+    snapshot = fetch(values)
+    pool_check, pool_evidence = _pool_check_with_initialized_arrays(values, (0, -600, -1200))
+    first = _synthetic_array(pool_check.pool.pool_address, 0)
+    last = _synthetic_array(pool_check.pool.pool_address, -1200)
+    changed = dataclasses.replace(
+        snapshot,
+        tick_arrays=(first, last),
+        cpi_account_order=(first.address, last.address),
+    )
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="omit initialized"):
+        verify_raydium_clmm_bitmap_traversal(
+            values[0], pool_check=pool_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=changed
+        )
+
+
+def _extension_with_bitmaps(extension, *, positive=None, negative=None):
+    from veltrix.raydium_clmm_cpi_tick_arrays import TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+    positive = tuple(positive if positive is not None else extension.positive_bitmaps)
+    negative = tuple(negative if negative is not None else extension.negative_bitmaps)
+    raw = (
+        TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+        + bytes(Pubkey.from_string(extension.pool_address))
+        + b"".join(word.to_bytes(8, "little") for word in positive)
+        + b"".join(word.to_bytes(8, "little") for word in negative)
+    )
+    digest = hashlib.sha256(raw).hexdigest()
+    return dataclasses.replace(
+        extension, positive_bitmaps=positive, negative_bitmaps=negative,
+        data_sha256=digest, data_bytes=raw,
+    )
+
+
+def test_bitmap_traversal_uses_positive_extension_bitmap_outside_default_range():
+    values = fixture()
+    order, _, _, pool_check, *_ = values
+    pool = dataclasses.replace(pool_check.pool, tick_current=307200)
+    pool_check = dataclasses.replace(
+        pool_check, pool=pool, route_input_mint=pool.token_mint_1,
+        route_output_mint=pool.token_mint_0,
+    )
+    order = dataclasses.replace(order, input_mint=pool.token_mint_1, output_mint=pool.token_mint_0)
+    pool_check, pool_evidence = _sync_pool_account(values, pool_check)
+    snapshot = fetch(values)
+    extension = snapshot.bitmap_extension
+    positive = [0] * len(extension.positive_bitmaps)
+    positive[0] = 0b11  # +307200 and +307800
+    extension = _extension_with_bitmaps(extension, positive=positive)
+    first = _synthetic_array(pool.pool_address, 307200)
+    second = _synthetic_array(pool.pool_address, 307800)
+    snapshot = dataclasses.replace(
+        snapshot, tick_arrays=(first, second),
+        cpi_account_order=(first.address, snapshot.bitmap_extension_address, second.address),
+        bitmap_extension=extension,
+        bitmap_extension_sha256=extension.data_sha256,
+    )
+    result = verify_raydium_clmm_bitmap_traversal(
+        order, pool_check=pool_check, pool_evidence=pool_evidence,
+        tick_array_snapshot=snapshot
+    )
+    assert result.expected_initialized_array_starts == (307200, 307800)
+    assert result.zero_for_one is False
+
+
+def test_bitmap_traversal_uses_negative_extension_bitmap_outside_default_range():
+    values = fixture()
+    order, _, _, pool_check, *_ = values
+    pool = dataclasses.replace(pool_check.pool, tick_current=-307800)
+    pool_check = dataclasses.replace(
+        pool_check, pool=pool, route_input_mint=pool.token_mint_0,
+        route_output_mint=pool.token_mint_1,
+    )
+    order = dataclasses.replace(order, input_mint=pool.token_mint_0, output_mint=pool.token_mint_1)
+    pool_check, pool_evidence = _sync_pool_account(values, pool_check)
+    snapshot = fetch(values)
+    extension = snapshot.bitmap_extension
+    negative = [0] * len(extension.negative_bitmaps)
+    negative[7] = 1 << (511 % 64)  # block 0, bit 511: -307800
+    negative[7] |= 1 << (510 % 64)  # block 0, bit 510: -308400
+    extension = _extension_with_bitmaps(extension, negative=negative)
+    first = _synthetic_array(pool.pool_address, -307800)
+    second = _synthetic_array(pool.pool_address, -308400)
+    snapshot = dataclasses.replace(
+        snapshot, tick_arrays=(first, second),
+        cpi_account_order=(first.address, snapshot.bitmap_extension_address, second.address),
+        bitmap_extension=extension,
+        bitmap_extension_sha256=extension.data_sha256,
+    )
+    result = verify_raydium_clmm_bitmap_traversal(
+        order, pool_check=pool_check, pool_evidence=pool_evidence,
+        tick_array_snapshot=snapshot
+    )
+    assert result.expected_initialized_array_starts == (-307800, -308400)
+    assert result.zero_for_one is True
+
+
+def test_bitmap_traversal_rejects_uninitialized_extra_cpi_array():
+    values = fixture(include_bitmap=False)
+    snapshot = fetch(values)
+    pool_check, pool_evidence = _pool_check_with_initialized_arrays(values, (0, -600))
+    extra = _synthetic_array(pool_check.pool.pool_address, -1200)
+    first, second = snapshot.tick_arrays
+    changed = dataclasses.replace(
+        snapshot,
+        tick_arrays=(first, second, extra),
+        cpi_account_order=(first.address, second.address, extra.address),
+    )
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="uninitialized|differs from PoolState"):
+        verify_raydium_clmm_bitmap_traversal(
+            values[0], pool_check=pool_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=changed,
+        )
+
+
+def test_bitmap_traversal_rejects_pool_bitmap_object_tampering():
+    values = fixture(include_bitmap=False)
+    snapshot = fetch(values)
+    pool_check, pool_evidence = _pool_check_with_initialized_arrays(values, (0, -600))
+    tampered_pool = dataclasses.replace(
+        pool_check.pool, tick_array_bitmap=(0,) * 16
+    )
+    tampered_check = dataclasses.replace(pool_check, pool=tampered_pool)
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="bitmap words differ"):
+        verify_raydium_clmm_bitmap_traversal(
+            values[0], pool_check=tampered_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=snapshot,
+        )
+
+
+def test_bitmap_traversal_rejects_extension_words_not_matching_raw_account_digest():
+    values = fixture()
+    order, _, _, pool_check, *_ = values
+    pool = dataclasses.replace(pool_check.pool, tick_current=307200)
+    pool_check = dataclasses.replace(
+        pool_check, pool=pool, route_input_mint=pool.token_mint_1,
+        route_output_mint=pool.token_mint_0,
+    )
+    order = dataclasses.replace(order, input_mint=pool.token_mint_1, output_mint=pool.token_mint_0)
+    pool_check, pool_evidence = _sync_pool_account(values, pool_check)
+    snapshot = fetch(values)
+    changed_words = list(snapshot.bitmap_extension.positive_bitmaps)
+    changed_words[0] = 1
+    tampered_extension = dataclasses.replace(
+        snapshot.bitmap_extension, positive_bitmaps=tuple(changed_words)
+    )
+    snapshot = dataclasses.replace(snapshot, bitmap_extension=tampered_extension)
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="decoded bitmap words differ"):
+        verify_raydium_clmm_bitmap_traversal(
+            order, pool_check=pool_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=snapshot,
         )

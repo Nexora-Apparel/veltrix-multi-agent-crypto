@@ -19,10 +19,13 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.raydium_clmm_aux_accounts import RaydiumClmmAuxAccountSnapshot
 from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
+from veltrix.raydium_clmm_bitmap_traversal import (
+    RaydiumClmmBitmapTraversalError,
+    verify_raydium_clmm_bitmap_traversal,
+)
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArraySnapshot,
     derive_raydium_clmm_tick_array_address,
-    raydium_current_tick_array_start,
 )
 from veltrix.simulation_gate import SimulationEvidence
 
@@ -45,6 +48,8 @@ class RaydiumClmmPoolBindingResult:
     aux_snapshot_slot: int
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     execution_ready: bool = False
+    traversal_direction: str = ""
+    traversal_start_indices: tuple[int, ...] = ()
 
 
 def evaluate_raydium_clmm_cpi_pool_binding(
@@ -202,15 +207,11 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         raise RaydiumClmmPoolBindingError("tick-array snapshot contains an array for a different pool")
     if any(item.tick_spacing != pool.tick_spacing for item in tick_array_snapshot.tick_arrays):
         raise RaydiumClmmPoolBindingError("tick-array spacing differs from the decoded PoolState")
-    expected_current_start = raydium_current_tick_array_start(pool.tick_current, pool.tick_spacing)
     for item in tick_array_snapshot.tick_arrays:
-        if item.start_tick_index != expected_current_start:
-            raise RaydiumClmmPoolBindingError("tick-array start index is not the pool's current tick array")
         if derive_raydium_clmm_tick_array_address(
             pool_address=pool.pool_address, start_tick_index=item.start_tick_index
         ) != item.address:
             raise RaydiumClmmPoolBindingError("tick-array address does not match the canonical pool PDA")
-
     if (
         pool_evidence.provider_id != simulation.provider_id
         or vault_snapshot.provider_id != simulation.provider_id
@@ -240,6 +241,16 @@ def evaluate_raydium_clmm_cpi_pool_binding(
     ):
         raise RaydiumClmmPoolBindingError("pool, vault and tick-array snapshot slots are not monotonically fresh")
 
+    try:
+        traversal = verify_raydium_clmm_bitmap_traversal(
+            order,
+            pool_check=pool_check,
+            pool_evidence=pool_evidence,
+            tick_array_snapshot=tick_array_snapshot,
+        )
+    except RaydiumClmmBitmapTraversalError as exc:
+        raise RaydiumClmmPoolBindingError(f"Raydium bitmap traversal proof failed: {exc}") from exc
+
     return RaydiumClmmPoolBindingResult(
         passed=True,
         message_sha256=digest,
@@ -252,4 +263,6 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         tick_array_snapshot_slot=tick_array_snapshot.context_slot,
         aux_snapshot_slot=aux_snapshot.context_slot,
         execution_ready=False,
+        traversal_direction="zero_for_one" if traversal.zero_for_one else "one_for_zero",
+        traversal_start_indices=traversal.expected_initialized_array_starts,
     )
