@@ -5,6 +5,8 @@ on:
     paths:
       - "veltrix/raydium_clmm_tick_math.py"
       - "veltrix/raydium_clmm_swap_step_math.py"
+      - "veltrix/raydium_clmm_dynamic_fee.py"
+      - "veltrix/raydium_clmm_pool_state.py"
       - "scripts/export_raydium_differential_vectors.py"
       - "rust-oracle/**"
       - ".github/workflows/raydium-rust-differential.yml"
