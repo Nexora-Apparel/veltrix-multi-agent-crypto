@@ -22,6 +22,7 @@ from veltrix.simulation_gate import (
     ExpectedTokenDelta,
     SimulatedTokenBalance,
     SimulatedInnerInstruction,
+    SimulationAccountSnapshot,
     SimulationEvidence,
     SimulationGateError,
 )
@@ -41,6 +42,8 @@ TOKEN_PROGRAM_IDS = frozenset({
 TOKEN_ACCOUNT_BASE_SIZE = 165
 MAX_TRACKED_TOKEN_ACCOUNTS = 100
 MAX_INNER_INSTRUCTION_DATA_BYTES = 4096
+MAX_ACCOUNT_SNAPSHOT_DATA_BYTES = 65_536
+MAX_TOTAL_ACCOUNT_SNAPSHOT_BYTES = 1_048_576
 _BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _BASE58_INDEX = {character: index for index, character in enumerate(_BASE58_ALPHABET)}
 
@@ -228,6 +231,39 @@ class SolanaRpcSimulationAdapter:
         amount = int.from_bytes(raw[64:72], "little", signed=False)
         return program_owner, mint, owner, amount
 
+    @staticmethod
+    def _account_snapshot_fields(info: Any, address: str) -> tuple[bool, str | None, bool | None, int, bytes]:
+        if info is None:
+            return False, None, None, 0, b""
+        if not isinstance(info, dict):
+            raise SolanaRpcAdapterError(f"account snapshot for {address} is malformed")
+        owner = info.get("owner")
+        executable = info.get("executable")
+        lamports = info.get("lamports")
+        if not isinstance(owner, str) or not owner:
+            raise SolanaRpcAdapterError(f"account snapshot for {address} omitted its owner")
+        if not isinstance(executable, bool):
+            raise SolanaRpcAdapterError(f"account snapshot for {address} omitted executable status")
+        if isinstance(lamports, bool) or not isinstance(lamports, int) or lamports < 0:
+            raise SolanaRpcAdapterError(f"account snapshot for {address} has invalid lamports")
+        from solders.pubkey import Pubkey
+        try:
+            if str(Pubkey.from_string(owner)) != owner:
+                raise ValueError("non-canonical owner")
+        except Exception as exc:
+            raise SolanaRpcAdapterError(f"account snapshot for {address} has a non-canonical owner") from exc
+        if executable:
+            return True, owner, True, lamports, b""
+        data_field = info.get("data")
+        if not isinstance(data_field, list) or len(data_field) != 2 or data_field[1] != "base64" or not isinstance(data_field[0], str):
+            raise SolanaRpcAdapterError(f"account snapshot for {address} has unsupported data encoding")
+        try:
+            raw = base64.b64decode(data_field[0], validate=True)
+        except Exception as exc:
+            raise SolanaRpcAdapterError(f"account snapshot for {address} has malformed base64 data") from exc
+        if len(raw) > MAX_ACCOUNT_SNAPSHOT_DATA_BYTES:
+            raise SolanaRpcAdapterError(f"account snapshot for {address} exceeds the data size limit")
+        return True, owner, False, lamports, raw
     def simulate(
         self,
         message_bytes: bytes,
