@@ -6,7 +6,7 @@ against the swap settlement. This is evidence evaluation only, never execution.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 from veltrix.raydium_clmm_observation import RaydiumClmmObservationState
