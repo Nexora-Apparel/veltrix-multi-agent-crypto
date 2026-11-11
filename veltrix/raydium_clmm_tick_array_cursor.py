@@ -143,6 +143,7 @@ class RaydiumClmmTickArrayQueue:
     current: RaydiumClmmTickArray | None = None
     consumed_addresses: tuple[str, ...] = ()
     skipped_addresses: tuple[str, ...] = ()
+    selected_addresses: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.pool_address, str) or not self.pool_address:
@@ -170,15 +171,23 @@ class RaydiumClmmTickArrayQueue:
         expected_consumed = tuple(addresses[:self.next_index])
         if self.consumed_addresses != expected_consumed:
             raise RaydiumTickArrayCursorError("consumed account addresses do not match the queue cursor")
+        if len(self.selected_addresses) != len(set(self.selected_addresses)):
+            raise RaydiumTickArrayCursorError("selected TickArrayState addresses contain duplicates")
         if self.current is None:
-            if self.next_index != 0 or self.skipped_addresses:
-                raise RaydiumTickArrayCursorError("unselected queue cannot have consumed or skipped accounts")
+            if self.next_index != 0 or self.skipped_addresses or self.selected_addresses:
+                raise RaydiumTickArrayCursorError("unselected queue cannot have consumed, skipped or selected accounts")
         elif (
             self.next_index == 0
             or self.current != self.arrays[self.next_index - 1]
-            or self.skipped_addresses != tuple(addresses[:self.next_index - 1])
+            or not self.selected_addresses
+            or self.selected_addresses[-1] != self.current.address
+            or not set(self.selected_addresses).issubset(set(self.consumed_addresses))
+            or self.skipped_addresses != tuple(
+                address for address in self.consumed_addresses
+                if address not in set(self.selected_addresses)
+            )
         ):
-            raise RaydiumTickArrayCursorError("current and skipped accounts do not match the consumed queue prefix")
+            raise RaydiumTickArrayCursorError("current, selected and skipped accounts do not match the consumed queue prefix")
 
     @classmethod
     def from_snapshot(
@@ -225,6 +234,7 @@ class RaydiumClmmTickArrayQueue:
                     current=array,
                     consumed_addresses=consumed,
                     skipped_addresses=tuple(item.address for item in self.arrays[:index]),
+                    selected_addresses=(array.address,),
                 )
         raise RaydiumTickArrayCursorError("not enough CPI tick-array accounts for the first bitmap-selected array")
 
@@ -253,5 +263,6 @@ class RaydiumClmmTickArrayQueue:
                     current=array,
                     consumed_addresses=consumed,
                     skipped_addresses=skipped,
+                    selected_addresses=self.selected_addresses + (array.address,),
                 )
         raise RaydiumTickArrayCursorError("not enough CPI tick-array accounts for the bitmap-selected next array")
