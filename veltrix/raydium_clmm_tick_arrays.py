@@ -56,6 +56,7 @@ class RaydiumClmmTickArray:
     recent_epoch: int
     ticks: tuple[RaydiumClmmTick, ...]
     data_sha256: str
+    raw_data: bytes = b""
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +222,7 @@ def decode_raydium_clmm_tick_array(
         recent_epoch=recent_epoch,
         ticks=tuple(ticks),
         data_sha256=hashlib.sha256(data).hexdigest(),
+        raw_data=data,
     )
 
 
