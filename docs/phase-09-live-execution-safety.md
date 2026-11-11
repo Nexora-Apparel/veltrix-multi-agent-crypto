@@ -670,6 +670,7 @@ Implemented in `veltrix/raydium_clmm_tick_array_mutation.py`, pinned to Raydium 
 
 - Adds immutable TickState replacement at the canonical tick-array offset, with pool identity, tick-spacing, slot-index, integer-domain, liquidity and reserved-padding validation.
 - Reconciles the decoded initialized-tick count against all 60 records before mutation; applies checked u8 increment/decrement semantics and rejects stale or inconsistent counts.
+- Requires the caller's explicit Solana epoch and persists it to `recent_epoch`, matching `TickArrayState::update_tick_state`; invalidates the prior account-data hash whenever the PoolState bitmap, TickArrayState, or bitmap extension is mutated.
 - Changes the PoolState default 1024-bit bitmap only when the array transitions between empty and non-empty; validates the prior bit against the prior initialized count to prevent duplicate/stale flips.
 - Adds owner/discriminator/length/pool/PDA-verified decoding for the 1832-byte TickArrayBitmapExtension account.
 - Ports the positive/negative 14-by-512 extension bitmap indexing and bit-flip transitions, including the asymmetric negative-boundary mapping.
