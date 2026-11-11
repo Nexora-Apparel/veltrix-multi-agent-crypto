@@ -48,3 +48,9 @@ def test_helius_header_session_does_not_add_auth_header_without_key():
     )
 
     assert capture.kwargs["headers"] == {"Content-Type": "application/json"}
+
+
+def test_mainnet_genesis_hash_matches_canonical_solana_mainnet():
+    from veltrix.live_raydium_pool_validation import MAINNET_GENESIS
+
+    assert MAINNET_GENESIS == "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
