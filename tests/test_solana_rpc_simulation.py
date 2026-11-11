@@ -567,7 +567,7 @@ def test_preserves_full_inner_cpi_instruction_evidence():
     assert inner.ordinal == 0
     assert inner.program_id == result.validation.program_ids[0]
     assert inner.account_keys == tuple(result.validation.account_keys[i] for i in bytes(compiled.accounts))
-    assert inner.data == b"\\x01"
+    assert inner.data == b"\x01"
     assert inner.stack_height == 2
 
 
