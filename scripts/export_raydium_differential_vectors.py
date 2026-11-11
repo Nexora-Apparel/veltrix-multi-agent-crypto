@@ -6,13 +6,20 @@ import argparse
 import json
 from pathlib import Path
 
+from solders.pubkey import Pubkey
+
 from veltrix.raydium_clmm_dynamic_fee import (
     tick_spacing_index_from_tick,
     update_dynamic_fee_reference,
     update_volatility_accumulator,
     compute_total_fee_rate,
 )
-from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo
+from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo, RaydiumClmmPoolState
+from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
+from veltrix.raydium_clmm_dynamic_fee import RaydiumDynamicFeeSwapState
+from veltrix.raydium_clmm_swap_inner_iteration import RaydiumClmmSwapInnerIterationResult
+from veltrix.raydium_clmm_pool_post_swap_finalization import finalize_raydium_pool_after_swap
+from veltrix.raydium_clmm_limit_orders import RaydiumLimitOrderMatch
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
 from veltrix.raydium_clmm_tick_math import Q64
 from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
@@ -331,6 +338,123 @@ def tick_crossing_vectors() -> list[dict]:
         })
     return cases
 
+
+def pool_finalization_vectors() -> list[dict]:
+    cases = []
+    for fee_on in (0, 1, 2):
+        for zero_for_one in (True, False):
+            dynamic_initial = make_dynamic_info()
+            dynamic_updated = RaydiumClmmDynamicFeeInfo(
+                filter_period=dynamic_initial.filter_period,
+                decay_period=dynamic_initial.decay_period,
+                reduction_factor=dynamic_initial.reduction_factor,
+                dynamic_fee_control=dynamic_initial.dynamic_fee_control,
+                max_volatility_accumulator=dynamic_initial.max_volatility_accumulator,
+                tick_spacing_index_reference=10,
+                volatility_reference=2500,
+                volatility_accumulator=5000,
+                last_update_timestamp=1060,
+                padding=bytes(46),
+            )
+            pool = RaydiumClmmPoolState(
+                pool_address=str(Pubkey.new_unique()),
+                bump=1,
+                amm_config=str(Pubkey.new_unique()),
+                pool_creator=str(Pubkey.new_unique()),
+                token_mint_0=str(Pubkey.new_unique()),
+                token_mint_1=str(Pubkey.new_unique()),
+                token_vault_0=str(Pubkey.new_unique()),
+                token_vault_1=str(Pubkey.new_unique()),
+                observation_key=str(Pubkey.new_unique()),
+                mint_decimals_0=6,
+                mint_decimals_1=6,
+                tick_spacing=10,
+                liquidity=1000,
+                sqrt_price_x64=Q64,
+                tick_current=0,
+                status=0,
+                fee_on=fee_on,
+                seed_index=0,
+                account_data_sha256="a" * 64,
+                fee_growth_global_0_x64=10,
+                fee_growth_global_1_x64=20,
+                protocol_fees_token_0=100,
+                protocol_fees_token_1=200,
+                fund_fees_token_0=300,
+                fund_fees_token_1=400,
+                dynamic_fee_info=dynamic_initial,
+            )
+            fee_state = RaydiumFeeAccountingState(
+                amount_specified_remaining=0,
+                amount_calculated=100,
+                liquidity=456,
+                fee_growth_global_x64=999,
+                lp_fee=7,
+                protocol_fee=8,
+                fund_fee=9,
+            )
+            iteration = RaydiumClmmSwapInnerIterationResult(
+                fee_state=fee_state,
+                tick_state=None,
+                tick=12,
+                sqrt_price_x64=Q64 + 1,
+                dynamic_fee_state=RaydiumDynamicFeeSwapState(
+                    dynamic_updated, 10, 3000, 10
+                ),
+                liquidity_next=456,
+                price_step=None,
+                limit_order_match=RaydiumLimitOrderMatch(),
+                unfilled_amount_before=0,
+                unfilled_amount_after=0,
+                reached_initialized_tick=False,
+                crossed_tick=False,
+                should_break=True,
+                swap_complete=True,
+            )
+            result = finalize_raydium_pool_after_swap(
+                pool, iteration, zero_for_one=zero_for_one
+            )
+            updated = result.pool
+            cases.append({
+                "fee_on": fee_on,
+                "zero_for_one": zero_for_one,
+                "tick": 12,
+                "sqrt_price_x64": str(Q64 + 1),
+                "liquidity": 456,
+                "lp_fee": 7,
+                "protocol_fee": 8,
+                "fund_fee": 9,
+                "fee_growth_global_x64": "999",
+                "dynamic_fee_info": {
+                    "filter_period": dynamic_updated.filter_period,
+                    "decay_period": dynamic_updated.decay_period,
+                    "reduction_factor": dynamic_updated.reduction_factor,
+                    "dynamic_fee_control": dynamic_updated.dynamic_fee_control,
+                    "max_volatility_accumulator": dynamic_updated.max_volatility_accumulator,
+                    "tick_spacing_index_reference": dynamic_updated.tick_spacing_index_reference,
+                    "volatility_reference": dynamic_updated.volatility_reference,
+                    "volatility_accumulator": dynamic_updated.volatility_accumulator,
+                    "last_update_timestamp": dynamic_updated.last_update_timestamp,
+                },
+                "expected": {
+                    "fee_token0": result.fee_token0,
+                    "tick_current": updated.tick_current,
+                    "sqrt_price_x64": str(updated.sqrt_price_x64),
+                    "liquidity": str(updated.liquidity),
+                    "fee_growth_global_0_x64": str(updated.fee_growth_global_0_x64),
+                    "fee_growth_global_1_x64": str(updated.fee_growth_global_1_x64),
+                    "protocol_fees_token_0": updated.protocol_fees_token_0,
+                    "protocol_fees_token_1": updated.protocol_fees_token_1,
+                    "fund_fees_token_0": updated.fund_fees_token_0,
+                    "fund_fees_token_1": updated.fund_fees_token_1,
+                    "dynamic_tick_reference": updated.dynamic_fee_info.tick_spacing_index_reference,
+                    "dynamic_volatility_reference": updated.dynamic_fee_info.volatility_reference,
+                    "dynamic_volatility_accumulator": updated.dynamic_fee_info.volatility_accumulator,
+                    "dynamic_last_update_timestamp": updated.dynamic_fee_info.last_update_timestamp,
+                },
+            })
+    return cases
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -372,6 +496,7 @@ def build_vectors() -> dict:
         "dynamic_fee": dynamic_fee_vectors(),
         "limit_orders": limit_order_vectors(),
         "tick_crossing": tick_crossing_vectors(),
+        "pool_finalization": pool_finalization_vectors(),
     }
 
 
