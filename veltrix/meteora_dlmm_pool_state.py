@@ -69,6 +69,7 @@ class SplTokenAccountState:
 @dataclass(frozen=True, slots=True)
 class MeteoraDlmmPoolStateResult:
     passed: bool
+    message_sha256: str
     pool_state: MeteoraLbPairState
     reserve_x_state: SplTokenAccountState
     reserve_y_state: SplTokenAccountState
@@ -246,6 +247,7 @@ def evaluate_meteora_dlmm_pool_state(
 
     return MeteoraDlmmPoolStateResult(
         passed=True,
+        message_sha256=digest,
         pool_state=pool,
         reserve_x_state=reserve_x,
         reserve_y_state=reserve_y,
