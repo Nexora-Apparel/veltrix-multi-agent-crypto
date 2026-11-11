@@ -141,7 +141,7 @@ def decode_raydium_clmm_pool_state(
     if isinstance(account.lamports, bool) or not isinstance(account.lamports, int) or account.lamports <= 0:
         raise RaydiumClmmPoolStateError("Raydium pool account must have positive lamports")
     if not isinstance(data, bytes) or account.data_length != len(data) or len(data) != RAYDIUM_POOL_STATE_LENGTH:
-        raise RaydiumClmmPoolStateError("Raydium PoolState account length differs from the pinned 1576-byte layout")
+        raise RaydiumClmmPoolStateError("Raydium PoolState account length differs from the pinned 1544-byte layout")
     if hashlib.sha256(data).hexdigest() != account.data_sha256:
         raise RaydiumClmmPoolStateError("pool account data hash differs from owner evidence")
     if data[:8] != RAYDIUM_POOL_STATE_DISCRIMINATOR:
