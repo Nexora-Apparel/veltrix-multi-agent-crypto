@@ -15,6 +15,21 @@ from veltrix.raydium_clmm_observation import (
     RaydiumClmmObservationState,
     derive_raydium_clmm_observation_address,
 )
+from veltrix.raydium_clmm_post_state_parity import (
+    RaydiumSwapPostStateParityError,
+    verify_raydium_swap_post_state_parity,
+)
+from veltrix.raydium_clmm_vaults import (
+    CLASSIC_SPL_TOKEN_PROGRAM_ID,
+    TOKEN_ACCOUNT_INITIALIZED,
+    RaydiumClmmVaultAccount,
+    RaydiumClmmVaultSnapshot,
+)
+from veltrix.simulation_gate import (
+    SimulatedAccountState,
+    SimulatedTokenBalance,
+    SimulationEvidence,
+)
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
     RAYDIUM_POOL_STATE_LENGTH,
@@ -191,3 +206,172 @@ def test_finalizer_rejects_missing_original_pool_bytes():
     )
     with pytest.raises(RaydiumSwapFinalizationError, match="raw account bytes"):
         finalize_raydium_swap_state(loop, make_observation(pool))
+
+
+
+def make_finalization():
+    pool = make_pool()
+    array = make_tick_array(pool)
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True, pool_address=pool.pool_address, zero_for_one=False,
+        current_array_start_index=0, first_initialized_array_start_index=0,
+        last_cpi_array_start_index=0, expected_initialized_array_starts=(0,),
+        supplied_initialized_array_starts=(0,), supplied_array_starts=(0,),
+        bitmap_extension_sha256=None, bounded_interval_complete=True,
+    )
+    loop = execute_raydium_swap_loop(
+        pool, (array,), traversal, amount_specified=100_000,
+        trade_fee_rate=3000, zero_for_one=False, is_base_input=True,
+        block_timestamp=100, sqrt_price_limit_x64=get_sqrt_price_at_tick(10),
+        protocol_fee_rate=1000, fund_fee_rate=500, recent_epoch=2,
+    )
+    observation = make_observation(pool)
+    finalization = finalize_raydium_swap_state(loop, observation)
+    return pool, array, observation, finalization
+
+
+def make_simulation_and_vaults(pool, array, observation, finalization):
+    message_hash = "c" * 64
+    account_inputs = (
+        (pool.pool_address, pool.raw_data, finalization.pool_data, finalization.source_pool_sha256),
+        (array.address, array.raw_data, finalization.tick_array_data[0], finalization.source_tick_array_sha256[0]),
+        (observation.address, observation.raw_data, finalization.observation_data, finalization.source_observation_sha256),
+    )
+    account_states = tuple(
+        SimulatedAccountState(
+            address=address,
+            pre_owner=RAYDIUM_CLMM_PROGRAM_ID,
+            post_owner=RAYDIUM_CLMM_PROGRAM_ID,
+            pre_lamports=1,
+            post_lamports=1,
+            pre_executable=False,
+            post_executable=False,
+            pre_data=pre_data,
+            post_data=post_data,
+            pre_data_sha256=source_hash,
+            post_data_sha256=hashlib.sha256(post_data).hexdigest(),
+        )
+        for address, pre_data, post_data, source_hash in account_inputs
+    )
+    delta0 = finalization.settlement.amount_0 if finalization.zero_for_one else -finalization.settlement.amount_0
+    delta1 = -finalization.settlement.amount_1 if finalization.zero_for_one else finalization.settlement.amount_1
+    starting_balance = 1_000_000_000
+    balances = (
+        SimulatedTokenBalance(
+            token_account=pool.token_vault_0, mint=pool.token_mint_0,
+            owner=pool.pool_address, pre_amount_raw=starting_balance,
+            post_amount_raw=starting_balance + delta0,
+            token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+        ),
+        SimulatedTokenBalance(
+            token_account=pool.token_vault_1, mint=pool.token_mint_1,
+            owner=pool.pool_address, pre_amount_raw=starting_balance,
+            post_amount_raw=starting_balance + delta1,
+            token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+        ),
+    )
+    simulation = SimulationEvidence(
+        message_sha256=message_hash,
+        recent_blockhash="recent-blockhash",
+        cluster="devnet",
+        genesis_hash="devnet-genesis",
+        provider_id="test-rpc",
+        response_id="simulation-1",
+        observed_at_epoch_ms=1,
+        context_slot=50,
+        current_block_height=10,
+        last_valid_block_height=20,
+        simulation_error=None,
+        units_consumed=100_000,
+        fee_lamports=5_000,
+        token_balances=balances,
+        inner_program_ids=(RAYDIUM_CLMM_PROGRAM_ID,),
+        inner_instruction_count=1,
+        account_states=account_states,
+    )
+    vaults = tuple(
+        RaydiumClmmVaultAccount(
+            address=address,
+            pool_address=pool.pool_address,
+            mint=mint,
+            token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+            token_authority=pool.pool_address,
+            amount_raw=starting_balance,
+            state=TOKEN_ACCOUNT_INITIALIZED,
+            lamports=1,
+            data_sha256="d" * 64,
+        )
+        for address, mint in (
+            (pool.token_vault_0, pool.token_mint_0),
+            (pool.token_vault_1, pool.token_mint_1),
+        )
+    )
+    vault_snapshot = RaydiumClmmVaultSnapshot(
+        route_message_sha256=message_hash,
+        simulation_response_id=simulation.response_id,
+        simulation_context_slot=simulation.context_slot,
+        provider_id=simulation.provider_id,
+        cluster=simulation.cluster,
+        genesis_hash=simulation.genesis_hash,
+        context_slot=simulation.context_slot,
+        vaults=vaults,
+    )
+    return simulation, vault_snapshot, message_hash
+
+
+def test_independent_simulation_post_state_and_vault_reconciliation_pass():
+    pool, array, observation, finalization = make_finalization()
+    simulation, vaults, message_hash = make_simulation_and_vaults(
+        pool, array, observation, finalization,
+    )
+    result = verify_raydium_swap_post_state_parity(
+        finalization, simulation, vaults,
+        expected_message_sha256=message_hash,
+    )
+    assert result.passed is True
+    assert result.verified_account_count == 3
+    assert result.verified_vault_count == 2
+    assert result.amount_0_delta_raw == -finalization.settlement.amount_0
+    assert result.amount_1_delta_raw == finalization.settlement.amount_1
+    assert result.execution_ready is False
+
+
+def test_post_state_parity_rejects_any_account_byte_difference():
+    pool, array, observation, finalization = make_finalization()
+    simulation, vaults, message_hash = make_simulation_and_vaults(
+        pool, array, observation, finalization,
+    )
+    first = simulation.account_states[0]
+    changed = first.post_data[:-1] + bytes([first.post_data[-1] ^ 1])
+    bad_first = replace(
+        first,
+        post_data=changed,
+        post_data_sha256=hashlib.sha256(changed).hexdigest(),
+    )
+    bad_simulation = replace(
+        simulation,
+        account_states=(bad_first,) + simulation.account_states[1:],
+    )
+    with pytest.raises(RaydiumSwapPostStateParityError, match="bytes differ"):
+        verify_raydium_swap_post_state_parity(
+            finalization, bad_simulation, vaults,
+            expected_message_sha256=message_hash,
+        )
+
+
+def test_vault_reconciliation_rejects_one_raw_unit_delta_error():
+    pool, array, observation, finalization = make_finalization()
+    simulation, vaults, message_hash = make_simulation_and_vaults(
+        pool, array, observation, finalization,
+    )
+    first = simulation.token_balances[0]
+    bad_first = replace(first, post_amount_raw=first.post_amount_raw + 1)
+    bad_simulation = replace(
+        simulation,
+        token_balances=(bad_first, simulation.token_balances[1]),
+    )
+    with pytest.raises(RaydiumSwapPostStateParityError, match="token-0 pool-vault delta"):
+        verify_raydium_swap_post_state_parity(
+            finalization, bad_simulation, vaults,
+            expected_message_sha256=message_hash,
+        )
