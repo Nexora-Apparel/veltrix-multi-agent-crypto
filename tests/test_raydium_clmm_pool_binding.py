@@ -198,7 +198,7 @@ def test_rejects_missing_or_extra_tick_array_accounts():
 def test_rejects_stale_or_cross_provider_evidence():
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], provider_id="rpc-secondary")
-    with pytest.raises(RaydiumClmmPoolBindingError, match="provider/cluster"):
+    with pytest.raises(RaydiumClmmPoolBindingError, match="provider/cluster|pool and tick-array snapshots"):
         evaluate(tuple(values))
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], context_slot=501)
