@@ -16,6 +16,7 @@ from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
 from veltrix.raydium_clmm_tick_math import Q64
 from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
+from veltrix.raydium_clmm_tick_crossing import RaydiumRewardGrowth, cross_tick_and_apply_liquidity
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
@@ -271,6 +272,65 @@ def limit_order_vectors() -> list[dict]:
         })
     return vectors
 
+
+def tick_crossing_vectors() -> list[dict]:
+    cases = []
+    reward_slots = (
+        RaydiumRewardGrowth(True, 80),
+        RaydiumRewardGrowth(False, 90),
+        RaydiumRewardGrowth(True, 120),
+    )
+    for zero_for_one in (True, False):
+        tick = RaydiumClmmTick(
+            tick_index=10,
+            liquidity_net=100,
+            liquidity_gross=200,
+            orders_amount=0,
+            part_filled_orders_remaining=0,
+            initialized=True,
+            fee_growth_outside_0_x64=10,
+            fee_growth_outside_1_x64=20,
+            reward_growths_outside_x64=(5, 11, 17),
+            order_phase=0,
+            unfilled_ratio_x64=0,
+            padding=(0, 0, 0),
+        )
+        result = cross_tick_and_apply_liquidity(
+            tick,
+            current_liquidity=1000,
+            fee_growth_global_0_x64=100,
+            fee_growth_global_1_x64=200,
+            reward_infos=reward_slots,
+            zero_for_one=zero_for_one,
+        )
+        cases.append({
+            "zero_for_one": zero_for_one,
+            "current_liquidity": 1000,
+            "fee_growth_global_0_x64": "100",
+            "fee_growth_global_1_x64": "200",
+            "tick": {
+                "tick_index": 10,
+                "liquidity_net": 100,
+                "liquidity_gross": 200,
+                "fee_growth_outside_0_x64": "10",
+                "fee_growth_outside_1_x64": "20",
+                "reward_growths_outside_x64": ["5", "11", "17"],
+            },
+            "rewards": [
+                {"initialized": True, "reward_growth_global_x64": "80"},
+                {"initialized": False, "reward_growth_global_x64": "90"},
+                {"initialized": True, "reward_growth_global_x64": "120"},
+            ],
+            "expected": {
+                "liquidity_net": result.liquidity_net,
+                "liquidity_after": result.liquidity_after,
+                "fee_growth_outside_0_x64": str(result.tick.fee_growth_outside_0_x64),
+                "fee_growth_outside_1_x64": str(result.tick.fee_growth_outside_1_x64),
+                "reward_growths_outside_x64": [str(value) for value in result.tick.reward_growths_outside_x64],
+            },
+        })
+    return cases
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -311,6 +371,7 @@ def build_vectors() -> dict:
         "swap_steps": swap_vectors,
         "dynamic_fee": dynamic_fee_vectors(),
         "limit_orders": limit_order_vectors(),
+        "tick_crossing": tick_crossing_vectors(),
     }
 
 
