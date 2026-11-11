@@ -59,10 +59,6 @@ def commit_raydium_swap_inner_tick_array(
         )
     if iteration.reached_initialized_tick is not True:
         raise RaydiumSwapTickArrayCommitError("initialized-tick boundary flag must be boolean")
-    if iteration.tick_state.tick_index != iteration.price_step.spacing_bound.bounded_tick and iteration.tick_state.tick_index != iteration.price_step.swap_result.reached_tick_index:
-        # The source tick index is checked against the array slot by the mutation primitive.
-        # Do not infer the slot from the post-crossing current-tick assignment.
-        pass
     try:
         mutation = apply_raydium_tick_array_mutation(
             pool,
