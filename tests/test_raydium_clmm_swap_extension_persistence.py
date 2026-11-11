@@ -157,7 +157,7 @@ def test_extension_bitmap_last_tick_removal_serializes_zero_bit_and_updated_hash
     pool, array, extension, traversal, observation = fixture()
     result = execute_raydium_swap_loop(
         pool, (array,), traversal,
-        amount_specified=100_000,
+        amount_specified=100_000_000,
         trade_fee_rate=3000,
         zero_for_one=False,
         is_base_input=True,
@@ -168,6 +168,8 @@ def test_extension_bitmap_last_tick_removal_serializes_zero_bit_and_updated_hash
         recent_epoch=2,
         bitmap_extension=extension,
     )
+    assert result.boundary_count == 1
+    assert result.stop_reason == "price_limit_reached"
     final = finalize_raydium_swap_state(result, observation)
 
     assert final.bitmap_extension is not None
