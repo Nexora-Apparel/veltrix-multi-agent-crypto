@@ -145,6 +145,68 @@ def decode_raydium_clmm_observation_state(
     )
 
 
+def encode_raydium_clmm_observation_state(
+    state: RaydiumClmmObservationState,
+) -> bytes:
+    """Serialize the exact pinned ObservationState account layout."""
+    if not isinstance(state, RaydiumClmmObservationState):
+        raise RaydiumClmmObservationError("decoded Raydium ObservationState is required")
+    try:
+        address = str(Pubkey.from_string(state.address))
+        pool = Pubkey.from_string(state.pool_id)
+        canonical, _ = derive_raydium_clmm_observation_address(state.pool_id)
+        if address != state.address or address != canonical:
+            raise ValueError("non-canonical observation PDA")
+    except Exception as exc:
+        raise RaydiumClmmObservationError("ObservationState identity or PDA is invalid") from exc
+    if not isinstance(state.initialized, bool):
+        raise RaydiumClmmObservationError("ObservationState initialized flag must be boolean")
+    if isinstance(state.recent_epoch, bool) or not isinstance(state.recent_epoch, int) or not 0 <= state.recent_epoch <= 0xFFFFFFFFFFFFFFFF:
+        raise RaydiumClmmObservationError("ObservationState recent epoch must fit u64")
+    if isinstance(state.observation_index, bool) or not isinstance(state.observation_index, int) or not 0 <= state.observation_index < RAYDIUM_OBSERVATION_COUNT:
+        raise RaydiumClmmObservationError("ObservationState ring index is outside the 100-entry buffer")
+    if not isinstance(state.observations, tuple) or len(state.observations) != RAYDIUM_OBSERVATION_COUNT:
+        raise RaydiumClmmObservationError("ObservationState must contain exactly 100 observations")
+    if not isinstance(state.padding, bytes) or len(state.padding) != 32 or any(state.padding):
+        raise RaydiumClmmObservationError("ObservationState account padding must be 32 zero bytes")
+
+    data = bytearray(RAYDIUM_OBSERVATION_STATE_LENGTH)
+    data[:8] = RAYDIUM_OBSERVATION_STATE_DISCRIMINATOR
+    data[8] = int(state.initialized)
+    data[9:17] = state.recent_epoch.to_bytes(8, "little")
+    data[17:19] = state.observation_index.to_bytes(2, "little")
+    data[19:51] = bytes(pool)
+    offset = 51
+    for index, observation in enumerate(state.observations):
+        if not isinstance(observation, RaydiumClmmObservation):
+            raise RaydiumClmmObservationError("ObservationState contains a malformed observation record")
+        timestamp = observation.block_timestamp
+        cumulative = observation.tick_cumulative
+        if isinstance(timestamp, bool) or not isinstance(timestamp, int) or not 0 <= timestamp <= 0xFFFFFFFF:
+            raise RaydiumClmmObservationError(f"observation {index} timestamp must fit u32")
+        if isinstance(cumulative, bool) or not isinstance(cumulative, int) or not -(1 << 63) <= cumulative < (1 << 63):
+            raise RaydiumClmmObservationError(f"observation {index} cumulative must fit i64")
+        if not isinstance(observation.padding, bytes) or len(observation.padding) != 32 or any(observation.padding):
+            raise RaydiumClmmObservationError(f"observation {index} reserved padding must be 32 zero bytes")
+        if not state.initialized and (timestamp or cumulative):
+            raise RaydiumClmmObservationError("uninitialized ObservationState cannot contain populated observations")
+        data[offset:offset + 4] = timestamp.to_bytes(4, "little")
+        data[offset + 4:offset + 12] = cumulative.to_bytes(8, "little", signed=True)
+        data[offset + 12:offset + 44] = observation.padding
+        offset += RAYDIUM_OBSERVATION_RECORD_LENGTH
+    data[offset:] = state.padding
+    if len(data) != RAYDIUM_OBSERVATION_STATE_LENGTH:
+        raise RaydiumClmmObservationError("serialized ObservationState length is inconsistent")
+    return bytes(data)
+
+
+def _commit_observation_state(
+    state: RaydiumClmmObservationState,
+) -> RaydiumClmmObservationState:
+    encoded = encode_raydium_clmm_observation_state(state)
+    return replace(state, data_sha256=hashlib.sha256(encoded).hexdigest())
+
+
 RAYDIUM_OBSERVATION_UPDATE_DURATION = 15
 I64_MIN = -(1 << 63)
 I64_MAX = (1 << 63) - 1
@@ -171,7 +233,9 @@ def apply_raydium_observation_update(
         observations[index] = replace(
             current, block_timestamp=block_timestamp, tick_cumulative=0
         )
-        return replace(state, initialized=True, observations=tuple(observations))
+        return _commit_observation_state(
+            replace(state, initialized=True, observations=tuple(observations))
+        )
 
     last = observations[index]
     delta_time = max(0, block_timestamp - last.block_timestamp)
@@ -188,8 +252,10 @@ def apply_raydium_observation_update(
         block_timestamp=block_timestamp,
         tick_cumulative=next_cumulative,
     )
-    return replace(
-        state,
-        observation_index=next_index,
-        observations=tuple(observations),
+    return _commit_observation_state(
+        replace(
+            state,
+            observation_index=next_index,
+            observations=tuple(observations),
+        )
     )
