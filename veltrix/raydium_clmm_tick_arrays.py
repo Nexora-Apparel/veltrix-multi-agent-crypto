@@ -62,6 +62,8 @@ class RaydiumClmmTickArraySnapshot:
     genesis_hash: str
     context_slot: int
     tick_arrays: tuple[RaydiumClmmTickArray, ...]
+    cpi_account_order: tuple[str, ...] = ()
+    bitmap_extension_address: str | None = None
     execution_ready: bool = False
 
 
@@ -99,9 +101,9 @@ def decode_raydium_clmm_tick_array(
     executable: bool,
     data: bytes,
     expected_pool_address: str,
-    expected_start_tick_index: int,
+    expected_start_tick_index: int | None = None,
     tick_spacing: int,
-    current_tick: int,
+    current_tick: int | None = None,
 ) -> RaydiumClmmTickArray:
     if owner != RAYDIUM_CLMM_PROGRAM_ID:
         raise RaydiumClmmTickArrayError("tick-array account owner is not the pinned Raydium CLMM program")
@@ -121,13 +123,18 @@ def decode_raydium_clmm_tick_array(
         raise RaydiumClmmTickArrayError("tick-array address or pool ID is invalid") from exc
     if observed_pool != expected_pool:
         raise RaydiumClmmTickArrayError("tick array belongs to a different pool")
+    if isinstance(tick_spacing, bool) or not isinstance(tick_spacing, int) or tick_spacing <= 0:
+        raise RaydiumClmmTickArrayError("tick spacing must be a positive integer")
     start = struct.unpack_from("<i", data, 40)[0]
-    if start != expected_start_tick_index:
-        raise RaydiumClmmTickArrayError("tick-array start index differs from the pool's current tick array")
-    if start != raydium_current_tick_array_start(current_tick, tick_spacing):
-        raise RaydiumClmmTickArrayError("tick-array start index is not derived from the current pool tick")
-    if current_tick < start or current_tick >= start + RAYDIUM_TICK_ARRAY_SIZE * tick_spacing:
-        raise RaydiumClmmTickArrayError("current pool tick is outside the decoded tick array")
+    if start % (RAYDIUM_TICK_ARRAY_SIZE * tick_spacing) != 0:
+        raise RaydiumClmmTickArrayError("tick-array start index is not aligned to pool tick spacing")
+    if expected_start_tick_index is not None and start != expected_start_tick_index:
+        raise RaydiumClmmTickArrayError("tick-array start index differs from the expected array")
+    if current_tick is not None:
+        if start != raydium_current_tick_array_start(current_tick, tick_spacing):
+            raise RaydiumClmmTickArrayError("tick-array start index is not derived from the current pool tick")
+        if current_tick < start or current_tick >= start + RAYDIUM_TICK_ARRAY_SIZE * tick_spacing:
+            raise RaydiumClmmTickArrayError("current pool tick is outside the decoded tick array")
     derived_address = derive_raydium_clmm_tick_array_address(
         pool_address=expected_pool,
         start_tick_index=start,
