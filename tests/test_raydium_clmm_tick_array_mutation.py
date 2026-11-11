@@ -71,6 +71,8 @@ def test_first_initialized_tick_sets_default_bitmap_and_count():
     a = array(p)
     result = apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0))
     assert result.tick_array.initialized_tick_count == 1
+    assert result.tick_array.recent_epoch == 2
+    assert result.pool.account_data_sha256 == ""
     assert result.initialized_before is False and result.initialized_after is True
     assert result.bitmap_changed is True
     assert bit(result.pool, 0) is True
@@ -92,6 +94,7 @@ def test_mutating_tick_without_array_initialization_transition_does_not_flip_bit
     result = apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=replacement)
     assert result.tick_array.initialized_tick_count == 1
     assert result.bitmap_changed is False
+    assert result.pool.account_data_sha256 == "a" * 64
     assert bit(result.pool, 0) is True
 
 
@@ -168,6 +171,7 @@ def test_extension_bitmap_mutation_updates_only_the_correct_side():
     )
     assert result.bitmap_changed is True
     assert any(any(word for word in row) for row in result.bitmap_extension.positive_bitmaps)
+    assert result.bitmap_extension.data_sha256 == ""
     assert not any(any(word for word in row) for row in result.bitmap_extension.negative_bitmaps)
 
 
