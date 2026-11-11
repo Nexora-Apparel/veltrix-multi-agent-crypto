@@ -5,7 +5,7 @@ import hashlib
 import pytest
 from solders.pubkey import Pubkey
 
-from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
+from test_raydium_clmm_pool_state import fixture as pool_fixture
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
@@ -25,7 +25,6 @@ from veltrix.raydium_clmm_tick_arrays import (
     derive_raydium_clmm_tick_array_address,
 )
 from veltrix.simulation_gate import SimulatedAccountState, SimulationEvidence
-from tests.test_raydium_clmm_pool_state import fixture as pool_fixture
 
 
 def tick_array_bytes(pool_address, start=0):
