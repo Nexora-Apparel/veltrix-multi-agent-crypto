@@ -349,11 +349,15 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             "inner CPMM instruction is not the pinned SwapBaseInput layout")
     actual_cpi_input = read_u64(cpi_data, 8)
     actual_cpi_minimum = read_u64(cpi_data, 16)
-    _expect(actual_cpi_input == INPUT_AMOUNT and actual_cpi_minimum == MIN_OUTPUT,
-            "inner CPMM args differ: input=" + str(actual_cpi_input) +
-            ", min_out=" + str(actual_cpi_minimum) +
-            ", expected_input=" + str(INPUT_AMOUNT) +
-            ", expected_min_out=" + str(MIN_OUTPUT))
+    _expect(actual_cpi_input == INPUT_AMOUNT,
+            "inner CPMM input differs from the reviewed amount: " + str(actual_cpi_input))
+    unsafe_reasons: list[str] = []
+    if actual_cpi_minimum == 0:
+        unsafe_reasons.append(
+            "CPMM CPI has minimum_amount_out=0; only the opaque router's outer instruction carries the reviewed threshold"
+        )
+    elif actual_cpi_minimum < MIN_OUTPUT:
+        unsafe_reasons.append("CPMM CPI minimum output is below the reviewed threshold")
     expected_cpmm_accounts = [
         WALLET, key_strings[5], key_strings[16], POOL, key_strings[1], key_strings[3],
         key_strings[7], key_strings[8], TOKEN, TOKEN, WSOL, USDC, key_strings[9],
@@ -461,9 +465,11 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
 
     return {
         "evidence_type": "raydium_devnet_transaction_semantic_audit",
-        "status": "passed",
+        "status": "rejected" if unsafe_reasons else "passed",
         "cluster": "devnet",
         "rpc_endpoint": RPC_URL,
+        "unsafe_reasons": unsafe_reasons,
+        "cpmm_cpi_minimum_output_raw": actual_cpi_minimum,
         "finalized_slot": slot,
         "account_snapshot_slot": context_slot,
         "wallet": WALLET,
@@ -497,7 +503,7 @@ def main() -> int:
     try:
         fixture = json.loads(Path(args.fixture).read_text(encoding="utf-8"))
         evidence = audit_fixture(fixture)
-        code = 0
+        code = 0 if evidence.get("status") == "passed" else 2
     except Exception as exc:
         evidence = {
             "evidence_type": "raydium_devnet_transaction_semantic_audit",
