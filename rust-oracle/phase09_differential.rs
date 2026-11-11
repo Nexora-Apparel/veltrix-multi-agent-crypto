@@ -1,6 +1,7 @@
 //! Differential assertions against the exact upstream Raydium CLMM Rust source.
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{swap_math, tick_math};
+use raydium_clmm::instructions::swap::SwapState;
 use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo};
 use serde_json::Value;
 
@@ -206,6 +207,46 @@ fn python_tick_spacing_index_vectors_match_pinned_raydium_rust() {
             tick_spacing_index_from_tick(tick, spacing),
             expected,
             "tick-spacing index mismatch for tick={tick}, spacing={spacing}"
+        );
+    }
+}
+
+
+#[test]
+fn python_dynamic_total_fee_rates_match_pinned_raydium_swap_state() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["dynamic_fee"]["total_fee_rates"]
+        .as_array()
+        .expect("dynamic total fee-rate cases");
+    assert_eq!(cases.len(), 4);
+
+    for case in cases {
+        let name = case["name"].as_str().expect("case name");
+        let info = dynamic_info(&case["info"]);
+        let state = SwapState {
+            amount_specified_remaining: 1,
+            amount_calculated: 0,
+            sqrt_price_x64: 1u128 << 64,
+            tick: 0,
+            fee_growth_global_x64: 0,
+            lp_fee: 0,
+            protocol_fee: 0,
+            fund_fee: 0,
+            liquidity: 1,
+            sqrt_price_next_x64: 0,
+            tick_next: 0,
+            tick_spacing: case["tick_spacing"].as_u64().unwrap() as u16,
+            base_fee_rate: case["base_fee_rate"].as_u64().unwrap() as u32,
+            tick_spacing_index: 0,
+            dynamic_fee_info: Some(info),
+        };
+        let actual = state
+            .get_total_fee_rate()
+            .unwrap_or_else(|error| panic!("Rust total fee-rate calculation failed for {name}: {error:?}"));
+        assert_eq!(
+            actual,
+            case["expected_total_fee_rate"].as_u64().unwrap() as u32,
+            "total fee-rate mismatch for {name}"
         );
     }
 }
