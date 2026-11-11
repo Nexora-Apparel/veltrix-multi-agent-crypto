@@ -32,11 +32,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Export Python reference vectors
-        run: |
-          python scripts/export_raydium_differential_vectors.py \
-            --output reference/raydium-clmm/programs/amm/tests/phase09_python_vectors.json
-
       - name: Checkout pinned Raydium source
         uses: actions/checkout@v4
         with:
