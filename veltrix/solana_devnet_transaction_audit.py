@@ -471,7 +471,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
         if item[1] in {TOKEN, TOKEN_2022} and item[3][:1] == b"\x09"
     ]
     _expect(len(close_cpis) == 1, "expected exactly one SPL CloseAccount CPI")
-    _, _, close_accounts, close_data = close_cpis[0]
+    _, _, close_accounts, close_data, _close_raw = close_cpis[0]
     _expect(len(close_data) == 1 and len(close_accounts) == 3, "CloseAccount CPI has unexpected shape")
     _expect(inner_account_names(close_accounts) == [key_strings[1], WALLET, WALLET],
             "temporary wrapped-SOL account is not closed to the connected wallet")
