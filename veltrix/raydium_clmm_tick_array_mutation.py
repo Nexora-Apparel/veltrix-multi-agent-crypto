@@ -22,11 +22,10 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolState,
 )
 from veltrix.raydium_clmm_tick_arrays import (
-    RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
-    RaydiumClmmTickArrayError,
+    derive_raydium_clmm_tick_array_address,
     raydium_current_tick_array_start,
 )
 
@@ -213,8 +212,28 @@ def apply_raydium_tick_array_mutation(
         raise RaydiumTickArrayMutationError("replacement TickState is required")
     if tick_array.pool_address != pool.pool_address or tick_array.tick_spacing != pool.tick_spacing:
         raise RaydiumTickArrayMutationError("tick array does not belong to the supplied pool")
+    if len(tick_array.ticks) != RAYDIUM_TICK_ARRAY_SIZE:
+        raise RaydiumTickArrayMutationError("tick array must contain exactly 60 TickState records")
+    if tick_array.address != derive_raydium_clmm_tick_array_address(
+        pool_address=pool.pool_address, start_tick_index=tick_array.start_tick_index
+    ):
+        raise RaydiumTickArrayMutationError("tick-array address is not the canonical Raydium PDA")
+    if bitmap_extension is not None:
+        if not isinstance(bitmap_extension, RaydiumClmmTickArrayBitmapExtension):
+            raise RaydiumTickArrayMutationError("decoded bitmap-extension state is required")
+        if (
+            bitmap_extension.pool_address != pool.pool_address
+            or bitmap_extension.address != derive_raydium_tick_array_bitmap_extension_address(pool.pool_address)
+        ):
+            raise RaydiumTickArrayMutationError("bitmap extension does not belong to the supplied pool")
+        for rows in (bitmap_extension.positive_bitmaps, bitmap_extension.negative_bitmaps):
+            if len(rows) != EXTENSION_BITMAPS or any(len(row) != 8 for row in rows):
+                raise RaydiumTickArrayMutationError("bitmap extension must contain 14 arrays of eight u64 words")
+            for row in rows:
+                for word in row:
+                    _integer(word, 0, U64_MAX, "bitmap-extension word")
     _integer(tick_index, RAYDIUM_MIN_TICK, RAYDIUM_MAX_TICK, "tick_index")
-    ticks_per_array = _ticks_per_array(pool.tick_spacing)
+    _ticks_per_array(pool.tick_spacing)
     canonical_start = raydium_current_tick_array_start(tick_index, pool.tick_spacing)
     if canonical_start != tick_array.start_tick_index:
         raise RaydiumTickArrayMutationError("tick index resolves to a different tick-array start index")
@@ -228,6 +247,7 @@ def apply_raydium_tick_array_mutation(
         raise RaydiumTickArrayMutationError("replacement tick index differs from the requested slot")
     if updated_tick.initialized is not (updated_tick.liquidity_gross > 0 or updated_tick.orders_amount > 0 or updated_tick.part_filled_orders_remaining > 0):
         raise RaydiumTickArrayMutationError("replacement tick initialized flag disagrees with its source fields")
+    _integer(updated_tick.liquidity_net, -(1 << 127), (1 << 127) - 1, "liquidity_net")
     if updated_tick.liquidity_gross < 0 or updated_tick.orders_amount < 0 or updated_tick.part_filled_orders_remaining < 0:
         raise RaydiumTickArrayMutationError("replacement tick contains negative unsigned state")
     if updated_tick.liquidity_gross > U64_MAX or updated_tick.orders_amount > U64_MAX or updated_tick.part_filled_orders_remaining > U64_MAX:
