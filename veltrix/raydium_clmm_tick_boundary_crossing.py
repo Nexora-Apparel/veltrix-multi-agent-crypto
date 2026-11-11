@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolState
+from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolState, RaydiumClmmRewardInfo
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
 from veltrix.raydium_clmm_tick_crossing import (
     RaydiumRewardGrowth,
@@ -71,8 +71,12 @@ def cross_raydium_clmm_tick_at_boundary(
         fee_growth_0 = pool.fee_growth_global_0_x64
         fee_growth_1 = fee_growth_global_x64
 
-    if not isinstance(pool.reward_infos, tuple) or len(pool.reward_infos) != 3:
-        raise RaydiumTickBoundaryCrossingError("PoolState must contain exactly three reward slots")
+    if (
+        not isinstance(pool.reward_infos, tuple)
+        or len(pool.reward_infos) != 3
+        or any(not isinstance(reward, RaydiumClmmRewardInfo) for reward in pool.reward_infos)
+    ):
+        raise RaydiumTickBoundaryCrossingError("PoolState must contain exactly three decoded reward slots")
     rewards = tuple(
         RaydiumRewardGrowth(
             initialized=reward.initialized,
