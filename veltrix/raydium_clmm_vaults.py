@@ -10,6 +10,7 @@ from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RaydiumClmmPoolRouteCheck,
+    RaydiumClmmPoolState,
 )
 from veltrix.simulation_gate import SimulationEvidence
 from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
@@ -173,6 +174,7 @@ def apply_raydium_clmm_vault_delta(
 
 
 def apply_raydium_clmm_swap_vault_settlement(
+    pool: RaydiumClmmPoolState,
     vault_0: RaydiumClmmVaultAccount,
     vault_1: RaydiumClmmVaultAccount,
     *,
@@ -181,15 +183,24 @@ def apply_raydium_clmm_swap_vault_settlement(
     zero_for_one: bool,
 ) -> tuple[RaydiumClmmVaultAccount, RaydiumClmmVaultAccount]:
     """Reconcile the two pool-vault deltas returned by swap_internal."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmVaultError("decoded Raydium PoolState is required")
     if not isinstance(vault_0, RaydiumClmmVaultAccount) or not isinstance(vault_1, RaydiumClmmVaultAccount):
         raise RaydiumClmmVaultError("two verified Raydium vault accounts are required")
-    if vault_0.pool_address != vault_1.pool_address or vault_0.mint == vault_1.mint:
-        raise RaydiumClmmVaultError("vaults must belong to one pool and represent distinct mints")
+    if (
+        vault_0.pool_address != pool.pool_address
+        or vault_1.pool_address != pool.pool_address
+        or vault_0.mint != pool.token_mint_0
+        or vault_1.mint != pool.token_mint_1
+        or vault_0.address != pool.token_vault_0
+        or vault_1.address != pool.token_vault_1
+    ):
+        raise RaydiumClmmVaultError("vault accounts do not match PoolState token-0/token-1 identities")
     if not isinstance(zero_for_one, bool):
         raise RaydiumClmmVaultError("swap direction must be boolean")
     for value, field in ((amount_0, "amount_0"), (amount_1, "amount_1")):
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < (1 << 64):
-            raise RaydiumClmmVaultError(f"{field} must fit u64")
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < (1 << 64):
+            raise RaydiumClmmVaultError(f"{field} must be a positive u64 amount")
     if zero_for_one:
         return (
             apply_raydium_clmm_vault_delta(vault_0, amount_delta=amount_0),
