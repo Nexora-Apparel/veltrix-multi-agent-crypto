@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 
 from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmDynamicFeeInfo,
@@ -123,7 +124,7 @@ def apply_raydium_pool_after_swap(
     )
     if updated.account_data:
         encoded = encode_raydium_clmm_pool_state(updated)
-        digest = __import__("hashlib").sha256(encoded).hexdigest()
+        digest = hashlib.sha256(encoded).hexdigest()
         updated = replace(
             updated,
             account_data=encoded,
