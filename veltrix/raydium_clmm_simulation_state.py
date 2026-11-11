@@ -133,12 +133,23 @@ def validate_raydium_clmm_post_state_commitments(
 
     expected = {item.address: item for item in commitments}
     observed = {item.address: item for item in account_states}
-    if len(expected) != len(commitments) or len(observed) != len(account_states):
+    if (
+        len(expected) != len(commitments)
+        or len(observed) != len(account_states)
+        or len(binding.bound_account_addresses) != len(set(binding.bound_account_addresses))
+    ):
         raise RaydiumClmmSimulationStateError("post-state account commitments contain duplicate addresses")
     if set(expected) != set(binding.bound_account_addresses) or set(observed) != set(expected):
         raise RaydiumClmmSimulationStateError("post-state account set differs from the bound Raydium account set")
     if tuple(sorted(binding.account_roles)) != tuple(sorted((item.address, item.role) for item in commitments)):
         raise RaydiumClmmSimulationStateError("post-state account roles differ from the original simulation binding")
+
+    bound_pre_hashes = dict(binding.pre_state_sha256)
+    bound_post_hashes = dict(binding.post_state_sha256)
+    if len(bound_pre_hashes) != len(binding.pre_state_sha256) or len(bound_post_hashes) != len(binding.post_state_sha256):
+        raise RaydiumClmmSimulationStateError("simulation binding contains duplicate account hash records")
+    if set(bound_pre_hashes) != set(expected) or set(bound_post_hashes) != set(expected):
+        raise RaydiumClmmSimulationStateError("simulation binding hash records do not cover the exact account set")
 
     digest = hashlib.sha256()
     addresses = tuple(item.address for item in commitments)
@@ -163,6 +174,8 @@ def validate_raydium_clmm_post_state_commitments(
             or len(state.pre_data) != length
             or len(state.post_data) != length
             or state.pre_data_sha256 != commitment.data_sha256
+            or bound_pre_hashes[address] != commitment.data_sha256
+            or (commitment.lamports is not None and state.pre_lamports != commitment.lamports)
         ):
             raise RaydiumClmmSimulationStateError(f"pre/post account byte length or pre-state hash is invalid for {commitment.role}")
         if discriminator is not None and state.post_data[:8] != discriminator:
@@ -181,6 +194,9 @@ def validate_raydium_clmm_post_state_commitments(
 
     if tuple(sorted(binding.post_state_sha256)) != tuple(
         sorted((address, observed[address].post_data_sha256) for address in addresses)
+    ) or any(
+        bound_post_hashes[address] != observed[address].post_data_sha256
+        for address in addresses
     ):
         raise RaydiumClmmSimulationStateError("post-state hashes differ from the original simulation binding")
     return RaydiumClmmPostStateValidation(
