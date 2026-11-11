@@ -1,4 +1,4 @@
-"""Adversarial tests for Jupiter route trace and integrated Compute Budget policy."""
+"""Adversarial tests for Jupiter route trace and integrated preflight gates."""
 import dataclasses
 import hashlib
 import json
@@ -18,6 +18,8 @@ from veltrix.jupiter_program_trace import (
     JupiterRouteProgramPolicy,
     evaluate_jupiter_route_programs,
 )
+from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID, derive_associated_token_address
+from veltrix.jupiter_v6_route import JUPITER_V6_PROGRAM_ID, ROUTE_DISCRIMINATOR
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -40,15 +42,41 @@ def compute_price(value):
 
 def fixture(*, compute_instructions=(), extra_top_level_program_ids=(), jupiter_instruction_count=1):
     taker_key = Pubkey.new_unique()
-    jupiter_key = Pubkey.new_unique()
+    jupiter_key = Pubkey.from_string(JUPITER_V6_PROGRAM_ID)
     dex_key = Pubkey.new_unique()
-    input_mint = str(Pubkey.new_unique())
-    output_mint = str(Pubkey.new_unique())
-    blockhash = Hash.new_unique()
+    input_mint_key = Pubkey.new_unique()
+    output_mint_key = Pubkey.new_unique()
+    amm_key = Pubkey.new_unique()
+    token_program = Pubkey.from_string(CLASSIC_TOKEN_PROGRAM_ID)
+    input_ata = Pubkey.from_string(
+        derive_associated_token_address(str(taker_key), str(input_mint_key))
+    )
+    output_ata = Pubkey.from_string(
+        derive_associated_token_address(str(taker_key), str(output_mint_key))
+    )
+    event_authority, _ = Pubkey.find_program_address([b"__event_authority"], jupiter_key)
+    route_data = (
+        ROUTE_DISCRIMINATOR
+        + struct.pack("<I", 1)
+        + bytes([26, 100, 0, 1])
+        + struct.pack("<QQHB", 1_000, 2_000, 250, 0)
+    )
     jupiter_instruction = Instruction(
         jupiter_key,
-        b"jupiter-route",
-        [AccountMeta(dex_key, False, False)],
+        route_data,
+        [
+            AccountMeta(token_program, False, False),
+            AccountMeta(taker_key, True, True),
+            AccountMeta(input_ata, False, True),
+            AccountMeta(output_ata, False, True),
+            AccountMeta(jupiter_key, False, False),
+            AccountMeta(output_mint_key, False, False),
+            AccountMeta(jupiter_key, False, False),
+            AccountMeta(event_authority, False, False),
+            AccountMeta(jupiter_key, False, False),
+            AccountMeta(dex_key, False, False),
+            AccountMeta(amm_key, False, True),
+        ],
     )
     instructions = [jupiter_instruction for _ in range(jupiter_instruction_count)]
     instructions.extend(
@@ -56,6 +84,7 @@ def fixture(*, compute_instructions=(), extra_top_level_program_ids=(), jupiter_
         for program_id in extra_top_level_program_ids
     )
     instructions.extend(compute_instructions)
+    blockhash = Hash.new_unique()
     message = MessageV0.try_compile(taker_key, instructions, [], blockhash)
     message_bytes = to_bytes_versioned(message)
     digest = hashlib.sha256(message_bytes).hexdigest()
@@ -65,16 +94,18 @@ def fixture(*, compute_instructions=(), extra_top_level_program_ids=(), jupiter_
         for instruction in message.instructions
     )
     taker = str(taker_key)
-    jupiter_program = str(jupiter_key)
+    jupiter_program = JUPITER_V6_PROGRAM_ID
     dex_program = str(dex_key)
+    input_mint = str(input_mint_key)
+    output_mint = str(output_mint_key)
 
     route = JupiterRouteStep(
-        amm_key=str(Pubkey.new_unique()),
+        amm_key=str(amm_key),
         label="Raydium CLMM",
         input_mint=input_mint,
         output_mint=output_mint,
-        input_amount_raw=1000,
-        output_amount_raw=2000,
+        input_amount_raw=1_000,
+        output_amount_raw=2_000,
         percent=100.0,
         bps=10_000,
     )
@@ -87,9 +118,9 @@ def fixture(*, compute_instructions=(), extra_top_level_program_ids=(), jupiter_
         fee_payer=taker,
         input_mint=input_mint,
         output_mint=output_mint,
-        input_amount_raw=1000,
-        output_amount_raw=2000,
-        minimum_output_amount_raw=1950,
+        input_amount_raw=1_000,
+        output_amount_raw=2_000,
+        minimum_output_amount_raw=1_950,
         price_impact_pct=0.2,
         fee_bps=50.0,
         router="metis",
@@ -182,6 +213,9 @@ def test_accepts_order_route_when_simulated_cpi_trace_matches_registry():
     assert len(result.dex_program_ids) == 1
     assert result.compute_budget.instruction_count == 0
     assert result.compute_budget.effective_compute_unit_limit == 200_000
+    assert result.jupiter_route.instruction_name == "route"
+    assert result.jupiter_route.fully_decoded is False
+    assert result.jupiter_route.remaining_account_count == 2
 
 
 def test_route_gate_returns_decoded_compute_budget_values():
@@ -239,7 +273,7 @@ def test_rejects_system_and_associated_token_programs_in_inner_cpi_trace():
 
 
 def test_requires_exactly_one_jupiter_aggregator_instruction():
-    with pytest.raises(JupiterProgramTraceError, match="exactly one approved Jupiter"):
+    with pytest.raises(JupiterProgramTraceError, match="Jupiter V6 instruction validation failed"):
         evaluate(fixture(jupiter_instruction_count=2))
 
 
@@ -292,7 +326,7 @@ def test_rejects_missing_approved_jupiter_aggregator_program():
         ).hexdigest(),
     )
     policy = dataclasses.replace(policy, allowed_jupiter_program_ids=(alternate,))
-    with pytest.raises(JupiterProgramTraceError, match="exactly one approved Jupiter"):
+    with pytest.raises(JupiterProgramTraceError, match="Jupiter V6 instruction validation failed"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
@@ -333,7 +367,7 @@ def test_rejects_nonmatching_fee_payer_or_blockhash():
 def test_rejects_resolved_account_key_evidence_mismatch():
     order, validation, simulation, gate, registry, policy = fixture()
     validation = dataclasses.replace(validation, account_keys=validation.account_keys[:-1])
-    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
+    with pytest.raises(JupiterProgramTraceError, match="Jupiter V6 instruction validation failed"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
