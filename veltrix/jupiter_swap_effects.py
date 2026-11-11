@@ -1,8 +1,8 @@
-"""Bind a Jupiter v0 order to exact user token-account balance effects.
+"""Bind a Jupiter v0 order to slippage-bounded user token-account effects.
 
-Only pre-existing classic SPL Associated Token Accounts are supported. The
-expected output is exact, not merely a lower bound, to reject quote/simulation
-drift. Native SOL wrapping, temporary WSOL accounts and Token-2022 are excluded.
+Only pre-existing classic SPL Associated Token Accounts are supported.
+Input spend is exact; simulated output must meet the on-chain minimum threshold.
+Native SOL wrapping, temporary WSOL accounts and Token-2022 are excluded.
 """
 from __future__ import annotations
 
@@ -78,7 +78,8 @@ def build_expected_jupiter_token_deltas(order: JupiterOrderTransaction) -> tuple
             token_account=output_ata,
             mint=order.output_mint,
             owner=order.taker,
-            delta_raw=order.output_amount_raw,
+            delta_raw=None,
+            minimum_delta_raw=order.minimum_output_amount_raw,
         ),
     )
 
@@ -181,8 +182,10 @@ def evaluate_jupiter_swap_effects(
         if (actual.mint, actual.owner) != (expectation.mint, expectation.owner):
             raise JupiterSwapEffectError("simulated associated token account mint or owner differs from the taker order")
         delta = actual.post_amount_raw - actual.pre_amount_raw
-        if delta != expectation.delta_raw:
-            raise JupiterSwapEffectError("simulated token-account delta differs from the exact Jupiter order amount")
+        if address == expected[0].token_account and delta != -order.input_amount_raw:
+            raise JupiterSwapEffectError("simulated input spend differs from the exact Jupiter order amount")
+        if address == expected[1].token_account and delta < order.minimum_output_amount_raw:
+            raise JupiterSwapEffectError("simulated output is below Jupiter's minimum output threshold")
 
     input_balance = actual_by_address[expected[0].token_account]
     output_balance = actual_by_address[expected[1].token_account]
