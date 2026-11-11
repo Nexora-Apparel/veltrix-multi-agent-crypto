@@ -135,6 +135,8 @@ def encode_raydium_clmm_vault_token_account(
         raise RaydiumClmmVaultError("vault token-account identity bytes are inconsistent") from exc
     if vault.state != TOKEN_ACCOUNT_INITIALIZED or vault.account_data[108] != TOKEN_ACCOUNT_INITIALIZED:
         raise RaydiumClmmVaultError("vault token account must remain initialized")
+    if int.from_bytes(vault.account_data[64:72], "little") != vault.amount_raw:
+        raise RaydiumClmmVaultError("decoded vault amount differs from the original account bytes")
     if (
         int.from_bytes(vault.account_data[72:76], "little") != 0
         or int.from_bytes(vault.account_data[109:113], "little") != 0
@@ -158,11 +160,17 @@ def apply_raydium_clmm_vault_balance_delta(
         raise RaydiumClmmVaultError("vault balance delta must be a signed integer")
     if not isinstance(vault, RaydiumClmmVaultAccount):
         raise RaydiumClmmVaultError("verified Raydium vault account is required")
+    # Validate the original evidence/model binding before applying a signed delta.
+    original = encode_raydium_clmm_vault_token_account(vault)
+    if original != vault.account_data:
+        raise RaydiumClmmVaultError("original vault bytes differ from their canonical serialization")
     next_amount = vault.amount_raw + delta_raw
     if not 0 <= next_amount <= (1 << 64) - 1:
         raise RaydiumClmmVaultError("vault balance delta underflows or overflows u64")
+    data = bytearray(original)
+    data[64:72] = next_amount.to_bytes(8, "little")
+    encoded = bytes(data)
     updated = replace(vault, amount_raw=next_amount)
-    encoded = encode_raydium_clmm_vault_token_account(updated)
     return replace(
         updated,
         account_data=encoded,
