@@ -235,4 +235,4 @@ def test_outer_loop_rejects_missing_raw_pool_bytes_and_inconsistent_queue():
     with pytest.raises(RaydiumClmmSwapLoopError, match="raw PoolState"):
         run(replace(p, account_data=b""), snapshot, queue)
     with pytest.raises(RaydiumClmmSwapLoopError, match="queue"):
-        run(p, snapshot, replace(queue, tick_spacing=1))
+        run(p, replace(snapshot, tick_arrays=()), queue)
