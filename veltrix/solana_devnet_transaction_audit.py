@@ -342,6 +342,17 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
                     "inner CPI has no resolvable program identity: " + repr(inner))
             data = b58decode(inner.get("data", ""))
             inner_flat.append((outer_index, program_address, list(inner.get("accounts", [])), data))
+    def inner_account_names(items: list[Any]) -> list[str]:
+        if all(isinstance(index, int) and not isinstance(index, bool) for index in items):
+            names = [key_strings[index] for index in items]
+        elif all(isinstance(address, str) for address in items):
+            names = list(items)
+        else:
+            raise AuditError("inner CPI account list has an unsupported shape")
+        _expect(all(name in key_strings for name in names),
+                "inner CPI references an account outside the resolved transaction key list")
+        return names
+
     cpmm_cpis = [item for item in inner_flat if item[1] == CPMM]
     _expect(len(cpmm_cpis) == 1, "simulation must contain exactly one CPMM CPI")
     cpi_outer_index, _, cpi_account_indexes, cpi_data = cpmm_cpis[0]
@@ -363,7 +374,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
         WALLET, key_strings[5], key_strings[16], POOL, key_strings[1], key_strings[3],
         key_strings[7], key_strings[8], TOKEN, TOKEN, WSOL, USDC, key_strings[9],
     ]
-    _expect([key_strings[index] for index in cpi_account_indexes] == expected_cpmm_accounts,
+    _expect(inner_account_names(cpi_account_indexes) == expected_cpmm_accounts,
             "inner CPMM account order differs from the pinned IDL")
 
     # Reject token authorities, mint/burn, approvals, arbitrary transfers and unknown CPI variants.
@@ -374,7 +385,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     created_user_atas: set[str] = set()
     for _, program, account_indexes, data in inner_flat:
         if program == ATA_PROGRAM:
-            names = [key_strings[index] for index in account_indexes]
+            names = inner_account_names(account_indexes)
             _expect(data in {b"\x00", b"\x01"} and len(names) == 6,
                     "associated-token CPI is not create/create-idempotent")
             payer, ata, owner, mint, system_program, token_program = names
@@ -461,7 +472,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(len(close_cpis) == 1, "expected exactly one SPL CloseAccount CPI")
     _, _, close_accounts, close_data = close_cpis[0]
     _expect(len(close_data) == 1 and len(close_accounts) == 3, "CloseAccount CPI has unexpected shape")
-    _expect([key_strings[index] for index in close_accounts] == [key_strings[1], WALLET, WALLET],
+    _expect(inner_account_names(close_accounts) == [key_strings[1], WALLET, WALLET],
             "temporary wrapped-SOL account is not closed to the connected wallet")
 
     return {
