@@ -1,5 +1,6 @@
 """Source-order tests for Raydium swap-loop pre-step composition."""
 from dataclasses import replace
+import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
