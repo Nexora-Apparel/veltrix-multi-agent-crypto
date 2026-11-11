@@ -1,5 +1,6 @@
 """Adversarial tests for Raydium CLMM vault PDA and classic SPL account verification."""
 import base64
+import dataclasses
 import hashlib
 import struct
 
