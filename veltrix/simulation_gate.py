@@ -6,6 +6,7 @@ adapter. It does not call RPC, sign, submit, or broadcast transactions.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import re
 
 from veltrix.transaction_validator import (
@@ -99,6 +100,46 @@ class SimulatedInnerInstruction:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulatedAccountState:
+    """Raw pre/post account bytes captured inside the same simulation context."""
+
+    address: str
+    pre_owner: str
+    post_owner: str
+    pre_lamports: int
+    post_lamports: int
+    pre_executable: bool
+    post_executable: bool
+    pre_data: bytes
+    post_data: bytes
+    pre_data_sha256: str
+    post_data_sha256: str
+
+    def __post_init__(self) -> None:
+        for field in ("address", "pre_owner", "post_owner"):
+            _nonempty(getattr(self, field), field)
+        for field in ("pre_lamports", "post_lamports"):
+            _nonnegative_int(getattr(self, field), field)
+        if not isinstance(self.pre_executable, bool) or not isinstance(self.post_executable, bool):
+            raise SimulationGateError("simulated account executable flags must be booleans")
+        if self.pre_owner != self.post_owner or self.pre_executable != self.post_executable:
+            raise SimulationGateError("simulated account owner or executable status changed")
+        for field in ("pre_data", "post_data"):
+            value = getattr(self, field)
+            if not isinstance(value, bytes) or len(value) > 1_000_000:
+                raise SimulationGateError(f"{field} must be immutable account bytes no larger than 1 MB")
+        for data_field, digest_field in (
+            ("pre_data", "pre_data_sha256"),
+            ("post_data", "post_data_sha256"),
+        ):
+            digest = getattr(self, digest_field)
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise SimulationGateError(f"{digest_field} must be a lowercase SHA-256 digest")
+            if hashlib.sha256(getattr(self, data_field)).hexdigest() != digest:
+                raise SimulationGateError(f"{digest_field} does not match its retained account bytes")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -118,6 +159,8 @@ class SimulationEvidence:
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
     inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
+    account_states: tuple[SimulatedAccountState, ...] = ()
+    logs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -154,6 +197,17 @@ class SimulationEvidence:
                 raise SimulationGateError("detailed inner instruction count differs from the program trace")
             if tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids:
                 raise SimulationGateError("detailed inner instruction program IDs differ from the program trace")
+        if not isinstance(self.account_states, tuple) or any(
+            not isinstance(item, SimulatedAccountState) for item in self.account_states
+        ):
+            raise SimulationGateError("account_states must be an immutable tuple of validated pre/post account states")
+        account_addresses = tuple(item.address for item in self.account_states)
+        if len(account_addresses) != len(set(account_addresses)):
+            raise SimulationGateError("simulation contains duplicate raw account-state records")
+        if not isinstance(self.logs, tuple) or len(self.logs) > 512 or any(
+            not isinstance(line, str) or len(line) > 4096 for line in self.logs
+        ) or sum(len(line.encode("utf-8")) for line in self.logs) > 65_536:
+            raise SimulationGateError("simulation logs must be a bounded immutable tuple of strings")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")
