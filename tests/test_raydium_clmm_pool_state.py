@@ -59,7 +59,7 @@ def fixture():
         data_sha256=hashlib.sha256(raw).hexdigest(),
         data_bytes=raw,
     )
-    digest = "a" * 64
+    digest = hashlib.sha256(b"test-message").hexdigest()
     route_step = DecodedJupiterRouteStep(
         swap_variant=26,
         dex_label="Raydium CLMM",
