@@ -111,6 +111,8 @@ def evaluate_raydium_clmm_cpi_pool_binding(
 
     configs = {item.address: item for item in aux_snapshot.amm_configs}
     observations = {item.address: item for item in aux_snapshot.observations}
+    if len(configs) != len(aux_snapshot.amm_configs) or len(observations) != len(aux_snapshot.observations):
+        raise RaydiumClmmPoolBindingError("auxiliary snapshot contains duplicate config or observation addresses")
     config = configs.get(pool.amm_config)
     observation = observations.get(pool.observation_key)
     if config is None or observation is None:
@@ -131,7 +133,8 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         raise RaydiumClmmPoolBindingError("pool evidence must contain exactly one matching pool account")
     pool_account = pool_accounts[0]
     if (
-        pool_account.owner_program_id != pool_account.expected_program_id
+        pool_account.expected_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.owner_program_id != RAYDIUM_CLMM_PROGRAM_ID
         or pool_account.data_sha256 != pool.account_data_sha256
         or hashlib.sha256(pool_account.data_bytes).hexdigest() != pool.account_data_sha256
         or pool_account.data_length != len(pool_account.data_bytes)
