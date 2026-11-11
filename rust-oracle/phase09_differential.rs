@@ -135,23 +135,27 @@ fn python_dynamic_fee_reference_updates_match_pinned_raydium_rust() {
         info.update_reference(tick_index, timestamp)
             .unwrap_or_else(|error| panic!("Rust reference update failed for {name}: {error:?}"));
         let expected = &case["expected"];
+        let actual_tick_reference = info.tick_spacing_index_reference;
+        let actual_volatility_reference = info.volatility_reference;
+        let actual_volatility_accumulator = info.volatility_accumulator;
+        let actual_last_update_timestamp = info.last_update_timestamp;
         assert_eq!(
-            info.tick_spacing_index_reference,
+            actual_tick_reference,
             expected["tick_spacing_index_reference"].as_i64().unwrap() as i32,
             "tick reference mismatch for {name}"
         );
         assert_eq!(
-            info.volatility_reference,
+            actual_volatility_reference,
             expected["volatility_reference"].as_u64().unwrap() as u32,
             "volatility reference mismatch for {name}"
         );
         assert_eq!(
-            info.volatility_accumulator,
+            actual_volatility_accumulator,
             expected["volatility_accumulator"].as_u64().unwrap() as u32,
             "volatility accumulator mismatch for {name}"
         );
         assert_eq!(
-            info.last_update_timestamp,
+            actual_last_update_timestamp,
             expected["last_update_timestamp"].as_u64().unwrap(),
             "last update timestamp mismatch for {name}"
         );
@@ -183,8 +187,9 @@ fn python_volatility_accumulator_updates_match_pinned_raydium_rust() {
         let tick_index = case["tick_spacing_index"].as_i64().unwrap() as i32;
         info.update_volatility_accumulator(tick_index)
             .unwrap_or_else(|error| panic!("Rust volatility update failed for {name}: {error:?}"));
+        let actual_volatility_accumulator = info.volatility_accumulator;
         assert_eq!(
-            info.volatility_accumulator,
+            actual_volatility_accumulator,
             case["expected_volatility_accumulator"].as_u64().unwrap() as u32,
             "volatility accumulator mismatch for {name}"
         );
@@ -287,15 +292,19 @@ fn python_fifo_limit_order_vectors_match_pinned_raydium_tick_state() {
         assert_eq!(result.amount_in, parse_u64(&expected["amount_in"]), "amount_in mismatch for {name}");
         assert_eq!(result.amount_out, parse_u64(&expected["amount_out"]), "amount_out mismatch for {name}");
         assert_eq!(result.amm_fee_amount, parse_u64(&expected["amm_fee_amount"]), "fee mismatch for {name}");
-        assert_eq!(tick.orders_amount, parse_u64(&expected["orders_amount"]), "orders_amount mismatch for {name}");
+        let actual_orders_amount = tick.orders_amount;
+        let actual_part_filled = tick.part_filled_orders_remaining;
+        let actual_order_phase = tick.order_phase;
+        let actual_unfilled_ratio = tick.unfilled_ratio_x64;
+        assert_eq!(actual_orders_amount, parse_u64(&expected["orders_amount"]), "orders_amount mismatch for {name}");
         assert_eq!(
-            tick.part_filled_orders_remaining,
+            actual_part_filled,
             parse_u64(&expected["part_filled_orders_remaining"]),
             "part-filled cohort mismatch for {name}"
         );
-        assert_eq!(tick.order_phase, parse_u64(&expected["order_phase"]), "FIFO phase mismatch for {name}");
+        assert_eq!(actual_order_phase, parse_u64(&expected["order_phase"]), "FIFO phase mismatch for {name}");
         assert_eq!(
-            tick.unfilled_ratio_x64,
+            actual_unfilled_ratio,
             parse_u128(&expected["unfilled_ratio_x64"]),
             "unfilled ratio mismatch for {name}"
         );
