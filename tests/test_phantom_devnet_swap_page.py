@@ -203,3 +203,24 @@ def test_cpmm_and_token_account_decoders_are_exposed_only_to_guarded_tests():
     assert "altered CPMM input" in harness_source
     assert "wrong token mint" in harness_source
     assert "wrong token owner" in harness_source
+
+
+
+def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
+    root = PAGE.parents[1]
+    source = (root / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
+    package = (root / "package.json").read_text(encoding="utf-8")
+    workflow = (root / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml").read_text(encoding="utf-8")
+    assert '"@raydium-io/raydium-sdk-v2": "0.2.64-alpha"' in package
+    assert 'const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo"' in source
+    assert 'const INPUT = 1_000_000' in source
+    assert 'cluster:"devnet"' in source
+    assert "getPoolInfoFromRpc(POOL)" in source
+    assert "raydium.cpmm.swap(" in source
+    assert "sigVerify:false" in source
+    assert 'evidence_type:"veltrix_direct_devnet_cpmm_unsigned_transaction"' in source
+    assert "signed:false,submitted:false,broadcast:false" in source
+    assert "tx.signatures.some(sig=>sig.some(byte=>byte!==0))" in source
+    assert "tx.sign(" not in source
+    assert "sendRawTransaction" not in source
+    assert "devnet:cpmm:build" in workflow
