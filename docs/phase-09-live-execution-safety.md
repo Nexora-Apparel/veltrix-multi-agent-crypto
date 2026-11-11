@@ -277,3 +277,10 @@ Implemented in `veltrix/compute_budget.py` with adversarial tests in `tests/test
 - This decoder is currently a separate validation component; the complete swap orchestrator must call it before any future signer boundary is considered.
 
 No signing, transaction submission or live execution is added.
+
+
+### 09.18 — Compute Budget integrated into Jupiter route preflight
+
+`evaluate_jupiter_route_programs` now invokes `validate_compute_budget_instructions` against the exact order message and structural validation result. A route-program gate cannot pass if the Compute Budget instruction payloads are malformed, duplicated, or exceed configured CU, micro-lamport price, or estimated priority-fee limits. The gate result carries the decoded compute-budget values for audit. Tests now use actual serialized v0 message fixtures rather than arbitrary message-byte placeholders.
+
+The DEX route instruction payload/account semantic decoder remains outstanding; this integration does not authorize signing.
