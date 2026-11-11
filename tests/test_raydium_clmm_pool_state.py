@@ -7,6 +7,7 @@ import pytest
 from solders.pubkey import Pubkey
 
 from veltrix.dex_pool_evidence import DexPoolAccountEvidence, DexPoolEvidenceSnapshot
+from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_v6_route import DecodedJupiterRouteStep, JupiterV6RouteInspection
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
@@ -59,7 +60,7 @@ def fixture():
         data_bytes=raw,
     )
     digest = "a" * 64
-    step = DecodedJupiterRouteStep(
+    route_step = DecodedJupiterRouteStep(
         swap_variant=26,
         dex_label="Raydium CLMM",
         percent=100,
@@ -72,7 +73,7 @@ def fixture():
         instruction_name="route",
         program_id="JupiterV6Program",
         shared_authority_id=None,
-        route_steps=(step,),
+        route_steps=(route_step,),
         input_amount_raw=1_000,
         quoted_output_amount_raw=2_000,
         slippage_bps=50,
@@ -80,6 +81,42 @@ def fixture():
         remaining_account_count=0,
         fully_decoded=True,
         blocking_reasons=(),
+    )
+    order = JupiterOrderTransaction(
+        provider_id="jupiter-swap-v2",
+        request_id="test-order",
+        quote_id=None,
+        observed_at_epoch_ms=1,
+        taker="test-taker",
+        fee_payer="test-taker",
+        input_mint=str(mint_a),
+        output_mint=str(mint_b),
+        input_amount_raw=1_000,
+        output_amount_raw=2_000,
+        minimum_output_amount_raw=1_950,
+        price_impact_pct=0.0,
+        fee_bps=0.0,
+        router="metis",
+        transaction_version=0,
+        last_valid_block_height=1,
+        recent_blockhash="test-blockhash",
+        message_bytes=b"test-message",
+        serialized_transaction_bytes=b"test-transaction",
+        route_plan=(
+            JupiterRouteStep(
+                amm_key=address,
+                label="Raydium CLMM",
+                input_mint=str(mint_a),
+                output_mint=str(mint_b),
+                input_amount_raw=1_000,
+                output_amount_raw=2_000,
+                percent=100.0,
+                bps=10_000,
+            ),
+        ),
+        signature_fee_lamports=1,
+        prioritization_fee_lamports=0,
+        rent_fee_lamports=0,
     )
     snapshot = DexPoolEvidenceSnapshot(
         route_message_sha256=digest,
@@ -93,11 +130,11 @@ def fixture():
         accounts=(evidence,),
         execution_ready=False,
     )
-    return raw, evidence, snapshot, inspection, str(pool_key), str(mint_a), str(mint_b)
+    return raw, evidence, snapshot, inspection, order, address, str(mint_a), str(mint_b)
 
 
 def test_decodes_pinned_pool_state_header_and_rederives_pda():
-    _, evidence, _, _, pool_address, mint_a, mint_b = fixture()
+    _, evidence, _, _, _, pool_address, mint_a, mint_b = fixture()
     decoded = decode_raydium_clmm_pool_state(evidence, expected_pool_address=pool_address)
     assert decoded.pool_address == pool_address
     assert decoded.token_mint_0 == mint_a
@@ -110,28 +147,18 @@ def test_decodes_pinned_pool_state_header_and_rederives_pda():
 
 
 def test_validates_route_hop_mint_pair_in_either_direction():
-    _, _, snapshot, inspection, _, mint_a, mint_b = fixture()
-    order = __import__("tests.test_raydium_clmm_pool_state", fromlist=["fixture"]).fixture()[1]
-    # Build the quote independently from the decoded route instruction.
-    from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
-    order = JupiterOrderTransaction(
-        provider_id="jupiter-swap-v2", request_id="r", quote_id=None,
-        observed_at_epoch_ms=1, taker="taker", fee_payer="taker",
-        input_mint=mint_a, output_mint=mint_b, input_amount_raw=1,
-        output_amount_raw=1, minimum_output_amount_raw=1, price_impact_pct=0.0,
-        fee_bps=0.0, router="metis", transaction_version=0,
-        last_valid_block_height=1, recent_blockhash="blockhash",
-        message_bytes=b"message", serialized_transaction_bytes=b"tx",
-        route_plan=(JupiterRouteStep(inspection.route_steps[0].amm_key, "Raydium CLMM", mint_a, mint_b, 1, 1, 100.0, 10_000),),
-        signature_fee_lamports=1, prioritization_fee_lamports=0, rent_fee_lamports=0,
-    )
+    _, _, snapshot, inspection, order, *_ = fixture()
     result = validate_raydium_clmm_pool_for_route(snapshot, inspection, order)
     assert len(result) == 1 and result[0].passed is True
     reverse_order = dataclasses.replace(
         order,
-        input_mint=mint_b,
-        output_mint=mint_a,
-        route_plan=(dataclasses.replace(order.route_plan[0], input_mint=mint_b, output_mint=mint_a),),
+        input_mint=order.output_mint,
+        output_mint=order.input_mint,
+        route_plan=(dataclasses.replace(
+            order.route_plan[0],
+            input_mint=order.output_mint,
+            output_mint=order.input_mint,
+        ),),
     )
     assert validate_raydium_clmm_pool_for_route(snapshot, inspection, reverse_order)[0].passed is True
 
@@ -149,7 +176,7 @@ def test_validates_route_hop_mint_pair_in_either_direction():
     ],
 )
 def test_rejects_invalid_pool_state_header_fields(offset, value, message):
-    _, evidence, _, _, pool_address, *_ = fixture()
+    _, evidence, _, _, _, pool_address, *_ = fixture()
     raw = bytearray(evidence.data_bytes)
     raw[offset:offset + len(value)] = value
     changed = dataclasses.replace(
@@ -163,7 +190,7 @@ def test_rejects_invalid_pool_state_header_fields(offset, value, message):
 
 
 def test_rejects_wrong_pool_pda_or_owner_evidence():
-    _, evidence, _, _, pool_address, *_ = fixture()
+    _, evidence, _, _, _, pool_address, *_ = fixture()
     changed_data = bytearray(evidence.data_bytes)
     changed_data[8] = (changed_data[8] + 1) % 256
     changed = dataclasses.replace(
@@ -179,7 +206,7 @@ def test_rejects_wrong_pool_pda_or_owner_evidence():
 
 
 def test_rejects_data_hash_mismatch_and_wrong_layout_size():
-    _, evidence, _, _, pool_address, *_ = fixture()
+    _, evidence, _, _, _, pool_address, *_ = fixture()
     changed = dataclasses.replace(evidence, data_bytes=evidence.data_bytes + b"x")
     with pytest.raises(RaydiumClmmPoolStateError, match="length"):
         decode_raydium_clmm_pool_state(changed, expected_pool_address=pool_address)
@@ -189,7 +216,7 @@ def test_rejects_data_hash_mismatch_and_wrong_layout_size():
 
 
 def test_rejects_noncanonical_mint_order_and_aliasing_vaults():
-    _, evidence, _, _, pool_address, *_ = fixture()
+    _, evidence, _, _, _, pool_address, *_ = fixture()
     raw = bytearray(evidence.data_bytes)
     mint0 = bytes(Pubkey.new_unique())
     mint1 = bytes(Pubkey.new_unique())
@@ -208,28 +235,23 @@ def test_rejects_noncanonical_mint_order_and_aliasing_vaults():
 
 
 def test_rejects_route_mints_that_do_not_match_pool():
-    _, _, snapshot, inspection, _, mint_a, mint_b = fixture()
-    from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
-    order = JupiterOrderTransaction(
-        provider_id="jupiter-swap-v2", request_id="r", quote_id=None,
-        observed_at_epoch_ms=1, taker="taker", fee_payer="taker",
-        input_mint=str(Pubkey.new_unique()), output_mint=str(Pubkey.new_unique()),
-        input_amount_raw=1, output_amount_raw=1, minimum_output_amount_raw=1,
-        price_impact_pct=0.0, fee_bps=0.0, router="metis", transaction_version=0,
-        last_valid_block_height=1, recent_blockhash="blockhash", message_bytes=b"message",
-        serialized_transaction_bytes=b"tx",
-        route_plan=(JupiterRouteStep(inspection.route_steps[0].amm_key, "Raydium CLMM",
-            str(Pubkey.new_unique()), str(Pubkey.new_unique()), 1, 1, 100.0, 10_000),),
-        signature_fee_lamports=1, prioritization_fee_lamports=0, rent_fee_lamports=0,
+    _, _, snapshot, inspection, order, *_ = fixture()
+    wrong = dataclasses.replace(
+        order.route_plan[0],
+        input_mint=str(Pubkey.new_unique()),
+        output_mint=str(Pubkey.new_unique()),
     )
     with pytest.raises(RaydiumClmmPoolStateError, match="mints do not match"):
-        validate_raydium_clmm_pool_for_route(snapshot, inspection, order)
+        validate_raydium_clmm_pool_for_route(
+            snapshot,
+            inspection,
+            dataclasses.replace(order, route_plan=(wrong,)),
+        )
 
 
 def test_rejects_duplicate_pool_evidence_and_missing_raydium_pool():
-    _, evidence, snapshot, inspection, *_ = fixture()
+    _, evidence, snapshot, inspection, order, *_ = fixture()
     duplicate = dataclasses.replace(snapshot, accounts=(evidence, evidence))
-    order = __import__("tests.test_raydium_clmm_pool_state", fromlist=["fixture"]).fixture()[0]
     with pytest.raises(RaydiumClmmPoolStateError, match="duplicate"):
         validate_raydium_clmm_pool_for_route(duplicate, inspection, order)
     missing = dataclasses.replace(snapshot, accounts=())
@@ -238,7 +260,7 @@ def test_rejects_duplicate_pool_evidence_and_missing_raydium_pool():
 
 
 def test_rejects_mismatched_route_message_digest():
-    _, _, snapshot, inspection, *_ = fixture()
+    _, _, snapshot, inspection, order, *_ = fixture()
     with pytest.raises(RaydiumClmmPoolStateError, match="digests differ"):
         validate_raydium_clmm_pool_for_route(
             dataclasses.replace(snapshot, route_message_sha256="0" * 64),
@@ -248,7 +270,7 @@ def test_rejects_mismatched_route_message_digest():
 
 
 def test_pool_pda_seed_index_is_included_in_seed_derivation():
-    _, evidence, _, _, pool_address, *_ = fixture()
+    _, evidence, _, _, _, pool_address, *_ = fixture()
     decoded = decode_raydium_clmm_pool_state(evidence, expected_pool_address=pool_address)
     assert decoded.seed_index == 0
     wrong = derive_raydium_clmm_pool_address(
