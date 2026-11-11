@@ -53,9 +53,9 @@ def fixture():
         pool_creator=str(Pubkey.new_unique()), token_mint_0=mint0,
         token_mint_1=mint1, token_vault_0=str(Pubkey.new_unique()),
         token_vault_1=str(Pubkey.new_unique()), observation_key=observation_key,
-        mint_decimals_0=6, mint_decimals_1=6, tick_spacing=10,
-        liquidity=10_000, sqrt_price_x64=get_sqrt_price_at_tick(307200),
-        tick_current=307200, status=0, fee_on=0, seed_index=0,
+        mint_decimals_0=6, mint_decimals_1=6, tick_spacing=1,
+        liquidity=10_000, sqrt_price_x64=get_sqrt_price_at_tick(30720),
+        tick_current=30720, status=0, fee_on=0, seed_index=0,
         account_data_sha256="", source_commit=RAYDIUM_CLMM_SOURCE_COMMIT,
         tick_array_bitmap=(0,) * 16,
     )
@@ -75,7 +75,7 @@ def fixture():
     )
 
     order_tick = RaydiumClmmTick(
-        tick_index=307210, liquidity_net=0, liquidity_gross=0,
+        tick_index=30721, liquidity_net=0, liquidity_gross=0,
         orders_amount=1, part_filled_orders_remaining=0, initialized=True,
     )
     empty = RaydiumClmmTick(
@@ -86,18 +86,18 @@ def fixture():
     array_raw = bytearray(RAYDIUM_TICK_ARRAY_DATA_LENGTH)
     array_raw[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
     array_raw[8:40] = bytes(Pubkey.from_string(pool_key))
-    put(array_raw, 40, 4, 307200)
+    put(array_raw, 40, 4, 30720)
     tick_offset = RAYDIUM_TICK_ARRAY_TICKS_OFFSET + RAYDIUM_TICK_STATE_SIZE
-    put(array_raw, tick_offset, 4, 307210)
+    put(array_raw, tick_offset, 4, 30721)
     put(array_raw, tick_offset + 124, 8, 1)
     array_raw[RAYDIUM_TICK_ARRAY_INITIALIZED_COUNT_OFFSET] = 1
     put(array_raw, 10_125, 8, 1)
     array_bytes = bytes(array_raw)
     array = RaydiumClmmTickArray(
         address=derive_raydium_clmm_tick_array_address(
-            pool_address=pool_key, start_tick_index=307200,
+            pool_address=pool_key, start_tick_index=30720,
         ),
-        pool_address=pool_key, start_tick_index=307200, tick_spacing=10,
+        pool_address=pool_key, start_tick_index=30720, tick_spacing=10,
         initialized_tick_count=1, recent_epoch=1, ticks=ticks,
         data_sha256=hashlib.sha256(array_bytes).hexdigest(),
         raw_data=array_bytes,
@@ -125,12 +125,12 @@ def fixture():
 
     traversal = RaydiumClmmBitmapTraversalResult(
         passed=True, pool_address=pool_key, zero_for_one=False,
-        current_array_start_index=307200,
-        first_initialized_array_start_index=307200,
-        last_cpi_array_start_index=307200,
-        expected_initialized_array_starts=(307200,),
-        supplied_initialized_array_starts=(307200,),
-        supplied_array_starts=(307200,),
+        current_array_start_index=30720,
+        first_initialized_array_start_index=30720,
+        last_cpi_array_start_index=30720,
+        expected_initialized_array_starts=(30720,),
+        supplied_initialized_array_starts=(30720,),
+        supplied_array_starts=(30720,),
         bitmap_extension_sha256=extension.data_sha256,
         bounded_interval_complete=True,
     )
@@ -157,12 +157,12 @@ def test_extension_bitmap_last_tick_removal_serializes_zero_bit_and_updated_hash
     pool, array, extension, traversal, observation = fixture()
     result = execute_raydium_swap_loop(
         pool, (array,), traversal,
-        amount_specified=100_000_000,
+        amount_specified=100_000,
         trade_fee_rate=3000,
         zero_for_one=False,
         is_base_input=True,
         block_timestamp=100,
-        sqrt_price_limit_x64=get_sqrt_price_at_tick(307210),
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(30721),
         protocol_fee_rate=0,
         fund_fee_rate=0,
         recent_epoch=2,
