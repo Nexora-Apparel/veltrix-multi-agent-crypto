@@ -266,3 +266,49 @@ class RaydiumClmmTickArrayQueue:
                     selected_addresses=self.selected_addresses + (array.address,),
                 )
         raise RaydiumTickArrayCursorError("not enough CPI tick-array accounts for the bitmap-selected next array")
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumClmmTickArraySearch:
+    tick: RaydiumClmmTick | None
+    first_tick_array_contains_pool_tick: bool
+    requires_array_advance: bool
+
+
+def search_next_initialized_tick(
+    queue: RaydiumClmmTickArrayQueue,
+    *,
+    current_tick_index: int,
+    zero_for_one: bool,
+    first_tick_array_contains_pool_tick: bool,
+) -> RaydiumClmmTickArraySearch:
+    """Apply the pinned swap.rs current-array search and first-array fallback order."""
+    if not isinstance(queue, RaydiumClmmTickArrayQueue) or queue.current is None:
+        raise RaydiumTickArrayCursorError("active TickArrayState queue is required")
+    if not isinstance(first_tick_array_contains_pool_tick, bool):
+        raise RaydiumTickArrayCursorError("first-array current-tick flag must be boolean")
+
+    tick = next_initialized_tick(
+        queue.current,
+        current_tick_index=current_tick_index,
+        tick_spacing=queue.tick_spacing,
+        zero_for_one=zero_for_one,
+    )
+    if tick is not None:
+        return RaydiumClmmTickArraySearch(
+            tick=tick,
+            first_tick_array_contains_pool_tick=first_tick_array_contains_pool_tick,
+            requires_array_advance=False,
+        )
+    if not first_tick_array_contains_pool_tick:
+        tick = first_initialized_tick(queue.current, zero_for_one=zero_for_one)
+        return RaydiumClmmTickArraySearch(
+            tick=tick,
+            first_tick_array_contains_pool_tick=True,
+            requires_array_advance=False,
+        )
+    return RaydiumClmmTickArraySearch(
+        tick=None,
+        first_tick_array_contains_pool_tick=True,
+        requires_array_advance=True,
+    )
