@@ -754,7 +754,7 @@
     const cpmmData=new Uint8Array(tx.message.compiledInstructions[cpmmIndex].data);
     if(cpmmData.length!==24 || [...cpmmData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("")!==CPMM_SWAP_DISC ||
        readU64(cpmmData,8)!==BigInt(lamports)) fail("SDK CPMM instruction discriminator/input mismatch");
-    for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumOut.toBigInt()>>BigInt(i*8))&255n);
+    for(let i=0;i<8;i++) cpmmData[16+i]=Number((BigInt(minimumOut.toString())>>BigInt(i*8))&255n);
     tx.message.compiledInstructions[cpmmIndex].data=cpmmData;
 
     const q={inputMint:SOL,outputMint:USDC,inputAmount:String(lamports),
