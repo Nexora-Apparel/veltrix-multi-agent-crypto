@@ -12,6 +12,8 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_tick_math import (
     RAYDIUM_MAX_TICK,
     RAYDIUM_MIN_TICK,
+    RAYDIUM_MAX_SQRT_PRICE_X64,
+    RAYDIUM_MIN_SQRT_PRICE_X64,
     get_sqrt_price_at_tick,
 )
 
@@ -192,8 +194,8 @@ def get_spacing_bounded_price(
 ) -> RaydiumSpacingBound:
     if isinstance(zero_for_one, bool) is False:
         raise RaydiumDynamicFeeError("zero_for_one must be a boolean")
-    if isinstance(target_price_x64, bool) or not isinstance(target_price_x64, int) or target_price_x64 <= 0:
-        raise RaydiumDynamicFeeError("target price must be a positive integer")
+    if isinstance(target_price_x64, bool) or not isinstance(target_price_x64, int) or not RAYDIUM_MIN_SQRT_PRICE_X64 <= target_price_x64 < RAYDIUM_MAX_SQRT_PRICE_X64:
+        raise RaydiumDynamicFeeError("target price is outside the pinned Raydium sqrt-price range")
     if isinstance(liquidity, bool) or not isinstance(liquidity, int) or liquidity < 0:
         raise RaydiumDynamicFeeError("liquidity must be a non-negative integer")
     if isinstance(tick_spacing_index, bool) or not isinstance(tick_spacing_index, int) or not -(1 << 31) <= tick_spacing_index < (1 << 31):
