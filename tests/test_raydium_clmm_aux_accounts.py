@@ -1,4 +1,5 @@
 """Adversarial tests for source-pinned Raydium auxiliary account layouts."""
+import base64
 import hashlib
 
 import pytest
@@ -15,8 +16,18 @@ from veltrix.raydium_clmm_aux_accounts import (
     decode_raydium_clmm_observation_state,
     derive_raydium_clmm_amm_config_address,
     derive_raydium_clmm_observation_address,
+    fetch_raydium_clmm_aux_account_snapshot,
 )
-from veltrix.raydium_clmm_pool_state import RAYDIUM_CLMM_PROGRAM_ID
+from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_CLMM_PROGRAM_ID,
+    RaydiumClmmPoolRouteCheck,
+    RaydiumClmmPoolState,
+)
+from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
+from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
+from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTickArraySnapshot
+from veltrix.simulation_gate import SimulationEvidence
+from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
 
 
 def config_fixture(index=7, tick_spacing=10):
@@ -159,4 +170,137 @@ def test_rejects_invalid_observation_ring_index_and_wrong_owner():
             address=address, expected_pool_address=pool,
             owner_program_id=str(Pubkey.new_unique()), lamports=1,
             executable=False, data=data, observed_at_epoch_ms=now_ms,
+        )
+
+
+class FakeResponse:
+    status_code = 200
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+
+class FakeSession:
+    def __init__(self, accounts, *, slot=504):
+        self.accounts = accounts
+        self.slot = slot
+        self.calls = []
+
+    def post(self, endpoint, *, json, headers, timeout, allow_redirects):
+        self.calls.append(json)
+        if json["method"] == "getGenesisHash":
+            result = "genesis"
+        elif json["method"] == "getMultipleAccounts":
+            result = {
+                "context": {"slot": self.slot},
+                "value": [self.accounts.get(address) for address in json["params"][0]],
+            }
+        else:
+            raise AssertionError(json["method"])
+        return FakeResponse({"jsonrpc": "2.0", "id": json["id"], "result": result})
+
+
+def fetch_fixture(*, slot=504, omit_observation=False):
+    pool_address = str(Pubkey.new_unique())
+    mint0, mint1 = str(Pubkey.new_unique()), str(Pubkey.new_unique())
+    config_address, config_bump = derive_raydium_clmm_amm_config_address(index=7)
+    observation_address = derive_raydium_clmm_observation_address(pool_address=pool_address)
+    pool = RaydiumClmmPoolState(
+        pool_address=pool_address, bump=1, amm_config=config_address,
+        pool_creator=str(Pubkey.new_unique()), token_mint_0=mint0,
+        token_mint_1=mint1, token_vault_0=str(Pubkey.new_unique()),
+        token_vault_1=str(Pubkey.new_unique()), observation_key=observation_address,
+        mint_decimals_0=6, mint_decimals_1=6, tick_spacing=10,
+        liquidity=1000, sqrt_price_x64=1 << 64, tick_current=0,
+        status=0, fee_on=0, seed_index=0, account_data_sha256="a" * 64,
+    )
+    checks = (RaydiumClmmPoolRouteCheck(True, pool, mint0, mint1),)
+    digest = hashlib.sha256(b"auxiliary-account-message").hexdigest()
+    observed_at = 1_700_000_000_000
+    simulation = SimulationEvidence(
+        message_sha256=digest, recent_blockhash="blockhash",
+        cluster="mainnet-beta", genesis_hash="genesis", provider_id="rpc-primary",
+        response_id="sim-aux", observed_at_epoch_ms=observed_at, context_slot=500,
+        current_block_height=900, last_valid_block_height=950, simulation_error=None,
+        units_consumed=100_000, fee_lamports=5_000, token_balances=(),
+    )
+    pool_evidence = DexPoolEvidenceSnapshot(
+        route_message_sha256=digest, registry_sha256="registry",
+        simulation_response_id="sim-aux", simulation_context_slot=500,
+        provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        context_slot=501, accounts=(),
+    )
+    vaults = RaydiumClmmVaultSnapshot(
+        route_message_sha256=digest, simulation_response_id="sim-aux",
+        simulation_context_slot=500, provider_id="rpc-primary",
+        cluster="mainnet-beta", genesis_hash="genesis", context_slot=502, vaults=(),
+    )
+    ticks = RaydiumClmmTickArraySnapshot(
+        route_message_sha256=digest, simulation_response_id="sim-aux",
+        simulation_context_slot=500, provider_id="rpc-primary",
+        cluster="mainnet-beta", genesis_hash="genesis", context_slot=503, tick_arrays=(),
+    )
+    config_data = (
+        AMM_CONFIG_DISCRIMINATOR + bytes((config_bump,))
+        + (7).to_bytes(2, "little") + bytes(Pubkey.new_unique())
+        + (1000).to_bytes(4, "little") + (3000).to_bytes(4, "little")
+        + (10).to_bytes(2, "little") + (1000).to_bytes(4, "little")
+        + bytes(4) + bytes(Pubkey.new_unique()) + bytes(24)
+    )
+    obs_data = bytearray(OBSERVATION_STATE_DATA_LENGTH)
+    obs_data[:8] = OBSERVATION_STATE_DISCRIMINATOR
+    obs_data[8] = 1
+    obs_data[9:17] = (123).to_bytes(8, "little")
+    obs_data[17:19] = (0).to_bytes(2, "little")
+    obs_data[19:51] = bytes(Pubkey.from_string(pool_address))
+    latest_timestamp = (observed_at // 1000 - 15) & 0xFFFF_FFFF
+    obs_data[51:55] = latest_timestamp.to_bytes(4, "little")
+    obs_data = bytes(obs_data)
+    def account(data):
+        return {
+            "owner": RAYDIUM_CLMM_PROGRAM_ID, "lamports": 1,
+            "executable": False, "data": [base64.b64encode(data).decode(), "base64"],
+            "space": len(data),
+        }
+    accounts = {config_address: account(config_data)}
+    if not omit_observation:
+        accounts[observation_address] = account(obs_data)
+    session = FakeSession(accounts, slot=slot)
+    adapter = SolanaRpcSimulationAdapter(
+        endpoint="https://rpc.example.test", provider_id="rpc-primary",
+        cluster="mainnet-beta", expected_genesis_hash="genesis",
+        allowed_hosts=("rpc.example.test",), session=session, clock_ms=lambda: observed_at,
+    )
+    return pool_evidence, checks, vaults, ticks, simulation, adapter, session, pool
+
+
+def test_fetches_config_and_observation_after_all_prior_evidence_slots():
+    values = fetch_fixture()
+    result = fetch_raydium_clmm_aux_account_snapshot(
+        values[0], pool_checks=values[1], vault_snapshot=values[2],
+        tick_array_snapshot=values[3], simulation=values[4], rpc_adapter=values[5],
+    )
+    assert result.execution_ready is False
+    assert result.context_slot == 504
+    assert result.amm_configs[0].tick_spacing == 10
+    assert result.observations[0].pool_address == values[7].pool_address
+    request = next(call for call in values[6].calls if call["method"] == "getMultipleAccounts")
+    assert request["params"][1]["minContextSlot"] == 503
+
+
+def test_rejects_missing_auxiliary_account_and_stale_snapshot_slot():
+    values = fetch_fixture(omit_observation=True)
+    with pytest.raises(Exception, match="missing from the requested snapshot"):
+        fetch_raydium_clmm_aux_account_snapshot(
+            values[0], pool_checks=values[1], vault_snapshot=values[2],
+            tick_array_snapshot=values[3], simulation=values[4], rpc_adapter=values[5],
+        )
+    values = fetch_fixture(slot=502)
+    with pytest.raises(Exception, match="older than the required simulation slot"):
+        fetch_raydium_clmm_aux_account_snapshot(
+            values[0], pool_checks=values[1], vault_snapshot=values[2],
+            tick_array_snapshot=values[3], simulation=values[4], rpc_adapter=values[5],
         )
