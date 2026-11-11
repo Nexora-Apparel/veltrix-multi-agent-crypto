@@ -252,3 +252,11 @@ def test_browser_alt_evidence_uses_deserialized_state_address_count():
     source = PAGE.read_text(encoding="utf-8")
     assert "addresses:state.addresses.length" in source
     assert "addresses:addresses.length" not in source
+
+
+
+def test_amm_config_discriminator_is_compared_as_raw_bytes():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "expectedConfigDisc = Uint8Array.from([218,244,33,104,203,203,43,111])" in source
+    assert "equalBytes(configData.slice(0,8),expectedConfigDisc)" in source
+    assert 'b58encode(accountDataBytes(config,"AMM config").slice(0,8)) !== "daf42168cbcb2b6f"' not in source
