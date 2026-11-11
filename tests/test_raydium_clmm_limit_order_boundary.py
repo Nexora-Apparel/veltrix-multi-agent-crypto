@@ -63,7 +63,7 @@ def test_limit_order_boundary_uses_precomputed_fee_and_applies_fee_split():
 def test_limit_order_boundary_preserves_part_filled_fifo_cohort_first():
     result = apply_raydium_limit_order_boundary(
         tick(orders_amount=500, part_filled_orders_remaining=100, unfilled_ratio_x64=Q64 // 2),
-        state(),
+        state(50),
         fee_rate=0,
         sqrt_price_x64=Q64,
         zero_for_one=True,
