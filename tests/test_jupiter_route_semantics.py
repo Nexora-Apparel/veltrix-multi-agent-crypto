@@ -190,13 +190,14 @@ def test_rejects_malformed_or_unsupported_route_payload(payload, message):
 
 
 def test_accepts_exact_serialized_route_instruction_matching_order_and_quote():
+    order, _, _, _, _, _ = fixture()
     result = evaluate()
     assert result.passed is True
     assert result.input_amount_raw == 1_000
     assert result.quoted_output_amount_raw == 2_000
     assert result.slippage_bps == 50
     assert result.platform_fee_bps == 0
-    assert dict(result.token_index_mints)[0] == fixture()[0].input_mint
+    assert dict(result.token_index_mints)[0] == order.input_mint
 
 
 @pytest.mark.parametrize(
@@ -208,7 +209,7 @@ def test_accepts_exact_serialized_route_instruction_matching_order_and_quote():
         ("platform_fee_bps", 1, "platform fee exceeds"),
     ],
 )
-def test_rejects_encoded_amounts_and_fees_outside_policy(field, value, message):
+def test_rejects_encoded_amounts_and_fees_outside_policy(field, value, expected_error):
     order, validation, simulation, sim_gate, program_gate, policy = fixture()
     encoded = {
         "input_amount_raw": 1_000,
@@ -267,7 +268,7 @@ def test_rejects_encoded_amounts_and_fees_outside_policy(field, value, message):
     )
     if field == "slippage_bps":
         policy = dataclasses.replace(policy, max_slippage_bps=100)
-    with pytest.raises(JupiterRouteSemanticError, match=message):
+    with pytest.raises(JupiterRouteSemanticError, match=expected_error):
         evaluate((order, validation, simulation, sim_gate, program_gate, policy))
 
 
@@ -277,6 +278,7 @@ def test_rejects_unknown_route_label_even_when_program_is_pinned():
         order,
         route_plan=(dataclasses.replace(order.route_plan[0], label="Unknown DEX"),),
     )
+    program_gate = dataclasses.replace(program_gate, route_labels=("Unknown DEX",))
     with pytest.raises(JupiterRouteSemanticError, match="unsupported DEX label"):
         evaluate((order, validation, simulation, sim_gate, program_gate, policy))
 
