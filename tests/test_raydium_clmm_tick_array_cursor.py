@@ -29,7 +29,7 @@ def build_tick_array(start, spacing, initialized_offsets):
         for index in range(RAYDIUM_TICK_ARRAY_SIZE)
     )
     return RaydiumClmmTickArray(
-        address="TickArrayFixture111111111111111111111111",
+        address=f"TickArrayFixture{start}",
         pool_address="PoolFixture1111111111111111111111111111",
         start_tick_index=start,
         tick_spacing=spacing,
