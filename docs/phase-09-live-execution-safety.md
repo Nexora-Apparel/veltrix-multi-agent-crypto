@@ -368,3 +368,16 @@ Implemented in `veltrix/raydium_clmm_tick_arrays.py`, pinned to the Raydium CLMM
 Limitations: this captures only the current tick array for each pool. It does not yet prove all additional arrays passed through the actual Raydium CPI, validate the tick-array bitmap extension, derive swap-direction traversal, or calculate executable liquidity/depth/slippage. The current-array snapshot is evidence only and does not enable execution.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.25 — detailed simulated inner-CPI evidence
+
+Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.py`.
+
+- Adds immutable `SimulatedInnerInstruction` evidence with outer instruction index, resolved CPI program ID, ordered resolved account keys, decoded instruction bytes and optional stack height.
+- Strictly decodes Solana RPC's base58 instruction data with encoded/decoded size bounds.
+- Validates outer instruction indexes, program indexes, every CPI account index, account-list shape and stack-height values against the transaction validator's resolved account-key order (including loaded address-table keys).
+- Binds the detailed record count and ordered program IDs to the existing compact CPI trace; inconsistent evidence fails closed.
+- Legacy/manual evidence may still contain only the compact trace, but DEX semantic gates must require detailed records and reject absent instruction bytes/account keys.
+
+This captures raw simulation evidence only. It does not by itself identify which inner CPI belongs to which Jupiter route step, decode DEX instruction payloads, prove account roles, or validate tick-array traversal. No signing, submission, broadcast or live execution is added.
