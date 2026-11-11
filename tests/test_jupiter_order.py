@@ -20,16 +20,20 @@ from veltrix.jupiter_order import (
 class FakeResponse:
     status_code = 200
 
-    def __init__(self, body):
+    def __init__(self, body, status_code=200, headers=None):
         self.body = body
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self):
         return self.body
 
 
 class FakeSession:
-    def __init__(self, body):
+    def __init__(self, body, status_code=200, headers=None):
         self.body = body
+        self.status_code = status_code
+        self.headers = headers or {}
         self.calls = []
 
     def get(self, url, *, params, headers, timeout, allow_redirects):
@@ -38,7 +42,7 @@ class FakeSession:
         assert params["maxSupportedTransactionVersion"] == "0"
         assert params["swapMode"] == "ExactIn"
         assert allow_redirects is False
-        return FakeResponse(self.body)
+        return FakeResponse(self.body, self.status_code, self.headers)
 
 
 def order_fixture(*, use_lookup_table=False):
@@ -247,3 +251,38 @@ def test_requests_only_allowed_routers_and_no_legacy_transaction_versions():
     assert "jupiterz" in params["excludeRouters"]
     assert params["maxSupportedTransactionVersion"] == "0"
     assert "taker" in params
+
+
+def test_provider_rejection_preserves_safe_code_message_and_request_id():
+    body, _, _ = order_fixture()
+    body = {
+        "errorCode": "INSUFFICIENT_BALANCE",
+        "error": {"message": "Taker account has insufficient balance"},
+        "requestId": "jup-req-789",
+    }
+    api = JupiterSwapV2OrderAdapter(session=FakeSession(body))
+    with pytest.raises(JupiterOrderIntakeError) as caught:
+        api.order_exact_in(
+            str(Pubkey.new_unique()), str(Pubkey.new_unique()), 1_000_000,
+            taker=str(Pubkey.new_unique()), policy=JupiterOrderPolicy(),
+        )
+    assert caught.value.provider_error_code == "INSUFFICIENT_BALANCE"
+    assert caught.value.provider_error_message == "Taker account has insufficient balance"
+    assert caught.value.provider_request_id == "jup-req-789"
+    assert caught.value.http_status == 200
+
+
+def test_http_error_preserves_provider_diagnostics_without_raw_payload():
+    body = {"errorCode": "RATE_LIMITED", "error": "Too many requests"}
+    api = JupiterSwapV2OrderAdapter(
+        session=FakeSession(body, status_code=429, headers={"x-request-id": "req-429"})
+    )
+    with pytest.raises(JupiterOrderIntakeError) as caught:
+        api.order_exact_in(
+            str(Pubkey.new_unique()), str(Pubkey.new_unique()), 1_000_000,
+            taker=str(Pubkey.new_unique()), policy=JupiterOrderPolicy(),
+        )
+    assert caught.value.http_status == 429
+    assert caught.value.provider_error_code == "RATE_LIMITED"
+    assert caught.value.provider_error_message == "Too many requests"
+    assert caught.value.provider_request_id == "req-429"

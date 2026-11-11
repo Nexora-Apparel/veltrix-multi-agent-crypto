@@ -30,6 +30,46 @@ from veltrix.jupiter_quote import (
 class JupiterOrderIntakeError(RuntimeError):
     """Raised when Jupiter order data is malformed or violates local policy."""
 
+    def __init__(self, message: str, *, provider_error_code: str | None = None,
+                 provider_error_message: str | None = None, http_status: int | None = None,
+                 provider_request_id: str | None = None) -> None:
+        super().__init__(message)
+        self.provider_error_code = provider_error_code
+        self.provider_error_message = provider_error_message
+        self.http_status = http_status
+        self.provider_request_id = provider_request_id
+
+
+def _safe_provider_text(value: object, limit: int = 300) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join("".join(ch if ch.isprintable() else " " for ch in value).split())
+    if not cleaned:
+        return None
+    if "://" in cleaned:
+        cleaned = cleaned.split("://", 1)[0] + "://[redacted]"
+    return cleaned[:limit]
+
+
+def _provider_error_details(body: object, response: Any) -> dict[str, object]:
+    if not isinstance(body, dict):
+        body = {}
+    error = body.get("error")
+    message = error.get("message") if isinstance(error, dict) else error
+    if message is None:
+        message = body.get("message")
+    code = body.get("errorCode")
+    if code is None and isinstance(error, dict):
+        code = error.get("code")
+    headers = getattr(response, "headers", {}) or {}
+    request_id = body.get("requestId") or headers.get("x-request-id") or headers.get("X-Request-Id")
+    return {
+        "provider_error_code": _safe_provider_text(str(code)) if code is not None else None,
+        "provider_error_message": _safe_provider_text(message),
+        "provider_request_id": _safe_provider_text(request_id, 120),
+        "http_status": getattr(response, "status_code", None),
+    }
+
 
 @dataclass(frozen=True, slots=True)
 class JupiterOrderPolicy:
@@ -146,9 +186,16 @@ class JupiterSwapV2OrderAdapter:
                 timeout=self.timeout_seconds,
                 allow_redirects=False,
             )
+            try:
+                body = response.json()
+            except Exception:
+                body = None
             if response.status_code != 200:
-                raise JupiterOrderIntakeError(f"Jupiter order endpoint returned HTTP {response.status_code}")
-            body = response.json()
+                details = _provider_error_details(body, response)
+                raise JupiterOrderIntakeError(
+                    f"Jupiter order endpoint returned HTTP {response.status_code}",
+                    **details,
+                )
         except JupiterOrderIntakeError:
             raise
         except Exception as exc:
@@ -157,7 +204,11 @@ class JupiterSwapV2OrderAdapter:
         if not isinstance(body, dict):
             raise JupiterOrderIntakeError("Jupiter returned a malformed order object")
         if body.get("error") is not None or body.get("errorCode") is not None:
-            raise JupiterOrderIntakeError("Jupiter could not produce the requested order")
+            details = _provider_error_details(body, response)
+            raise JupiterOrderIntakeError(
+                "Jupiter could not produce the requested order",
+                **details,
+            )
         request_id = body.get("requestId")
         if not isinstance(request_id, str) or not request_id:
             raise JupiterOrderIntakeError("Jupiter order omitted requestId")
