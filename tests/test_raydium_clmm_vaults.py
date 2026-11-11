@@ -389,7 +389,12 @@ def test_exact_internal_validator_matches_directional_vault_reload_and_return_va
         sqrt_price_after_x64=(1 << 64) if zero_for_one else (1 << 64) + 100,
         sqrt_price_limit_x64=0,
     )
-    assert result == (80 if is_base_input else 100)
+    expected_result = (
+        (80 if zero_for_one else 100)
+        if is_base_input
+        else (100 if zero_for_one else 80)
+    )
+    assert result == expected_result
 
 
 @pytest.mark.parametrize("zero_for_one", [True, False])
@@ -414,7 +419,7 @@ def test_exact_internal_validator_allows_partial_fill_only_with_price_limit(zero
         sqrt_price_after_x64=(1 << 64) if zero_for_one else (1 << 64) + 100,
         sqrt_price_limit_x64=(1 << 64) - 1 if zero_for_one else (1 << 64) + 200,
     )
-    assert result == 80
+    assert result == (80 if zero_for_one else 100)
 
 
 def test_exact_internal_validator_rejects_partial_fill_without_price_limit():
