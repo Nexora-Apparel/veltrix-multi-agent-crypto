@@ -19,6 +19,7 @@ from veltrix.jupiter_route_semantics import (
     evaluate_jupiter_route_semantics,
 )
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
+from veltrix.jupiter_swap_effects import JupiterSwapEffectResult
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -146,14 +147,26 @@ def fixture():
     return order, validation, simulation, sim_gate, program_gate, policy
 
 
-def evaluate(values=None):
+def evaluate(values=None, swap_effects=None):
     order, validation, simulation, sim_gate, program_gate, policy = values or fixture()
+    effects = swap_effects or JupiterSwapEffectResult(
+        passed=True,
+        message_sha256=hashlib.sha256(order.message_bytes).hexdigest(),
+        input_token_account="input-ata",
+        output_token_account="output-ata",
+        input_delta_raw=-order.input_amount_raw,
+        output_delta_raw=order.output_amount_raw,
+        minimum_output_amount_raw=order.minimum_output_amount_raw,
+        exact_output_amount_raw=order.output_amount_raw,
+        simulation_context_slot=simulation.context_slot,
+    )
     return evaluate_jupiter_route_semantics(
         order,
         validation=validation,
         simulation=simulation,
         simulation_gate=sim_gate,
         program_gate=program_gate,
+        swap_effects=effects,
         policy=policy,
     )
 
@@ -301,3 +314,28 @@ def test_rejects_router_without_a_pinned_route_instruction_decoder():
 def test_rejects_policy_for_an_invalid_jupiter_program_public_key():
     with pytest.raises(JupiterRouteSemanticError, match="invalid public key"):
         JupiterRouteSemanticPolicy(jupiter_program_ids=("not-a-public-key",))
+
+
+def test_rejects_missing_or_mismatched_quote_to_balance_effect_evidence():
+    order, validation, simulation, sim_gate, program_gate, policy = fixture()
+    bad_effects = JupiterSwapEffectResult(
+        passed=True,
+        message_sha256="b" * 64,
+        input_token_account="input-ata",
+        output_token_account="output-ata",
+        input_delta_raw=-order.input_amount_raw,
+        output_delta_raw=order.output_amount_raw,
+        minimum_output_amount_raw=order.minimum_output_amount_raw,
+        exact_output_amount_raw=order.output_amount_raw,
+        simulation_context_slot=simulation.context_slot,
+    )
+    with pytest.raises(JupiterRouteSemanticError, match="digests differ"):
+        evaluate((order, validation, simulation, sim_gate, program_gate, policy), bad_effects)
+
+    bad_effects = dataclasses.replace(
+        bad_effects,
+        message_sha256=hashlib.sha256(order.message_bytes).hexdigest(),
+        output_delta_raw=order.output_amount_raw - 1,
+    )
+    with pytest.raises(JupiterRouteSemanticError, match="effect evidence differs"):
+        evaluate((order, validation, simulation, sim_gate, program_gate, policy), bad_effects)
