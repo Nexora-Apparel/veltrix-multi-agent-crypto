@@ -1,6 +1,5 @@
 """Source-vector and adversarial tests for Raydium FIFO limit-order matching."""
 import pytest
-from solders.pubkey import Pubkey
 
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
 from veltrix.raydium_clmm_tick_math import Q64
@@ -160,3 +159,11 @@ def test_rejects_unrepresentable_input_and_invalid_sqrt_price():
         get_limit_order_input_with_price((1 << 64) - 1, (1 << 128) - 1, True)
     with pytest.raises(RaydiumLimitOrderError, match="positive"):
         get_token0_price_x64(0, round_up=False)
+
+
+@pytest.mark.parametrize("round_up", [False, True])
+def test_sqrt_price_conversion_rejects_u128_result_overflow(round_up):
+    # The pinned Rust U256 implementation rejects a post-shift price > u128::MAX.
+    with pytest.raises(RaydiumLimitOrderError, match="token0_price_x64"):
+        get_token0_price_x64(1 << 96, round_up=round_up)
+

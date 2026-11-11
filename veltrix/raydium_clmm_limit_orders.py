@@ -43,26 +43,31 @@ def _u128(value: int, field: str) -> None:
 
 
 def get_token0_price_x64(sqrt_price_x64: int, *, round_up: bool) -> int:
-    """Port tick_math::get_price_from_sqrt_price with its directional rounding."""
+    """Port tick_math::get_price_from_sqrt_price, including its checked u128 result."""
     _u128(sqrt_price_x64, "sqrt_price_x64")
     if sqrt_price_x64 == 0:
         raise RaydiumLimitOrderError("sqrt price must be positive")
     if not isinstance(round_up, bool):
         raise RaydiumLimitOrderError("round_up must be boolean")
     product = sqrt_price_x64 * sqrt_price_x64
-    return (product + (Q64 - 1 if round_up else 0)) // Q64
+    price = (product + (Q64 - 1 if round_up else 0)) // Q64
+    _u128(price, "token0_price_x64")
+    return price
 
 
 def get_limit_order_output_with_price(
     amount_in: int, token0_price_x64: int, zero_for_one: bool
 ) -> int:
+    """Port U128::mul_div_floor; its bounded inputs keep the quotient within u128."""
     _u64(amount_in, "amount_in")
     _u128(token0_price_x64, "token0_price_x64")
     if token0_price_x64 == 0 or not isinstance(zero_for_one, bool):
         raise RaydiumLimitOrderError("price must be positive and direction boolean")
     if zero_for_one:
-        return amount_in * token0_price_x64 // Q64
-    return amount_in * Q64 // token0_price_x64
+        amount_out = amount_in * token0_price_x64 // Q64
+    else:
+        amount_out = amount_in * Q64 // token0_price_x64
+    return amount_out
 
 
 def get_limit_order_input_with_price(
