@@ -136,10 +136,6 @@ def fixture():
         digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503,
         (tick_array,), cpi_account_order=(tick,), bitmap_extension_address=None,
     )
-    simulation = SimulationEvidence(
-        digest, "blockhash", "mainnet-beta", "genesis", "rpc-primary", "sim-1",
-        1000, 500, 900, 950, None, 100_000, 5000, (),
-    )
     config_data = bytes(AMM_CONFIG_DATA_LENGTH)
     observation_data = bytes(OBSERVATION_STATE_DATA_LENGTH)
     aux_snapshot = RaydiumClmmAuxAccountSnapshot(
@@ -158,6 +154,33 @@ def fixture():
             latest_tick_cumulative=0,
             data_sha256=hashlib.sha256(observation_data).hexdigest(),
         ),),
+    )
+    def simulated_state(address, owner, data, *, lamports=1, post_data=None):
+        post_data = data if post_data is None else post_data
+        return SimulatedAccountState(
+            address=address, pre_owner=owner, post_owner=owner,
+            pre_lamports=lamports, post_lamports=lamports,
+            pre_executable=False, post_executable=False,
+            pre_data=data, post_data=post_data,
+            pre_data_sha256=hashlib.sha256(data).hexdigest(),
+            post_data_sha256=hashlib.sha256(post_data).hexdigest(),
+        )
+    post_vault0 = bytearray(vault0_data)
+    post_vault0[64:72] = (900).to_bytes(8, "little")
+    post_vault1 = bytearray(vault1_data)
+    post_vault1[64:72] = (2100).to_bytes(8, "little")
+    account_states = (
+        simulated_state(pool, RAYDIUM_CLMM_PROGRAM_ID, pool_bytes, lamports=1),
+        simulated_state(vault0, CLASSIC_TOKEN_PROGRAM_ID, vault0_data, post_data=bytes(post_vault0)),
+        simulated_state(vault1, CLASSIC_TOKEN_PROGRAM_ID, vault1_data, post_data=bytes(post_vault1)),
+        simulated_state(tick, RAYDIUM_CLMM_PROGRAM_ID, tick_data),
+        simulated_state(amm_config, RAYDIUM_CLMM_PROGRAM_ID, config_data),
+        simulated_state(observation, RAYDIUM_CLMM_PROGRAM_ID, observation_data),
+    )
+    simulation = SimulationEvidence(
+        digest, "blockhash", "mainnet-beta", "genesis", "rpc-primary", "sim-1",
+        1000, 500, 900, 950, None, 100_000, 5000, (),
+        account_states=account_states,
     )
     cpi = RaydiumClmmCpiResult(
         passed=True, message_sha256=digest, program_id=RAYDIUM_CLMM_MAINNET_PROGRAM_ID,
