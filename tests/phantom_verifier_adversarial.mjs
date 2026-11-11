@@ -78,6 +78,35 @@ const baseline=h.decodeRouterPolicy(base.message,base.resolved,{otherAmountThres
 assert.equal(baseline.minOut,3110n);
 assert.equal(baseline.programs.length,5);
 
+// CPMM instruction and SPL token-account adversarial cases.
+const cpmmDisc=[143,190,90,218,196,30,51,222];
+const cpmmData=Uint8Array.from([...cpmmDisc,...u64(C.TEST_LAMPORTS),...u64(0)]);
+assert.deepEqual(h.decodeCpmmSwapData(cpmmData),{amountIn:BigInt(C.TEST_LAMPORTS),minimumAmountOut:0n});
+{
+  const bad=new Uint8Array(cpmmData); bad[0]^=1;
+  rejected(()=>h.decodeCpmmSwapData(bad),"wrong CPMM discriminator");
+}
+{
+  const bad=new Uint8Array(cpmmData); bad.set(u64(C.TEST_LAMPORTS+1),8);
+  rejected(()=>h.decodeCpmmSwapData(bad),"altered CPMM input");
+}
+{
+  const bad=new Uint8Array(cpmmData); bad.set(u64(1),16);
+  rejected(()=>h.decodeCpmmSwapData(bad),"unexpected CPMM inner minimum");
+}
+function tokenAccount(mint,owner,state=1,program=C.TOKEN) {
+  const data=new Uint8Array(165);
+  data.set(h.b58decode(mint),0); data.set(h.b58decode(owner),32); data[108]=state;
+  const encoded=btoa(String.fromCharCode(...data));
+  return {owner:program,executable:false,data:[encoded,"base64"]};
+}
+const validToken=tokenAccount(C.USDC,C.WALLET);
+assert.equal(h.decodeTokenAccount(validToken,C.USDC,C.WALLET,"fixture token").mint,C.USDC);
+rejected(()=>h.decodeTokenAccount(tokenAccount(C.SOL,C.WALLET),C.USDC,C.WALLET,"fixture token"),"wrong token mint");
+rejected(()=>h.decodeTokenAccount(tokenAccount(C.USDC,C.POOL),C.USDC,C.WALLET,"fixture token"),"wrong token owner");
+rejected(()=>h.decodeTokenAccount(tokenAccount(C.USDC,C.WALLET,0),C.USDC,C.WALLET,"fixture token"),"uninitialized token account");
+rejected(()=>h.decodeTokenAccount(tokenAccount(C.USDC,C.WALLET,1,C.SYSTEM),C.USDC,C.WALLET,"fixture token"),"wrong token program owner");
+
 // Each altered intent must be rejected.
 {
   const x=makeMessage(); x.message.compiledInstructions[1].data[1]++;
@@ -115,4 +144,4 @@ assert.equal(baseline.programs.length,5);
   const x=makeMessage(); x.message.compiledInstructions[4].data.set([0xff,0xff,0xff,0x7f],1);
   rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"excessive compute-unit limit");
 }
-console.log("Phantom browser verifier adversarial tests passed: ALT lifecycle/index mutations, byte primitives, router setup/route/cleanup, amount/minimum, account order, program identity, privilege escalation and compute-budget caps.");
+console.log("Phantom browser verifier adversarial tests passed: ALT lifecycle/index mutations, byte primitives, CPMM discriminator/amount/minimum, token mint/owner/program/state, router setup/route/cleanup, amount/minimum, account order, program identity, privilege escalation and compute-budget caps.");
