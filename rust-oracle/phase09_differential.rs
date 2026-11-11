@@ -2,7 +2,7 @@
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayState, TickState};
+use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState};
 use anchor_lang::prelude::Pubkey;
 use serde_json::Value;
 
@@ -520,5 +520,44 @@ fn python_default_tick_array_bitmap_vectors_match_pinned_raydium_pool_state() {
             .unwrap_or_else(|error| panic!("Rust bitmap clear failed at {start_index}: {error:?}"));
         let cleared_bitmap = pool.tick_array_bitmap;
         assert!(cleared_bitmap.iter().all(|word| *word == 0));
+    }
+}
+
+
+#[test]
+fn python_positive_negative_bitmap_extension_vectors_match_pinned_raydium_extension() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["tick_array_bitmap"].as_array().expect("bitmap vectors");
+    assert_eq!(cases.len(), 11);
+
+    for case in cases.iter().skip(5) {
+        let spacing = case["tick_spacing"].as_u64().unwrap() as u16;
+        let start_index = case["start_index"].as_i64().unwrap() as i32;
+        let mut extension = TickArrayBitmapExtension::default();
+        extension.initialize(Pubkey::new_unique());
+        extension
+            .flip_tick_array_bit(start_index, spacing)
+            .unwrap_or_else(|error| panic!("Rust extension bitmap flip failed at {start_index}: {error:?}"));
+
+        let actual_positive = extension.positive_tick_array_bitmap;
+        let actual_negative = extension.negative_tick_array_bitmap;
+        let expected_positive = case["extension_positive"].as_array().unwrap();
+        let expected_negative = case["extension_negative"].as_array().unwrap();
+        for row in 0..14 {
+            for word in 0..8 {
+                let actual_positive_word = actual_positive[row][word];
+                let actual_negative_word = actual_negative[row][word];
+                assert_eq!(
+                    actual_positive_word,
+                    expected_positive[row][word].as_u64().unwrap(),
+                    "positive bitmap mismatch at start={start_index}, row={row}, word={word}"
+                );
+                assert_eq!(
+                    actual_negative_word,
+                    expected_negative[row][word].as_u64().unwrap(),
+                    "negative bitmap mismatch at start={start_index}, row={row}, word={word}"
+                );
+            }
+        }
     }
 }
