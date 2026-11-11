@@ -6,6 +6,7 @@ Supports only classic SPL-token exact-input swaps using the pinned DAMM v1
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import struct
 
 from solders.pubkey import Pubkey
