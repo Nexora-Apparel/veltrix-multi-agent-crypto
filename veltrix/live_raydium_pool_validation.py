@@ -146,10 +146,33 @@ def main() -> int:
     )
     if observation_address != pool.observation_key:
         raise SystemExit("PoolState observation key is not the canonical pool-derived PDA")
-    snapshot = adapter.fetch_account_snapshot(addresses, min_context_slot=pool_snapshot.context_slot)
+    # The first PoolState read only discovers dependent addresses. The authoritative
+    # evidence snapshot re-fetches PoolState and every dependency in ONE RPC call,
+    # so all reported account bytes share the same bank/context slot.
+    authoritative_addresses = (pool_address, *addresses)
+    snapshot = adapter.fetch_account_snapshot(
+        authoritative_addresses, min_context_slot=pool_snapshot.context_slot
+    )
     by_address = {account.address: account for account in snapshot.accounts}
-    if len(by_address) != len(addresses):
-        raise SystemExit("RPC snapshot returned duplicate or missing dependent accounts")
+    if len(by_address) != len(authoritative_addresses):
+        raise SystemExit("RPC snapshot returned duplicate or missing pool/dependent accounts")
+
+    authoritative_pool_account = by_address[pool_address]
+    authoritative_pool = decode_raydium_clmm_pool_state(
+        account_evidence(authoritative_pool_account, "Raydium CLMM"),
+        expected_pool_address=pool_address,
+    )
+    authoritative_dependencies = (
+        authoritative_pool.amm_config,
+        authoritative_pool.observation_key,
+        authoritative_pool.token_vault_0,
+        authoritative_pool.token_vault_1,
+    )
+    if authoritative_dependencies != addresses:
+        raise SystemExit(
+            "PoolState dependencies changed between discovery and authoritative snapshot; retry validation"
+        )
+    pool = authoritative_pool
 
     def evidence(address: str, label: str) -> DexPoolAccountEvidence:
         account = by_address[address]
