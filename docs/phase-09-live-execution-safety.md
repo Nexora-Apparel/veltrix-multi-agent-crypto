@@ -629,3 +629,20 @@ Implemented in `veltrix/raydium_clmm_fee_accounting.py`, pinned to `instructions
 **Proof boundary:** this module accounts for already-computed per-step amounts and fees. It does not compute swap-step prices/amounts, determine the fee side from pool state, update pool storage, or reconcile token-vault deltas. It must be composed with the pinned swap loop and simulation account evidence before any execution-readiness claim.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.40 — Raydium reward account decoding and emission transitions
+
+Implemented in `veltrix/raydium_clmm_pool_state.py` and `veltrix/raydium_clmm_rewards.py`, pinned to `RewardInfo` and `PoolState::update_reward_infos` in `states/pool.rs` at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Decodes all three packed 169-byte RewardInfo records at PoolState byte offset 397.
+- Exposes reward state, open/end/last-update times, Q64.64 emissions rate, total emitted/claimed amounts, mint/vault/authority and global reward growth.
+- Validates reward enum values, initialized-state consistency, time ordering and claimed-not-greater-than-emitted.
+- Ports the source's open-time gate, end-time clamp, saturating elapsed-time calculation, ceil emission calculation and floor per-liquidity growth calculation.
+- Caps total emitted rewards at u64 max and recomputes growth from the remaining emission budget when the cap is reached.
+- Preserves source behavior when pool liquidity is zero: no emission/growth accrues, but last-update time and reward state still advance.
+- Uses wrapping u128 global reward-growth addition and the source's Opening/Ended state transitions.
+
+**Proof boundary:** this stage updates global reward emission state only. It does not yet compose tick-crossing reward-growth-outside inversion, reward settlement to user positions, reward-vault balance checks or full swap-loop sequencing. Any arithmetic overflow fallback follows the upstream `unwrap_or(0)` behavior and is tested explicitly.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.

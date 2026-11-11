@@ -24,6 +24,9 @@ RAYDIUM_POOL_STATE_LENGTH = 1544
 RAYDIUM_POOL_HEADER_LENGTH = 397
 RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET = 904
 RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS = 16
+RAYDIUM_POOL_REWARD_INFO_OFFSET = 397
+RAYDIUM_POOL_REWARD_INFO_LENGTH = 169
+RAYDIUM_POOL_REWARD_COUNT = 3
 RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET = 1096
 RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH = 80
 RAYDIUM_POOL_SEED = b"pool"
@@ -59,6 +62,25 @@ class RaydiumClmmDynamicFeeInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class RaydiumClmmRewardInfo:
+    reward_state: int = 0
+    open_time: int = 0
+    end_time: int = 0
+    last_update_time: int = 0
+    emissions_per_second_x64: int = 0
+    reward_total_emitted: int = 0
+    reward_claimed: int = 0
+    token_mint: str = "11111111111111111111111111111111"
+    token_vault: str = "11111111111111111111111111111111"
+    authority: str = "11111111111111111111111111111111"
+    reward_growth_global_x64: int = 0
+
+    @property
+    def initialized(self) -> bool:
+        return self.token_mint != "11111111111111111111111111111111"
+
+
+@dataclass(frozen=True, slots=True)
 class RaydiumClmmPoolState:
     pool_address: str
     bump: int
@@ -82,6 +104,7 @@ class RaydiumClmmPoolState:
     tick_array_bitmap: tuple[int, ...] = (0,) * RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     dynamic_fee_info: RaydiumClmmDynamicFeeInfo = RaydiumClmmDynamicFeeInfo()
+    reward_infos: tuple[RaydiumClmmRewardInfo, ...] = (RaydiumClmmRewardInfo(),) * RAYDIUM_POOL_REWARD_COUNT
 
     @property
     def swaps_enabled(self) -> bool:
@@ -197,6 +220,37 @@ def decode_raydium_clmm_pool_state(
         int.from_bytes(data[bitmap_start + index * 8:bitmap_start + (index + 1) * 8], "little")
         for index in range(RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS)
     )
+    reward_infos = []
+    for reward_index in range(RAYDIUM_POOL_REWARD_COUNT):
+        reward_offset = RAYDIUM_POOL_REWARD_INFO_OFFSET + reward_index * RAYDIUM_POOL_REWARD_INFO_LENGTH
+        reward_data = data[reward_offset:reward_offset + RAYDIUM_POOL_REWARD_INFO_LENGTH]
+        if len(reward_data) != RAYDIUM_POOL_REWARD_INFO_LENGTH:
+            raise RaydiumClmmPoolStateError("Raydium RewardInfo is truncated")
+        reward_state = reward_data[0]
+        if reward_state not in (0, 1, 2, 3):
+            raise RaydiumClmmPoolStateError("Raydium RewardInfo state enum is invalid")
+        reward = RaydiumClmmRewardInfo(
+            reward_state=reward_state,
+            open_time=int.from_bytes(reward_data[1:9], "little"),
+            end_time=int.from_bytes(reward_data[9:17], "little"),
+            last_update_time=int.from_bytes(reward_data[17:25], "little"),
+            emissions_per_second_x64=int.from_bytes(reward_data[25:41], "little"),
+            reward_total_emitted=int.from_bytes(reward_data[41:49], "little"),
+            reward_claimed=int.from_bytes(reward_data[49:57], "little"),
+            token_mint=_pubkey(reward_data, 57, "reward_token_mint"),
+            token_vault=_pubkey(reward_data, 89, "reward_token_vault"),
+            authority=_pubkey(reward_data, 121, "reward_authority"),
+            reward_growth_global_x64=int.from_bytes(reward_data[153:169], "little"),
+        )
+        if reward.initialized:
+            if reward.reward_state == 0 or reward.token_vault == str(Pubkey.default()) or reward.authority == str(Pubkey.default()):
+                raise RaydiumClmmPoolStateError("initialized RewardInfo has invalid state, vault or authority")
+            if reward.end_time < reward.open_time or reward.reward_claimed > reward.reward_total_emitted:
+                raise RaydiumClmmPoolStateError("Raydium RewardInfo time or claimed-total invariant is invalid")
+        elif reward.reward_state != 0:
+            raise RaydiumClmmPoolStateError("uninitialized RewardInfo has a non-uninitialized state")
+        reward_infos.append(reward)
+
     dynamic_offset = RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET
     dynamic_data = data[dynamic_offset:dynamic_offset + RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH]
     if len(dynamic_data) != RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH:
@@ -291,6 +345,7 @@ def decode_raydium_clmm_pool_state(
         account_data_sha256=account.data_sha256,
         tick_array_bitmap=tick_array_bitmap,
         dynamic_fee_info=dynamic_fee_info,
+        reward_infos=tuple(reward_infos),
     )
 
 

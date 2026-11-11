@@ -14,6 +14,7 @@ from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
     RAYDIUM_POOL_STATE_LENGTH,
     RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET,
+    RAYDIUM_POOL_REWARD_INFO_OFFSET,
     RaydiumClmmDynamicFeeInfo,
     RaydiumClmmPoolStateError,
     decode_raydium_clmm_pool_state,
@@ -382,3 +383,64 @@ def test_rejects_nonzero_reserved_dynamic_fee_padding():
     )
     with pytest.raises(RaydiumClmmPoolStateError, match="disabled dynamic-fee"):
         decode_raydium_clmm_pool_state(changed_evidence, expected_pool_address=pool_address)
+
+
+def _with_reward_record(raw, *, state=1, open_time=100, end_time=200,
+                        last_update=100, emissions=1 << 64, total=20,
+                        claimed=5, growth=7):
+    data = bytearray(raw)
+    offset = RAYDIUM_POOL_REWARD_INFO_OFFSET
+    data[offset] = state
+    data[offset + 1:offset + 9] = open_time.to_bytes(8, "little")
+    data[offset + 9:offset + 17] = end_time.to_bytes(8, "little")
+    data[offset + 17:offset + 25] = last_update.to_bytes(8, "little")
+    data[offset + 25:offset + 41] = emissions.to_bytes(16, "little")
+    data[offset + 41:offset + 49] = total.to_bytes(8, "little")
+    data[offset + 49:offset + 57] = claimed.to_bytes(8, "little")
+    data[offset + 57:offset + 89] = bytes(Pubkey.new_unique())
+    data[offset + 89:offset + 121] = bytes(Pubkey.new_unique())
+    data[offset + 121:offset + 153] = bytes(Pubkey.new_unique())
+    data[offset + 153:offset + 169] = growth.to_bytes(16, "little")
+    return bytes(data)
+
+
+def test_decodes_three_reward_records_from_pinned_poolstate_offset():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    changed = _with_reward_record(raw)
+    changed_evidence = dataclasses.replace(
+        evidence, data_bytes=changed, data_length=len(changed),
+        data_sha256=hashlib.sha256(changed).hexdigest(),
+    )
+    pool = decode_raydium_clmm_pool_state(
+        changed_evidence, expected_pool_address=pool_address
+    )
+    assert len(pool.reward_infos) == 3
+    reward = pool.reward_infos[0]
+    assert reward.initialized is True
+    assert reward.reward_state == 1
+    assert reward.open_time == 100
+    assert reward.end_time == 200
+    assert reward.last_update_time == 100
+    assert reward.emissions_per_second_x64 == 1 << 64
+    assert reward.reward_total_emitted == 20
+    assert reward.reward_claimed == 5
+    assert reward.reward_growth_global_x64 == 7
+    assert pool.reward_infos[1].initialized is False
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"state": 4},
+    {"open_time": 300, "end_time": 200},
+    {"total": 4, "claimed": 5},
+])
+def test_rejects_invalid_reward_state_time_or_claimed_total(kwargs):
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    changed = _with_reward_record(raw, **kwargs)
+    changed_evidence = dataclasses.replace(
+        evidence, data_bytes=changed, data_length=len(changed),
+        data_sha256=hashlib.sha256(changed).hexdigest(),
+    )
+    with pytest.raises(RaydiumClmmPoolStateError, match="RewardInfo"):
+        decode_raydium_clmm_pool_state(
+            changed_evidence, expected_pool_address=pool_address
+        )
