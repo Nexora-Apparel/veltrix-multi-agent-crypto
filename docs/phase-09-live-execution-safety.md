@@ -412,3 +412,17 @@ Implemented in `veltrix/raydium_clmm_pool_binding.py` with adversarial coverage 
 - The result is explicitly evidence-only and always returns `execution_ready=false`.
 
 Limitations: the current tick-array collector only proves the current array; a swap requiring additional traversal arrays is rejected until every CPI-referenced array is independently fetched and decoded in CPI traversal order. This gate does not yet calculate executable liquidity/depth, verify all account metas including AMM config/observation roles at this final composition boundary, or authorize signing. No signer, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+#### 09.27 completion extension — AMM config and observation account binding
+
+Implemented in `veltrix/raydium_clmm_aux_accounts.py`, pinned to the same Raydium source revision as the PoolState and CPI decoders.
+
+- The CPI result now preserves the fixed AMM config and observation account keys from their exact instruction positions.
+- AMM config is decoded using the pinned 117-byte Anchor layout. The gate validates its discriminator, Raydium owner, non-executable account state, positive lamports, index-derived PDA and bump, canonical owner, tick-spacing agreement with PoolState, and protocol/trade/fund fee bounds.
+- ObservationState is decoded using the pinned 4,483-byte layout. The gate validates its discriminator, Raydium owner, canonical `[observation, pool]` PDA, pool identity, initialized flag, ring index, and latest observation timestamp against the simulation timestamp. The default maximum observation age is 24 hours and can only be tightened by policy.
+- Auxiliary accounts are fetched from the same provider/cluster/genesis and at a context slot no older than simulation, pool, vault, or tick-array evidence. Shared AMM config accounts are supported across pools; observation accounts cannot be shared across pools.
+- The final pool-binding gate now requires CPI AMM config and observation keys to equal the decoded PoolState keys, and binds both decoded auxiliary account roles to the same pool.
+- Added adversarial tests for wrong CPI account roles, invalid config PDA/owner/fees, observation pool mismatch, stale/future observations, uninitialized state, and invalid ring indexes.
+
+Remaining limitations: this is account-role and provenance validation, not a complete dynamic-fee or economic-depth model. The current gate still does not reconstruct all swap-loop tick traversal, validate every tick-array bitmap extension/remaining-account role, simulate price impact from executable liquidity, or prove that pool reserves can satisfy the requested size under a defined slippage bound. No signing, Jupiter `/execute`, wallet approval, transaction submission, broadcast, or live execution is introduced.
