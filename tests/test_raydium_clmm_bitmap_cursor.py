@@ -140,3 +140,19 @@ def test_extension_must_belong_to_the_same_pool():
         is_raydium_tick_array_initialized(
             p, start_tick_index=307_200, bitmap_extension=extension
         )
+
+
+def test_bitmap_cursor_rejects_malformed_default_and_extension_word_shapes():
+    p = replace(pool(), tick_array_bitmap=(0,) * 15)
+    with pytest.raises(RaydiumBitmapCursorError, match="16 u64 words"):
+        is_raydium_tick_array_initialized(p, start_tick_index=0)
+
+    p = pool(spacing=10)
+    malformed = extension_for(
+        p,
+        positive=tuple((0,) * 7 for _ in range(14)),
+    )
+    with pytest.raises(RaydiumBitmapCursorError, match="8 u64 words"):
+        is_raydium_tick_array_initialized(
+            p, start_tick_index=307_200, bitmap_extension=malformed
+        )
