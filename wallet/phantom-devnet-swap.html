@@ -382,6 +382,17 @@
     if (outputInfo) decodeTokenAccount(outputInfo,USDC,wallet.toBase58(),"wallet USDC ATA");
     return {snapshot,inputAtaPresent:!!inputInfo,outputAtaPresent:!!outputInfo};
   }
+  function decodeCpmmSwapData(data) {
+    const discriminator = Uint8Array.from([143,190,90,218,196,30,51,222]);
+    if (!(data instanceof Uint8Array) || data.length !== 24 || !equalBytes(data.slice(0,8),discriminator)) {
+      fail("CPMM SwapBaseInput discriminator/length mismatch");
+    }
+    const amountIn = readU64(data,8), minimumAmountOut = readU64(data,16);
+    if (amountIn !== BigInt(TEST_LAMPORTS) || minimumAmountOut !== 0n) {
+      fail("CPMM exact-input or inner-minimum semantics changed");
+    }
+    return {amountIn,minimumAmountOut};
+  }
   async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence) {
     const encoded = btoa(String.fromCharCode(...reviewedBytes));
     const simulation = await rpcCall("simulateTransaction", [encoded,{
@@ -400,8 +411,7 @@
     const cpmm = all.filter(item => programOf(item.ix) === CPMM);
     if (cpmm.length !== 1 || cpmm[0].outerIndex !== 1) fail("expected exactly one CPMM CPI under the router route");
     const cpi = cpmm[0].ix, cpiData = b58decode(cpi.data || "");
-    if (cpiData.length !== 24 || [...cpiData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("") !== CPMM_SWAP_DISC) fail("CPMM CPI discriminator/layout mismatch");
-    if (readU64(cpiData,8) !== BigInt(TEST_LAMPORTS) || readU64(cpiData,16) !== 0n) fail("CPMM input/inner-minimum semantics changed");
+    decodeCpmmSwapData(cpiData);
     const expectedCpmm = [wallet.toBase58(),policy.authority,policy.config,POOL,policy.inputAta,policy.outputAta,
       policy.vaultIn,policy.vaultOut,TOKEN,TOKEN,SOL,USDC,policy.observation];
     if (names(cpi).join("|") !== expectedCpmm.join("|")) fail("CPMM CPI account order/identity mismatch");
@@ -614,7 +624,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
