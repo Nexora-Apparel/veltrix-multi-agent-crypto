@@ -137,21 +137,26 @@ def test_derives_classic_associated_token_accounts():
     assert str(Pubkey.from_string(first))
 
 
-def test_builds_exact_input_and_output_delta_expectations():
+def test_builds_exact_input_and_minimum_output_delta_expectations():
     order, _, _, _ = fixture()
     expected = build_expected_jupiter_token_deltas(order)
     assert len(expected) == 2
     assert expected[0].delta_raw == -1_000
-    assert expected[1].delta_raw == 2_000
+    assert expected[1].delta_raw is None
+    assert expected[1].minimum_delta_raw == 1_950
     assert expected[0].owner == order.taker
     assert expected[1].owner == order.taker
 
 
-def test_accepts_exact_quote_matched_user_balance_effects():
-    result = evaluate()
+def test_accepts_simulated_output_above_minimum_even_if_it_differs_from_quote():
+    order, validation, simulation, gate = fixture()
+    balances = list(simulation.token_balances)
+    balances[1] = dataclasses.replace(balances[1], post_amount_raw=2_150)
+    simulation = dataclasses.replace(simulation, token_balances=tuple(balances))
+    result = evaluate((order, validation, simulation, gate))
     assert result.passed is True
     assert result.input_delta_raw == -1_000
-    assert result.output_delta_raw == 2_000
+    assert result.output_delta_raw == 2_050
     assert result.output_delta_raw >= result.minimum_output_amount_raw
 
 
@@ -178,6 +183,15 @@ def test_rejects_output_below_minimum_even_if_exact_expected_delta_is_changed():
     order, validation, simulation, gate = fixture()
     order = dataclasses.replace(order, output_amount_raw=1_900, minimum_output_amount_raw=1_950)
     with pytest.raises(JupiterSwapEffectError, match="invalid"):
+        evaluate((order, validation, simulation, gate))
+
+
+def test_rejects_simulated_output_below_slippage_minimum():
+    order, validation, simulation, gate = fixture()
+    balances = list(simulation.token_balances)
+    balances[1] = dataclasses.replace(balances[1], post_amount_raw=2_049)
+    simulation = dataclasses.replace(simulation, token_balances=tuple(balances))
+    with pytest.raises(JupiterSwapEffectError, match="below Jupiter's minimum"):
         evaluate((order, validation, simulation, gate))
 
 
