@@ -68,7 +68,10 @@ class SolanaDevnetWalletPreflight:
 
         genesis = self._rpc("getGenesisHash")
         if genesis != DEVNET_GENESIS_HASH:
-            raise DevnetPreflightError("RPC endpoint did not identify as Solana Devnet")
+            raise DevnetPreflightError(
+                "RPC endpoint genesis hash mismatch: "
+                f"received={genesis!r}; expected_devnet={DEVNET_GENESIS_HASH!r}"
+            )
         result = self._rpc("getBalance", [wallet, {"commitment": "confirmed"}])
         if not isinstance(result, dict) or isinstance(result.get("value"), bool) or not isinstance(result.get("value"), int) or result["value"] < 0:
             raise DevnetPreflightError("Devnet getBalance returned an invalid balance")
