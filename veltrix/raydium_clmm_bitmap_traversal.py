@@ -376,3 +376,41 @@ def next_initialized_tick_array_start_index(
             return candidate
         candidate += -tick_count if zero_for_one else tick_count
     return None
+
+
+def first_tick_array_index_with_extension_info(
+    pool: RaydiumClmmPoolState,
+    *,
+    tick_array_snapshot: RaydiumClmmTickArraySnapshot,
+    zero_for_one: bool,
+) -> tuple[bool, int]:
+    """Match PoolState::first_tick_array_index_with_extension_info."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmBitmapTraversalError("decoded Raydium PoolState is required")
+    if not isinstance(tick_array_snapshot, RaydiumClmmTickArraySnapshot):
+        raise RaydiumClmmBitmapTraversalError("tick-array snapshot is required for bitmap extension validation")
+    if not isinstance(zero_for_one, bool):
+        raise RaydiumClmmBitmapTraversalError("swap direction must be boolean")
+    tick_count = _tick_array_count(pool.tick_spacing)
+    if len(pool.tick_array_bitmap) != RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS or any(
+        isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= U64_MAX
+        for word in pool.tick_array_bitmap
+    ):
+        raise RaydiumClmmBitmapTraversalError("PoolState default bitmap must contain exactly sixteen valid u64 words")
+    extension = tick_array_snapshot.bitmap_extension
+    _validate_extension(pool.pool_address, extension, tick_array_snapshot)
+    current_start = raydium_current_tick_array_start(pool.tick_current, pool.tick_spacing)
+    minimum, maximum = _valid_tick_array_bounds(tick_count)
+    if not minimum <= current_start <= maximum:
+        raise RaydiumClmmBitmapTraversalError("current tick-array start is outside valid PoolState bitmap bounds")
+    if _is_initialized(pool, extension, current_start, tick_count):
+        return True, current_start
+    next_start = next_initialized_tick_array_start_index(
+        pool,
+        tick_array_snapshot=tick_array_snapshot,
+        last_tick_array_start_index=current_start,
+        zero_for_one=zero_for_one,
+    )
+    if next_start is None:
+        raise RaydiumClmmBitmapTraversalError("no initialized tick array remains in the requested swap direction")
+    return False, next_start
