@@ -50,7 +50,7 @@ async function main() {
   if (minOut.lte(new BN(0))) fail("computed minimum output is zero");
   const built = await raydium.cpmm.swap({
     poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.V0,
-    ownerInfo:{useSOLBalance:true}
+    ownerInfo:{wallet:new PublicKey(WALLET),useSOLBalance:true}
   });
   const tx = built.transaction;
   if (!(tx instanceof VersionedTransaction) || tx.version !== 0) fail("SDK did not return one v0 transaction");
