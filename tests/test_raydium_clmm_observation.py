@@ -14,6 +14,7 @@ from veltrix.raydium_clmm_observation import (
     RaydiumClmmObservationError,
     apply_raydium_observation_update,
     decode_raydium_clmm_observation_state,
+    encode_raydium_clmm_observation_state,
     derive_raydium_clmm_observation_address,
 )
 
@@ -209,3 +210,37 @@ def test_observation_update_rejects_values_outside_source_integer_domains(timest
         apply_raydium_observation_update(
             state, block_timestamp=timestamp, tick=tick
         )
+
+
+def test_observation_state_serializer_roundtrips_exact_account_bytes():
+    account, address, pool = fixture(initialized=True, observation_index=9)
+    state = decode(account, address, pool)
+    assert encode_raydium_clmm_observation_state(state) == account.data_bytes
+
+
+def test_observation_mutations_return_hash_of_exact_serialized_account():
+    account, address, pool = fixture(observation_index=4)
+    state = decode(account, address, pool)
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1_700_000_100, tick=-17
+    )
+    encoded = encode_raydium_clmm_observation_state(updated)
+    assert updated.data_sha256 == hashlib.sha256(encoded).hexdigest()
+    assert len(encoded) == RAYDIUM_OBSERVATION_STATE_LENGTH
+    assert encode_raydium_clmm_observation_state(
+        decode(
+            DexPoolAccountEvidence(
+                amm_key=address,
+                dex_label="Raydium CLMM Observation",
+                expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+                owner_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+                lamports=1,
+                executable=False,
+                data_length=len(encoded),
+                data_sha256=hashlib.sha256(encoded).hexdigest(),
+                data_bytes=encoded,
+            ),
+            address,
+            pool,
+        )
+    ) == encoded
