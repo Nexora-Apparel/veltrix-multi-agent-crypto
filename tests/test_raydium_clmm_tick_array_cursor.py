@@ -300,3 +300,17 @@ def test_swap_loop_requests_bitmap_advance_only_after_current_array_search_is_ex
     assert result.tick is None
     assert result.first_tick_array_contains_pool_tick is True
     assert result.requires_array_advance is True
+
+
+def test_tick_array_queue_rejects_unaligned_bitmap_selected_boundaries():
+    array = build_tick_array(0, 15, [0])
+    queue = RaydiumClmmTickArrayQueue.from_snapshot(
+        pool_address=array.pool_address,
+        tick_spacing=15,
+        snapshot=build_snapshot((array,)),
+    )
+    with pytest.raises(RaydiumTickArrayCursorError, match="aligned"):
+        queue.select_first(1)
+    selected = queue.select_first(0)
+    with pytest.raises(RaydiumTickArrayCursorError, match="aligned"):
+        selected.advance_to(901)
