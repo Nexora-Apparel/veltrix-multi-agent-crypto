@@ -212,6 +212,116 @@ def apply_raydium_clmm_swap_vault_settlement(
     )
 
 
+
+def validate_raydium_exact_internal_settlement(
+    pool: RaydiumClmmPoolState,
+    vault_0_before: RaydiumClmmVaultAccount,
+    vault_1_before: RaydiumClmmVaultAccount,
+    vault_0_after: RaydiumClmmVaultAccount,
+    vault_1_after: RaydiumClmmVaultAccount,
+    *,
+    amount_0: int,
+    amount_1: int,
+    zero_for_one: bool,
+    is_base_input: bool,
+    amount_specified: int,
+    sqrt_price_before_x64: int,
+    sqrt_price_after_x64: int,
+    sqrt_price_limit_x64: int,
+) -> int:
+    """Validate exact_internal vault reloads, price direction, and fill rules.
+
+    Returns actual output for exact-input swaps and actual input for
+    exact-output swaps, matching the pinned wrapper's return convention.
+    """
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmVaultError("decoded Raydium PoolState is required")
+    if not isinstance(zero_for_one, bool) or not isinstance(is_base_input, bool):
+        raise RaydiumClmmVaultError("swap direction and exact-input flag must be boolean")
+    before = (vault_0_before, vault_1_before)
+    after = (vault_0_after, vault_1_after)
+    if any(not isinstance(item, RaydiumClmmVaultAccount) for item in before + after):
+        raise RaydiumClmmVaultError("four verified before/after pool vault states are required")
+    for index, (prior, current) in enumerate(zip(before, after)):
+        if (
+            prior.address != current.address
+            or prior.pool_address != current.pool_address
+            or prior.mint != current.mint
+            or prior.pool_address != pool.pool_address
+        ):
+            raise RaydiumClmmVaultError(f"vault {index} identity changed during exact_internal")
+    if (
+        vault_0_before.address != pool.token_vault_0
+        or vault_1_before.address != pool.token_vault_1
+        or vault_0_before.mint != pool.token_mint_0
+        or vault_1_before.mint != pool.token_mint_1
+    ):
+        raise RaydiumClmmVaultError("before/after vaults do not match PoolState token identities")
+
+    for value, field in (
+        (amount_0, "amount_0"),
+        (amount_1, "amount_1"),
+        (amount_specified, "amount_specified"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < (1 << 64):
+            raise RaydiumClmmVaultError(f"{field} must be a positive u64 amount")
+    for value, field in (
+        (sqrt_price_before_x64, "sqrt_price_before_x64"),
+        (sqrt_price_after_x64, "sqrt_price_after_x64"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < (1 << 128):
+            raise RaydiumClmmVaultError(f"{field} must be a positive u128 value")
+    if (
+        isinstance(sqrt_price_limit_x64, bool)
+        or not isinstance(sqrt_price_limit_x64, int)
+        or not 0 <= sqrt_price_limit_x64 < (1 << 128)
+    ):
+        raise RaydiumClmmVaultError("sqrt_price_limit_x64 must be zero or a u128 value")
+
+    delta_0 = vault_0_after.amount_raw - vault_0_before.amount_raw
+    delta_1 = vault_1_after.amount_raw - vault_1_before.amount_raw
+    expected = (
+        (amount_0, -amount_1)
+        if zero_for_one
+        else (-amount_0, amount_1)
+    )
+    if (delta_0, delta_1) != expected:
+        raise RaydiumClmmVaultError("reloaded pool-vault balances do not match swap_internal amounts")
+
+    if zero_for_one:
+        if sqrt_price_before_x64 < sqrt_price_after_x64:
+            raise RaydiumClmmVaultError("zero-for-one sqrt price moved in the wrong direction")
+        output_before = vault_1_before.amount_raw
+        output_after = vault_1_after.amount_raw
+        input_before = vault_0_before.amount_raw
+        input_after = vault_0_after.amount_raw
+        exact_input_amount = amount_0
+        exact_output_amount = amount_1
+        if sqrt_price_limit_x64 and sqrt_price_after_x64 < sqrt_price_limit_x64:
+            raise RaydiumClmmVaultError("zero-for-one sqrt price crossed its configured limit")
+    else:
+        if sqrt_price_after_x64 < sqrt_price_before_x64:
+            raise RaydiumClmmVaultError("one-for-zero sqrt price moved in the wrong direction")
+        output_before = vault_0_before.amount_raw
+        output_after = vault_0_after.amount_raw
+        input_before = vault_1_before.amount_raw
+        input_after = vault_1_after.amount_raw
+        exact_input_amount = amount_1
+        exact_output_amount = amount_0
+        if sqrt_price_limit_x64 and sqrt_price_after_x64 > sqrt_price_limit_x64:
+            raise RaydiumClmmVaultError("one-for-zero sqrt price crossed its configured limit")
+
+    if sqrt_price_limit_x64 == 0:
+        required = exact_input_amount if is_base_input else exact_output_amount
+        if amount_specified != required:
+            raise RaydiumClmmVaultError("no-limit exact swap did not fill the specified amount")
+    actual_output = output_before - output_after
+    actual_input = input_after - input_before
+    if actual_output <= 0 or actual_input <= 0:
+        raise RaydiumClmmVaultError("exact_internal reloaded vault deltas must both be positive")
+    return actual_output if is_base_input else actual_input
+
+
 def fetch_raydium_clmm_vault_snapshot(
     pool_evidence: DexPoolEvidenceSnapshot,
     *,
