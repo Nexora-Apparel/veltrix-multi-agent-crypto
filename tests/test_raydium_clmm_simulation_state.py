@@ -137,3 +137,31 @@ def test_post_state_validator_rejects_hash_or_role_drift():
         validate_raydium_clmm_post_state_commitments(
             binding, commitments=(wrong_role,), account_states=(state,)
         )
+
+
+def test_post_state_validator_rejects_pre_hash_binding_and_lamport_drift():
+    binding, commitment, state = _fixture()
+    bad_pre_binding = replace(
+        binding, pre_state_sha256=((state.address, "0" * 64),)
+    )
+    with pytest.raises(RaydiumClmmSimulationStateError, match="pre-state hash"):
+        validate_raydium_clmm_post_state_commitments(
+            bad_pre_binding, commitments=(commitment,), account_states=(state,)
+        )
+    wrong_lamports = replace(commitment, lamports=2)
+    with pytest.raises(RaydiumClmmSimulationStateError, match="pre-state hash"):
+        validate_raydium_clmm_post_state_commitments(
+            binding, commitments=(wrong_lamports,), account_states=(state,)
+        )
+
+
+def test_post_state_validator_rejects_duplicate_bound_account_addresses():
+    binding, commitment, state = _fixture()
+    duplicate_binding = replace(
+        binding,
+        bound_account_addresses=(state.address, state.address),
+    )
+    with pytest.raises(RaydiumClmmSimulationStateError, match="duplicate"):
+        validate_raydium_clmm_post_state_commitments(
+            duplicate_binding, commitments=(commitment,), account_states=(state,)
+        )
