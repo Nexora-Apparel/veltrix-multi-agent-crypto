@@ -213,12 +213,18 @@ def evaluate_meteora_dlmm_cpis(
         if len(inner.account_keys) > METEORA_SWAP2_FIXED_ACCOUNT_COUNT + policy.max_bin_arrays:
             raise MeteoraCpiSemanticError("Meteora swap2 CPI has too many remaining bin-array accounts")
         accounts = tuple(_canonical_account(value, f"Meteora CPI account {position}") for position, value in enumerate(inner.account_keys))
-        if len(set(accounts)) != len(accounts):
-            raise MeteoraCpiSemanticError("Meteora swap2 CPI contains duplicate account keys")
+        fixed_unique = (accounts[0], accounts[2], accounts[3], accounts[4], accounts[5], accounts[6], accounts[7], accounts[8], accounts[10], accounts[13], accounts[14], accounts[15])
+        if len(set(fixed_unique)) != len(fixed_unique):
+            raise MeteoraCpiSemanticError("Meteora swap2 CPI contains aliased fixed accounts")
+        if accounts[1] != inner.program_id and accounts[1] in fixed_unique:
+            raise MeteoraCpiSemanticError("Meteora bitmap-extension account aliases a required account")
+        bin_arrays = accounts[METEORA_SWAP2_FIXED_ACCOUNT_COUNT:]
+        if len(set(bin_arrays)) != len(bin_arrays) or set(bin_arrays) & set(fixed_unique):
+            raise MeteoraCpiSemanticError("Meteora bin-array remaining accounts contain aliases")
         if accounts[0] != step.amm_key:
             raise MeteoraCpiSemanticError("Meteora LB pair differs from the quoted AMM key")
-        if accounts[1] not in {inner.program_id} and accounts[1] == accounts[0]:
-            raise MeteoraCpiSemanticError("Meteora optional bitmap-extension account aliases the LB pair")
+        if accounts[1] == accounts[9] and accounts[1] != inner.program_id:
+            raise MeteoraCpiSemanticError("Meteora optional bitmap-extension account unexpectedly aliases the host-fee account")
         if accounts[2] == accounts[3] or accounts[4] == accounts[5]:
             raise MeteoraCpiSemanticError("Meteora reserves or user token accounts unexpectedly alias")
         if accounts[9] != inner.program_id:
