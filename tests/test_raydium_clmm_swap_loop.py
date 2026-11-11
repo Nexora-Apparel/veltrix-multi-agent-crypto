@@ -2,16 +2,29 @@
 from dataclasses import replace
 
 import pytest
+from solders.pubkey import Pubkey
 
 from veltrix.raydium_clmm_dynamic_fee import (
     RaydiumDynamicFeeSwapState,
     compute_total_fee_rate,
 )
 from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
-from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo
+from veltrix.raydium_clmm_pool_state import (
+    RaydiumClmmDynamicFeeInfo,
+    RaydiumClmmPoolState,
+    RaydiumClmmRewardInfo,
+)
+from veltrix.raydium_clmm_tick_arrays import (
+    RAYDIUM_TICK_ARRAY_SIZE,
+    RaydiumClmmTick,
+    RaydiumClmmTickArray,
+    derive_raydium_clmm_tick_array_address,
+)
+from veltrix.raydium_clmm_tick_cursor import RaydiumInitializedTickCursor
 from veltrix.raydium_clmm_swap_loop import (
     RaydiumSwapLoopError,
     compute_raydium_swap_loop_pre_step,
+    apply_raydium_swap_loop_boundary,
 )
 from veltrix.raydium_clmm_tick_math import Q64, get_sqrt_price_at_tick
 
@@ -166,3 +179,174 @@ def test_rejects_invalid_domains_and_dynamic_base_fee_mismatch():
         compute_raydium_swap_loop_pre_step(
             fee_state(), **{**args, "protocol_fee_rate": 800_000, "fund_fee_rate": 300_000}
         )
+
+
+def boundary_fixture(*, liquidity_gross=100, liquidity_net=25, orders=10):
+    pool_address = str(Pubkey.new_unique())
+    pool = RaydiumClmmPoolState(
+        pool_address=pool_address,
+        bump=1,
+        amm_config=str(Pubkey.new_unique()),
+        pool_creator=str(Pubkey.new_unique()),
+        token_mint_0=str(Pubkey.new_unique()),
+        token_mint_1=str(Pubkey.new_unique()),
+        token_vault_0=str(Pubkey.new_unique()),
+        token_vault_1=str(Pubkey.new_unique()),
+        observation_key=str(Pubkey.new_unique()),
+        mint_decimals_0=6,
+        mint_decimals_1=6,
+        tick_spacing=1,
+        liquidity=1000,
+        sqrt_price_x64=Q64,
+        tick_current=0,
+        status=0,
+        fee_on=0,
+        seed_index=0,
+        account_data_sha256="a" * 64,
+        tick_array_bitmap=(0,) * 8 + (1,) + (0,) * 7,
+    )
+    ticks = []
+    for index in range(RAYDIUM_TICK_ARRAY_SIZE):
+        if index == 0:
+            ticks.append(RaydiumClmmTick(
+                tick_index=0,
+                liquidity_net=liquidity_net,
+                liquidity_gross=liquidity_gross,
+                orders_amount=orders,
+                part_filled_orders_remaining=0,
+                initialized=True,
+            ))
+        else:
+            ticks.append(RaydiumClmmTick(
+                tick_index=index,
+                liquidity_net=0,
+                liquidity_gross=0,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=False,
+            ))
+    tick_array = RaydiumClmmTickArray(
+        address=derive_raydium_clmm_tick_array_address(
+            pool_address=pool_address, start_tick_index=0
+        ),
+        pool_address=pool_address,
+        start_tick_index=0,
+        tick_spacing=1,
+        initialized_tick_count=1,
+        recent_epoch=1,
+        ticks=tuple(ticks),
+        data_sha256="b" * 64,
+    )
+    cursor = RaydiumInitializedTickCursor(
+        tick_array_start_index=0,
+        tick_offset=0,
+        tick=tick_array.ticks[0],
+        zero_for_one=True,
+    )
+    pre_step = compute_raydium_swap_loop_pre_step(
+        fee_state(amount_specified_remaining=1000, liquidity=1000),
+        sqrt_price_current_x64=Q64,
+        target_price_x64=Q64,
+        base_fee_rate=0,
+        zero_for_one=True,
+        is_base_input=True,
+        is_fee_on_input=True,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+    )
+    return pool, tick_array, cursor, pre_step
+
+
+def apply_boundary(pool, tick_array, cursor, pre_step):
+    return apply_raydium_swap_loop_boundary(
+        pre_step,
+        pool=pool,
+        tick_array=tick_array,
+        bitmap_extension=None,
+        cursor=cursor,
+        current_tick=0,
+        current_sqrt_price_x64=Q64,
+        tick_boundary_price_x64=Q64,
+        updated_reward_infos=(
+            RaydiumClmmRewardInfo(),
+            RaydiumClmmRewardInfo(),
+            RaydiumClmmRewardInfo(),
+        ),
+        recent_epoch=2,
+        zero_for_one=True,
+        is_base_input=True,
+        is_fee_on_input=True,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+    )
+
+
+def test_boundary_fifo_exhaustion_then_tick_crossing_preserves_source_order():
+    pool, tick_array, cursor, pre_step = boundary_fixture()
+    result = apply_boundary(pool, tick_array, cursor, pre_step)
+    assert result.boundary_reached is True
+    assert result.limit_order_match.amount_out == 10
+    assert result.tick.orders_amount == 0
+    assert result.tick.liquidity_gross == 100
+    assert result.crossing is not None
+    assert result.liquidity_next == 975
+    assert result.tick_current == -1
+    assert result.mutation.initialized_before is True
+    assert result.mutation.initialized_after is True
+    assert result.mutation.bitmap_changed is False
+    assert result.tick_array.recent_epoch == 2
+    assert len(result.tick_array.data_sha256) == 64
+
+
+def test_boundary_order_only_tick_exhaustion_decrements_count_and_flips_bitmap():
+    pool, tick_array, cursor, pre_step = boundary_fixture(
+        liquidity_gross=0, liquidity_net=0, orders=10
+    )
+    result = apply_boundary(pool, tick_array, cursor, pre_step)
+    assert result.boundary_reached is True
+    assert result.crossing is None
+    assert result.tick.initialized is False
+    assert result.tick_array.initialized_tick_count == 0
+    assert result.mutation.bitmap_changed is True
+    assert result.mutation.initialized_after is False
+    assert result.pool.tick_array_bitmap[8] & 1 == 0
+
+
+def test_non_boundary_step_does_not_match_orders_or_mutate_accounts():
+    pool, tick_array, cursor, _ = boundary_fixture()
+    pre_step = compute_raydium_swap_loop_pre_step(
+        fee_state(amount_specified_remaining=1, liquidity=1000),
+        sqrt_price_current_x64=Q64,
+        target_price_x64=get_sqrt_price_at_tick(-10),
+        base_fee_rate=0,
+        zero_for_one=True,
+        is_base_input=True,
+        is_fee_on_input=True,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+    )
+    result = apply_raydium_swap_loop_boundary(
+        pre_step,
+        pool=pool,
+        tick_array=tick_array,
+        bitmap_extension=None,
+        cursor=cursor,
+        current_tick=0,
+        current_sqrt_price_x64=Q64,
+        tick_boundary_price_x64=Q64,
+        updated_reward_infos=(
+            RaydiumClmmRewardInfo(),
+            RaydiumClmmRewardInfo(),
+            RaydiumClmmRewardInfo(),
+        ),
+        recent_epoch=2,
+        zero_for_one=True,
+        is_base_input=True,
+        is_fee_on_input=True,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+    )
+    assert result.boundary_reached is False
+    assert result.limit_order_match.amount_in == 0
+    assert result.pool == pool
+    assert result.tick_array == tick_array
