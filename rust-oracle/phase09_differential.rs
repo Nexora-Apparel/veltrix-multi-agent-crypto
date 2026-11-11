@@ -1,8 +1,9 @@
 //! Differential assertions against the exact upstream Raydium CLMM Rust source.
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
-use raydium_clmm::libraries::{swap_math, tick_math};
+use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, TickState};
+use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, RewardInfo, TickState};
+use anchor_lang::prelude::Pubkey;
 use serde_json::Value;
 
 const PYTHON_VECTORS: &str = include_str!("phase09_python_vectors.json");
@@ -313,5 +314,73 @@ fn python_fifo_limit_order_vectors_match_pinned_raydium_tick_state() {
             expected["initialized"].as_bool().unwrap(),
             "initialized state mismatch for {name}"
         );
+    }
+}
+
+
+#[test]
+fn python_tick_crossing_fee_reward_and_liquidity_vectors_match_pinned_raydium_rust() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["tick_crossing"].as_array().expect("tick crossing cases");
+    assert_eq!(cases.len(), 2);
+
+    for case in cases {
+        let zero_for_one = case["zero_for_one"].as_bool().unwrap();
+        let tick_vector = &case["tick"];
+        let mut tick = TickState {
+            tick: tick_vector["tick_index"].as_i64().unwrap() as i32,
+            liquidity_net: tick_vector["liquidity_net"].as_i64().unwrap() as i128,
+            liquidity_gross: tick_vector["liquidity_gross"].as_u64().unwrap() as u128,
+            fee_growth_outside_0_x64: parse_u128(&tick_vector["fee_growth_outside_0_x64"]),
+            fee_growth_outside_1_x64: parse_u128(&tick_vector["fee_growth_outside_1_x64"]),
+            reward_growths_outside_x64: [
+                parse_u128(&tick_vector["reward_growths_outside_x64"][0]),
+                parse_u128(&tick_vector["reward_growths_outside_x64"][1]),
+                parse_u128(&tick_vector["reward_growths_outside_x64"][2]),
+            ],
+            order_phase: 0,
+            orders_amount: 0,
+            part_filled_orders_remaining: 0,
+            unfilled_ratio_x64: 0,
+            padding: [0u32; 3],
+        };
+
+        let reward_vectors = case["rewards"].as_array().unwrap();
+        let mut rewards: [RewardInfo; 3] = std::array::from_fn(|_| RewardInfo::default());
+        for index in 0..3 {
+            let reward = &reward_vectors[index];
+            if reward["initialized"].as_bool().unwrap() {
+                rewards[index].token_mint = Pubkey::new_unique();
+            }
+            rewards[index].reward_growth_global_x64 = parse_u128(&reward["reward_growth_global_x64"]);
+        }
+
+        let liquidity_net = tick.cross(
+            parse_u128(&case["fee_growth_global_0_x64"]),
+            parse_u128(&case["fee_growth_global_1_x64"]),
+            &rewards,
+        );
+        let delta = if zero_for_one { -liquidity_net } else { liquidity_net };
+        let liquidity_after = liquidity_math::add_delta(
+            case["current_liquidity"].as_u64().unwrap() as u128,
+            delta,
+        )
+        .unwrap_or_else(|error| panic!("Rust liquidity delta failed: {error:?}"));
+
+        let actual_fee0 = tick.fee_growth_outside_0_x64;
+        let actual_fee1 = tick.fee_growth_outside_1_x64;
+        let actual_rewards = tick.reward_growths_outside_x64;
+        let expected = &case["expected"];
+        assert_eq!(liquidity_net, expected["liquidity_net"].as_i64().unwrap() as i128);
+        assert_eq!(liquidity_after, expected["liquidity_after"].as_u64().unwrap() as u128);
+        assert_eq!(actual_fee0, parse_u128(&expected["fee_growth_outside_0_x64"]));
+        assert_eq!(actual_fee1, parse_u128(&expected["fee_growth_outside_1_x64"]));
+        for index in 0..3 {
+            assert_eq!(
+                actual_rewards[index],
+                parse_u128(&expected["reward_growths_outside_x64"][index]),
+                "reward growth mismatch at slot {index}"
+            );
+        }
     }
 }
