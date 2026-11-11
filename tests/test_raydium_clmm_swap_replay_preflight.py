@@ -183,7 +183,7 @@ def test_preflight_binds_cpi_loop_settlement_and_expected_vault_post_state():
         (lambda c, l, v: replace(c, message_sha256="0" * 64), "message digests"),
     ],
 )
-def test_preflight_rejects_cross-artifact_mismatch(change, match):
+def test_preflight_rejects_cross_artifact_mismatch(change, match):
     cpi, loop_settlement, vault_settlement = artifacts()
     bad_cpi = change(cpi, loop_settlement, vault_settlement)
     with pytest.raises(RaydiumSwapReplayPreflightError, match=match):
