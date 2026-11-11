@@ -173,6 +173,13 @@ def main() -> int:
         account_evidence(authoritative_pool_account, "Raydium CLMM"),
         expected_pool_address=pool_address,
     )
+    if {authoritative_pool.token_mint_0, authoritative_pool.token_mint_1} != {WSOL_MINT, USDC_MINT}:
+        raise SystemExit("Authoritative PoolState is not the expected WSOL/USDC mint pair")
+    if authoritative_pool.liquidity <= 0 or not authoritative_pool.swaps_enabled:
+        raise SystemExit("Authoritative pool has zero liquidity or swaps are disabled")
+    authoritative_observation, _ = derive_raydium_clmm_observation_address(pool_address)
+    if authoritative_observation != authoritative_pool.observation_key:
+        raise SystemExit("Authoritative PoolState observation key is not the canonical pool-derived PDA")
     authoritative_dependencies = (
         authoritative_pool.amm_config,
         authoritative_pool.observation_key,
@@ -215,6 +222,7 @@ def main() -> int:
         "cluster": snapshot.cluster,
         "genesis_hash": snapshot.genesis_hash,
         "context_slot": snapshot.context_slot,
+        "snapshot_account_addresses": list(authoritative_addresses),
         "pool_address": pool.pool_address,
         "program_id": RAYDIUM_CLMM_PROGRAM_ID,
         "source_commit": pool.source_commit,
