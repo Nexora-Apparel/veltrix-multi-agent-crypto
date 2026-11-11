@@ -281,6 +281,24 @@ def test_bitmap_traversal_rejects_skipped_initialized_array_between_cpi_accounts
         )
 
 
+def _extension_with_bitmaps(extension, *, positive=None, negative=None):
+    positive = tuple(positive if positive is not None else extension.positive_bitmaps)
+    negative = tuple(negative if negative is not None else extension.negative_bitmaps)
+    raw = bytearray(extension.data_bytes)
+    words_per_side = len(positive)
+    for index, word in enumerate(positive):
+        raw[40 + index * 8:48 + index * 8] = word.to_bytes(8, "little")
+    negative_start = 40 + words_per_side * 8
+    for index, word in enumerate(negative):
+        raw[negative_start + index * 8:negative_start + (index + 1) * 8] = word.to_bytes(8, "little")
+    raw = bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    return dataclasses.replace(
+        extension, positive_bitmaps=positive, negative_bitmaps=negative,
+        data_bytes=raw, data_sha256=digest,
+    )
+
+
 def test_bitmap_traversal_uses_positive_extension_bitmap_outside_default_range():
     values = fixture()
     order, _, _, pool_check, *_ = values
@@ -294,13 +312,14 @@ def test_bitmap_traversal_uses_positive_extension_bitmap_outside_default_range()
     extension = snapshot.bitmap_extension
     positive = [0] * len(extension.positive_bitmaps)
     positive[0] = 0b11  # +307200 and +307800
-    extension = dataclasses.replace(extension, positive_bitmaps=tuple(positive))
+    extension = _extension_with_bitmaps(extension, positive=positive)
     first = _synthetic_array(pool.pool_address, 307200)
     second = _synthetic_array(pool.pool_address, 307800)
     snapshot = dataclasses.replace(
         snapshot, tick_arrays=(first, second),
         cpi_account_order=(first.address, snapshot.bitmap_extension_address, second.address),
         bitmap_extension=extension,
+        bitmap_extension_sha256=extension.data_sha256,
     )
     result = verify_raydium_clmm_bitmap_traversal(
         order, pool_check=pool_check, tick_array_snapshot=snapshot
@@ -323,13 +342,14 @@ def test_bitmap_traversal_uses_negative_extension_bitmap_outside_default_range()
     negative = [0] * len(extension.negative_bitmaps)
     negative[7] = 1 << (511 % 64)  # block 0, bit 511: -307800
     negative[7] |= 1 << (510 % 64)  # block 0, bit 510: -308400
-    extension = dataclasses.replace(extension, negative_bitmaps=tuple(negative))
+    extension = _extension_with_bitmaps(extension, negative=negative)
     first = _synthetic_array(pool.pool_address, -307800)
     second = _synthetic_array(pool.pool_address, -308400)
     snapshot = dataclasses.replace(
         snapshot, tick_arrays=(first, second),
         cpi_account_order=(first.address, snapshot.bitmap_extension_address, second.address),
         bitmap_extension=extension,
+        bitmap_extension_sha256=extension.data_sha256,
     )
     result = verify_raydium_clmm_bitmap_traversal(
         order, pool_check=pool_check, tick_array_snapshot=snapshot
