@@ -283,6 +283,7 @@ def select_next_initialized_tick_from_live_bitmap(
     current_tick_index: int,
     zero_for_one: bool,
     bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
+    current_array_start_index: int | None = None,
 ) -> RaydiumBitmapTickSelection:
     """Select the next tick from the current mutated PoolState/extension bitmap.
 
@@ -334,14 +335,28 @@ def select_next_initialized_tick_from_live_bitmap(
             raise RaydiumTickCursorError("tick-array set contains duplicate start indices")
         by_start[item.start_tick_index] = item
 
-    try:
-        first_contains_current, first_start = first_raydium_tick_array_start_index(
-            pool,
-            zero_for_one=zero_for_one,
-            bitmap_extension=bitmap_extension,
-        )
-    except RaydiumBitmapCursorError as exc:
-        raise RaydiumTickCursorError(str(exc)) from exc
+    if current_array_start_index is None:
+        if current_tick_index != pool.tick_current:
+            raise RaydiumTickCursorError(
+                "initial bitmap selection must start from the stored PoolState tick"
+            )
+        try:
+            first_contains_current, first_start = first_raydium_tick_array_start_index(
+                pool,
+                zero_for_one=zero_for_one,
+                bitmap_extension=bitmap_extension,
+            )
+        except RaydiumBitmapCursorError as exc:
+            raise RaydiumTickCursorError(str(exc)) from exc
+    else:
+        if isinstance(current_array_start_index, bool) or not isinstance(current_array_start_index, int):
+            raise RaydiumTickCursorError("current array start index must be an integer")
+        first_start = current_array_start_index
+        if raydium_current_tick_array_start(
+            first_start, pool.tick_spacing
+        ) != first_start:
+            raise RaydiumTickCursorError("current array start index is not canonically aligned")
+        first_contains_current = True
     first_array = by_start.get(first_start)
     if first_array is None:
         raise RaydiumTickCursorError(
