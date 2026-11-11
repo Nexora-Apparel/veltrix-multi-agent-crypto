@@ -565,3 +565,19 @@ Implemented in `veltrix/raydium_clmm_dynamic_fee.py`, using pinned `states/pool_
 **Proof boundary:** this is the dynamic-fee state machine and spacing-bound primitive, not a complete swap replay. It does not yet integrate exact-input/output amount steps, tick crossing, fee-growth updates, FIFO limit-order matching, protocol/fund fee settlement, reward updates, oracle updates or vault reconciliation into one transaction-level replay. These remain mandatory before claiming quote-to-simulation parity.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.36 — Tick-crossing fee/reward inversion and active-liquidity transition
+
+Implemented in `veltrix/raydium_clmm_tick_crossing.py`, matching pinned `TickState::cross` and `liquidity_math::add_delta`.
+
+- Reverses token-0 and token-1 fee-growth-outside values using exact wrapping u128 subtraction.
+- Reverses reward-growth-outside only for initialized reward slots; inactive reward slots remain unchanged.
+- Returns the tick's signed liquidity-net value without mutating the source tick record.
+- Applies the swap-direction sign rule: negate liquidity net only for zero-for-one, then perform checked u128 liquidity addition/subtraction.
+- Rejects malformed reward-slot counts, uninitialized/inconsistent ticks, ticks with outstanding limit orders, invalid integer ranges, and liquidity underflow/overflow.
+- Covers wraparound arithmetic and round-trip crossing vectors.
+
+**Proof boundary:** this primitive deliberately refuses ticks containing outstanding limit orders. It does not update tick-array initialized counts/bitmaps, consume FIFO limit orders, advance tick/price state, or compose the complete swap loop. Those remain separate required components.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
