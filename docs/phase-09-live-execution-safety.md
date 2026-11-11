@@ -287,3 +287,15 @@ Implemented generic account capture in `SimulatedAccountState`, the RPC adapter'
 - Requires the Meteora CPI's user input/output accounts to be the taker's exact classic associated token accounts, whose mint/owner/balance deltas are independently captured by SimulationGate and the quote-to-balance effect gate.
 - Pool-state approval currently supports exactly one Meteora DLMM hop. It does not certify reserve authority relationships, bin-array liquidity, price impact from pool state, or every dynamic oracle field. Those remain additional review gates.
 - No signing, Jupiter `/execute`, transaction submission or broadcast is implemented.
+
+
+### 09.18 — composite Meteora paper-only preflight
+
+Implemented in `veltrix/meteora_paper_preflight.py`.
+
+- Composes structural validation, fresh successful RPC simulation, SimulationGate, Jupiter program trace, Jupiter route semantics, quote-to-balance effects, Meteora CPI semantics, and Meteora LB-pair/reserve state into one fail-closed paper preflight verdict.
+- Re-binds every gate result to the exact unsigned message SHA-256 and same RPC provider response/context slot.
+- Re-checks blockhash freshness, order/simulation timestamps, last-valid block height, one-hop Metis/Meteora scope, exact raw input/output amounts, zero platform fee, max price impact/fees/slippage, compute ceiling and network fee ceiling.
+- Verifies full inner-CPI evidence and requires Meteora CPI records to be nested under the exact approved Jupiter route instruction.
+- A pass returns `PAPER_SIMULATION_ONLY`, with `paper_only=true`, `live_execution_eligible=false`, and `execution_enabled=false`. It is not a signer authorization and cannot trigger transaction submission.
+- The preflight inherits the explicitly documented limitations of the underlying DEX/pool-state gates. In particular, reserve authority relationships, bin-array liquidity and complete oracle/price-impact modelling remain unverified.
