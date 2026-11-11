@@ -140,6 +140,18 @@ def test_bitmap_extension_decode_checks_pda_pool_and_layout():
     assert len(decoded.negative_bitmaps) == 14
 
 
+
+def test_negative_default_bitmap_lower_boundary_stays_in_poolstate_bitmap():
+    p = pool(tick_spacing=1)
+    start = -(RAYDIUM_TICK_ARRAY_SIZE * 512)
+    a = array(p, start=start)
+    result = apply_raydium_tick_array_mutation(
+        p, a, tick_index=start, updated_tick=tick(start),
+    )
+    assert result.bitmap_extension is None
+    assert result.bitmap_changed is True
+    assert result.pool.tick_array_bitmap[0] & 1 == 1
+
 def test_extension_bitmap_mutation_updates_only_the_correct_side():
     p = pool(tick_spacing=1)
     a = array(p, start=60 * 512)
