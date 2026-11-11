@@ -344,3 +344,115 @@ def apply_raydium_tick_array_mutation(
         initialized_before=array_was_initialized, initialized_after=array_is_initialized,
         bitmap_changed=bitmap_changed,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumTickArrayMutationSession:
+    """Authenticated multi-tick working set retaining original account commitments.
+
+    Mutated account bytes are intentionally uncommitted until the final serializer
+    runs. Original hashes are retained separately and are restored only inside
+    this session when invoking the single-mutation validator for another tick.
+    """
+    source_pool_sha256: str
+    source_tick_array_sha256: tuple[str, ...]
+    source_bitmap_extension_sha256: str | None
+    pool: RaydiumClmmPoolState
+    tick_arrays: tuple[RaydiumClmmTickArray, ...]
+    bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None
+
+
+def create_raydium_tick_array_mutation_session(
+    pool: RaydiumClmmPoolState,
+    tick_arrays: tuple[RaydiumClmmTickArray, ...],
+    *,
+    bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
+) -> RaydiumTickArrayMutationSession:
+    """Start one immutable swap working set from provenance-committed accounts."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumTickArrayMutationError("decoded Raydium PoolState is required")
+    if not isinstance(tick_arrays, tuple) or not tick_arrays:
+        raise RaydiumTickArrayMutationError("one or more decoded tick arrays are required")
+    _sha256(pool.account_data_sha256, "PoolState source account hash")
+    seen_addresses: set[str] = set()
+    source_hashes = []
+    for index, array in enumerate(tick_arrays):
+        if not isinstance(array, RaydiumClmmTickArray):
+            raise RaydiumTickArrayMutationError(f"tick array {index} is not decoded")
+        if array.pool_address != pool.pool_address or array.tick_spacing != pool.tick_spacing:
+            raise RaydiumTickArrayMutationError("tick-array working set contains a foreign pool or spacing")
+        if array.address in seen_addresses:
+            raise RaydiumTickArrayMutationError("tick-array working set contains duplicate account addresses")
+        seen_addresses.add(array.address)
+        _sha256(array.data_sha256, f"tick array {index} source account hash")
+        if len(array.ticks) != RAYDIUM_TICK_ARRAY_SIZE:
+            raise RaydiumTickArrayMutationError("tick array must contain exactly 60 TickState records")
+        if array.initialized_tick_count != sum(1 for tick in array.ticks if tick.initialized):
+            raise RaydiumTickArrayMutationError("tick-array initialized count is stale at session start")
+        source_hashes.append(array.data_sha256)
+    extension_hash = None
+    if bitmap_extension is not None:
+        if not isinstance(bitmap_extension, RaydiumClmmTickArrayBitmapExtension):
+            raise RaydiumTickArrayMutationError("decoded bitmap-extension state is required")
+        if (
+            bitmap_extension.pool_address != pool.pool_address
+            or bitmap_extension.address != derive_raydium_tick_array_bitmap_extension_address(pool.pool_address)
+        ):
+            raise RaydiumTickArrayMutationError("bitmap extension does not belong to the session pool")
+        _sha256(bitmap_extension.data_sha256, "bitmap-extension source account hash")
+        extension_hash = bitmap_extension.data_sha256
+    return RaydiumTickArrayMutationSession(
+        source_pool_sha256=pool.account_data_sha256,
+        source_tick_array_sha256=tuple(source_hashes),
+        source_bitmap_extension_sha256=extension_hash,
+        pool=pool,
+        tick_arrays=tick_arrays,
+        bitmap_extension=bitmap_extension,
+    )
+
+
+def apply_raydium_tick_array_mutation_session(
+    session: RaydiumTickArrayMutationSession,
+    *,
+    array_index: int,
+    tick_index: int,
+    updated_tick: RaydiumClmmTick,
+    recent_epoch: int,
+) -> tuple[RaydiumTickArrayMutationSession, RaydiumTickArrayMutationResult]:
+    """Apply another tick update while retaining original account provenance.
+
+    This permits multiple tick transitions in one simulated swap without
+    pretending mutated in-memory bytes still match the original account hashes.
+    """
+    if not isinstance(session, RaydiumTickArrayMutationSession):
+        raise RaydiumTickArrayMutationError("authenticated tick-array mutation session is required")
+    _integer(array_index, 0, len(session.tick_arrays) - 1, "tick-array session index")
+    working_pool = replace(session.pool, account_data_sha256=session.source_pool_sha256)
+    working_array = replace(
+        session.tick_arrays[array_index],
+        data_sha256=session.source_tick_array_sha256[array_index],
+    )
+    working_extension = session.bitmap_extension
+    if working_extension is not None:
+        if session.source_bitmap_extension_sha256 is None:
+            raise RaydiumTickArrayMutationError("session lost its bitmap-extension source commitment")
+        working_extension = replace(
+            working_extension, data_sha256=session.source_bitmap_extension_sha256
+        )
+    mutation = apply_raydium_tick_array_mutation(
+        working_pool,
+        working_array,
+        tick_index=tick_index,
+        updated_tick=updated_tick,
+        recent_epoch=recent_epoch,
+        bitmap_extension=working_extension,
+    )
+    arrays = list(session.tick_arrays)
+    arrays[array_index] = mutation.tick_array
+    next_session = replace(
+        session,
+        pool=mutation.pool,
+        tick_arrays=tuple(arrays),
+        bitmap_extension=mutation.bitmap_extension,
+    )
+    return next_session, mutation
