@@ -179,13 +179,20 @@ def evaluate_raydium_clmm_cpi_pool_binding(
     cpi_tick_arrays = tuple(cpi.tick_array_accounts)
     snapshot_tick_arrays = tuple(item.address for item in tick_array_snapshot.tick_arrays)
     bitmap_extension = tick_array_snapshot.bitmap_extension_address
+    bitmap_digest = tick_array_snapshot.bitmap_extension_sha256
+    bitmap_digest_valid = (
+        isinstance(bitmap_digest, str)
+        and len(bitmap_digest) == 64
+        and all(character in "0123456789abcdef" for character in bitmap_digest)
+    )
     if (
         not cpi_account_order
         or cpi_account_order != cpi_tick_arrays
         or len(set(cpi_account_order)) != len(cpi_account_order)
-        or (bitmap_extension is not None and bitmap_extension not in cpi_account_order)
+        or (bitmap_extension is not None and (bitmap_extension not in cpi_account_order or not bitmap_digest_valid))
+        or (bitmap_extension is None and bitmap_digest is not None)
     ):
-        raise RaydiumClmmPoolBindingError("verified tick-array snapshot does not preserve the exact CPI remaining-account order")
+        raise RaydiumClmmPoolBindingError("verified tick-array snapshot does not preserve the exact CPI remaining-account order and bitmap digest")
     expected_tick_array_order = tuple(
         address for address in cpi_account_order if address != bitmap_extension
     )
