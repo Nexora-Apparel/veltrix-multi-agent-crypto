@@ -466,6 +466,8 @@ class SolanaRpcSimulationAdapter:
             current_slot=lookup_context_slot,
             minimum_context_slot=minimum_context_slot,
         )
+        if not set(observed_account_addresses).issubset(set(validation.account_keys)):
+            raise SolanaRpcAdapterError("observed account address is not present in the validated transaction account keys")
 
         pre_result = self._rpc(
             "getMultipleAccounts",
