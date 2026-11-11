@@ -426,3 +426,8 @@ Implemented in `veltrix/raydium_clmm_aux_accounts.py`, pinned to the same Raydiu
 - Added adversarial tests for wrong CPI account roles, invalid config PDA/owner/fees, observation pool mismatch, stale/future observations, uninitialized state, and invalid ring indexes.
 
 Remaining limitations: this is account-role and provenance validation, not a complete dynamic-fee or economic-depth model. The current gate still does not reconstruct all swap-loop tick traversal, validate every tick-array bitmap extension/remaining-account role, simulate price impact from executable liquidity, or prove that pool reserves can satisfy the requested size under a defined slippage bound. No signing, Jupiter `/execute`, wallet approval, transaction submission, broadcast, or live execution is introduced.
+
+
+#### Pinned PoolState allocation-size correction
+
+A source-layout audit corrected the full PoolState account allocation from the earlier 1,576-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
