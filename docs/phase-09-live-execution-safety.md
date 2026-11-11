@@ -96,3 +96,338 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
 This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
+
+
+### 09.5 — fail-closed simulation evidence gate
+
+Implemented in `veltrix/simulation_gate.py` with adversarial coverage in `tests/test_simulation_gate.py`.
+
+- Requires a prior structural `TransactionValidationResult` and the same immutable `TransactionIntent`.
+- Binds simulation evidence to the exact SHA-256 message digest and approved recent blockhash.
+- Requires the configured cluster and genesis hash to match exactly, and the RPC provider identifier to be allowlisted.
+- Rejects missing/error simulation, stale or excessively future-dated evidence, context slots below the caller's minimum, and blockhashes whose last-valid block height has passed.
+- Enforces maximum compute units and fee lamports.
+- Requires the complete simulated token-account set (account, mint, owner) and each raw-unit pre/post balance delta to match the explicit expected effects exactly. Missing, extra, duplicate, or altered account records fail closed.
+- Uses integer raw token amounts only; no floating-point token arithmetic.
+- The module consumes normalized evidence. It does not call RPC and cannot independently authenticate a provider response. A future RPC adapter must use authenticated transport, bind the raw response to the request/message, preserve provider/cluster/context metadata, and reject incomplete RPC fields before constructing evidence.
+- This gate does not independently decode arbitrary SPL/Anchor instructions, verify mint extensions, model native SOL rent/fee balance changes, prove external program behavior, sign, or broadcast. Those remain separate requirements; a passing gate is not live-trade authorization.
+
+No RPC client, signer, private-key handling, transaction submission, or live execution is introduced. Live execution remains disabled.
+
+
+### 09.6 — provider-pinned read-only Solana RPC simulation adapter
+
+Implemented in `veltrix/solana_rpc_simulation.py` with mocked-RPC adversarial coverage in `tests/test_solana_rpc_simulation.py`.
+
+- Pins the HTTPS endpoint to an explicit host allowlist, rejects URL credentials/query/fragment, disables redirects, enforces bounded request timeouts, and validates JSON-RPC response IDs/envelopes.
+- Checks the configured cluster genesis hash and exact approved recent blockhash validity; rejects expired blockhashes.
+- Fetches pre-simulation token-account states with `getMultipleAccounts`, then simulates the exact serialized message with `sigVerify=false`, `replaceRecentBlockhash=false`, `encoding=base64`, and the requested post-simulation account list.
+- Constructs only an unsigned transaction with default placeholder signatures. No signing keys are loaded and no `sendTransaction` method exists.
+- Requests pre- and post-simulation token-account data and decodes only the fixed SPL Token base layout (mint, token authority, raw amount) for the legacy SPL Token and Token-2022 program owners.
+- Requires pre-state, simulation, and fee-quote context slots to match exactly. This is intentionally strict: if a provider cannot supply a consistent bank snapshot, evidence collection fails rather than comparing balances from different slots.
+- Retrieves the exact-message fee with `getFeeForMessage`, compute units from simulation, and block height / blockhash validity from read-only RPC methods.
+- Does not implement native SOL balance-delta accounting, mint-extension policy, transfer-hook semantics, arbitrary program decoding, or live transaction submission. Token-2022 extension-specific semantics remain unsupported and must fail closed in the semantic decoder.
+
+This is an RPC evidence adapter, not a trade executor. Live execution remains disabled.
+
+
+### 09.7 — narrow semantic transfer decoder
+
+Implemented in `veltrix/semantic_transfer_decoder.py` with adversarial coverage in `tests/test_semantic_transfer_decoder.py`.
+
+- Re-runs structural validation on the exact message and requires the supplied validation result to match.
+- Supports only System Program `Transfer`, classic SPL Token `TransferChecked`, and bounded Compute Budget `SetComputeUnitLimit` / `SetComputeUnitPrice`.
+- Decodes raw integer lamports and token base units, binds token transfer source/mint/destination/authority/amount/decimals, enforces aggregate native/token ceilings, and checks compute-unit / micro-lamport priority-fee caps.
+- Requires decoded effects to equal the explicitly approved effect tuples exactly.
+- Rejects unknown programs, all Token-2022 instructions, unchecked SPL Token `Transfer`, multisig/extra-account variants, account creation, authority changes, duplicate/unknown Compute Budget instructions, and every unsupported System/Token instruction.
+- This is deliberately not a DEX swap decoder. Jupiter, Raydium, Orca, route aggregators, CPI-heavy swaps, transfer hooks, Token-2022 extensions, ATA creation, and arbitrary Anchor/Borsh programs are unsupported and must fail closed. A future DEX-specific parser must decode the complete instruction and inner-CPI effect graph before any swap is eligible for simulation approval.
+
+No signing, RPC submission, wallet access, or live execution is introduced.
+
+
+### 09.8 — final evidence-composition preflight
+
+Implemented in `veltrix/execution_preflight.py` with adversarial coverage in `tests/test_execution_preflight.py`.
+
+- Requires matching message digests from structural validation, semantic instruction decoding, and SimulationGate approval.
+- Requires fresh risk evidence for the exact approved mint, finalized mint slot, immutable mint/holder evidence IDs, classic SPL Token ownership, revoked mint/freeze authorities, completed extension review, complete holder coverage, and exact mint/holder supply reconciliation.
+- Applies configurable top-1/top-5/top-10 holder concentration ceilings and blocks critical/high risk flags by default.
+- Requires every currently defined live-risk claim: mint state/authority/freeze/extension review, complete holder inventory and supply reconciliation, exhaustive liquidity-pool lock inventory, developer-wallet linkage, bundled-supply analysis, creator-wallet provenance, and executable sellability.
+- The current Phase 05 collector intentionally leaves several of these claims missing (liquidity-lock completeness, developer linkage, bundled supply, creator provenance and executable sellability). Therefore this gate will reject current reports until independent evidence sources are added and those claims are actually established. This is an explicit release blocker, not a reason to weaken the gate.
+- A pass means only `eligible_for_operator_authorization`: it does not issue operator authorization, call a signer, sign a transaction, submit a transaction, or enable live execution.
+- The semantic decoder is currently limited to direct classic SPL Token transfers; DEX swap transactions remain unsupported.
+
+No live execution path is introduced. Paper trading remains separate and unchanged.
+
+
+### 09.9 — read-only Jupiter Swap API V2 quote intake
+
+Implemented in `veltrix/jupiter_quote.py` with adversarial coverage in `tests/test_jupiter_quote.py`.
+
+- Uses Jupiter's current Swap API V2 `GET /swap/v2/order` quote path.
+- Intentionally omits `taker`, so the response must contain no transaction payload and no taker binding. This is quote intake only.
+- Supports optional `JUPITER_API_KEY`; keyless requests are lower-rate prototype requests. Production rate limits require the API key.
+- Validates exact input/output mints, raw input amount, minimum output threshold, route router, route-step public keys/labels/amounts, price impact, fees, and quote identifiers.
+- Preserves router and route-plan metadata for subsequent program allowlisting and semantic review.
+- No order execution, signing, wallet connection, Phantom interaction, Jupiter `/execute`, or RPC transaction submission is implemented.
+- Jupiter's managed `/order` + `/execute` path is the intended future integration direction. The current transaction validator still rejects lookup tables and v1 messages; transaction payload intake remains blocked until those message versions and address resolution are independently implemented and tested.
+- Axiom remains an optional manual monitoring/trading terminal, not an execution dependency of this adapter.
+
+No live trading capability is added.
+
+
+### 09.10 — v0 address lookup table resolution
+
+Implemented in the extended `veltrix/transaction_validator.py` and `veltrix/solana_rpc_simulation.py`, with adversarial coverage in the transaction-validator and RPC simulation suites.
+
+- v0 address lookup tables are now supported only when policy explicitly enables them and the RPC adapter fetches every referenced table from the configured cluster.
+- Each table must exist, be owned by the canonical Address Lookup Table program, deserialize successfully, be active (deactivation slot is `u64::MAX`), and have been extended before the observed bank slot.
+- The validator reconstructs Solana's exact runtime key order: static keys, all loaded writable keys, then all loaded readonly keys. It validates lookup indexes, signer/writable privileges, duplicates, unused accounts, and the 128-account runtime lock ceiling.
+- Lookup-table and token-account snapshots must share the same confirmed context slot; the simulation must use that same slot. Missing, stale, deactivated, same-slot-extended, duplicate, out-of-range, or mismatched tables fail closed.
+- Semantic direct-transfer decoding can now consume the same verified resolved table set.
+- Transaction v1 remains unsupported. Jupiter quote intake requests no transaction and the next order-intake layer must keep `maxSupportedTransactionVersion=0` until v1 support is separately implemented and tested.
+- Tables with any non-max deactivation slot are conservatively rejected, even where Solana's deactivation cooldown might still permit use. This is an intentional false-negative safety choice.
+
+This enables structural validation of v0 transactions that use active lookup tables; it does not yet approve Jupiter DEX swap instructions or authorize signing/execution.
+
+
+### 09.11 — Jupiter v0 order transaction intake
+
+Implemented in `veltrix/jupiter_order.py` with mocked API and transaction fixtures in `tests/test_jupiter_order.py`.
+
+- Requests a Jupiter Swap API V2 order for an explicit taker wallet and exact-in raw amount.
+- Sends `maxSupportedTransactionVersion=0` and excludes routers outside local policy. The default policy excludes JupiterZ until its maker/fee-payer signing path is separately reviewed.
+- Requires response taker, input/output mints, exact input amount, output threshold, router, fees, route plan, transaction version and last-valid block height to match policy.
+- Rejects gasless orders, third-party signature fee payers, unexpected/partially signed transactions, non-v0 messages, malformed base64 and mismatched fee payer. The taker must be the fee payer and required signer.
+- Extracts exact v0 message bytes and preserves the original serialized transaction for audit. Active address lookup tables are preserved for the Phase 09.10 resolver.
+- This is order intake only. It does not construct an approved `TransactionIntent`, decode Jupiter/DEX instruction semantics, call Jupiter `/execute`, request a Phantom signature, or broadcast.
+
+The next required component is a Jupiter/DEX-specific semantic parser. Until that exists, the returned transaction remains untrusted and cannot pass the complete execution preflight.
+
+
+### 09.12 — Jupiter DEX program registry and simulated CPI trace
+
+Implemented in `veltrix/jupiter_program_trace.py`, with RPC trace capture in `veltrix/solana_rpc_simulation.py` and adversarial registry/gate tests.
+
+- Fetches Jupiter's Swap API V2 `/program-id-to-label` mapping, validates every program ID and label, timestamps the snapshot, and hashes the normalized registry.
+- The RPC simulation request now asks for inner instructions and resolves each inner `programIdIndex` against the same validated static+loaded account-key order. The simulation evidence records top-level and inner CPI program IDs.
+- The route gate binds the exact Jupiter order message digest, taker/fee payer, recent blockhash, last-valid block height, simulation response, route labels and program trace.
+- DEX and Jupiter program IDs must be locally pinned in policy. Jupiter's label registry is descriptive metadata, not a trust root; a label alone cannot authorize a program.
+- Every route label must map to a locally pinned DEX program ID and that ID must appear in the simulated inner-CPI trace. Every top-level and inner program ID must be in the standard-program, pinned-Jupiter, or pinned-DEX allowlist.
+- Missing inner-instruction evidence, unknown programs, stale registry snapshots, unpinned DEX IDs, and route/trace mismatches fail closed.
+- This gate does not decode DEX instruction payloads, prove CPI account semantics, or verify input/output token balance deltas. It is a program-trace allowlist stage, not final swap approval. DEX-specific instruction decoders and quote-to-balance-effect checks remain mandatory.
+- Program IDs still require independent review and explicit pinning before a route can pass. No signing, Jupiter `/execute`, wallet signature request, or broadcast is implemented.
+
+
+### 09.13 — Jupiter quote-to-user-balance effect gate
+
+Implemented in `veltrix/jupiter_swap_effects.py`, with classic-token program ownership preserved by the RPC simulation adapter.
+
+- Derives the taker's classic SPL Associated Token Accounts for the order input and output mints.
+- Produces slippage-aware expected deltas for SimulationGate: input ATA decreases by the exact `inAmount`; output ATA must increase by at least `otherAmountThreshold`.
+- Requires exactly those two pre-existing user ATAs, with matching owner/mint and classic SPL Token program ownership.
+- Requires exact message digest, taker fee payer, recent blockhash, last-valid height, RPC response identity, slot, compute and fee evidence.
+- Rejects stale orders, Token-2022, missing/extra/duplicate account snapshots, wrong mint/owner, mismatched input spend, and simulated output below `otherAmountThreshold`. The simulated output may differ from `outAmount` while remaining above the on-chain minimum.
+- This is deliberately conservative: it supports only swaps whose input and output effects land in pre-existing classic SPL ATAs. Input spend is exact; output is bounded by the quoted minimum, not forced to equal the quote. Native SOL wrapping/temporary WSOL accounts, ATA creation, transfer-fee tokens and Token-2022 remain unsupported.
+- The effect gate does not decode DEX instructions or authorize signing. It must be combined with the pinned program trace gate, semantic instruction policy, risk preflight, and operator authorization.
+
+No Jupiter `/execute`, Phantom signing, transaction submission, or live execution is introduced.
+
+
+### 09.14 — Router scope reduced to the semantically supported Metis path
+
+The `/order` adapter and Jupiter program-trace policy now approve **Metis only**.
+
+- Jupiter Swap API V2 `/order` can return Metis, JupiterZ, Dflow, or OKX transactions. These are not interchangeable transaction formats or trust boundaries.
+- The current downstream trace model assumes a Jupiter V6 aggregator top-level instruction plus DEX CPI evidence. It is not a valid semantic decoder for Dflow or OKX transactions, and JupiterZ has a separate RFQ/market-maker signing and expiry path.
+- Order intake and the trace policy therefore reject Dflow, OKX and JupiterZ until each has its own independently reviewed instruction, signer, fee-payer, expiry, and simulation-effect decoder.
+- The default allowed-router policy is now `("metis",)`; explicitly configuring another router is a configuration error, not an override.
+- This narrows coverage but prevents a route label or generic program allowlist from being mistaken for semantic approval of a different router.
+
+No transaction signing or submission is enabled.
+
+
+### 09.15 — Slippage-bounded simulated output
+
+The generic SimulationGate now supports exact deltas and explicit minimum/maximum delta bounds. Jupiter uses an exact negative input delta and a minimum positive output delta equal to `otherAmountThreshold`. This matches Solana swap semantics: `outAmount` is the quote, while `otherAmountThreshold` is the enforceable minimum. A simulated fill may differ from the quote and still be valid if it clears the minimum. Unknown/extra token-account effects remain rejected.
+
+
+### 09.16 — Context-specific program allowlists
+
+The Jupiter program-trace gate now separates top-level transaction instructions from inner CPI programs.
+
+- Top-level instructions are limited to exactly one pinned Jupiter V6 aggregator instruction plus optional Compute Budget instructions.
+- Top-level System Program, SPL Token Program and Associated Token Program instructions are rejected. This prevents a standard-program allowlist from implicitly authorizing arbitrary SOL transfers, token transfers or account creation outside the swap instruction.
+- Inner CPI programs are limited to locally pinned DEX programs and the classic SPL Token Program. System Program, Associated Token Program and Compute Budget are not blanket-approved inside CPI.
+- The policy rejects any attempt to add System/ATA or other program IDs to the generic standard-program configuration.
+- The transaction must contain exactly one approved Jupiter aggregator instruction.
+
+This is a stricter allowlist boundary, not a substitute for decoding Compute Budget instruction payloads or DEX account layouts. If a future supported route requires additional programs, it must receive an explicit program- and instruction-specific decoder rather than broadening the generic allowlist.
+
+
+### 09.17 — Compute Budget instruction decoder
+
+Implemented in `veltrix/compute_budget.py` with adversarial tests in `tests/test_compute_budget.py`.
+
+- Decodes only Solana Compute Budget `SetComputeUnitLimit` (tag 2, exact u32 payload) and `SetComputeUnitPrice` (tag 3, exact u64 payload).
+- Rejects deprecated `RequestUnits`, heap-frame requests, loaded-account-size overrides, unknown discriminators, malformed lengths, account metas and duplicate limit/price instructions.
+- Enforces a 300,000 CU default request ceiling, a 10,000,000 micro-lamport/CU price ceiling and a 5,000,000 lamport estimated-priority-fee ceiling. Policy can be tightened further.
+- If no explicit limit is present, estimates priority fees using Solana's 200,000 CU default for this single-swap instruction shape.
+- Binds decoding to the exact message SHA-256, structural validator's static/resolved account-key order, top-level program IDs and instruction count.
+- This decoder is currently a separate validation component; the complete swap orchestrator must call it before any future signer boundary is considered.
+
+No signing, transaction submission or live execution is added.
+
+
+### 09.18 — Compute Budget integrated into Jupiter route preflight
+
+`evaluate_jupiter_route_programs` now invokes `validate_compute_budget_instructions` against the exact order message and structural validation result. A route-program gate cannot pass if the Compute Budget instruction payloads are malformed, duplicated, or exceed configured CU, micro-lamport price, or estimated priority-fee limits. The gate result carries the decoded compute-budget values for audit. Tests now use actual serialized v0 message fixtures rather than arbitrary message-byte placeholders.
+
+The DEX route instruction payload/account semantic decoder remains outstanding; this integration does not authorize signing.
+
+
+### 09.19 — Jupiter V6 route payload and fixed-account inspector
+
+Implemented in `veltrix/jupiter_v6_route.py` with adversarial route fixtures in `tests/test_jupiter_v6_route.py`.
+
+- Recognizes only the Jupiter V6 exact-in `route` and `sharedAccountsRoute` Anchor discriminators; rejects other Jupiter instruction variants.
+- Decodes the Borsh route-plan vector and a reviewed subset of Jupiter V6 Swap enum variants (Raydium, Orca Whirlpool, Invariant, Meteora, Raydium CLMM, Meteora DLMM, Raydium CLMM V2 and Raydium CPMM). Unknown enum variants fail closed.
+- Binds each on-chain DEX enum, percent/bps split and topological token indexes to the Jupiter order routePlan.
+- Binds the on-chain input amount, quoted output amount, slippage BPS and zero platform-fee policy to the exact order.
+- Validates the fixed classic-SPL Token, taker, input/output ATA, mint, shared-route authority PDA, event-authority PDA and Jupiter program account roles.
+- Requires each quoted AMM key to appear in the instruction's trailing remaining accounts.
+- Explicitly returns `fully_decoded=false` when DEX-specific remaining account roles are present. Pool/vault/tick-array and DEX-specific writable/read-only account layouts remain a release blocker; this inspector is not a signer authorization.
+
+No signing, `/execute`, broadcast or live execution is introduced.
+
+
+### 09.20 — Jupiter V6 instruction inspection required by route preflight
+
+`evaluate_jupiter_route_programs` now calls `inspect_jupiter_v6_route` against the exact order message and structural validation evidence. The route gate rejects unsupported discriminators, quote/encoded amount mismatches, unsupported DEX enum variants, wrong fixed token-account/PDA roles, route-plan split or mint-graph mismatches, nonzero platform fees, and missing AMM keys. The result carries the route inspection, including `fully_decoded` and blocking reasons.
+
+A program-trace pass is not final execution approval. The current supported path still has trailing DEX account metas, which remain explicitly incomplete until a DEX-specific account-layout decoder validates pool, vault, tick-array and writable/read-only roles. Signing remains unavailable.
+
+The route-program result now includes `execution_ready=false` by default. A program-trace pass cannot be interpreted as transaction authorization while DEX-specific remaining account roles are unresolved.
+
+
+### 09.21 — DEX AMM pool owner evidence
+
+Implemented in `veltrix/dex_pool_evidence.py`; `SolanaRpcSimulationAdapter.fetch_account_snapshot` now fetches read-only account bytes using the configured HTTPS host, expected genesis hash, confirmed commitment and `minContextSlot` no older than the simulation.
+
+- Maps every inspected routePlan AMM key to exactly one locally pinned DEX program ID through the verified Jupiter program registry.
+- Fetches the AMM accounts with `getMultipleAccounts`, checks exact result count, canonical owner keys, non-executable status, positive lamports, base64 data integrity, RPC `space`, and bounded data size.
+- Requires the account snapshot context slot to be at least the simulation slot and binds the snapshot to provider, cluster, genesis hash, route-message digest and registry digest.
+- Records the raw pool account bytes and SHA-256 for the next DEX-specific state decoder.
+- This proves only that the quoted AMM account is owned by the pinned DEX program and has account data. It does not decode pool mints, vaults, liquidity, tick arrays or instruction-specific account roles. `execution_ready` remains false.
+
+The pool-evidence function now requires the original `SimulationEvidence`, verifies its message digest/provider/cluster/genesis against the route and RPC adapter, and derives `minContextSlot` directly from `simulation.context_slot`; callers cannot lower the freshness floor by passing an arbitrary slot.
+
+
+### 09.22 — Raydium CLMM PoolState semantic validation
+
+Implemented in `veltrix/raydium_clmm_pool_state.py`, pinned to Raydium's upstream `raydium-clmm` source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Decodes the exact 1,544-byte Anchor `PoolState` account and checks the `account:PoolState` discriminator.
+- Parses the packed header fields for config, creator, ordered token mints, vaults, observation key, decimals, tick spacing, liquidity, Q64.64 square-root price, current tick, swap status, fee mode, seed index and bump.
+- Re-derives the canonical pool PDA from `pool`, config, sorted mint pair, optional seed-index seed and bump; the derived address must equal the quoted AMM key.
+- Requires the pool account's locally pinned Raydium CLMM owner, evidence hash, canonical mint ordering, distinct vaults, positive liquidity/price/tick spacing, protocol tick bounds, enabled swap status and known fee mode.
+- Binds every Raydium CLMM route hop to the pool's exact mint pair (either direction). Unsupported DEX labels remain outside this decoder.
+
+Limitations: this is pool-header validation, not a complete tradeability proof. It does not yet verify vault account owners/mints/balances, tick arrays and initialized liquidity around the current tick, observation freshness, dynamic fee config, reward/fee state, or the complete DEX CPI account ordering. It does not calculate executable price impact or depth. A successful result remains read-only evidence and does not set execution eligibility.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.23 — Raydium CLMM vault token-account verification
+
+Implemented in `veltrix/raydium_clmm_vaults.py` using Raydium CLMM's pinned source commit from Phase 09.22.
+
+- Re-derives each pool vault PDA using `pool_vault`, pool address and corresponding pool mint.
+- Fetches both vault accounts through the same provider-pinned HTTPS RPC adapter, with confirmed commitment and `minContextSlot` no earlier than both pool evidence and simulation.
+- Requires matching provider, cluster, genesis hash, response identity and context provenance.
+- Supports only classic SPL Token vaults in this path; requires the exact 165-byte token-account layout and classic Token program account owner.
+- Decodes token mint, token authority, raw balance and account state. Requires the mint to match the pool's ordered mint pair, the token authority to equal the Raydium pool PDA, and state to be initialized (not frozen).
+- Rejects unexpected delegate, native/wrapped-SOL, or close-authority options, executable accounts, zero-lamport accounts, malformed account lengths and incomplete RPC snapshots.
+
+Limitations: this verifies vault identity and token-account metadata, not the vault's economic sufficiency. It does not verify mint freeze/transfer-fee extensions, vault reserve minimums, tick-array initialized liquidity, pool observation freshness, or dynamic fees. Token-2022 and wrapped-native routes remain unsupported. The result is evidence only and never grants execution eligibility.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.24 — Raydium CLMM current tick-array validation
+
+Implemented in `veltrix/raydium_clmm_tick_arrays.py`, pinned to the Raydium CLMM source layout used in Phase 09.22.
+
+- Derives the current tick-array start index using the upstream 60-tick array and negative-index floor semantics.
+- Derives the canonical tick-array PDA from `tick_array`, pool ID and big-endian i32 start index.
+- Fetches current tick arrays through the same pinned RPC provider at a confirmed slot no earlier than simulation, pool evidence and vault evidence.
+- Requires exact 10,240-byte Anchor `TickArrayState` data, correct discriminator, pool ID, owner, PDA and current start index.
+- Decodes all 60 tick records, including signed net liquidity, gross liquidity and limit-order initialization fields.
+- Reconciles the stored initialized-tick count against decoded tick records; validates initialized tick offsets/spacing and `abs(liquidity_net) <= liquidity_gross` where liquidity is present.
+
+Limitations: this captures only the current tick array for each pool. It does not yet prove all additional arrays passed through the actual Raydium CPI, validate the tick-array bitmap extension, derive swap-direction traversal, or calculate executable liquidity/depth/slippage. The current-array snapshot is evidence only and does not enable execution.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.25 — detailed simulated inner-CPI evidence
+
+Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.py`.
+
+- Adds immutable `SimulatedInnerInstruction` evidence with outer instruction index, resolved CPI program ID, ordered resolved account keys, decoded instruction bytes and optional stack height.
+- Strictly decodes Solana RPC's base58 instruction data with encoded/decoded size bounds.
+- Validates outer instruction indexes, program indexes, every CPI account index, account-list shape and stack-height values against the transaction validator's resolved account-key order (including loaded address-table keys).
+- Binds the detailed record count and ordered program IDs to the existing compact CPI trace; inconsistent evidence fails closed.
+- Legacy/manual evidence may still contain only the compact trace, but DEX semantic gates must require detailed records and reject absent instruction bytes/account keys.
+
+This captures raw simulation evidence only. It does not by itself identify which inner CPI belongs to which Jupiter route step, decode DEX instruction payloads, prove account roles, or validate tick-array traversal. No signing, submission, broadcast or live execution is added.
+
+
+### 09.26 — Raydium CLMM CPI semantic binding
+
+Implemented in `veltrix/raydium_clmm_cpi.py`, pinned to `raydium-io/raydium-clmm` source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Decodes only the legacy classic-SPL `swap` CPI instruction with exact Borsh layout: discriminator, input amount, minimum output threshold, Q64.64 sqrt-price limit and canonical boolean `is_base_input`.
+- Rejects `swap_v2`, malformed payloads, unsupported instruction discriminators, noncanonical booleans and non-positive amounts.
+- Supports only one direct Metis/Jupiter route hop labelled Raydium CLMM; multi-hop and Token-2022 routes remain rejected.
+- Requires exactly one Raydium CLMM CPI in the detailed simulation trace, nested directly under the validated Jupiter route instruction (stack height 2).
+- Checks CPI payer, taker input/output classic SPL ATAs, classic token program, distinct vaults, account-key canonicality, and fixed account positions.
+- Binds the CPI amount to the exact Jupiter route input; checks the CPI minimum-output threshold against the route quote and local slippage ceiling.
+- Uses the complete raw inner-CPI instruction records from Phase 09.25; compact program IDs alone are insufficient.
+
+This gate decodes the swap call and validates its user-facing token-account semantics. It does not yet prove the CPI's pool/vault/tick-array accounts against the independently fetched PoolState, vault and TickArrayState evidence from Phases 09.22–09.24. That cross-evidence binding is the next required gate. It also does not calculate executable liquidity or sign/submit transactions.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
+
+
+### 09.27 — Raydium CLMM CPI-to-pool/vault/tick evidence binding
+
+Implemented in `veltrix/raydium_clmm_pool_binding.py` with adversarial coverage in `tests/test_raydium_clmm_pool_binding.py`.
+
+- Binds the exact simulated Raydium CLMM CPI pool address to the independently decoded, source-pinned PoolState account and verifies the fetched account owner and SHA-256 data digest.
+- Binds the Jupiter input/output mint direction to the PoolState mint pair, then requires the CPI input/output vault addresses to match the corresponding mint-specific PoolState vaults.
+- Requires exactly the two verified vault accounts, with the expected pool authority, classic SPL Token program, initialized state, positive lamports, and exact pool/mint identity.
+- Requires the CPI tick-array account set to match the independently fetched and decoded tick-array snapshot; every array must belong to the same pool and use the PoolState tick spacing.
+- Requires the pool, vault, tick-array and simulation evidence to share the exact message digest, RPC response identity, provider, cluster, genesis hash and simulation context slot. Account snapshot slots must be monotonically non-decreasing from pool to vault to tick arrays.
+- The result is explicitly evidence-only and always returns `execution_ready=false`.
+
+Limitations: the current tick-array collector only proves the current array; a swap requiring additional traversal arrays is rejected until every CPI-referenced array is independently fetched and decoded in CPI traversal order. This gate does not yet calculate executable liquidity/depth, verify all account metas including AMM config/observation roles at this final composition boundary, or authorize signing. No signer, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+#### 09.27 completion extension — AMM config and observation account binding
+
+Implemented in `veltrix/raydium_clmm_aux_accounts.py`, pinned to the same Raydium source revision as the PoolState and CPI decoders.
+
+- The CPI result now preserves the fixed AMM config and observation account keys from their exact instruction positions.
+- AMM config is decoded using the pinned 117-byte Anchor layout. The gate validates its discriminator, Raydium owner, non-executable account state, positive lamports, index-derived PDA and bump, canonical owner, tick-spacing agreement with PoolState, and protocol/trade/fund fee bounds.
+- ObservationState is decoded using the pinned 4,483-byte layout. The gate validates its discriminator, Raydium owner, canonical `[observation, pool]` PDA, pool identity, initialized flag, ring index, and latest observation timestamp against the simulation timestamp. The default maximum observation age is 24 hours and can only be tightened by policy.
+- Auxiliary accounts are fetched from the same provider/cluster/genesis and at a context slot no older than simulation, pool, vault, or tick-array evidence. Shared AMM config accounts are supported across pools; observation accounts cannot be shared across pools.
+- The final pool-binding gate now requires CPI AMM config and observation keys to equal the decoded PoolState keys, and binds both decoded auxiliary account roles to the same pool.
+- Added adversarial tests for wrong CPI account roles, invalid config PDA/owner/fees, observation pool mismatch, stale/future observations, uninitialized state, and invalid ring indexes.
+
+Remaining limitations: this is account-role and provenance validation, not a complete dynamic-fee or economic-depth model. The current gate still does not reconstruct all swap-loop tick traversal, validate every tick-array bitmap extension/remaining-account role, simulate price impact from executable liquidity, or prove that pool reserves can satisfy the requested size under a defined slippage bound. No signing, Jupiter `/execute`, wallet approval, transaction submission, broadcast, or live execution is introduced.
+
+
+#### Pinned PoolState allocation-size correction
+
+A source-layout audit corrected the full PoolState account allocation from the earlier 1,544-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
