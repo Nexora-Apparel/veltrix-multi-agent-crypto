@@ -17,6 +17,7 @@ from solders.pubkey import Pubkey
 
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
+    encode_raydium_clmm_pool_state,
     RAYDIUM_MAX_TICK,
     RAYDIUM_MIN_TICK,
     RaydiumClmmPoolState,
@@ -377,6 +378,13 @@ def apply_raydium_tick_array_mutation(
     bitmap_changed = array_was_initialized != array_is_initialized
     if bitmap_changed:
         next_pool, next_extension = _flip_bitmap(pool, bitmap_extension, tick_array.start_tick_index)
+        if next_pool.account_data:
+            encoded_pool = encode_raydium_clmm_pool_state(next_pool)
+            next_pool = replace(
+                next_pool,
+                account_data=encoded_pool,
+                account_data_sha256=hashlib.sha256(encoded_pool).hexdigest(),
+            )
     ticks = list(tick_array.ticks)
     ticks[offset] = updated_tick
     next_array = replace(
