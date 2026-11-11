@@ -339,10 +339,57 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect([key_strings[index] for index in cpi_account_indexes] == expected_cpmm_accounts,
             "inner CPMM account order differs from the pinned IDL")
 
-    # Every CPI must stay within the known router/CPMM token-account flow.
+    # Reject token authorities, mint/burn, approvals, arbitrary transfers and unknown CPI variants.
     allowed_inner_programs = {CPMM, TOKEN, TOKEN_2022, ATA_PROGRAM, SYSTEM}
     _expect(all(item[1] in allowed_inner_programs for item in inner_flat),
             "simulation contains an unrecognized CPI program")
+    allowed_transfer_pairs = {(key_strings[1], key_strings[7]), (key_strings[8], key_strings[3])}
+    token_transfer_amounts: list[tuple[str, str, int]] = []
+    for _, program, account_indexes, data in inner_flat:
+        if program not in {TOKEN, TOKEN_2022}:
+            continue
+        _expect(bool(data), "empty SPL Token CPI data")
+        tag = data[0]
+        account_names = [key_strings[index] for index in account_indexes]
+        if tag == 9:  # CloseAccount: account, destination, authority
+            _expect(len(account_names) == 3 and account_names == [key_strings[1], WALLET, WALLET],
+                    "CloseAccount CPI has an unexpected account or lamport recipient")
+        elif tag == 17:  # SyncNative
+            _expect(account_names == [key_strings[1]], "SyncNative targets an unexpected token account")
+        elif tag == 3:  # Transfer
+            _expect(len(data) == 9 and len(account_names) == 3, "SPL Transfer CPI has unexpected shape")
+            source, destination, authority_name = account_names
+            amount = read_u64(data, 1)
+            _expect((source, destination) in allowed_transfer_pairs,
+                    "SPL Transfer CPI has an unexpected source or recipient")
+            _expect(authority_name in {WALLET, str(authority)}, "SPL Transfer CPI authority is unexpected")
+            if source == key_strings[1]:
+                _expect(amount == INPUT_AMOUNT, "wrapped-SOL transfer amount is not exact")
+            else:
+                _expect(amount >= MIN_OUTPUT, "USDC transfer is below the reviewed minimum")
+            token_transfer_amounts.append((source, destination, amount))
+        elif tag == 12:  # TransferChecked
+            _expect(len(data) == 10 and len(account_names) == 4, "SPL TransferChecked CPI has unexpected shape")
+            source, mint_name, destination, authority_name = account_names
+            amount = read_u64(data, 1)
+            _expect((source, destination) in allowed_transfer_pairs,
+                    "SPL TransferChecked has an unexpected source or recipient")
+            _expect(mint_name == (WSOL if source == key_strings[1] else USDC),
+                    "SPL TransferChecked mint does not match its token accounts")
+            _expect(authority_name in {WALLET, str(authority)}, "SPL TransferChecked authority is unexpected")
+            if source == key_strings[1]:
+                _expect(amount == INPUT_AMOUNT, "wrapped-SOL TransferChecked amount is not exact")
+            else:
+                _expect(amount >= MIN_OUTPUT, "USDC TransferChecked amount is below the reviewed minimum")
+            token_transfer_amounts.append((source, destination, amount))
+        else:
+            raise AuditError(f"disallowed SPL Token instruction tag {tag}")
+    _expect(any(src == key_strings[1] and dst == key_strings[7] and amount == INPUT_AMOUNT
+                for src, dst, amount in token_transfer_amounts),
+            "no exact wrapped-SOL transfer into the CPMM input vault was observed")
+    _expect(any(src == key_strings[8] and dst == key_strings[3] and amount >= MIN_OUTPUT
+                for src, dst, amount in token_transfer_amounts),
+            "no minimum-sized USDC transfer into the wallet output account was observed")
     close_cpis = [
         item for item in inner_flat
         if item[1] in {TOKEN, TOKEN_2022} and item[3][:1] == b"\x09"
