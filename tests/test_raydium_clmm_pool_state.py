@@ -274,11 +274,25 @@ def test_pool_pda_seed_index_is_included_in_seed_derivation():
     _, evidence, _, _, _, pool_address, *_ = fixture()
     decoded = decode_raydium_clmm_pool_state(evidence, expected_pool_address=pool_address)
     assert decoded.seed_index == 0
-    with pytest.raises(RaydiumClmmPoolStateError, match="bump"):
-        derive_raydium_clmm_pool_address(
-            amm_config=decoded.amm_config,
-            token_mint_0=decoded.token_mint_0,
-            token_mint_1=decoded.token_mint_1,
-            bump=decoded.bump,
-            seed_index=1,
-        )
+    alternate_address = derive_raydium_clmm_pool_address(
+        amm_config=decoded.amm_config,
+        token_mint_0=decoded.token_mint_0,
+        token_mint_1=decoded.token_mint_1,
+        bump=decoded.bump,
+        seed_index=1,
+    )
+    assert alternate_address != pool_address
+
+    import dataclasses
+    import hashlib
+    altered_data = bytearray(evidence.data_bytes)
+    altered_data[391:393] = (1).to_bytes(2, "little")
+    altered_bytes = bytes(altered_data)
+    altered_evidence = dataclasses.replace(
+        evidence,
+        data_bytes=altered_bytes,
+        data_length=len(altered_bytes),
+        data_sha256=hashlib.sha256(altered_bytes).hexdigest(),
+    )
+    with pytest.raises(RaydiumClmmPoolStateError, match="PDA"):
+        decode_raydium_clmm_pool_state(altered_evidence, expected_pool_address=pool_address)
