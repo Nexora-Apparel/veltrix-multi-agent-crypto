@@ -69,6 +69,41 @@ def _decode_base58_instruction_data(value: Any) -> bytes:
 
 
 
+def _decode_tracked_account_info(info: Any, address: str) -> tuple[str, int, bool, bytes]:
+    if not isinstance(info, dict):
+        raise SolanaRpcAdapterError(f"tracked account {address} is missing from simulation state")
+    owner = info.get("owner")
+    try:
+        if not isinstance(owner, str) or str(Pubkey.from_string(owner)) != owner:
+            raise ValueError("non-canonical owner")
+    except Exception as exc:
+        raise SolanaRpcAdapterError(f"tracked account {address} has an invalid owner") from exc
+    lamports = info.get("lamports")
+    if isinstance(lamports, bool) or not isinstance(lamports, int) or lamports < 0:
+        raise SolanaRpcAdapterError(f"tracked account {address} has invalid lamports")
+    executable = info.get("executable")
+    if not isinstance(executable, bool):
+        raise SolanaRpcAdapterError(f"tracked account {address} has an invalid executable flag")
+    encoded = info.get("data")
+    if (
+        not isinstance(encoded, list) or len(encoded) != 2
+        or not isinstance(encoded[0], str) or encoded[1] != "base64"
+    ):
+        raise SolanaRpcAdapterError(f"tracked account {address} must use base64 account data")
+    try:
+        data = base64.b64decode(encoded[0], validate=True)
+    except Exception as exc:
+        raise SolanaRpcAdapterError(f"tracked account {address} contains invalid base64 data") from exc
+    if len(data) > MAX_SIMULATED_ACCOUNT_DATA_BYTES:
+        raise SolanaRpcAdapterError(f"tracked account {address} data exceeds the 16384-byte capture limit")
+    space = info.get("space")
+    if space is not None and (
+        isinstance(space, bool) or not isinstance(space, int) or space != len(data)
+    ):
+        raise SolanaRpcAdapterError(f"tracked account {address} data length differs from RPC space")
+    return owner, lamports, executable, data
+
+
 class SolanaRpcAdapterError(RuntimeError):
     """Raised when the configured RPC provider cannot supply complete evidence."""
 
@@ -446,9 +481,14 @@ class SolanaRpcSimulationAdapter:
         pre_accounts = pre_result.get("value")
         if not isinstance(pre_accounts, list) or len(pre_accounts) != len(addresses):
             raise SolanaRpcAdapterError("getMultipleAccounts returned an incomplete account list")
+        pre_by_address = dict(zip(addresses, pre_accounts))
         pre_balances = {
-            address: self._token_balance(info, address)
-            for address, info in zip(addresses, pre_accounts)
+            address: self._token_balance(pre_by_address[address], address)
+            for address in token_addresses
+        }
+        pre_tracked_states = {
+            address: _decode_tracked_account_info(pre_by_address[address], address)
+            for address in tracked_account_addresses
         }
 
         try:
