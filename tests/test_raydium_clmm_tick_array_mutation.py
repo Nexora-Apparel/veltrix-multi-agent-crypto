@@ -40,7 +40,7 @@ def pool(**overrides):
 
 
 def array(p, start=0, initialized=0):
-    ticks = [RaydiumClmmTick(recent_epoch=2, tick_index=start + i * p.tick_spacing, liquidity_net=0,
+    ticks = [RaydiumClmmTick(tick_index=start + i * p.tick_spacing, liquidity_net=0,
         liquidity_gross=0, orders_amount=0, part_filled_orders_remaining=0,
         initialized=False) for i in range(RAYDIUM_TICK_ARRAY_SIZE)]
     for i in range(initialized):
