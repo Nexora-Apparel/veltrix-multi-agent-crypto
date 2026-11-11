@@ -73,8 +73,15 @@ def _validate_inputs(
         raise RaydiumSwapLoopSelectionError("tick-array pool, spacing or 60-slot layout is inconsistent")
 
     stride = RAYDIUM_TICK_ARRAY_SIZE * tick_spacing
-    if any(right - left != (-stride if zero_for_one else stride) for left, right in zip(starts, starts[1:])):
-        raise RaydiumSwapLoopSelectionError("tick arrays are not contiguous in the pinned swap direction")
+    deltas = tuple(right - left for left, right in zip(starts, starts[1:]))
+    if any(
+        (delta >= 0 if zero_for_one else delta <= 0)
+        or abs(delta) % stride != 0
+        for delta in deltas
+    ):
+        raise RaydiumSwapLoopSelectionError(
+            "tick arrays are not strictly ordered and aligned in the pinned swap direction"
+        )
     if raydium_current_tick_array_start(tick_current, tick_spacing) != starts[0]:
         # The first CPI array is not necessarily the array containing the current tick.
         # The source's first-valid-array lookup may advance before entering the loop.
