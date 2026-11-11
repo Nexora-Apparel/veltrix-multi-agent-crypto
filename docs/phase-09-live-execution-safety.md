@@ -321,3 +321,18 @@ Implemented in `veltrix/dex_pool_evidence.py`; `SolanaRpcSimulationAdapter.fetch
 - This proves only that the quoted AMM account is owned by the pinned DEX program and has account data. It does not decode pool mints, vaults, liquidity, tick arrays or instruction-specific account roles. `execution_ready` remains false.
 
 The pool-evidence function now requires the original `SimulationEvidence`, verifies its message digest/provider/cluster/genesis against the route and RPC adapter, and derives `minContextSlot` directly from `simulation.context_slot`; callers cannot lower the freshness floor by passing an arbitrary slot.
+
+
+### 09.22 — Raydium CLMM PoolState semantic validation
+
+Implemented in `veltrix/raydium_clmm_pool_state.py`, pinned to Raydium's upstream `raydium-clmm` source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Decodes the exact 1,576-byte Anchor `PoolState` account and checks the `account:PoolState` discriminator.
+- Parses the packed header fields for config, creator, ordered token mints, vaults, observation key, decimals, tick spacing, liquidity, Q64.64 square-root price, current tick, swap status, fee mode, seed index and bump.
+- Re-derives the canonical pool PDA from `pool`, config, sorted mint pair, optional seed-index seed and bump; the derived address must equal the quoted AMM key.
+- Requires the pool account's locally pinned Raydium CLMM owner, evidence hash, canonical mint ordering, distinct vaults, positive liquidity/price/tick spacing, protocol tick bounds, enabled swap status and known fee mode.
+- Binds every Raydium CLMM route hop to the pool's exact mint pair (either direction). Unsupported DEX labels remain outside this decoder.
+
+Limitations: this is pool-header validation, not a complete tradeability proof. It does not yet verify vault account owners/mints/balances, tick arrays and initialized liquidity around the current tick, observation freshness, dynamic fee config, reward/fee state, or the complete DEX CPI account ordering. It does not calculate executable price impact or depth. A successful result remains read-only evidence and does not set execution eligibility.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live trading is introduced.
