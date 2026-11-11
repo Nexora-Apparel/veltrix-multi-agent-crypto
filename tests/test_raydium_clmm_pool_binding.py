@@ -47,6 +47,10 @@ def fixture():
     pool_words = [0] * 16
     pool_words[8] = 1  # default bitmap bit 512: current array at tick 0
     pool_bytes_mut = bytearray(RAYDIUM_POOL_STATE_LENGTH)
+    pool_bytes_mut[73:105] = bytes(Pubkey.from_string(mint_in))
+    pool_bytes_mut[105:137] = bytes(Pubkey.from_string(mint_out))
+    pool_bytes_mut[235:237] = (10).to_bytes(2, "little")
+    pool_bytes_mut[269:273] = (0).to_bytes(4, "little", signed=True)
     for index, word in enumerate(pool_words):
         start = RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET + index * 8
         pool_bytes_mut[start:start + 8] = word.to_bytes(8, "little")
