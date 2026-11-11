@@ -16,6 +16,8 @@ from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
 from veltrix.raydium_clmm_aux_accounts import (
     AMM_CONFIG_DATA_LENGTH,
     OBSERVATION_STATE_DATA_LENGTH,
+    AMM_CONFIG_DISCRIMINATOR,
+    OBSERVATION_STATE_DISCRIMINATOR,
     RaydiumClmmAuxAccountSnapshot,
 )
 from veltrix.raydium_clmm_cpi import RAYDIUM_CLMM_SOURCE_COMMIT, RaydiumClmmCpiResult
@@ -26,18 +28,22 @@ from veltrix.raydium_clmm_bitmap_traversal import (
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_LENGTH,
+    RAYDIUM_POOL_STATE_DISCRIMINATOR,
     RaydiumClmmPoolRouteCheck,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_DATA_LENGTH,
+    RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
     RaydiumClmmTickArraySnapshot,
 )
 from veltrix.raydium_clmm_vaults import (
     CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH,
+    CLASSIC_SPL_TOKEN_PROGRAM_ID,
     RaydiumClmmVaultSnapshot,
 )
-from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
+from veltrix.simulation_gate import SimulatedAccountState, SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
+from veltrix.raydium_clmm_tick_array_mutation import TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR, TICK_ARRAY_BITMAP_EXTENSION_LENGTH
 
 
 class RaydiumClmmSimulationStateError(ValueError):
@@ -80,6 +86,111 @@ class RaydiumClmmSimulationStateBinding:
     post_state_sha256: tuple[tuple[str, str], ...]
     account_roles: tuple[tuple[str, str], ...]
     execution_ready: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumClmmPostStateValidation:
+    passed: bool
+    account_count: int
+    account_addresses: tuple[str, ...]
+    post_state_sha256: str
+    account_roles: tuple[tuple[str, str], ...]
+    execution_ready: bool = False
+
+
+_POST_STATE_LAYOUTS = {
+    "pool_state": (RAYDIUM_CLMM_PROGRAM_ID, RAYDIUM_POOL_STATE_LENGTH, RAYDIUM_POOL_STATE_DISCRIMINATOR),
+    "tick_array": (RAYDIUM_CLMM_PROGRAM_ID, RAYDIUM_TICK_ARRAY_DATA_LENGTH, RAYDIUM_TICK_ARRAY_DISCRIMINATOR),
+    "tick_array_bitmap_extension": (RAYDIUM_CLMM_PROGRAM_ID, TICK_ARRAY_BITMAP_EXTENSION_LENGTH, TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR),
+    "amm_config": (RAYDIUM_CLMM_PROGRAM_ID, AMM_CONFIG_DATA_LENGTH, AMM_CONFIG_DISCRIMINATOR),
+    "observation_state": (RAYDIUM_CLMM_PROGRAM_ID, OBSERVATION_STATE_DATA_LENGTH, OBSERVATION_STATE_DISCRIMINATOR),
+    "pool_vault": (CLASSIC_SPL_TOKEN_PROGRAM_ID, CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH, None),
+}
+
+
+def validate_raydium_clmm_post_state_commitments(
+    binding: RaydiumClmmSimulationStateBinding,
+    *,
+    commitments: tuple[RaydiumClmmAccountCommitment, ...],
+    account_states: tuple[SimulatedAccountState, ...],
+) -> RaydiumClmmPostStateValidation:
+    """Validate the captured post-state account set, owners, layouts and byte hashes.
+
+    This checks simulation-captured bytes and account envelopes only. It does not
+    prove that those bytes are the correct result of the swap instruction; that
+    requires a pinned Rust/Python transaction replay oracle.
+    """
+    if not isinstance(binding, RaydiumClmmSimulationStateBinding) or binding.passed is not True:
+        raise RaydiumClmmSimulationStateError("successful pre/post simulation binding is required")
+    if not isinstance(commitments, tuple) or not commitments or any(
+        not isinstance(item, RaydiumClmmAccountCommitment) for item in commitments
+    ):
+        raise RaydiumClmmSimulationStateError("complete immutable Raydium account commitments are required")
+    if not isinstance(account_states, tuple) or any(
+        not isinstance(item, SimulatedAccountState) for item in account_states
+    ):
+        raise RaydiumClmmSimulationStateError("validated raw simulation account states are required")
+
+    expected = {item.address: item for item in commitments}
+    observed = {item.address: item for item in account_states}
+    if len(expected) != len(commitments) or len(observed) != len(account_states):
+        raise RaydiumClmmSimulationStateError("post-state account commitments contain duplicate addresses")
+    if set(expected) != set(binding.bound_account_addresses) or set(observed) != set(expected):
+        raise RaydiumClmmSimulationStateError("post-state account set differs from the bound Raydium account set")
+    if tuple(sorted(binding.account_roles)) != tuple(sorted((item.address, item.role) for item in commitments)):
+        raise RaydiumClmmSimulationStateError("post-state account roles differ from the original simulation binding")
+
+    digest = hashlib.sha256()
+    addresses = tuple(item.address for item in commitments)
+    roles = []
+    for address in addresses:
+        commitment = expected[address]
+        state = observed[address]
+        layout = _POST_STATE_LAYOUTS.get(commitment.role)
+        if layout is None:
+            raise RaydiumClmmSimulationStateError(f"unsupported Raydium post-state account role: {commitment.role}")
+        owner, length, discriminator = layout
+        if (
+            commitment.owner_program_id != owner
+            or state.pre_owner != owner
+            or state.post_owner != owner
+            or state.pre_executable is not False
+            or state.post_executable is not False
+        ):
+            raise RaydiumClmmSimulationStateError(f"post-state owner or executable metadata is invalid for {commitment.role}")
+        if (
+            commitment.data_length != length
+            or len(state.pre_data) != length
+            or len(state.post_data) != length
+            or state.pre_data_sha256 != commitment.data_sha256
+        ):
+            raise RaydiumClmmSimulationStateError(f"pre/post account byte length or pre-state hash is invalid for {commitment.role}")
+        if discriminator is not None and state.post_data[:8] != discriminator:
+            raise RaydiumClmmSimulationStateError(f"post-state Anchor discriminator is invalid for {commitment.role}")
+        if state.post_lamports <= 0:
+            raise RaydiumClmmSimulationStateError(f"post-state account lamports are not rent-backed for {commitment.role}")
+        actual_post_hash = hashlib.sha256(state.post_data).hexdigest()
+        if actual_post_hash != state.post_data_sha256:
+            raise RaydiumClmmSimulationStateError(f"post-state byte commitment is invalid for {commitment.role}")
+        digest.update(address.encode("utf-8"))
+        digest.update(b"\\x00")
+        digest.update(commitment.role.encode("utf-8"))
+        digest.update(b"\\x00")
+        digest.update(bytes.fromhex(actual_post_hash))
+        roles.append((address, commitment.role))
+
+    if tuple(sorted(binding.post_state_sha256)) != tuple(
+        sorted((address, observed[address].post_data_sha256) for address in addresses)
+    ):
+        raise RaydiumClmmSimulationStateError("post-state hashes differ from the original simulation binding")
+    return RaydiumClmmPostStateValidation(
+        passed=True,
+        account_count=len(addresses),
+        account_addresses=addresses,
+        post_state_sha256=digest.hexdigest(),
+        account_roles=tuple(roles),
+        execution_ready=False,
+    )
 
 
 def build_raydium_clmm_account_commitments(
