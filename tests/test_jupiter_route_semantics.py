@@ -288,8 +288,13 @@ def test_rejects_simulation_or_program_gate_digest_mismatch():
         evaluate((order, validation, simulation, sim_gate, program_gate, policy))
 
 
-def test_rejects_extra_or_multiple_jupiter_program_instructions():
+def test_rejects_router_without_a_pinned_route_instruction_decoder():
     order, validation, simulation, sim_gate, program_gate, policy = fixture()
-    validation = dataclasses.replace(validation, program_ids=(policy.jupiter_program_ids[0], policy.jupiter_program_ids[0]))
-    with pytest.raises(JupiterRouteSemanticError, match="exactly one"):
+    order = dataclasses.replace(order, router="dflow")
+    with pytest.raises(JupiterRouteSemanticError, match="router is outside"):
         evaluate((order, validation, simulation, sim_gate, program_gate, policy))
+
+
+def test_rejects_policy_for_an_invalid_jupiter_program_public_key():
+    with pytest.raises(JupiterRouteSemanticError, match="invalid public key"):
+        JupiterRouteSemanticPolicy(jupiter_program_ids=("not-a-public-key",))
