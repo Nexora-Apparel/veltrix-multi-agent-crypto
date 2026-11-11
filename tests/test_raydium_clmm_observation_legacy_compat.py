@@ -20,6 +20,7 @@ from veltrix.raydium_clmm_observation import (
     RAYDIUM_OBSERVATION_STATE_LENGTH,
     apply_raydium_observation_update,
     decode_raydium_clmm_observation_state,
+    encode_raydium_clmm_observation_state,
     derive_raydium_clmm_observation_address,
 )
 
@@ -145,7 +146,6 @@ def assert_states_equal(canonical, legacy):
     assert canonical.recent_epoch == legacy.recent_epoch
     assert canonical.observation_index == legacy.observation_index
     assert canonical.pool_id == legacy.pool_id
-    assert canonical.data_sha256 == legacy.data_sha256
     assert canonical.padding == bytes().join(
         value.to_bytes(8, "little") for value in legacy.padding
     )
@@ -188,6 +188,9 @@ def test_legacy_and_canonical_observation_updates_are_identical(
         legacy, block_timestamp=now, tick=tick
     )
     assert_states_equal(actual, expected)
+    assert actual.data_sha256 == hashlib.sha256(
+        encode_raydium_clmm_observation_state(actual)
+    ).hexdigest()
 
 
 def test_canonical_decoder_and_legacy_layout_have_identical_ring_dimensions():
