@@ -10,8 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 
+from solders.pubkey import Pubkey
+
+from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_POOL_STATE_LENGTH,
+    RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET,
+    RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS,
     RAYDIUM_CLMM_SOURCE_COMMIT,
     RAYDIUM_MAX_TICK,
     RAYDIUM_MIN_TICK,
@@ -26,6 +33,8 @@ from veltrix.raydium_clmm_tick_arrays import (
 DEFAULT_BITMAP_ARRAYS = 512
 EXTENSION_BITMAP_BLOCKS = 14
 EXTENSION_BITMAP_WORDS_PER_BLOCK = 8
+EXTENSION_BITMAP_SEED = b"pool_tick_array_bitmap_extension"
+EXTENSION_BITMAP_DISCRIMINATOR = hashlib.sha256(b"account:TickArrayBitmapExtension").digest()[:8]
 U64_MAX = (1 << 64) - 1
 
 
@@ -84,6 +93,24 @@ def _validate_extension(pool_address: str, extension, snapshot: RaydiumClmmTickA
                for word in (*extension.positive_bitmaps, *extension.negative_bitmaps))
     ):
         raise RaydiumClmmBitmapTraversalError("bitmap extension words do not match the pinned 14x512-bit layout")
+    try:
+        pool_key = Pubkey.from_string(pool_address)
+        program_key = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
+        canonical_address = str(Pubkey.find_program_address(
+            [EXTENSION_BITMAP_SEED, bytes(pool_key)], program_key
+        )[0])
+    except Exception as exc:
+        raise RaydiumClmmBitmapTraversalError("bitmap extension PDA derivation failed") from exc
+    if extension.address != canonical_address:
+        raise RaydiumClmmBitmapTraversalError("bitmap extension address is not the canonical pool PDA")
+    encoded = (
+        EXTENSION_BITMAP_DISCRIMINATOR
+        + bytes(pool_key)
+        + b"".join(word.to_bytes(8, "little") for word in extension.positive_bitmaps)
+        + b"".join(word.to_bytes(8, "little") for word in extension.negative_bitmaps)
+    )
+    if hashlib.sha256(encoded).hexdigest() != extension.data_sha256:
+        raise RaydiumClmmBitmapTraversalError("decoded bitmap extension words do not match the owner-verified account digest")
 
 
 def _is_initialized(pool, extension, start: int, tick_count: int) -> bool:
@@ -126,6 +153,7 @@ def verify_raydium_clmm_bitmap_traversal(
     order: JupiterOrderTransaction,
     *,
     pool_check: RaydiumClmmPoolRouteCheck,
+    pool_evidence: DexPoolEvidenceSnapshot,
     tick_array_snapshot: RaydiumClmmTickArraySnapshot,
 ) -> RaydiumClmmBitmapTraversalResult:
     """Require the CPI account sequence to cover every initialized bitmap array in its span."""
@@ -133,6 +161,8 @@ def verify_raydium_clmm_bitmap_traversal(
         raise RaydiumClmmBitmapTraversalError("Jupiter order is required")
     if not isinstance(pool_check, RaydiumClmmPoolRouteCheck) or pool_check.passed is not True:
         raise RaydiumClmmBitmapTraversalError("successful Raydium PoolState route evidence is required")
+    if not isinstance(pool_evidence, DexPoolEvidenceSnapshot):
+        raise RaydiumClmmBitmapTraversalError("owner-verified PoolState account evidence is required")
     if not isinstance(tick_array_snapshot, RaydiumClmmTickArraySnapshot):
         raise RaydiumClmmBitmapTraversalError("decoded CPI tick-array snapshot is required")
 
@@ -146,14 +176,45 @@ def verify_raydium_clmm_bitmap_traversal(
     if any(isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= U64_MAX
            for word in pool.tick_array_bitmap):
         raise RaydiumClmmBitmapTraversalError("PoolState default bitmap contains invalid u64 words")
+    order_digest = hashlib.sha256(order.message_bytes).hexdigest()
     if (
-        tick_array_snapshot.route_message_sha256 != hashlib.sha256(order.message_bytes).hexdigest()
+        tick_array_snapshot.route_message_sha256 != order_digest
+        or pool_evidence.route_message_sha256 != order_digest
+        or pool_evidence.simulation_response_id != tick_array_snapshot.simulation_response_id
+        or pool_evidence.simulation_context_slot != tick_array_snapshot.simulation_context_slot
+        or pool_evidence.provider_id != tick_array_snapshot.provider_id
+        or pool_evidence.cluster != tick_array_snapshot.cluster
+        or pool_evidence.genesis_hash != tick_array_snapshot.genesis_hash
         or tick_array_snapshot.provider_id == ""
         or tick_array_snapshot.cluster == ""
         or tick_array_snapshot.genesis_hash == ""
+        or pool_evidence.context_slot > tick_array_snapshot.context_slot
         or tick_array_snapshot.context_slot < tick_array_snapshot.simulation_context_slot
     ):
-        raise RaydiumClmmBitmapTraversalError("tick-array snapshot identity or provenance is invalid")
+        raise RaydiumClmmBitmapTraversalError("pool and tick-array snapshots do not share the same order, simulation and provider provenance")
+    pool_accounts = [item for item in pool_evidence.accounts if item.amm_key == pool.pool_address]
+    if len(pool_accounts) != 1:
+        raise RaydiumClmmBitmapTraversalError("PoolState evidence must contain exactly one account for the decoded pool")
+    pool_account = pool_accounts[0]
+    if (
+        pool_account.data_length != RAYDIUM_POOL_STATE_LENGTH
+        or len(pool_account.data_bytes) != RAYDIUM_POOL_STATE_LENGTH
+        or pool_account.data_sha256 != pool.account_data_sha256
+        or hashlib.sha256(pool_account.data_bytes).hexdigest() != pool.account_data_sha256
+        or pool_account.owner_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.expected_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.executable is not False
+        or pool_account.lamports <= 0
+    ):
+        raise RaydiumClmmBitmapTraversalError("PoolState bitmap is not bound to the owner-verified 1544-byte account")
+    bitmap_start = RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET
+    bitmap_end = bitmap_start + RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS * 8
+    raw_words = tuple(
+        int.from_bytes(pool_account.data_bytes[bitmap_start + index * 8:bitmap_start + (index + 1) * 8], "little")
+        for index in range(RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS)
+    )
+    if len(pool.tick_array_bitmap) != RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS or raw_words != pool.tick_array_bitmap:
+        raise RaydiumClmmBitmapTraversalError("decoded PoolState bitmap words differ from the owner-verified account bytes")
     _validate_extension(pool.pool_address, tick_array_snapshot.bitmap_extension, tick_array_snapshot)
     expected_account_order = tuple(
         address for address in tick_array_snapshot.cpi_account_order
@@ -210,9 +271,11 @@ def verify_raydium_clmm_bitmap_traversal(
             "CPI tick-array accounts omit initialized PoolState bitmap boundaries: "
             + ",".join(str(item) for item in missing)
         )
-    supplied_initialized = tuple(start for start in starts if start in set(expected))
-    if supplied_initialized != expected:
-        raise RaydiumClmmBitmapTraversalError("CPI initialized tick-array sequence differs from PoolState bitmap traversal")
+    if starts != expected:
+        raise RaydiumClmmBitmapTraversalError("CPI tick-array accounts include uninitialized, skipped or reordered bitmap boundaries")
+    if any(item.initialized_tick_count <= 0 for item in tick_array_snapshot.tick_arrays):
+        raise RaydiumClmmBitmapTraversalError("CPI tick-array account is marked initialized but has no initialized tick records")
+    supplied_initialized = starts
 
     # Require the first initialized array Raydium would select from the current tick
     # to be present; uninitialized candidate accounts before it may be skipped by
