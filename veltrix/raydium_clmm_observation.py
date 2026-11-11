@@ -149,7 +149,7 @@ def decode_raydium_clmm_observation_state(
 def encode_raydium_clmm_observation_state(
     state: RaydiumClmmObservationState,
 ) -> bytes:
-    """Serialize the exact pinned 4,451-byte ObservationState account."""
+    """Serialize the exact pinned 4,483-byte ObservationState account."""
     if not isinstance(state, RaydiumClmmObservationState):
         raise RaydiumClmmObservationError("decoded Raydium ObservationState is required")
     if not isinstance(state.initialized, bool):
