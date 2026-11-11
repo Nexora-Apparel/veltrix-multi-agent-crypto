@@ -144,7 +144,7 @@ def test_legacy_index_transition_matches_canonical_state_transition(
 
 @pytest.mark.parametrize(
     "base_fee,accumulator,spacing",
-    [(0, 0, 1), (1000, 10_000, 60), (99_000, 100_000, 10)],
+    [(0, 0, 1), (1000, 10_000, 60), (99_999, 100_000, 10)],
 )
 def test_legacy_total_fee_matches_canonical_total_fee(base_fee, accumulator, spacing):
     info = make_info(
