@@ -38,6 +38,12 @@ class RaydiumClmmTick:
     orders_amount: int
     part_filled_orders_remaining: int
     initialized: bool
+    fee_growth_outside_0_x64: int = 0
+    fee_growth_outside_1_x64: int = 0
+    reward_growths_outside_x64: tuple[int, int, int] = (0, 0, 0)
+    order_phase: int = 0
+    unfilled_ratio_x64: int = 0
+    padding: tuple[int, int, int] = (0, 0, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,8 +167,20 @@ def decode_raydium_clmm_tick_array(
         tick_index = struct.unpack_from("<i", data, offset)[0]
         liquidity_net = int.from_bytes(data[offset + 4:offset + 20], "little", signed=True)
         liquidity_gross = int.from_bytes(data[offset + 20:offset + 36], "little")
+        fee_growth_outside_0 = int.from_bytes(data[offset + 36:offset + 52], "little")
+        fee_growth_outside_1 = int.from_bytes(data[offset + 52:offset + 68], "little")
+        reward_growths = tuple(
+            int.from_bytes(data[offset + 68 + reward_index * 16:offset + 84 + reward_index * 16], "little")
+            for reward_index in range(3)
+        )
+        order_phase = int.from_bytes(data[offset + 116:offset + 124], "little")
         orders_amount = int.from_bytes(data[offset + 124:offset + 132], "little")
         part_filled = int.from_bytes(data[offset + 132:offset + 140], "little")
+        unfilled_ratio = int.from_bytes(data[offset + 140:offset + 156], "little")
+        padding = tuple(
+            int.from_bytes(data[offset + 156 + pad_index * 4:offset + 160 + pad_index * 4], "little")
+            for pad_index in range(3)
+        )
         initialized = liquidity_gross > 0 or orders_amount > 0 or part_filled > 0
         if initialized:
             expected_tick = start + index * tick_spacing
@@ -178,6 +196,12 @@ def decode_raydium_clmm_tick_array(
             orders_amount=orders_amount,
             part_filled_orders_remaining=part_filled,
             initialized=initialized,
+            fee_growth_outside_0_x64=fee_growth_outside_0,
+            fee_growth_outside_1_x64=fee_growth_outside_1,
+            reward_growths_outside_x64=reward_growths,
+            order_phase=order_phase,
+            unfilled_ratio_x64=unfilled_ratio,
+            padding=padding,
         ))
 
     recorded_count = data[RAYDIUM_TICK_ARRAY_INITIALIZED_COUNT_OFFSET]
