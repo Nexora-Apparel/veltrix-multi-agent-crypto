@@ -249,8 +249,23 @@ def evaluate_jupiter_route_semantics(
         raise JupiterRouteSemanticError("order taker is not the validated fee payer")
     if order.router not in policy.supported_routers:
         raise JupiterRouteSemanticError("Jupiter router is outside supported semantic policy")
+    if program_gate.router != order.router:
+        raise JupiterRouteSemanticError("program trace router differs from the order router")
+    if (
+        tuple(program_gate.top_level_program_ids) != tuple(validation.program_ids)
+        or tuple(simulation.top_level_program_ids) != tuple(validation.program_ids)
+    ):
+        raise JupiterRouteSemanticError("program trace top-level IDs differ from the validated message")
+    if tuple(program_gate.route_labels) != tuple(dict.fromkeys(step.label for step in order.route_plan)):
+        raise JupiterRouteSemanticError("program trace route labels differ from the Jupiter order")
+    if not set(policy.jupiter_program_ids).intersection(program_gate.top_level_program_ids):
+        raise JupiterRouteSemanticError("program trace does not identify a locally pinned Jupiter aggregator")
     if order.input_amount_raw <= 0 or order.output_amount_raw <= 0:
         raise JupiterRouteSemanticError("order amounts must be positive")
+    if sum(step.input_amount_raw for step in order.route_plan if step.input_mint == order.input_mint) != order.input_amount_raw:
+        raise JupiterRouteSemanticError("quoted first-hop input amounts do not sum to the Jupiter order input")
+    if sum(step.output_amount_raw for step in order.route_plan if step.output_mint == order.output_mint) != order.output_amount_raw:
+        raise JupiterRouteSemanticError("quoted final-hop output amounts do not sum to the Jupiter order output")
     if len(order.message_bytes) == 0:
         raise JupiterRouteSemanticError("serialized message is empty")
 
