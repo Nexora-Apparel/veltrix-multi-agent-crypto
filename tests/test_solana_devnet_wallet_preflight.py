@@ -29,6 +29,7 @@ class FakeSession:
 
 
 def test_devnet_wallet_balance_is_verified_read_only():
+    assert DEVNET_GENESIS_HASH == "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC"
     session = FakeSession([
         {"jsonrpc": "2.0", "id": 1, "result": DEVNET_GENESIS_HASH},
         {"jsonrpc": "2.0", "id": 1, "result": {"context": {"slot": 1}, "value": 260000}},
