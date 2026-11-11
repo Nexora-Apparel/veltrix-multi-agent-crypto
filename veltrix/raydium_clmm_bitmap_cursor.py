@@ -20,6 +20,23 @@ class RaydiumBitmapCursorError(ValueError):
     """Raised when a PoolState bitmap cursor cannot safely advance."""
 
 
+def _validate_bitmap_words(rows, *, row_count: int, word_count: int, field: str) -> None:
+    if not isinstance(rows, tuple) or len(rows) != row_count:
+        raise RaydiumBitmapCursorError(
+            f"{field} must contain exactly {row_count} rows"
+        )
+    for row_index, row in enumerate(rows):
+        if not isinstance(row, tuple) or len(row) != word_count:
+            raise RaydiumBitmapCursorError(
+                f"{field} row {row_index} must contain exactly {word_count} u64 words"
+            )
+        for word in row:
+            if isinstance(word, bool) or not isinstance(word, int) or not 0 <= word < (1 << 64):
+                raise RaydiumBitmapCursorError(
+                    f"{field} contains a word outside the u64 domain"
+                )
+
+
 def _default_bitmap_initialized(
     pool: RaydiumClmmPoolState,
     start_tick_index: int,
@@ -45,6 +62,10 @@ def is_raydium_tick_array_initialized(
         raise RaydiumBitmapCursorError("PoolState tick spacing must be a positive u16")
     if isinstance(start_tick_index, bool) or not isinstance(start_tick_index, int):
         raise RaydiumBitmapCursorError("tick-array start index must be an integer")
+    _validate_bitmap_words(
+        pool.tick_array_bitmap, row_count=1, word_count=16,
+        field="PoolState default bitmap",
+    )
     tick_count = RAYDIUM_TICK_ARRAY_SIZE * pool.tick_spacing
     if start_tick_index != raydium_current_tick_array_start(start_tick_index, pool.tick_spacing):
         raise RaydiumBitmapCursorError("tick-array start index is not aligned to its spacing")
@@ -63,6 +84,14 @@ def is_raydium_tick_array_initialized(
         raise RaydiumBitmapCursorError("bitmap extension is required for this tick-array range")
     if bitmap_extension.pool_address != pool.pool_address:
         raise RaydiumBitmapCursorError("bitmap extension belongs to a different pool")
+    _validate_bitmap_words(
+        bitmap_extension.positive_bitmaps, row_count=14, word_count=8,
+        field="positive bitmap extension",
+    )
+    _validate_bitmap_words(
+        bitmap_extension.negative_bitmaps, row_count=14, word_count=8,
+        field="negative bitmap extension",
+    )
     side, group, bit_index = _extension_location(
         start_tick_index, pool.tick_spacing
     )
