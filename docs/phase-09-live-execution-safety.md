@@ -274,3 +274,16 @@ Implemented in `veltrix/raydium_clmm_cpi.py`, pinned to `raydium-io/raydium-clmm
 - Binds the CPI input amount to the exact route input and requires the DEX minimum-output threshold to be no greater than the quoted route output and no lower than the maximum-slippage floor derived from both local policy and the encoded Jupiter slippage.
 - This is not a complete Raydium pool-state validator: it does not fetch/verify AMM config, pool, vault, observation or tick-array account ownership/data, nor does it independently prove pool mint/vault relationships. Those checks remain release blockers.
 - Token-2022, `swap_v2`, multi-hop/split routes, other Raydium instruction families, and other DEXes remain unsupported. No signing, submission, broadcast or live execution is added.
+
+
+### 09.17 — same-slot transaction account state snapshots
+
+Implemented in `veltrix/simulation_gate.py` and the read-only RPC adapter.
+
+- Adds immutable pre-state/post-state snapshots for every resolved transaction account when `capture_account_snapshots=True`.
+- Uses the exact same confirmed context slot for pre-state `getMultipleAccounts` and `simulateTransaction` post-state; a slot mismatch fails closed.
+- Captures account existence, owner program, executable status, lamports and raw base64-decoded data for non-executable accounts.
+- Executable account binary data is intentionally omitted; account metadata is retained.
+- Resolves snapshots across static and loaded address-table keys, deduplicates addresses, and caps the tracked set at 100 accounts, each non-executable account data blob at 64 KiB, and total retained pre/post data at 1 MiB.
+- Existing token-balance verification remains separate and unchanged. Snapshot capture is opt-in so unrelated simulations do not incur the larger account payload.
+- This provides evidence for later pool/vault validation; it does not itself assert any account's ownership or semantics. The Raydium pool-state gate must validate those fields before any route can pass.
