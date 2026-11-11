@@ -13,6 +13,9 @@ from veltrix.raydium_clmm_dynamic_fee import (
     compute_total_fee_rate,
 )
 from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo
+from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
+from veltrix.raydium_clmm_tick_math import Q64
+from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
@@ -209,6 +212,65 @@ def dynamic_fee_vectors() -> dict:
         "total_fee_rates": fee_rate_cases,
     }
 
+
+def limit_order_vectors() -> list[dict]:
+    cases = (
+        ("partial_cohort_then_new_cohort_fee_input", 300, True, True, 3000, True, 500, 200, 7, Q64 * 3 // 4),
+        ("input_fee_output_one_for_zero", 300, False, True, 3000, False, 1000, 0, 0, Q64),
+        ("exact_output_fee_input", 100, True, False, 3000, True, 1000, 200, 2, Q64 // 2),
+        ("exact_output_fee_output", 100, False, False, 3000, False, 100, 50, 4, Q64 // 2),
+        ("cap_at_remaining_orders", 2000, True, True, 0, True, 300, 200, 8, Q64),
+        ("no_orders_noop", 100, False, True, 3000, True, 0, 0, 1, Q64),
+    )
+    vectors = []
+    for name, swap_amount, zero_for_one, is_base_input, fee_rate, is_fee_on_input, orders, part, phase, ratio in cases:
+        tick = RaydiumClmmTick(
+            tick_index=0,
+            liquidity_net=0,
+            liquidity_gross=0,
+            orders_amount=orders,
+            part_filled_orders_remaining=part,
+            initialized=(orders > 0 or part > 0),
+            fee_growth_outside_0_x64=0,
+            fee_growth_outside_1_x64=0,
+            reward_growths_outside_x64=(0, 0, 0),
+            order_phase=phase,
+            unfilled_ratio_x64=ratio,
+            padding=(0, 0, 0),
+        )
+        updated, result = match_raydium_limit_order(
+            tick,
+            swap_amount=swap_amount,
+            zero_for_one=zero_for_one,
+            is_base_input=is_base_input,
+            fee_rate=fee_rate,
+            is_fee_on_input=is_fee_on_input,
+            sqrt_price_x64=Q64,
+        )
+        vectors.append({
+            "name": name,
+            "swap_amount": swap_amount,
+            "zero_for_one": zero_for_one,
+            "is_base_input": is_base_input,
+            "fee_rate": fee_rate,
+            "is_fee_on_input": is_fee_on_input,
+            "orders_amount": orders,
+            "part_filled_orders_remaining": part,
+            "order_phase": phase,
+            "unfilled_ratio_x64": str(ratio),
+            "expected": {
+                "amount_in": result.amount_in,
+                "amount_out": result.amount_out,
+                "amm_fee_amount": result.amm_fee_amount,
+                "orders_amount": updated.orders_amount,
+                "part_filled_orders_remaining": updated.part_filled_orders_remaining,
+                "order_phase": updated.order_phase,
+                "unfilled_ratio_x64": str(updated.unfilled_ratio_x64),
+                "initialized": updated.initialized,
+            },
+        })
+    return vectors
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -248,6 +310,7 @@ def build_vectors() -> dict:
         "ticks": tick_vectors,
         "swap_steps": swap_vectors,
         "dynamic_fee": dynamic_fee_vectors(),
+        "limit_orders": limit_order_vectors(),
     }
 
 
