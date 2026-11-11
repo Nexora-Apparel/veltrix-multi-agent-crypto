@@ -65,3 +65,8 @@ def test_missing_negative_or_excessive_price_impact_fails_closed():
     source = PAGE.read_text(encoding="utf-8")
     assert "impact < 0 || impact > MAX_IMPACT" in source
     assert "Price impact is missing, invalid or above" in source
+
+
+def test_amount_is_locked_during_quote_and_signing_operations():
+    source = PAGE.read_text(encoding="utf-8")
+    assert '$("amount").disabled = value' in source
