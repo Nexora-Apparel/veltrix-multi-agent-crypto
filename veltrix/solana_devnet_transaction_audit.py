@@ -347,8 +347,13 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(cpi_outer_index == 1, "CPMM CPI is not nested under the route instruction")
     _expect(cpi_data[:8] == CPMM_SWAP_BASE_INPUT and len(cpi_data) == 24,
             "inner CPMM instruction is not the pinned SwapBaseInput layout")
-    _expect(read_u64(cpi_data, 8) == INPUT_AMOUNT and read_u64(cpi_data, 16) == MIN_OUTPUT,
-            "inner CPMM exact-input/minimum-output does not match the reviewed quote")
+    actual_cpi_input = read_u64(cpi_data, 8)
+    actual_cpi_minimum = read_u64(cpi_data, 16)
+    _expect(actual_cpi_input == INPUT_AMOUNT and actual_cpi_minimum == MIN_OUTPUT,
+            "inner CPMM args differ: input=" + str(actual_cpi_input) +
+            ", min_out=" + str(actual_cpi_minimum) +
+            ", expected_input=" + str(INPUT_AMOUNT) +
+            ", expected_min_out=" + str(MIN_OUTPUT))
     expected_cpmm_accounts = [
         WALLET, key_strings[5], key_strings[16], POOL, key_strings[1], key_strings[3],
         key_strings[7], key_strings[8], TOKEN, TOKEN, WSOL, USDC, key_strings[9],
