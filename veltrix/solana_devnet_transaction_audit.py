@@ -9,6 +9,7 @@ import argparse
 import base64
 from dataclasses import asdict, dataclass
 import json
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -511,6 +512,7 @@ def main() -> int:
             "cluster": "devnet",
             "error_type": type(exc).__name__,
             "error": str(exc),
+            "traceback": traceback.format_exc(limit=8),
             "transaction_signed": False,
             "transaction_submitted": False,
             "transaction_broadcast": False,
