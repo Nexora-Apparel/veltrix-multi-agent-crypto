@@ -64,6 +64,7 @@ class RaydiumClmmTickArraySnapshot:
     tick_arrays: tuple[RaydiumClmmTickArray, ...]
     cpi_account_order: tuple[str, ...] = ()
     bitmap_extension_address: str | None = None
+    bitmap_extension_sha256: str | None = None
     execution_ready: bool = False
 
 
