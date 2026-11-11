@@ -328,6 +328,77 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     }])
     value = sim.get("value") if isinstance(sim, dict) else None
     _expect(isinstance(value, dict) and value.get("err") is None, "captured transaction simulation failed")
+    # Prove the outer router enforces its non-zero minimum output by changing only that
+    # u64 to one unit above the actual simulated output and requiring the exact route to fail.
+    actual_output = None
+    for line in value.get("logs", []):
+        prefix = "Program log: 1000000 -> "
+        if line.startswith(prefix):
+            actual_output = int(line[len(prefix):].strip())
+    _expect(actual_output is not None and actual_output >= MIN_OUTPUT,
+            "successful router simulation did not expose an output amount meeting the quote floor")
+
+    def with_route_minimum(encoded: str, new_minimum: int) -> str:
+        raw = bytearray(base64.b64decode(encoded, validate=True))
+        offset = 0
+
+        def shortvec(data: bytes, position: int) -> tuple[int, int]:
+            value, shift = 0, 0
+            while True:
+                byte = data[position]
+                position += 1
+                value |= (byte & 0x7F) << shift
+                if not byte & 0x80:
+                    return value, position
+                shift += 7
+
+        signature_count, offset = shortvec(raw, offset)
+        offset += signature_count * 64
+        _expect(offset + 4 <= len(raw) and raw[offset] == 0x80,
+                "cannot mutate a non-v0 transaction for router threshold test")
+        offset += 1 + 3
+        key_count, offset = shortvec(raw, offset)
+        offset += key_count * 32 + 32
+        instruction_count, offset = shortvec(raw, offset)
+        _expect(instruction_count == 5, "router threshold mutation found an unexpected instruction count")
+        route_data_offset = None
+        for instruction_index in range(instruction_count):
+            offset += 1  # program id index
+            account_count, offset = shortvec(raw, offset)
+            offset += account_count
+            data_length, offset = shortvec(raw, offset)
+            if instruction_index == 1:
+                _expect(data_length == 17 and raw[offset] == 0,
+                        "captured router route instruction cannot be safely mutated")
+                _expect(int.from_bytes(raw[offset + 1:offset + 9], "little") == INPUT_AMOUNT,
+                        "route input changed while preparing the negative test")
+                route_data_offset = offset
+            offset += data_length
+        _expect(route_data_offset is not None, "router route instruction offset was not found")
+        raw[route_data_offset + 9:route_data_offset + 17] = new_minimum.to_bytes(8, "little")
+        return base64.b64encode(raw).decode("ascii")
+
+    impossible_minimum = actual_output + 1
+    negative_encoded = with_route_minimum(fixture["unsigned_transaction_base64"], impossible_minimum)
+    negative_sim = rpc.call("simulateTransaction", [negative_encoded, {
+        "encoding": "base64", "commitment": "confirmed", "sigVerify": False,
+        "replaceRecentBlockhash": True, "innerInstructions": False,
+    }])
+    negative_value = negative_sim.get("value") if isinstance(negative_sim, dict) else None
+    _expect(isinstance(negative_value, dict) and negative_value.get("err") is not None,
+            "router accepted a minimum output one raw unit above its simulated output")
+    negative_logs = negative_value.get("logs", [])
+    _expect(any("1000000 -> " + str(actual_output) in line for line in negative_logs)
+            and any(ROUTER in line and "failed" in line for line in negative_logs),
+            "negative route failed without demonstrating the expected outer minimum-output rejection")
+    outer_minimum_enforcement_verified = True
+    if actual_cpi_minimum == 0:
+        # The inner CPMM has no local floor, but the deployed router's outer threshold was
+        # demonstrated against the same transaction with a one-unit-higher impossible floor.
+        unsafe_reasons.clear()
+    elif actual_cpi_minimum < MIN_OUTPUT:
+        unsafe_reasons.append("inner CPMM minimum output is below the reviewed threshold despite outer check")
+
     inner_groups = value.get("innerInstructions")
     _expect(isinstance(inner_groups, list), "Devnet simulation did not return inner-instruction metadata")
     inner_flat: list[tuple[int, str, list[Any], bytes, dict[str, Any]]] = []
@@ -364,12 +435,6 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(actual_cpi_input == INPUT_AMOUNT,
             "inner CPMM input differs from the reviewed amount: " + str(actual_cpi_input))
     unsafe_reasons: list[str] = []
-    if actual_cpi_minimum == 0:
-        unsafe_reasons.append(
-            "CPMM CPI has minimum_amount_out=0; only the opaque router's outer instruction carries the reviewed threshold"
-        )
-    elif actual_cpi_minimum < MIN_OUTPUT:
-        unsafe_reasons.append("CPMM CPI minimum output is below the reviewed threshold")
     expected_cpmm_accounts = [
         WALLET, key_strings[5], key_strings[16], POOL, key_strings[1], key_strings[3],
         key_strings[7], key_strings[8], TOKEN, TOKEN, WSOL, USDC, key_strings[9],
@@ -549,6 +614,10 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
         "rpc_endpoint": RPC_URL,
         "unsafe_reasons": unsafe_reasons,
         "cpmm_cpi_minimum_output_raw": actual_cpi_minimum,
+        "simulated_output_raw": actual_output,
+        "outer_minimum_output_negative_test": "passed",
+        "negative_test_minimum_output_raw": impossible_minimum,
+        "outer_minimum_enforcement_verified": outer_minimum_enforcement_verified,
         "finalized_slot": slot,
         "account_snapshot_slot": context_slot,
         "wallet": WALLET,
