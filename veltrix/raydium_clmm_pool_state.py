@@ -111,6 +111,8 @@ class RaydiumClmmPoolState:
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     dynamic_fee_info: RaydiumClmmDynamicFeeInfo = RaydiumClmmDynamicFeeInfo()
     reward_infos: tuple[RaydiumClmmRewardInfo, ...] = (RaydiumClmmRewardInfo(),) * RAYDIUM_POOL_REWARD_COUNT
+    account_data: bytes = b""
+    source_account_data_sha256: str = ""
 
     @property
     def swaps_enabled(self) -> bool:
@@ -367,7 +369,149 @@ def decode_raydium_clmm_pool_state(
         tick_array_bitmap=tick_array_bitmap,
         dynamic_fee_info=dynamic_fee_info,
         reward_infos=tuple(reward_infos),
+        account_data=data,
+        source_account_data_sha256=account.data_sha256,
     )
+
+
+
+def encode_raydium_clmm_pool_state(pool: RaydiumClmmPoolState) -> bytes:
+    """Patch modeled PoolState fields into the verified source account bytes.
+
+    All unmodeled and reserved bytes (including open_time, recent_epoch, and
+    padding arrays) are preserved exactly from the verified source account.
+    """
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmPoolStateError("decoded Raydium PoolState is required")
+    if pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT:
+        raise RaydiumClmmPoolStateError("PoolState source commit differs from the pinned Raydium source")
+    if not isinstance(pool.account_data, bytes) or len(pool.account_data) != RAYDIUM_POOL_STATE_LENGTH:
+        raise RaydiumClmmPoolStateError("verified original PoolState account bytes are required")
+    source_hash = pool.source_account_data_sha256 or pool.account_data_sha256
+    if (
+        not isinstance(source_hash, str)
+        or len(source_hash) != 64
+        or hashlib.sha256(pool.account_data).hexdigest() != source_hash
+    ):
+        raise RaydiumClmmPoolStateError("original PoolState account bytes do not match their source commitment")
+    if pool.account_data[:8] != RAYDIUM_POOL_STATE_DISCRIMINATOR:
+        raise RaydiumClmmPoolStateError("original PoolState discriminator is invalid")
+
+    def unsigned(value: int, size: int, field: str) -> bytes:
+        if (
+            isinstance(value, bool) or not isinstance(value, int)
+            or not 0 <= value < (1 << (size * 8))
+        ):
+            raise RaydiumClmmPoolStateError(f"{field} is outside its unsigned serialized domain")
+        return value.to_bytes(size, "little")
+
+    def signed(value: int, size: int, field: str) -> bytes:
+        if (
+            isinstance(value, bool) or not isinstance(value, int)
+            or not -(1 << (size * 8 - 1)) <= value < (1 << (size * 8 - 1))
+        ):
+            raise RaydiumClmmPoolStateError(f"{field} is outside its signed serialized domain")
+        return value.to_bytes(size, "little", signed=True)
+
+    def public_key(value: str, field: str) -> bytes:
+        try:
+            key = Pubkey.from_string(value)
+            if str(key) != value:
+                raise ValueError("non-canonical public key")
+            return bytes(key)
+        except Exception as exc:
+            raise RaydiumClmmPoolStateError(f"{field} is not a canonical public key") from exc
+
+    if derive_raydium_clmm_pool_address(
+        amm_config=pool.amm_config,
+        token_mint_0=pool.token_mint_0,
+        token_mint_1=pool.token_mint_1,
+        bump=pool.bump,
+        seed_index=pool.seed_index,
+    ) != pool.pool_address:
+        raise RaydiumClmmPoolStateError("PoolState identity no longer matches its canonical PDA")
+    if len(pool.tick_array_bitmap) != RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS:
+        raise RaydiumClmmPoolStateError("PoolState bitmap must contain exactly 16 u64 words")
+    if not isinstance(pool.reward_infos, tuple) or len(pool.reward_infos) != RAYDIUM_POOL_REWARD_COUNT:
+        raise RaydiumClmmPoolStateError("PoolState must contain exactly three RewardInfo records")
+    if not isinstance(pool.dynamic_fee_info, RaydiumClmmDynamicFeeInfo):
+        raise RaydiumClmmPoolStateError("decoded dynamic-fee state is required")
+
+    data = bytearray(pool.account_data)
+    data[8:9] = unsigned(pool.bump, 1, "pool bump")
+    for offset, value, field in (
+        (9, pool.amm_config, "amm_config"),
+        (41, pool.pool_creator, "pool_creator"),
+        (73, pool.token_mint_0, "token_mint_0"),
+        (105, pool.token_mint_1, "token_mint_1"),
+        (137, pool.token_vault_0, "token_vault_0"),
+        (169, pool.token_vault_1, "token_vault_1"),
+        (201, pool.observation_key, "observation_key"),
+    ):
+        data[offset:offset + 32] = public_key(value, field)
+    data[233:234] = unsigned(pool.mint_decimals_0, 1, "mint_decimals_0")
+    data[234:235] = unsigned(pool.mint_decimals_1, 1, "mint_decimals_1")
+    data[235:237] = unsigned(pool.tick_spacing, 2, "tick_spacing")
+    data[237:253] = unsigned(pool.liquidity, 16, "liquidity")
+    data[253:269] = unsigned(pool.sqrt_price_x64, 16, "sqrt_price_x64")
+    data[269:273] = signed(pool.tick_current, 4, "tick_current")
+    data[277:293] = unsigned(pool.fee_growth_global_0_x64, 16, "fee_growth_global_0_x64")
+    data[293:309] = unsigned(pool.fee_growth_global_1_x64, 16, "fee_growth_global_1_x64")
+    data[309:317] = unsigned(pool.protocol_fees_token_0, 8, "protocol_fees_token_0")
+    data[317:325] = unsigned(pool.protocol_fees_token_1, 8, "protocol_fees_token_1")
+    data[389:390] = unsigned(pool.status, 1, "status")
+    data[390:391] = unsigned(pool.fee_on, 1, "fee_on")
+    data[391:393] = unsigned(pool.seed_index, 2, "seed_index")
+
+    for index, reward in enumerate(pool.reward_infos):
+        if not isinstance(reward, RaydiumClmmRewardInfo):
+            raise RaydiumClmmPoolStateError(f"reward_infos[{index}] is malformed")
+        offset = RAYDIUM_POOL_REWARD_INFO_OFFSET + index * RAYDIUM_POOL_REWARD_INFO_LENGTH
+        data[offset:offset + 1] = unsigned(reward.reward_state, 1, "reward_state")
+        data[offset + 1:offset + 9] = unsigned(reward.open_time, 8, "reward open_time")
+        data[offset + 9:offset + 17] = unsigned(reward.end_time, 8, "reward end_time")
+        data[offset + 17:offset + 25] = unsigned(reward.last_update_time, 8, "reward last_update_time")
+        data[offset + 25:offset + 41] = unsigned(reward.emissions_per_second_x64, 16, "reward emissions")
+        data[offset + 41:offset + 49] = unsigned(reward.reward_total_emitted, 8, "reward total emitted")
+        data[offset + 49:offset + 57] = unsigned(reward.reward_claimed, 8, "reward claimed")
+        data[offset + 57:offset + 89] = public_key(reward.token_mint, "reward token mint")
+        data[offset + 89:offset + 121] = public_key(reward.token_vault, "reward token vault")
+        data[offset + 121:offset + 153] = public_key(reward.authority, "reward authority")
+        data[offset + 153:offset + 169] = unsigned(reward.reward_growth_global_x64, 16, "reward growth")
+
+    for index, word in enumerate(pool.tick_array_bitmap):
+        data[RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET + index * 8:
+             RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET + (index + 1) * 8] = unsigned(
+            word, 8, "tick-array bitmap word"
+        )
+    data[1064:1072] = unsigned(pool.fund_fees_token_0, 8, "fund_fees_token_0")
+    data[1072:1080] = unsigned(pool.fund_fees_token_1, 8, "fund_fees_token_1")
+
+    dynamic = pool.dynamic_fee_info
+    dynamic_offset = RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET
+    dynamic_values = (
+        (dynamic.filter_period, 2, "dynamic filter period", False),
+        (dynamic.decay_period, 2, "dynamic decay period", False),
+        (dynamic.reduction_factor, 2, "dynamic reduction factor", False),
+        (dynamic.dynamic_fee_control, 4, "dynamic fee control", False),
+        (dynamic.max_volatility_accumulator, 4, "maximum volatility accumulator", False),
+        (dynamic.tick_spacing_index_reference, 4, "tick spacing index reference", True),
+        (dynamic.volatility_reference, 4, "volatility reference", False),
+        (dynamic.volatility_accumulator, 4, "volatility accumulator", False),
+        (dynamic.last_update_timestamp, 8, "dynamic fee timestamp", False),
+    )
+    cursor = dynamic_offset
+    for value, size, field, is_signed in dynamic_values:
+        data[cursor:cursor + size] = (
+            signed(value, size, field) if is_signed else unsigned(value, size, field)
+        )
+        cursor += size
+    if not isinstance(dynamic.padding, bytes) or len(dynamic.padding) != 46:
+        raise RaydiumClmmPoolStateError("dynamic-fee padding must contain exactly 46 bytes")
+    data[cursor:cursor + 46] = dynamic.padding
+    if len(data) != RAYDIUM_POOL_STATE_LENGTH:
+        raise RaydiumClmmPoolStateError("serialized PoolState length differs from the pinned layout")
+    return bytes(data)
 
 
 def validate_raydium_clmm_pool_for_route(
