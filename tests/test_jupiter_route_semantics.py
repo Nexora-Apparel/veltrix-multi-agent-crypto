@@ -201,7 +201,7 @@ def test_accepts_exact_serialized_route_instruction_matching_order_and_quote():
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "message"),
+    ("field", "value", "expected_error"),
     [
         ("input_amount_raw", 999, "input amount"),
         ("quoted_output_amount_raw", 2_001, "quoted output"),
