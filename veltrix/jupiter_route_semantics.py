@@ -211,6 +211,9 @@ def _bind_route_mints(order: JupiterOrderTransaction, decoded: DecodedJupiterRou
         raise JupiterRouteSemanticError("Jupiter route token index zero does not map to the order input mint")
     if order.output_mint not in token_index_mints.values():
         raise JupiterRouteSemanticError("encoded Jupiter route does not map the order output mint")
+    terminal_indexes = produced_indexes - set(input_percent_totals)
+    if len(terminal_indexes) != 1 or token_index_mints.get(next(iter(terminal_indexes), -1)) != order.output_mint:
+        raise JupiterRouteSemanticError("Jupiter route DAG must terminate at exactly one output-mint token index")
     if len(set(token_index_mints.values())) != len(token_index_mints):
         raise JupiterRouteSemanticError("one mint is mapped to multiple Jupiter route token indexes")
     indexes = sorted(token_index_mints)
@@ -245,6 +248,8 @@ def evaluate_jupiter_route_semantics(
     if not isinstance(policy, JupiterRouteSemanticPolicy):
         raise JupiterRouteSemanticError("Jupiter route semantic policy is required")
 
+    if not isinstance(order.message_bytes, bytes) or not order.message_bytes:
+        raise JupiterRouteSemanticError("serialized Jupiter message bytes are missing")
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if any(value != digest for value in (
         validation.message_sha256, simulation.message_sha256,
@@ -259,7 +264,18 @@ def evaluate_jupiter_route_semantics(
     if simulation.simulation_error is not None:
         raise JupiterRouteSemanticError("simulation reported an execution error")
     if (
-        swap_effects.input_delta_raw != -order.input_amount_raw
+        simulation.recent_blockhash != order.recent_blockhash
+        or simulation.last_valid_block_height != order.last_valid_block_height
+    ):
+        raise JupiterRouteSemanticError("simulation blockhash or last-valid height differs from the Jupiter order")
+    if tuple(program_gate.inner_program_ids) != tuple(simulation.inner_program_ids):
+        raise JupiterRouteSemanticError("program trace inner IDs differ from the simulation evidence")
+    expected_input_ata = derive_associated_token_address(order.taker, order.input_mint)
+    expected_output_ata = derive_associated_token_address(order.taker, order.output_mint)
+    if (
+        swap_effects.input_token_account != expected_input_ata
+        or swap_effects.output_token_account != expected_output_ata
+        or swap_effects.input_delta_raw != -order.input_amount_raw
         or swap_effects.output_delta_raw != order.output_amount_raw
         or swap_effects.minimum_output_amount_raw != order.minimum_output_amount_raw
         or swap_effects.exact_output_amount_raw != order.output_amount_raw
