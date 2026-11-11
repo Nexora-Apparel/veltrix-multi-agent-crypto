@@ -13,6 +13,7 @@ import struct
 from solders.pubkey import Pubkey
 
 from veltrix.dex_pool_evidence import DexPoolAccountEvidence, DexPoolEvidenceSnapshot
+from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.jupiter_v6_route import JupiterV6RouteInspection
 
 
