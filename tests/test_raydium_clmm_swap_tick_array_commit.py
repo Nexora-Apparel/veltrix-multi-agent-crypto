@@ -139,6 +139,6 @@ def test_reached_boundary_rejects_tick_from_another_array_slot():
     a = tick_array(p)
     with pytest.raises(RaydiumSwapTickArrayCommitError, match="mutation failed"):
         commit_raydium_swap_inner_tick_array(
-            p, a, iteration(reached=True, updated_tick=tick(1, growth=99)),
+            p, a, iteration(reached=True, updated_tick=tick(60, growth=99)),
             recent_epoch=7,
         )
