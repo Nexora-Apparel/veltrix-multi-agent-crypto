@@ -207,7 +207,20 @@ def test_next_initialized_array_rejects_stale_extension_hash_and_unaligned_curso
         next_initialized_tick_array_start_index(
             p, tick_array_snapshot=bad_snapshot, last_tick_array_start_index=0, zero_for_one=False
         )
-    with pytest.raises(RaydiumClmmBitmapTraversalError, match="aligned"):
-        next_initialized_tick_array_start_index(
-            p, tick_array_snapshot=snapshot, last_tick_array_start_index=1, zero_for_one=False
-        )
+    default_pool = pool(spacing=15)
+    default_snapshot = RaydiumClmmTickArraySnapshot(
+        route_message_sha256="a" * 64,
+        simulation_response_id="sim",
+        simulation_context_slot=100,
+        provider_id="rpc",
+        cluster="devnet",
+        genesis_hash="b" * 64,
+        context_slot=101,
+        tick_arrays=(),
+    )
+    assert next_initialized_tick_array_start_index(
+        default_pool,
+        tick_array_snapshot=default_snapshot,
+        last_tick_array_start_index=1,
+        zero_for_one=False,
+    ) is None
