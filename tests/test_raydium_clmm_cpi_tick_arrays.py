@@ -499,3 +499,26 @@ def test_decodes_full_tick_state_fee_reward_and_limit_order_fields():
     assert tick.orders_amount == 3
     assert tick.part_filled_orders_remaining == 2
     assert tick.unfilled_ratio_x64 == (1 << 63)
+
+
+def test_rejects_invalid_tick_order_ratio_and_reserved_padding():
+    pool = str(Pubkey.new_unique())
+    address = derive_raydium_clmm_tick_array_address(
+        pool_address=pool, start_tick_index=0
+    )
+    invalid_ratio = bytearray(tick_array_data(pool, 0))
+    invalid_ratio[44 + 140:44 + 156] = ((1 << 64) + 1).to_bytes(16, "little")
+    with pytest.raises(Exception, match="unfilled ratio"):
+        decode_raydium_clmm_tick_array(
+            address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+            executable=False, data=bytes(invalid_ratio), expected_pool_address=pool,
+            expected_start_tick_index=0, tick_spacing=10, current_tick=0,
+        )
+    invalid_padding = bytearray(tick_array_data(pool, 0))
+    invalid_padding[44 + 156:44 + 160] = (1).to_bytes(4, "little")
+    with pytest.raises(Exception, match="reserved padding"):
+        decode_raydium_clmm_tick_array(
+            address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+            executable=False, data=bytes(invalid_padding), expected_pool_address=pool,
+            expected_start_tick_index=0, tick_spacing=10, current_tick=0,
+        )
