@@ -31,6 +31,7 @@ from veltrix.solana_rpc_simulation import (
     SolanaRpcAdapterError,
     SolanaRpcSimulationAdapter,
 )
+from veltrix.transaction_validator import TransactionValidationResult
 
 
 class FakeResponse:
@@ -151,15 +152,15 @@ def fixture(*, owner=None, data=b"pool-state-data-contents", lamports=2_000_000,
         prioritization_fee_lamports=0,
         rent_fee_lamports=0,
     )
-    validation = type("Validation", (), {
-        "message_sha256": hashlib.sha256(message_bytes).hexdigest(),
-        "message_size": len(message_bytes),
-        "fee_payer": str(taker),
-        "required_signers": (str(taker),),
-        "program_ids": (JUPITER_V6_PROGRAM_ID,),
-        "instruction_count": 1,
-        "account_keys": tuple(str(key) for key in message.account_keys),
-    })()
+    validation = TransactionValidationResult(
+        message_sha256=hashlib.sha256(message_bytes).hexdigest(),
+        message_size=len(message_bytes),
+        fee_payer=str(taker),
+        required_signers=(str(taker),),
+        program_ids=(JUPITER_V6_PROGRAM_ID,),
+        instruction_count=1,
+        account_keys=tuple(str(key) for key in message.account_keys),
+    )
     route_inspection = inspect_jupiter_v6_route(
         order,
         validation=validation,
@@ -269,7 +270,7 @@ def test_rejects_snapshot_older_than_simulation_slot():
 
 
 def test_rejects_wrong_cluster_genesis():
-    with pytest.raises(DexPoolEvidenceError, match="different Solana cluster"):
+    with pytest.raises(SolanaRpcAdapterError, match="genesis hash"):
         fetch(fixture(genesis="wrong-genesis"))
 
 
