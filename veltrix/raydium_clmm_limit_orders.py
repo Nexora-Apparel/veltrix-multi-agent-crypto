@@ -58,7 +58,7 @@ def get_token0_price_x64(sqrt_price_x64: int, *, round_up: bool) -> int:
 def get_limit_order_output_with_price(
     amount_in: int, token0_price_x64: int, zero_for_one: bool
 ) -> int:
-    """Port U128::mul_div_floor, rejecting results that cannot fit its U128 output."""
+    """Port U128::mul_div_floor; its bounded inputs keep the quotient within u128."""
     _u64(amount_in, "amount_in")
     _u128(token0_price_x64, "token0_price_x64")
     if token0_price_x64 == 0 or not isinstance(zero_for_one, bool):
@@ -67,7 +67,6 @@ def get_limit_order_output_with_price(
         amount_out = amount_in * token0_price_x64 // Q64
     else:
         amount_out = amount_in * Q64 // token0_price_x64
-    _u128(amount_out, "limit-order output")
     return amount_out
 
 
