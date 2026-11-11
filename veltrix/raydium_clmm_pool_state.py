@@ -243,8 +243,8 @@ def decode_raydium_clmm_pool_state(
             reward_growth_global_x64=int.from_bytes(reward_data[153:169], "little"),
         )
         if reward.initialized:
-            if reward.reward_state == 0 or reward.token_vault == default_key if 'default_key' in locals() else False:
-                raise RaydiumClmmPoolStateError("initialized RewardInfo has invalid state or vault")
+            if reward.reward_state == 0 or reward.token_vault == str(Pubkey.default()) or reward.authority == str(Pubkey.default()):
+                raise RaydiumClmmPoolStateError("initialized RewardInfo has invalid state, vault or authority")
             if reward.end_time < reward.open_time or reward.reward_claimed > reward.reward_total_emitted:
                 raise RaydiumClmmPoolStateError("Raydium RewardInfo time or claimed-total invariant is invalid")
         elif reward.reward_state != 0:
