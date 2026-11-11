@@ -1,8 +1,8 @@
 """Fail-closed Raydium CLMM classic-token CPI semantic gate.
 
-Pinned to raydium-io/raydium-clmm source commit 6d7a0f82d2f293c553c69aaf943377367c6c4cc6.
-Only the legacy `swap` instruction with a single direct Jupiter route step is
-supported. The Token-2022 `swap_v2` path and multi-hop routes are rejected.
+Pinned to raydium-io/raydium-clmm source commit
+6d7a0f82d2f293c553c69aaf943377367c6c4cc6. Only the legacy `swap`
+instruction on one direct Metis/Jupiter V6 route hop is supported.
 """
 from __future__ import annotations
 
@@ -13,16 +13,9 @@ import struct
 from solders.pubkey import Pubkey
 
 from veltrix.jupiter_order import JupiterOrderTransaction
-from veltrix.jupiter_route_semantics import (
-    JupiterRouteSemanticResult,
-    JupiterRouteSemanticError,
-)
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
-from veltrix.jupiter_swap_effects import (
-    CLASSIC_TOKEN_PROGRAM_ID,
-    JupiterSwapEffectResult,
-    derive_associated_token_address,
-)
+from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID, JupiterSwapEffectResult, derive_associated_token_address
+from veltrix.jupiter_v6_route import JupiterV6RouteInspection
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -86,12 +79,7 @@ def decode_raydium_clmm_swap(data: bytes) -> DecodedRaydiumClmmSwap:
         raise RaydiumClmmCpiError("Raydium CLMM swap amount and minimum-output threshold must be positive")
     if sqrt_price_limit == 0:
         raise RaydiumClmmCpiError("Raydium CLMM sqrt-price limit must be non-zero")
-    return DecodedRaydiumClmmSwap(
-        amount_raw=amount,
-        other_amount_threshold_raw=threshold,
-        sqrt_price_limit_x64=sqrt_price_limit,
-        is_base_input=bool(bool_value),
-    )
+    return DecodedRaydiumClmmSwap(amount, threshold, sqrt_price_limit, bool(bool_value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +95,7 @@ class RaydiumClmmCpiResult:
     input_vault: str
     output_vault: str
     pool_state: str
+    tick_array_accounts: tuple[str, ...]
     amount_raw: int
     minimum_output_raw: int
     sqrt_price_limit_x64: int
@@ -122,7 +111,7 @@ def evaluate_raydium_clmm_cpi(
     simulation: SimulationEvidence,
     simulation_gate: SimulationGateResult,
     program_gate: JupiterRouteProgramGateResult,
-    route_semantics: JupiterRouteSemanticResult,
+    route_inspection: JupiterV6RouteInspection,
     swap_effects: JupiterSwapEffectResult,
     policy: RaydiumClmmCpiPolicy,
 ) -> RaydiumClmmCpiResult:
@@ -137,8 +126,8 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("successful SimulationGate approval is required")
     if not isinstance(program_gate, JupiterRouteProgramGateResult) or program_gate.passed is not True:
         raise RaydiumClmmCpiError("successful Jupiter program trace gate is required")
-    if not isinstance(route_semantics, JupiterRouteSemanticResult) or route_semantics.passed is not True:
-        raise RaydiumClmmCpiError("successful Jupiter route semantic gate is required")
+    if not isinstance(route_inspection, JupiterV6RouteInspection) or not route_inspection.fully_decoded:
+        raise RaydiumClmmCpiError("fully decoded Jupiter V6 route inspection is required")
     if not isinstance(swap_effects, JupiterSwapEffectResult) or swap_effects.passed is not True:
         raise RaydiumClmmCpiError("successful Jupiter quote-to-balance effect gate is required")
     if not isinstance(policy, RaydiumClmmCpiPolicy):
@@ -146,12 +135,9 @@ def evaluate_raydium_clmm_cpi(
 
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if any(value != digest for value in (
-        validation.message_sha256,
-        simulation.message_sha256,
-        simulation_gate.message_sha256,
-        program_gate.message_sha256,
-        route_semantics.message_sha256,
-        swap_effects.message_sha256,
+        validation.message_sha256, simulation.message_sha256,
+        simulation_gate.message_sha256, program_gate.message_sha256,
+        route_inspection.message_sha256, swap_effects.message_sha256,
     )):
         raise RaydiumClmmCpiError("order, validation, simulation and upstream gate digests differ")
     if simulation.provider_id != simulation_gate.provider_id or simulation.response_id != simulation_gate.response_id:
@@ -166,42 +152,58 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("program trace evidence differs from the validated transaction or simulation")
     if simulation.simulation_error is not None:
         raise RaydiumClmmCpiError("simulation reported an execution error")
+    if (
+        simulation.recent_blockhash != order.recent_blockhash
+        or simulation.last_valid_block_height != order.last_valid_block_height
+    ):
+        raise RaydiumClmmCpiError("simulation blockhash or last-valid height differs from the Jupiter order")
     if swap_effects.simulation_context_slot != simulation.context_slot:
         raise RaydiumClmmCpiError("quote-to-balance evidence refers to a different simulation slot")
     if order.taker != order.fee_payer or validation.fee_payer != order.taker:
         raise RaydiumClmmCpiError("order taker is not the validated transaction fee payer")
-    if order.router != "metis" or route_semantics.jupiter_program_id not in program_gate.top_level_program_ids:
-        raise RaydiumClmmCpiError("route does not use the supported Metis Jupiter aggregator path")
-    if route_semantics.instruction_index < 0:
-        raise RaydiumClmmCpiError("Jupiter route instruction index is invalid")
-    if len(order.route_plan) != 1 or order.route_plan[0].label != "Raydium CLMM":
+    if order.router != "metis" or route_inspection.instruction_name != "route":
+        raise RaydiumClmmCpiError("only the supported Metis/Jupiter V6 route path is supported")
+    if (
+        program_gate.jupiter_route.message_sha256 != route_inspection.message_sha256
+        or program_gate.jupiter_route.instruction_index != route_inspection.instruction_index
+        or program_gate.jupiter_route.program_id != route_inspection.program_id
+    ):
+        raise RaydiumClmmCpiError("Jupiter program trace gate contains different route inspection evidence")
+    if route_inspection.program_id not in program_gate.top_level_program_ids:
+        raise RaydiumClmmCpiError("Jupiter route inspection program is absent from the validated top-level trace")
+    if len(order.route_plan) != 1 or len(route_inspection.route_steps) != 1:
         raise RaydiumClmmCpiError("only a single-hop Raydium CLMM route is supported")
-    if len(route_semantics.route_steps) != 1:
-        raise RaydiumClmmCpiError("route semantic evidence contains an invalid route step count")
+    quoted_step = order.route_plan[0]
+    inspected_step = route_inspection.route_steps[0]
+    if (
+        quoted_step.label != "Raydium CLMM"
+        or inspected_step.dex_label != "Raydium CLMM"
+        or inspected_step.swap_variant != 26
+        or inspected_step.amm_key != quoted_step.amm_key
+    ):
+        raise RaydiumClmmCpiError("Jupiter route inspection differs from the quoted Raydium CLMM pool")
     if policy.program_id not in program_gate.dex_program_ids:
         raise RaydiumClmmCpiError("Raydium CLMM program ID is not present in the pinned DEX trace")
     if program_gate.route_labels != ("Raydium CLMM",):
         raise RaydiumClmmCpiError("program trace route labels do not identify the supported single-hop Raydium CLMM route")
     if (
-        route_semantics.route_steps[0].swap_variant_index != 26
-        or route_semantics.input_amount_raw != order.input_amount_raw
-        or route_semantics.quoted_output_amount_raw != order.output_amount_raw
+        route_inspection.input_amount_raw != order.input_amount_raw
+        or route_inspection.quoted_output_amount_raw != order.output_amount_raw
     ):
-        raise RaydiumClmmCpiError("Jupiter route semantic evidence differs from the supported Raydium CLMM quote")
+        raise RaydiumClmmCpiError("Jupiter route inspection amounts differ from the order quote")
     if not simulation.inner_instructions or len(simulation.inner_instructions) != simulation.inner_instruction_count:
         raise RaydiumClmmCpiError("complete raw inner-CPI instruction evidence is required")
     if tuple(item.program_id for item in simulation.inner_instructions) != simulation.inner_program_ids:
         raise RaydiumClmmCpiError("raw CPI evidence differs from the simulation program trace")
 
     candidates = [
-        (index, item)
-        for index, item in enumerate(simulation.inner_instructions)
+        (index, item) for index, item in enumerate(simulation.inner_instructions)
         if item.program_id == policy.program_id
     ]
     if len(candidates) != 1:
         raise RaydiumClmmCpiError("simulation must contain exactly one Raydium CLMM CPI for the single-hop route")
     cpi_index, cpi = candidates[0]
-    if cpi.outer_instruction_index != route_semantics.instruction_index:
+    if cpi.outer_instruction_index != route_inspection.instruction_index:
         raise RaydiumClmmCpiError("Raydium CLMM CPI is not nested under the validated Jupiter route instruction")
     if cpi.stack_height != 2:
         raise RaydiumClmmCpiError("Raydium CLMM CPI must be a direct child of the Jupiter route instruction")
@@ -215,7 +217,8 @@ def evaluate_raydium_clmm_cpi(
                 raise ValueError("non-canonical")
     except Exception as exc:
         raise RaydiumClmmCpiError("Raydium CLMM CPI contains a non-canonical account public key") from exc
-    payer, amm_config, pool_state, input_account, output_account, input_vault, output_vault, observation, token_program, tick_array = accounts[:10]
+    payer, amm_config, pool_state, input_account, output_account, input_vault, output_vault, observation, token_program = accounts[:9]
+    tick_arrays = accounts[9:]
     expected_input = derive_associated_token_address(order.taker, order.input_mint)
     expected_output = derive_associated_token_address(order.taker, order.output_mint)
     if payer != order.taker:
@@ -232,11 +235,10 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("Raydium CLMM CPI input/output token accounts or vaults unexpectedly alias")
     if len(set(accounts)) != len(accounts):
         raise RaydiumClmmCpiError("Raydium CLMM CPI fixed or remaining tick-array accounts unexpectedly alias")
-
-    decoded = decode_raydium_clmm_swap(cpi.data)
-    quoted_step = order.route_plan[0]
     if pool_state != quoted_step.amm_key:
         raise RaydiumClmmCpiError("Raydium CLMM CPI pool account differs from the quoted AMM pool key")
+
+    decoded = decode_raydium_clmm_swap(cpi.data)
     if not decoded.is_base_input:
         raise RaydiumClmmCpiError("Raydium CLMM CPI must use exact-input mode")
     if decoded.amount_raw != quoted_step.input_amount_raw or decoded.amount_raw != order.input_amount_raw:
@@ -246,7 +248,7 @@ def evaluate_raydium_clmm_cpi(
     if decoded.other_amount_threshold_raw < order.minimum_output_amount_raw:
         raise RaydiumClmmCpiError("Raydium CLMM minimum-output threshold is below Jupiter's order threshold")
     minimum_allowed = (
-        quoted_step.output_amount_raw * (10_000 - min(policy.max_slippage_bps, route_semantics.slippage_bps))
+        quoted_step.output_amount_raw * (10_000 - min(policy.max_slippage_bps, route_inspection.slippage_bps))
         + 9_999
     ) // 10_000
     if decoded.other_amount_threshold_raw < minimum_allowed:
@@ -264,6 +266,7 @@ def evaluate_raydium_clmm_cpi(
         input_vault=input_vault,
         output_vault=output_vault,
         pool_state=pool_state,
+        tick_array_accounts=tuple(tick_arrays),
         amount_raw=decoded.amount_raw,
         minimum_output_raw=decoded.other_amount_threshold_raw,
         sqrt_price_limit_x64=decoded.sqrt_price_limit_x64,
