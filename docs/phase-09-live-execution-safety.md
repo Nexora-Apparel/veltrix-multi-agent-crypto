@@ -613,3 +613,19 @@ Ported the pinned `ObservationState::update` behavior from `states/oracle.rs` at
 **Proof boundary:** this is the oracle account transition only. It is not yet sequenced at the exact post-swap point in the complete Raydium instruction replay, and it does not calculate TWAP, consult historical observations, or prove observation sufficiency for a trading strategy.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.39 — Raydium swap fee splitting and amount settlement
+
+Implemented in `veltrix/raydium_clmm_fee_accounting.py`, pinned to `instructions/swap.rs` at source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Ports exact-input and exact-output remaining/calculated amount transitions, including fee-on-input consumption semantics.
+- Splits each fee with source floor division into protocol and fund shares; assigns the remainder to LP fee growth when liquidity is positive.
+- When liquidity is zero, routes the remaining fee into protocol fees exactly as the source does.
+- Updates Q64.64 global LP fee growth with floor division and wrapping u128 addition.
+- Ports final token-0/token-1 amount mapping and total trade-fee attribution to the configured fee-side token.
+- Rejects invalid integer domains, over-consumption, fee-rate sums above the denominator and u64 accumulation overflow.
+
+**Proof boundary:** this module accounts for already-computed per-step amounts and fees. It does not compute swap-step prices/amounts, determine the fee side from pool state, update pool storage, or reconcile token-vault deltas. It must be composed with the pinned swap loop and simulation account evidence before any execution-readiness claim.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
