@@ -404,7 +404,9 @@ def test_simulation_parity_fails_closed_on_account_bytes_or_vault_delta_mismatch
             pool, execution, finalized, bad_account_simulation, vault_snapshot,
             expected_message_sha256=message_sha,
             initial_pool_account_data=pool_raw,
+            initial_observation=observation,
             initial_observation_account_data=observation_raw,
+            initial_tick_arrays=(tick_array,),
             initial_tick_array_account_data=(tick_raw,),
         )
 
@@ -418,6 +420,8 @@ def test_simulation_parity_fails_closed_on_account_bytes_or_vault_delta_mismatch
             pool, execution, finalized, bad_vault_simulation, vault_snapshot,
             expected_message_sha256=message_sha,
             initial_pool_account_data=pool_raw,
+            initial_observation=observation,
             initial_observation_account_data=observation_raw,
+            initial_tick_arrays=(tick_array,),
             initial_tick_array_account_data=(tick_raw,),
         )
