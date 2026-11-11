@@ -24,7 +24,12 @@ RAYDIUM_POOL_STATE_LENGTH = 1544
 RAYDIUM_POOL_HEADER_LENGTH = 397
 RAYDIUM_POOL_TICK_ARRAY_BITMAP_OFFSET = 904
 RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS = 16
+RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET = 1096
+RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH = 80
 RAYDIUM_POOL_SEED = b"pool"
+RAYDIUM_FEE_RATE_DENOMINATOR = 1_000_000
+RAYDIUM_DYNAMIC_FEE_CONTROL_DENOMINATOR = 100_000
+RAYDIUM_DYNAMIC_FEE_REDUCTION_DENOMINATOR = 10_000
 RAYDIUM_MIN_TICK = -443636
 RAYDIUM_MAX_TICK = 443636
 RAYDIUM_SWAP_DISABLED_BIT = 1 << 4
@@ -33,6 +38,24 @@ RAYDIUM_FEE_ON_MAX = 2
 
 class RaydiumClmmPoolStateError(ValueError):
     """Raised when a Raydium CLMM pool account is malformed or inconsistent."""
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumClmmDynamicFeeInfo:
+    filter_period: int = 0
+    decay_period: int = 0
+    reduction_factor: int = 0
+    dynamic_fee_control: int = 0
+    max_volatility_accumulator: int = 0
+    tick_spacing_index_reference: int = 0
+    volatility_reference: int = 0
+    volatility_accumulator: int = 0
+    last_update_timestamp: int = 0
+    padding: bytes = bytes(46)
+
+    @property
+    def enabled(self) -> bool:
+        return self.dynamic_fee_control > 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +81,7 @@ class RaydiumClmmPoolState:
     account_data_sha256: str
     tick_array_bitmap: tuple[int, ...] = (0,) * RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
+    dynamic_fee_info: RaydiumClmmDynamicFeeInfo = RaydiumClmmDynamicFeeInfo()
 
     @property
     def swaps_enabled(self) -> bool:
@@ -173,6 +197,42 @@ def decode_raydium_clmm_pool_state(
         int.from_bytes(data[bitmap_start + index * 8:bitmap_start + (index + 1) * 8], "little")
         for index in range(RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS)
     )
+    dynamic_offset = RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET
+    dynamic_data = data[dynamic_offset:dynamic_offset + RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH]
+    if len(dynamic_data) != RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH:
+        raise RaydiumClmmPoolStateError("Raydium dynamic fee information is truncated")
+    dynamic_fee_info = RaydiumClmmDynamicFeeInfo(
+        filter_period=int.from_bytes(dynamic_data[0:2], "little"),
+        decay_period=int.from_bytes(dynamic_data[2:4], "little"),
+        reduction_factor=int.from_bytes(dynamic_data[4:6], "little"),
+        dynamic_fee_control=int.from_bytes(dynamic_data[6:10], "little"),
+        max_volatility_accumulator=int.from_bytes(dynamic_data[10:14], "little"),
+        tick_spacing_index_reference=int.from_bytes(dynamic_data[14:18], "little", signed=True),
+        volatility_reference=int.from_bytes(dynamic_data[18:22], "little"),
+        volatility_accumulator=int.from_bytes(dynamic_data[22:26], "little"),
+        last_update_timestamp=int.from_bytes(dynamic_data[26:34], "little"),
+        padding=dynamic_data[34:80],
+    )
+    dynamic_values = (
+        dynamic_fee_info.filter_period, dynamic_fee_info.decay_period,
+        dynamic_fee_info.reduction_factor, dynamic_fee_info.dynamic_fee_control,
+        dynamic_fee_info.max_volatility_accumulator,
+        dynamic_fee_info.tick_spacing_index_reference,
+        dynamic_fee_info.volatility_reference, dynamic_fee_info.volatility_accumulator,
+        dynamic_fee_info.last_update_timestamp,
+    )
+    if not dynamic_fee_info.enabled:
+        if any(dynamic_values) or any(dynamic_fee_info.padding):
+            raise RaydiumClmmPoolStateError("disabled dynamic-fee state contains non-zero configuration")
+    else:
+        if (
+            dynamic_fee_info.filter_period == 0
+            or dynamic_fee_info.decay_period <= dynamic_fee_info.filter_period
+            or not 0 < dynamic_fee_info.reduction_factor < RAYDIUM_DYNAMIC_FEE_REDUCTION_DENOMINATOR
+            or dynamic_fee_info.dynamic_fee_control >= RAYDIUM_DYNAMIC_FEE_CONTROL_DENOMINATOR
+            or dynamic_fee_info.max_volatility_accumulator * tick_spacing > 0xFFFFFFFF
+        ):
+            raise RaydiumClmmPoolStateError("dynamic-fee parameters fail the pinned Raydium validation rules")
 
     default_key = str(Pubkey.default())
     if default_key in {amm_config, pool_creator, mint_0, mint_1, vault_0, vault_1, observation}:
@@ -227,6 +287,7 @@ def decode_raydium_clmm_pool_state(
         seed_index=seed_index,
         account_data_sha256=account.data_sha256,
         tick_array_bitmap=tick_array_bitmap,
+        dynamic_fee_info=dynamic_fee_info,
     )
 
 
