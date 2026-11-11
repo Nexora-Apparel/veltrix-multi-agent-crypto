@@ -232,3 +232,36 @@ Implemented in `veltrix/jupiter_swap_effects.py`, with classic-token program own
 - The effect gate does not decode DEX instructions or authorize signing. It must be combined with the pinned program trace gate, semantic instruction policy, risk preflight, and operator authorization.
 
 No Jupiter `/execute`, Phantom signing, transaction submission, or live execution is introduced.
+
+
+### 09.14 — Jupiter v6 route instruction semantic decoder
+
+Implemented in `veltrix/jupiter_route_semantics.py`, pinned to Jupiter's public v6 IDL schema snapshot at `jup-ag/instruction-parser` commit `e6f77951377847c579112e6a16d8c17c5c092485`.
+
+- Decodes only the Anchor `route` instruction discriminator and Borsh layout. It requires an exact payload length, bounded route-plan vector, positive raw amounts, valid token indexes, and no trailing bytes.
+- Compares the encoded DEX enum variant and split percentage of each step to the Jupiter order's quote route plan. It reconstructs a token-index-to-mint map and rejects conflicting mint mappings, non-contiguous indexes, or a route that does not start with the order input mint.
+- Enum discriminants are asserted against the pinned IDL: Raydium 7, Meteora 19, Raydium CLMM 26, Meteora DLMM 38, and Raydium CPMM 46. Only these unit-payload variants are enabled; payload-bearing variants are rejected.
+- Route-plan steps must be topologically ordered: an intermediate token index cannot be consumed before an earlier step produces it. Split percentages for every input token index must total exactly 100; this rejects incomplete or over-allocated route branches.
+- Requires encoded `inAmount` and `quotedOutAmount` to match the exact Jupiter order. Enforces local maximum slippage and platform-fee basis points.
+- Re-checks the exact message digest across order, structural validation, RPC simulation, SimulationGate, and Jupiter program-trace gate. It binds router, top-level program IDs and route labels to the prior gate evidence.
+- Requires the seven account positions from the pinned IDL to resolve to the classic SPL Token program, taker authority, taker's input/output classic ATAs, output mint, and omitted optional accounts represented by the Jupiter program sentinel.
+- Requires the validated static account-key order to match the serialized message; Jupiter route accounts loaded through address lookup tables are currently unsupported. It checks required signer and writable privileges for the authority and user token accounts, and rejects unexpected privilege elevation on read-only route accounts.
+- Re-binds simulation blockhash and last-valid height, top-level and inner program traces, and quote-to-balance effect evidence. The effect evidence must identify the exact derived taker ATAs as well as exact input/output deltas and simulation slot.
+- Requires the route DAG to terminate at exactly one token index mapped to the order output mint; it rejects orphaned or ambiguous terminal branches.
+- This first slice supports only the Metis router, the Jupiter v6 `route` instruction, and explicitly mapped unit-payload DEX variants (Raydium, Meteora, Raydium CLMM, Meteora DLMM, Raydium CPMM). It rejects other routers, Jupiter instruction variants, DEX enum variants, Token-2022, optional destination accounts, and platform-fee accounts.
+- It does not decode DEX-specific CPI payloads or prove pool account semantics. Those remain separate mandatory gates; unknown or unsupported instructions remain rejected.
+- No signing, Jupiter `/execute`, wallet signature request, transaction submission, or broadcast is implemented.
+
+
+### 09.14 — Jupiter v6 route instruction semantic decoder
+
+Implemented in `veltrix/jupiter_route_semantics.py`, with adversarial coverage in `tests/test_jupiter_route_semantics.py`.
+
+- Decodes only the Anchor `route` exact-in instruction format from a pinned Jupiter v6 IDL revision: `jup-ag/instruction-parser` commit `e6f77951377847c579112e6a16d8c17c5c092485`.
+- Validates the instruction discriminator, Borsh route-plan length, each enum variant, split percentage, input/output token indexes, exact input amount, quoted output amount, slippage and platform-fee basis points, and rejects trailing bytes.
+- Only unit-payload DEX enum variants are currently supported: Raydium (7), Meteora (19), Raydium CLMM (26), Meteora DLMM (38), and Raydium CPMM (46). Every other enum variant, including variants with payload fields, fails closed.
+- Supports only the Metis router and the seven-account Jupiter `route` instruction. Token-ledger routes, shared-account routes, exact-out, optional destination/fee accounts, address-lookup-loaded Jupiter accounts, Token-2022, and all other Jupiter instruction formats are rejected.
+- Binds the serialized instruction to the quote route plan, mint-index graph, exact input/output amounts, taker, classic SPL ATAs, and the independent program-trace and quote-to-balance effect evidence.
+- Validates topological token-index production and per-input split percentages. Unknown DEX labels are rejected even when their program IDs appear in a registry.
+
+This is a deliberately narrow parser, not a general Jupiter transaction decoder. The upstream IDL revision and enum mapping are pinned in code and tests; upgrading Jupiter requires an explicit reviewed IDL update and new fixtures. This parser does not decode each DEX CPI payload or prove pool-account semantics. No signer, `/execute` endpoint, broadcast, or live trading is introduced.
