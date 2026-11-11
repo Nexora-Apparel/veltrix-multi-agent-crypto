@@ -1,10 +1,21 @@
 """Golden and adversarial tests for pinned Raydium reward emissions."""
 from dataclasses import replace
+import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
 
-from veltrix.raydium_clmm_pool_state import RaydiumClmmRewardInfo
+from veltrix.raydium_clmm_pool_state import (
+    RaydiumClmmRewardInfo,
+    RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_POOL_STATE_DISCRIMINATOR,
+    RAYDIUM_POOL_STATE_LENGTH,
+    decode_raydium_clmm_pool_state,
+    encode_raydium_clmm_pool_state,
+    derive_raydium_clmm_pool_address,
+)
+from veltrix.raydium_clmm_rewards import apply_raydium_pool_reward_update
+from veltrix.dex_pool_evidence import DexPoolAccountEvidence
 from veltrix.raydium_clmm_rewards import (
     REWARD_ENDED,
     REWARD_INITIALIZED,
@@ -135,3 +146,56 @@ def test_reward_state_transitions_from_initialized_to_opening_and_ended():
     assert opening.reward_state == REWARD_OPENING
     assert ended.reward_state == REWARD_ENDED
     assert REWARD_UNINITIALIZED == 0
+
+
+def test_pool_reward_update_rehashes_exact_serialized_pool_state():
+    program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
+    config = Pubkey.new_unique()
+    mint0, mint1 = sorted(
+        (Pubkey.new_unique(), Pubkey.new_unique()), key=bytes
+    )
+    creator, vault0, vault1, observation = (
+        Pubkey.new_unique(), Pubkey.new_unique(), Pubkey.new_unique(),
+        Pubkey.new_unique(),
+    )
+    pool_address, bump = Pubkey.find_program_address(
+        [b"pool", bytes(config), bytes(mint0), bytes(mint1)], program
+    )
+    data = bytearray(RAYDIUM_POOL_STATE_LENGTH)
+    data[:8] = RAYDIUM_POOL_STATE_DISCRIMINATOR
+    data[8] = bump
+    for offset, key in (
+        (9, config), (41, creator), (73, mint0), (105, mint1),
+        (137, vault0), (169, vault1), (201, observation),
+    ):
+        data[offset:offset + 32] = bytes(key)
+    data[233:235] = bytes((6, 6))
+    data[235:237] = (10).to_bytes(2, "little")
+    data[237:253] = (1_000_000).to_bytes(16, "little")
+    data[253:269] = (1 << 64).to_bytes(16, "little")
+    data[389] = 0
+    data[390] = 0
+    raw = bytes(data)
+    evidence = DexPoolAccountEvidence(
+        amm_key=str(pool_address),
+        dex_label="Raydium CLMM",
+        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data_length=len(raw),
+        data_sha256=hashlib.sha256(raw).hexdigest(),
+        data_bytes=raw,
+    )
+    pool = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=str(pool_address)
+    )
+    pool = replace(
+        pool,
+        reward_infos=(reward(), RaydiumClmmRewardInfo(), RaydiumClmmRewardInfo()),
+    )
+    updated = apply_raydium_pool_reward_update(pool, curr_timestamp=110)
+    encoded = encode_raydium_clmm_pool_state(updated)
+    assert updated.reward_infos[0].reward_total_emitted == 20
+    assert updated.account_data == encoded
+    assert updated.account_data_sha256 == hashlib.sha256(encoded).hexdigest()

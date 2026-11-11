@@ -9,6 +9,7 @@ from solders.pubkey import Pubkey
 from veltrix.dex_pool_evidence import DexPoolAccountEvidence, DexPoolEvidenceSnapshot
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_v6_route import DecodedJupiterRouteStep, JupiterV6RouteInspection
+from veltrix.raydium_clmm_pool_post_swap import apply_raydium_pool_after_swap
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
@@ -490,3 +491,34 @@ def test_pool_state_serializer_roundtrips_all_modeled_fields_and_preserves_reser
     assert encoded[393:397] == original_raw[393:397]
     assert encoded[1080:1096] == original_raw[1080:1096]
     assert encoded[1176:1544] == original_raw[1176:1544]
+
+
+def test_post_swap_mutation_rehashes_exact_serialized_pool_account():
+    _, evidence, _, _, _, pool_address, *_ = fixture()
+    decoded = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool_address
+    )
+    updated = apply_raydium_pool_after_swap(
+        decoded,
+        tick_current=1,
+        sqrt_price_x64=(1 << 64) + 1,
+        liquidity=decoded.liquidity + 10,
+        lp_fee=5,
+        protocol_fee=2,
+        fund_fee=1,
+        fee_growth_global_x64=7,
+        zero_for_one=True,
+        dynamic_fee_info=None,
+    )
+    encoded = encode_raydium_clmm_pool_state(updated)
+    assert updated.account_data == encoded
+    assert updated.account_data_sha256 == hashlib.sha256(encoded).hexdigest()
+    assert decode_raydium_clmm_pool_state(
+        dataclasses.replace(
+            evidence,
+            data_bytes=encoded,
+            data_length=len(encoded),
+            data_sha256=hashlib.sha256(encoded).hexdigest(),
+        ),
+        expected_pool_address=pool_address,
+    ).liquidity == updated.liquidity

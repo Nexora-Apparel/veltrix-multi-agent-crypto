@@ -1,7 +1,7 @@
 """Same-provider, same-or-newer-slot Raydium CLMM vault token-account verification."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 from solders.pubkey import Pubkey
@@ -36,6 +36,7 @@ class RaydiumClmmVaultAccount:
     state: int
     lamports: int
     data_sha256: str
+    account_data: bytes = b""
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +104,71 @@ def _decode_token_account(data: bytes, *, address: str, pool_address: str, mint:
         state=state,
         lamports=lamports,
         data_sha256=data_sha256,
+        account_data=data,
     )
+
+
+def encode_raydium_clmm_vault_token_account(
+    vault: RaydiumClmmVaultAccount,
+) -> bytes:
+    """Serialize the supported classic SPL vault account without altering authorities."""
+    if not isinstance(vault, RaydiumClmmVaultAccount):
+        raise RaydiumClmmVaultError("verified Raydium vault account is required")
+    if not isinstance(vault.account_data, bytes) or len(vault.account_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH:
+        raise RaydiumClmmVaultError("original verified 165-byte SPL token-account data is required")
+    if hashlib.sha256(vault.account_data).hexdigest() != vault.data_sha256:
+        raise RaydiumClmmVaultError("vault account bytes differ from the stored SHA-256 commitment")
+    if vault.token_program_id != CLASSIC_SPL_TOKEN_PROGRAM_ID:
+        raise RaydiumClmmVaultError("vault token program is not the classic SPL Token program")
+    if vault.token_authority != vault.pool_address:
+        raise RaydiumClmmVaultError("vault authority differs from its Raydium pool PDA")
+    if vault.address != derive_raydium_clmm_vault_address(
+        pool_address=vault.pool_address, mint=vault.mint
+    ):
+        raise RaydiumClmmVaultError("vault address is not the canonical pool/mint PDA")
+    try:
+        mint = str(Pubkey.from_bytes(vault.account_data[0:32]))
+        authority = str(Pubkey.from_bytes(vault.account_data[32:64]))
+        if mint != vault.mint or authority != vault.token_authority:
+            raise ValueError("vault account identity differs from its verified model")
+    except Exception as exc:
+        raise RaydiumClmmVaultError("vault token-account identity bytes are inconsistent") from exc
+    if vault.state != TOKEN_ACCOUNT_INITIALIZED or vault.account_data[108] != TOKEN_ACCOUNT_INITIALIZED:
+        raise RaydiumClmmVaultError("vault token account must remain initialized")
+    if (
+        int.from_bytes(vault.account_data[72:76], "little") != 0
+        or int.from_bytes(vault.account_data[109:113], "little") != 0
+        or int.from_bytes(vault.account_data[129:133], "little") != 0
+    ):
+        raise RaydiumClmmVaultError("vault delegate, native or close-authority options are unsupported")
+    if isinstance(vault.amount_raw, bool) or not isinstance(vault.amount_raw, int) or not 0 <= vault.amount_raw <= (1 << 64) - 1:
+        raise RaydiumClmmVaultError("vault amount must fit u64")
+    data = bytearray(vault.account_data)
+    data[64:72] = vault.amount_raw.to_bytes(8, "little")
+    return bytes(data)
+
+
+def apply_raydium_clmm_vault_balance_delta(
+    vault: RaydiumClmmVaultAccount,
+    *,
+    delta_raw: int,
+) -> RaydiumClmmVaultAccount:
+    """Apply one checked signed token-balance delta and commit exact account bytes."""
+    if isinstance(delta_raw, bool) or not isinstance(delta_raw, int):
+        raise RaydiumClmmVaultError("vault balance delta must be a signed integer")
+    if not isinstance(vault, RaydiumClmmVaultAccount):
+        raise RaydiumClmmVaultError("verified Raydium vault account is required")
+    next_amount = vault.amount_raw + delta_raw
+    if not 0 <= next_amount <= (1 << 64) - 1:
+        raise RaydiumClmmVaultError("vault balance delta underflows or overflows u64")
+    updated = replace(vault, amount_raw=next_amount)
+    encoded = encode_raydium_clmm_vault_token_account(updated)
+    return replace(
+        updated,
+        account_data=encoded,
+        data_sha256=hashlib.sha256(encoded).hexdigest(),
+    )
+
 
 
 def fetch_raydium_clmm_vault_snapshot(

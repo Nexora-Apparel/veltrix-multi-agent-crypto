@@ -6,10 +6,13 @@ Source: PoolState::update_reward_infos in states/pool.rs at
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_POOL_REWARD_COUNT,
     RaydiumClmmRewardInfo,
+    RaydiumClmmPoolState,
+    encode_raydium_clmm_pool_state,
 )
 from veltrix.raydium_clmm_tick_math import Q64
 
@@ -126,3 +129,27 @@ def update_raydium_reward_infos(
         )
 
     return tuple(updated)
+
+
+def apply_raydium_pool_reward_update(
+    pool: RaydiumClmmPoolState,
+    *,
+    curr_timestamp: int,
+) -> RaydiumClmmPoolState:
+    """Update PoolState reward records and commit exact serialized account bytes."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumRewardUpdateError("decoded Raydium PoolState is required")
+    updated_infos = update_raydium_reward_infos(
+        pool.reward_infos,
+        curr_timestamp=curr_timestamp,
+        liquidity=pool.liquidity,
+    )
+    updated_pool = replace(pool, reward_infos=updated_infos)
+    if updated_pool.account_data:
+        encoded = encode_raydium_clmm_pool_state(updated_pool)
+        updated_pool = replace(
+            updated_pool,
+            account_data=encoded,
+            account_data_sha256=hashlib.sha256(encoded).hexdigest(),
+        )
+    return updated_pool
