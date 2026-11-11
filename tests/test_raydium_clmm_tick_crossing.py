@@ -170,3 +170,13 @@ def test_rejects_growth_values_outside_u128():
             fee_growth_global_1_x64=1,
             reward_infos=rewards(),
         )
+
+
+def test_rejects_tick_with_inconsistent_uninitialized_flag():
+    with pytest.raises(RaydiumTickCrossingError, match="initialized tick"):
+        cross_tick_state(
+            tick(initialized=False),
+            fee_growth_global_0_x64=1,
+            fee_growth_global_1_x64=1,
+            reward_infos=rewards(),
+        )
