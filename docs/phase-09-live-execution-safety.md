@@ -276,3 +276,17 @@ Implemented in `veltrix/raydium_cpi_semantics.py`, with adversarial coverage in 
 This gate deliberately supports only all-Ray­dium-CLMM, exact-input `swap_v2` routes using classic SPL tokens. It rejects legacy `swap`, exact-output, Token-2022 assets, mixed-DEX routes, and unknown Raydium CPI layouts. The source revision is pinned; upgrades require a reviewed source/IDL diff and new fixtures.
 
 This does not prove on-chain pool state, tick-array ownership/content, oracle freshness, or actual pool price impact beyond the successful RPC simulation. It is not a signer or execution adapter. No transaction is signed or broadcast.
+
+
+### 09.17 — Meteora DLMM swap2 CPI semantic gate
+
+Implemented in `veltrix/meteora_cpi_semantics.py`, with adversarial coverage in `tests/test_meteora_cpi_semantics.py`.
+
+- Pins Meteora's public DLMM IDL from `MeteoraAg/dlmm-sdk` commit `1532e540db41ac405dbf4c5bb2ddfceaa1f98ff1`, including program ID `LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo`.
+- Decodes only the pinned `swap2` Anchor discriminator and Borsh fields: exact input amount, minimum output, and empty remaining-account-slice vector.
+- Requires direct depth-2 CPI under the exact Jupiter route instruction; matches one Meteora CPI to each quoted route step and requires Jupiter's Meteora DLMM enum variant.
+- Binds LB pair to the quote AMM key, pair mints to route mints, user signer to taker, user token accounts to Jupiter token-index flow and final classic SPL ATAs, and input amount/output threshold to the quoted step.
+- Verifies the classic SPL token programs, memo program, event-authority PDA, program account, omitted host-fee sentinel, optional bitmap-extension semantics and bounded bin-array remaining accounts.
+- Rejects unknown inner programs, Token-2022 token programs, non-empty transfer-hook slices, wrong stack depth, account aliases, exact-output/mixed-DEX paths and incomplete CPI evidence.
+
+This is a narrow classic-SPL exact-input `swap2` decoder. It does not support `swap`, exact-output variants, Token-2022 transfer hooks, or other Meteora instructions. It does not independently decode LB pair/bin-array account data, verify pool ownership/state, or recompute Meteora's bin pricing. The pinned IDL/source revision must be reviewed before upgrades. No signing or broadcast is introduced.
