@@ -286,7 +286,7 @@
     const data = accountDataBytes(info,label);
     if (data.length < 165 || b58encode(data.slice(0,32)) !== expectedMint ||
         b58encode(data.slice(32,64)) !== expectedOwner || ![1,2].includes(data[108])) fail(label + " mint/owner/state mismatch");
-    return {mint:b58encode(data.slice(0,32)),owner:b58encode(data.slice(32,64)),amount:readU64(data,64)};
+    return {mint:b58encode(data.slice(0,32)),owner:b58encode(data.slice(32,64)),amount:readU64(data,64),program:info.owner};
   }
   function decodeRouterPolicy(message, resolved, quote) {
     const keys = resolved.map(k => k.toBase58());
@@ -317,8 +317,16 @@
     if (keys[10] !== ROUTER || keys[15] !== COMPUTE_BUDGET || keys[17] !== CPMM) fail("program key positions differ from pinned v0 fixture layout");
     const p = effectivePrivileges(message,resolved);
     if (p[10].signer || p[10].writable || p[15].signer || p[15].writable || p[17].signer || p[17].writable) fail("program account has signer/writable escalation");
-    if (p[1].signer || !p[1].writable || p[3].signer || !p[3].writable ||
-        p[7].signer || !p[7].writable || p[8].signer || !p[8].writable || p[9].signer || !p[9].writable) fail("token/pool writable privileges mismatch");
+    const requiredPrivileges = [
+      [0,true,true],[1,false,true],[3,false,true],[5,false,false],[6,false,true],
+      [7,false,true],[8,false,true],[9,false,true],[10,false,false],[15,false,false],
+      [16,false,true],[17,false,false]
+    ];
+    for (const [index,signer,writable] of requiredPrivileges) {
+      if (!p[index] || p[index].signer !== signer || p[index].writable !== writable) {
+        fail("effective signer/writable privilege mismatch at resolved key index " + index);
+      }
+    }
     return {keys,inputAta,outputAta,authority,config,vaultIn,vaultOut,observation,minOut,programs};
   }
   async function verifyPoolAndAccounts(policy, resolvedInfo) {
@@ -351,8 +359,14 @@
     if (!observation || observation.owner !== CPMM) fail("observation account owner mismatch");
     const vault0 = snapshot.get(readKey(72,104)), vault1 = snapshot.get(readKey(104,136));
     const vaultMint0 = readKey(168,200), vaultMint1 = readKey(200,232);
-    decodeTokenAccount(vault0,vaultMint0,policy.authority,"pool vault 0");
-    decodeTokenAccount(vault1,vaultMint1,policy.authority,"pool vault 1");
+    const vault0Fields = decodeTokenAccount(vault0,vaultMint0,policy.authority,"pool vault 0");
+    const vault1Fields = decodeTokenAccount(vault1,vaultMint1,policy.authority,"pool vault 1");
+    const tokenProgram0 = readKey(232,264), tokenProgram1 = readKey(264,296);
+    if (vault0Fields.program !== tokenProgram0 || vault1Fields.program !== tokenProgram1) fail("pool vault token-program owner does not match pool state");
+    const mint0Info = snapshot.get(vaultMint0), mint1Info = snapshot.get(vaultMint1);
+    if (!mint0Info || !mint1Info || mint0Info.owner !== tokenProgram0 || mint1Info.owner !== tokenProgram1) {
+      fail("pool mint account owner does not match pool token-program declarations");
+    }
     const inputInfo = snapshot.get(policy.inputAta), outputInfo = snapshot.get(policy.outputAta);
     if (inputInfo) decodeTokenAccount(inputInfo,SOL,wallet.toBase58(),"wallet WSOL ATA");
     if (outputInfo) decodeTokenAccount(outputInfo,USDC,wallet.toBase58(),"wallet USDC ATA");
