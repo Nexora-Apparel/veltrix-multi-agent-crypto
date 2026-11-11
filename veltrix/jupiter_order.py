@@ -295,3 +295,24 @@ class JupiterSwapV2OrderAdapter:
             prioritization_fee_lamports=fee_value("prioritizationFeeLamports"),
             rent_fee_lamports=fee_value("rentFeeLamports"),
         )
+
+
+    def order_exact_in_for_configured_taker(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount_raw: int,
+        *,
+        policy: JupiterOrderPolicy,
+    ) -> JupiterOrderTransaction:
+        """Request an unsigned order using the configured public taker address."""
+        from veltrix.config import settings
+
+        taker = settings().jupiter_taker_public_key
+        return self.order_exact_in(
+            input_mint,
+            output_mint,
+            amount_raw,
+            taker=taker,
+            policy=policy,
+        )
