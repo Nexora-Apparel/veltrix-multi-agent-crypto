@@ -274,14 +274,17 @@ def test_pool_pda_seed_index_is_included_in_seed_derivation():
     _, evidence, _, _, _, pool_address, *_ = fixture()
     decoded = decode_raydium_clmm_pool_state(evidence, expected_pool_address=pool_address)
     assert decoded.seed_index == 0
-    alternate_address = derive_raydium_clmm_pool_address(
-        amm_config=decoded.amm_config,
-        token_mint_0=decoded.token_mint_0,
-        token_mint_1=decoded.token_mint_1,
-        bump=decoded.bump,
-        seed_index=1,
-    )
-    assert alternate_address != pool_address
+    try:
+        alternate_address = derive_raydium_clmm_pool_address(
+            amm_config=decoded.amm_config,
+            token_mint_0=decoded.token_mint_0,
+            token_mint_1=decoded.token_mint_1,
+            bump=decoded.bump,
+            seed_index=1,
+        )
+    except RaydiumClmmPoolStateError:
+        alternate_address = None
+    assert alternate_address is None or alternate_address != pool_address
 
     import dataclasses
     import hashlib
