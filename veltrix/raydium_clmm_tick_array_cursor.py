@@ -148,12 +148,22 @@ class RaydiumClmmTickArrayQueue:
             starts.append(array.start_tick_index)
         if len(addresses) != len(set(addresses)) or len(starts) != len(set(starts)):
             raise RaydiumTickArrayCursorError("queued TickArrayState accounts contain duplicate addresses or starts")
-        if self.current is not None and self.current not in self.arrays:
-            raise RaydiumTickArrayCursorError("current TickArrayState is not in the supplied queue")
         if len(self.consumed_addresses) != len(set(self.consumed_addresses)):
             raise RaydiumTickArrayCursorError("consumed TickArrayState addresses contain duplicates")
         if len(self.skipped_addresses) != len(set(self.skipped_addresses)):
             raise RaydiumTickArrayCursorError("skipped TickArrayState addresses contain duplicates")
+        expected_consumed = tuple(addresses[:self.next_index])
+        if self.consumed_addresses != expected_consumed:
+            raise RaydiumTickArrayCursorError("consumed account addresses do not match the queue cursor")
+        if self.current is None:
+            if self.next_index != 0 or self.skipped_addresses:
+                raise RaydiumTickArrayCursorError("unselected queue cannot have consumed or skipped accounts")
+        elif (
+            self.next_index == 0
+            or self.current != self.arrays[self.next_index - 1]
+            or self.skipped_addresses != tuple(addresses[:self.next_index - 1])
+        ):
+            raise RaydiumTickArrayCursorError("current and skipped accounts do not match the consumed queue prefix")
 
     @classmethod
     def from_snapshot(
