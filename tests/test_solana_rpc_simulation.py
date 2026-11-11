@@ -765,7 +765,7 @@ def raw_account_info(owner, data, *, lamports=1, executable=False):
 
 def test_simulation_captures_observed_account_pre_and_post_bytes_at_same_slot():
     raw, intent, tx_policy, expected, fixture_data = fixture()
-    observed = str(Pubkey.new_unique())
+    observed = intent.fee_payer
     owner = str(Pubkey.new_unique())
     pre_data = b"pool-state-before"
     post_data = b"pool-state-after!"
@@ -820,7 +820,7 @@ def test_simulation_rejects_duplicate_or_token_overlapping_observed_accounts():
 
 def test_simulation_rejects_observed_account_owner_change():
     raw, intent, tx_policy, expected, fixture_data = fixture()
-    observed = str(Pubkey.new_unique())
+    observed = intent.fee_payer
     fixture_data["simulation_addresses"] = fixture_data["addresses"] + [observed]
     owner = str(Pubkey.new_unique())
     fixture_data["pre_accounts"].append(raw_account_info(owner, b"before"))
@@ -831,4 +831,16 @@ def test_simulation_rejects_observed_account_owner_change():
             expected_token_deltas=expected, minimum_context_slot=490,
             last_valid_block_height=950,
             observed_account_addresses=(observed,),
+        )
+
+
+def test_simulation_rejects_observed_account_not_in_validated_message():
+    raw, intent, tx_policy, expected, fixture_data = fixture()
+    unreferenced = str(Pubkey.new_unique())
+    with pytest.raises(SolanaRpcAdapterError, match="not present in the validated transaction"):
+        adapter(FakeSession(fixture_data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950,
+            observed_account_addresses=(unreferenced,),
         )
