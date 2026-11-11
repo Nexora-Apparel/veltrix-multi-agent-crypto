@@ -278,13 +278,20 @@ def fetch_raydium_clmm_aux_account_snapshot(
         or rpc_adapter.expected_genesis_hash != simulation.genesis_hash
     ):
         raise RaydiumClmmAuxAccountError("auxiliary account RPC adapter differs from the simulation provider")
-    expected: dict[str, tuple[str, str]] = {}
+    expected: dict[str, tuple[str, set[str]]] = {}
     for check in pool_checks:
         pool = check.pool
-        expected[pool.amm_config] = (pool.pool_address, "amm_config")
-        expected[pool.observation_key] = (pool.pool_address, "observation")
-    if len(expected) != len(pool_checks) * 2:
-        raise RaydiumClmmAuxAccountError("one auxiliary account address is reused across conflicting pool roles")
+        for address, role in (
+            (pool.amm_config, "amm_config"),
+            (pool.observation_key, "observation"),
+        ):
+            prior = expected.get(address)
+            if prior is not None and prior[0] != role:
+                raise RaydiumClmmAuxAccountError("one auxiliary account address is reused across conflicting account roles")
+            if prior is None:
+                expected[address] = (role, {pool.pool_address})
+            else:
+                prior[1].add(pool.pool_address)
     minimum_slot = max(
         simulation.context_slot, pool_evidence.context_slot,
         vault_snapshot.context_slot, tick_array_snapshot.context_slot,
@@ -306,17 +313,20 @@ def fetch_raydium_clmm_aux_account_snapshot(
         if account.address in seen or account.address not in expected:
             raise RaydiumClmmAuxAccountError("auxiliary account snapshot contains duplicate or unexpected accounts")
         seen.add(account.address)
-        pool_address, role = expected[account.address]
+        role, pool_addresses = expected[account.address]
         if role == "amm_config":
             config = decode_raydium_clmm_amm_config(
                 address=account.address, owner_program_id=account.owner,
                 lamports=account.lamports, executable=account.executable, data=account.data,
             )
-            pool = next(item.pool for item in pool_checks if item.pool.pool_address == pool_address)
-            if config.tick_spacing != pool.tick_spacing:
+            matching_pools = [item.pool for item in pool_checks if item.pool.pool_address in pool_addresses]
+            if any(config.tick_spacing != pool.tick_spacing for pool in matching_pools):
                 raise RaydiumClmmAuxAccountError("AMM config tick spacing differs from PoolState")
             configs.append(config)
         else:
+            if len(pool_addresses) != 1:
+                raise RaydiumClmmAuxAccountError("one observation account cannot be shared across different pools")
+            pool_address = next(iter(pool_addresses))
             observation = decode_raydium_clmm_observation_state(
                 address=account.address, expected_pool_address=pool_address,
                 owner_program_id=account.owner, lamports=account.lamports,
