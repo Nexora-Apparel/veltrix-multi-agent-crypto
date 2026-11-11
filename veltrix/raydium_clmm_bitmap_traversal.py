@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import struct
 
 from solders.pubkey import Pubkey
 
@@ -233,6 +234,17 @@ def verify_raydium_clmm_bitmap_traversal(
     )
     if len(pool.tick_array_bitmap) != RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS or raw_words != pool.tick_array_bitmap:
         raise RaydiumClmmBitmapTraversalError("decoded PoolState bitmap words differ from the owner-verified account bytes")
+    raw_tick_spacing = int.from_bytes(pool_account.data_bytes[235:237], "little")
+    raw_tick_current = struct.unpack_from("<i", pool_account.data_bytes, 269)[0]
+    raw_mint_0 = str(Pubkey.from_bytes(pool_account.data_bytes[73:105]))
+    raw_mint_1 = str(Pubkey.from_bytes(pool_account.data_bytes[105:137]))
+    if (
+        raw_tick_spacing != pool.tick_spacing
+        or raw_tick_current != pool.tick_current
+        or raw_mint_0 != pool.token_mint_0
+        or raw_mint_1 != pool.token_mint_1
+    ):
+        raise RaydiumClmmBitmapTraversalError("PoolState tick spacing, current tick or mint pair differs from owner-verified account bytes")
     _validate_extension(pool.pool_address, tick_array_snapshot.bitmap_extension, tick_array_snapshot)
     expected_account_order = tuple(
         address for address in tick_array_snapshot.cpi_account_order
