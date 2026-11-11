@@ -38,6 +38,7 @@ from veltrix.raydium_clmm_tick_crossing import (
     cross_tick_and_apply_liquidity,
 )
 from veltrix.raydium_clmm_tick_cursor import RaydiumInitializedTickCursor
+from veltrix.raydium_clmm_tick_math import get_tick_at_sqrt_price
 from veltrix.raydium_clmm_swap_step_math import (
     RaydiumSwapStepResult,
     compute_swap_step,
@@ -279,6 +280,29 @@ def apply_raydium_swap_loop_boundary(
         raise RaydiumSwapLoopError("rightward tick boundary price is below the current price")
     tick_next = cursor.tick.tick_index
     if pre_step.swap_step.sqrt_price_next_x64 != tick_boundary_price_x64:
+        next_tick_current = current_tick
+        if current_sqrt_price_x64 != pre_step.swap_step.sqrt_price_next_x64:
+            if (
+                pre_step.spacing_bound.bounded_tick is not None
+                and pre_step.swap_step.sqrt_price_next_x64
+                == pre_step.spacing_bound.sqrt_price_x64
+            ):
+                next_tick_current = pre_step.spacing_bound.bounded_tick
+            else:
+                next_tick_current = get_tick_at_sqrt_price(
+                    pre_step.swap_step.sqrt_price_next_x64
+                )
+        dynamic_fee_state = pre_step.dynamic_fee_state
+        if dynamic_fee_state is not None:
+            dynamic_fee_state = advance_dynamic_fee_index(
+                dynamic_fee_state,
+                tick=next_tick_current,
+                tick_next=tick_next,
+                sqrt_price_x64=pre_step.swap_step.sqrt_price_next_x64,
+                sqrt_price_next_x64=tick_boundary_price_x64,
+                zero_for_one=zero_for_one,
+                is_skipped_tick_spacing=pre_step.spacing_bound.reached_target,
+            )
         return RaydiumClmmSwapLoopBoundaryResult(
             boundary_reached=False,
             pool=pool,
@@ -286,12 +310,12 @@ def apply_raydium_swap_loop_boundary(
             bitmap_extension=bitmap_extension,
             fee_accounting_state=pre_step.fee_accounting_state,
             tick=cursor.tick,
-            tick_current=current_tick,
+            tick_current=next_tick_current,
             liquidity_next=pre_step.fee_accounting_state.liquidity,
             limit_order_match=RaydiumLimitOrderMatch(),
             crossing=None,
             mutation=None,
-            dynamic_fee_state=pre_step.dynamic_fee_state,
+            dynamic_fee_state=dynamic_fee_state,
         )
 
     before_unfilled = _unfilled_limit_order_amount(cursor.tick)
