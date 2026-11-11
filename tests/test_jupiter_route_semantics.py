@@ -190,8 +190,9 @@ def test_rejects_malformed_or_unsupported_route_payload(payload, message):
 
 
 def test_accepts_exact_serialized_route_instruction_matching_order_and_quote():
-    order, _, _, _, _, _ = fixture()
-    result = evaluate()
+    values = fixture()
+    order = values[0]
+    result = evaluate(values)
     assert result.passed is True
     assert result.input_amount_raw == 1_000
     assert result.quoted_output_amount_raw == 2_000
