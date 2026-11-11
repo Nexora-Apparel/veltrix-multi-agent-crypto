@@ -87,7 +87,8 @@ def fixture():
         initialized_tick_count=0, recent_epoch=1, ticks=(), data_sha256="c" * 64,
     )
     tick_snapshot = RaydiumClmmTickArraySnapshot(
-        digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503, (tick_array,),
+        digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503,
+        (tick_array,), cpi_account_order=(tick,), bitmap_extension_address=None,
     )
     simulation = SimulationEvidence(
         digest, "blockhash", "mainnet-beta", "genesis", "rpc-primary", "sim-1",
