@@ -250,3 +250,16 @@ No transaction signing or submission is enabled.
 ### 09.15 — Slippage-bounded simulated output
 
 The generic SimulationGate now supports exact deltas and explicit minimum/maximum delta bounds. Jupiter uses an exact negative input delta and a minimum positive output delta equal to `otherAmountThreshold`. This matches Solana swap semantics: `outAmount` is the quote, while `otherAmountThreshold` is the enforceable minimum. A simulated fill may differ from the quote and still be valid if it clears the minimum. Unknown/extra token-account effects remain rejected.
+
+
+### 09.16 — Context-specific program allowlists
+
+The Jupiter program-trace gate now separates top-level transaction instructions from inner CPI programs.
+
+- Top-level instructions are limited to exactly one pinned Jupiter V6 aggregator instruction plus optional Compute Budget instructions.
+- Top-level System Program, SPL Token Program and Associated Token Program instructions are rejected. This prevents a standard-program allowlist from implicitly authorizing arbitrary SOL transfers, token transfers or account creation outside the swap instruction.
+- Inner CPI programs are limited to locally pinned DEX programs and the classic SPL Token Program. System Program, Associated Token Program and Compute Budget are not blanket-approved inside CPI.
+- The policy rejects any attempt to add System/ATA or other program IDs to the generic standard-program configuration.
+- The transaction must contain exactly one approved Jupiter aggregator instruction.
+
+This is a stricter allowlist boundary, not a substitute for decoding Compute Budget instruction payloads or DEX account layouts. If a future supported route requires additional programs, it must receive an explicit program- and instruction-specific decoder rather than broadening the generic allowlist.
