@@ -206,6 +206,8 @@ def fetch_raydium_clmm_cpi_tick_array_snapshot(
         or len(snapshot.accounts) != len(cpi.tick_array_accounts)
     ):
         raise RaydiumClmmCpiTickArrayError("CPI tick-array RPC snapshot provenance, slot or account count is invalid")
+    if tuple(account.address for account in snapshot.accounts) != tuple(cpi.tick_array_accounts):
+        raise RaydiumClmmCpiTickArrayError("RPC account snapshot does not preserve the exact CPI trailing-account order")
 
     arrays = []
     bitmap_extension_address = None
