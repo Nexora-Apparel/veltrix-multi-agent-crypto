@@ -341,7 +341,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             _expect(isinstance(program_address, str) and bool(program_address),
                     "inner CPI has no resolvable program identity: " + repr(inner))
             data = b58decode(inner.get("data", ""))
-            inner_flat.append((outer_index, program_address, list(inner.get("accounts", [])), data))
+            inner_flat.append((outer_index, program_address, list(inner.get("accounts", [])), data, inner))
     def inner_account_names(items: list[Any]) -> list[str]:
         if all(isinstance(index, int) and not isinstance(index, bool) for index in items):
             names = [key_strings[index] for index in items]
@@ -355,7 +355,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
 
     cpmm_cpis = [item for item in inner_flat if item[1] == CPMM]
     _expect(len(cpmm_cpis) == 1, "simulation must contain exactly one CPMM CPI")
-    cpi_outer_index, _, cpi_account_indexes, cpi_data = cpmm_cpis[0]
+    cpi_outer_index, _, cpi_account_indexes, cpi_data, _cpi_raw = cpmm_cpis[0]
     _expect(cpi_outer_index == 1, "CPMM CPI is not nested under the route instruction")
     _expect(cpi_data[:8] == CPMM_SWAP_BASE_INPUT and len(cpi_data) == 24,
             "inner CPMM instruction is not the pinned SwapBaseInput layout")
@@ -383,12 +383,12 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             "simulation contains an unrecognized CPI program")
     allowed_user_atas = {key_strings[1], key_strings[3]}
     created_user_atas: set[str] = set()
-    for _, program, account_indexes, data in inner_flat:
+    for _, program, account_indexes, data, raw_inner in inner_flat:
         if program == ATA_PROGRAM:
             names = inner_account_names(account_indexes)
             _expect(data in {b"\\x00", b"\\x01"} and len(names) == 6,
                     "associated-token CPI shape mismatch: data=" + data.hex() +
-                    ", accounts=" + repr(names))
+                    ", accounts=" + repr(names) + ", raw=" + repr(raw_inner))
             payer, ata, owner, mint, system_program, token_program = names
             _expect(payer == WALLET and ata in allowed_user_atas and owner == WALLET,
                     "associated-token CPI payer, owner or destination is unexpected")
