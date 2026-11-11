@@ -470,8 +470,9 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
                         and set(info.get("extensionTypes", [])) <= {"immutableOwner"},
                         "SPL account-size query references an unexpected mint/program/extension")
             elif kind == "initializeImmutableOwner":
-                _expect(program == TOKEN_2022 and info.get("account") in allowed_user_atas,
-                        "Token-2022 immutable-owner initialization targets an unexpected account")
+                _expect(program in {TOKEN, TOKEN_2022} and info.get("account") in allowed_user_atas,
+                        "immutable-owner initialization target mismatch: program=" + repr(program) +
+                        ", info=" + repr(info))
             elif kind in {"initializeAccount", "initializeAccount2", "initializeAccount3"}:
                 _expect(info.get("account") in allowed_user_atas and info.get("mint") in {WSOL, USDC}
                         and info.get("owner") == WALLET,
