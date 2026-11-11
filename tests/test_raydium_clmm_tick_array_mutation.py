@@ -184,6 +184,17 @@ def test_mutation_rejects_malformed_pool_bitmap_and_tick_slot_identity():
             tick_index=0, updated_tick=tick(0),
         )
 
+
+def test_mutation_rejects_missing_source_account_commitments():
+    p = pool(account_data_sha256="")
+    a = array(p)
+    with pytest.raises(RaydiumTickArrayMutationError, match="PoolState account hash"):
+        apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0))
+    p = pool()
+    a = replace(array(p), data_sha256="")
+    with pytest.raises(RaydiumTickArrayMutationError, match="TickArrayState account hash"):
+        apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0))
+
 def test_mutation_rejects_invalid_epoch_domain():
     p = pool()
     a = array(p)
@@ -191,6 +202,25 @@ def test_mutation_rejects_invalid_epoch_domain():
         apply_raydium_tick_array_mutation(
             p, a, recent_epoch=-1, tick_index=0, updated_tick=tick(0),
         )
+
+
+
+def test_extension_mutation_rejects_missing_source_account_commitment():
+    p = pool(tick_spacing=1)
+    a = array(p, start=60 * 512)
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=derive_raydium_tick_array_bitmap_extension_address(p.pool_address),
+        pool_address=p.pool_address,
+        positive_bitmaps=((0,) * 8,) * 14,
+        negative_bitmaps=((0,) * 8,) * 14,
+        data_sha256="",
+    )
+    with pytest.raises(RaydiumTickArrayMutationError, match="bitmap-extension account hash"):
+        apply_raydium_tick_array_mutation(
+            p, a, recent_epoch=2, tick_index=a.start_tick_index,
+            updated_tick=tick(a.start_tick_index), bitmap_extension=extension,
+        )
+
 
 def test_extension_bitmap_mutation_updates_only_the_correct_side():
     p = pool(tick_spacing=1)
