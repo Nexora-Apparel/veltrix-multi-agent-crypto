@@ -646,3 +646,19 @@ Implemented in `veltrix/raydium_clmm_pool_state.py` and `veltrix/raydium_clmm_re
 **Proof boundary:** this stage updates global reward emission state only. It does not yet compose tick-crossing reward-growth-outside inversion, reward settlement to user positions, reward-vault balance checks or full swap-loop sequencing. Any arithmetic overflow fallback follows the upstream `unwrap_or(0)` behavior and is tested explicitly.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.41 — Persist Raydium PoolState after a swap
+
+Implemented in `veltrix/raydium_clmm_pool_state.py` and `veltrix/raydium_clmm_pool_post_swap.py`, pinned to `PoolState::update_after_swap` and `PoolState::update_fee` in `states/pool.rs` at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Extends PoolState decoding with both global fee-growth accumulators, protocol-fee balances and fund-fee balances for token 0 and token 1.
+- Validates the pool's fee-collection mode (FromInput, Token0Only or Token1Only).
+- Persists post-swap current tick, sqrt price and active liquidity.
+- Routes LP fee growth, protocol fees and fund fees to the source-selected fee token; global LP fee growth is replaced only when the LP fee for this swap is non-zero.
+- Uses checked u64 additions for protocol and fund balances.
+- Updates only the four mutable dynamic-fee state fields when the pool has dynamic fees enabled; immutable fee configuration remains unchanged.
+
+**Proof boundary:** this is the final PoolState mutation primitive, not the complete transaction replay. It does not settle token vault balances, update tick-array bitmaps/counts, apply all tick-array mutations, or prove that the values supplied came from an exact source-ordered swap loop.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
