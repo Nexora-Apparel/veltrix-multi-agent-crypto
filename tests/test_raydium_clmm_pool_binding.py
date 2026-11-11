@@ -22,6 +22,11 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolState,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultAccount, RaydiumClmmVaultSnapshot
+from veltrix.raydium_clmm_aux_accounts import (
+    RaydiumClmmAmmConfig,
+    RaydiumClmmObservationState,
+    RaydiumClmmAuxAccountSnapshot,
+)
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArray,
     RaydiumClmmTickArraySnapshot,
@@ -49,10 +54,12 @@ def fixture():
         route_plan=(JupiterRouteStep(pool, "Raydium CLMM", mint_in, mint_out, 100, 190, 100.0, 10_000),),
         signature_fee_lamports=5000, prioritization_fee_lamports=0, rent_fee_lamports=0,
     )
+    amm_config = key()
+    observation = key()
     pool_state = RaydiumClmmPoolState(
-        pool_address=pool, bump=1, amm_config=key(), pool_creator=key(),
+        pool_address=pool, bump=1, amm_config=amm_config, pool_creator=key(),
         token_mint_0=mint_in, token_mint_1=mint_out,
-        token_vault_0=vault0, token_vault_1=vault1, observation_key=key(),
+        token_vault_0=vault0, token_vault_1=vault1, observation_key=observation,
         mint_decimals_0=6, mint_decimals_1=6, tick_spacing=10, liquidity=1000,
         sqrt_price_x64=1 << 64, tick_current=0, status=0, fee_on=0, seed_index=0,
         account_data_sha256=pool_hash,
@@ -86,22 +93,38 @@ def fixture():
         digest, "blockhash", "mainnet-beta", "genesis", "rpc-primary", "sim-1",
         1000, 500, 900, 950, None, 100_000, 5000, (),
     )
+    aux_snapshot = RaydiumClmmAuxAccountSnapshot(
+        route_message_sha256=digest, simulation_response_id="sim-1",
+        simulation_context_slot=500, provider_id="rpc-primary",
+        cluster="mainnet-beta", genesis_hash="genesis", context_slot=504,
+        amm_configs=(RaydiumClmmAmmConfig(
+            address=amm_config, bump=1, index=1, owner=key(),
+            protocol_fee_rate=1000, trade_fee_rate=3000,
+            tick_spacing=10, fund_fee_rate=1000, data_sha256="d" * 64,
+        ),),
+        observations=(RaydiumClmmObservationState(
+            address=observation, pool_address=pool, initialized=True,
+            recent_epoch=1, observation_index=0, latest_observation_timestamp=999,
+            latest_tick_cumulative=0, data_sha256="e" * 64,
+        ),),
+    )
     cpi = RaydiumClmmCpiResult(
         passed=True, message_sha256=digest, program_id=RAYDIUM_CLMM_MAINNET_PROGRAM_ID,
         outer_instruction_index=0, cpi_instruction_index=0, payer=taker,
         input_token_account=key(), output_token_account=key(),
-        input_vault=vault0, output_vault=vault1, pool_state=pool,
+        amm_config=amm_config, pool_state=pool, input_vault=vault0,
+        output_vault=vault1, observation_state=observation,
         tick_array_accounts=(tick,), amount_raw=100, minimum_output_raw=180,
         sqrt_price_limit_x64=1, is_base_input=True, stack_height=2,
     )
-    return order, cpi, pool_check, pool_evidence, vault_snapshot, tick_snapshot, simulation
+    return order, cpi, pool_check, pool_evidence, vault_snapshot, tick_snapshot, aux_snapshot, simulation
 
 
 def evaluate(values=None):
-    order, cpi, pool_check, pool_evidence, vaults, ticks, simulation = values or fixture()
+    order, cpi, pool_check, pool_evidence, vaults, ticks, aux, simulation = values or fixture()
     return evaluate_raydium_clmm_cpi_pool_binding(
         order, cpi=cpi, pool_check=pool_check, pool_evidence=pool_evidence,
-        vault_snapshot=vaults, tick_array_snapshot=ticks, simulation=simulation,
+        vault_snapshot=vaults, tick_array_snapshot=ticks, aux_snapshot=aux, simulation=simulation,
     )
 
 
