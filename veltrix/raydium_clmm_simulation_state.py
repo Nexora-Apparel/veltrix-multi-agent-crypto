@@ -186,9 +186,9 @@ def validate_raydium_clmm_post_state_commitments(
         if actual_post_hash != state.post_data_sha256:
             raise RaydiumClmmSimulationStateError(f"post-state byte commitment is invalid for {commitment.role}")
         digest.update(address.encode("utf-8"))
-        digest.update(b"\\x00")
+        digest.update(b"\x00")
         digest.update(commitment.role.encode("utf-8"))
-        digest.update(b"\\x00")
+        digest.update(b"\x00")
         digest.update(bytes.fromhex(actual_post_hash))
         roles.append((address, commitment.role))
 
