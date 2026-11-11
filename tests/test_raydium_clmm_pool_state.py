@@ -9,6 +9,7 @@ from solders.pubkey import Pubkey
 from veltrix.dex_pool_evidence import DexPoolAccountEvidence, DexPoolEvidenceSnapshot
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_v6_route import DecodedJupiterRouteStep, JupiterV6RouteInspection
+from veltrix.raydium_clmm_pool_post_swap import apply_raydium_pool_after_swap
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
@@ -522,3 +523,40 @@ def test_pool_state_serializer_patches_modeled_fields_without_losing_reserved_by
     assert decoded_changed.fund_fees_token_0 == 9
     assert decoded_changed.fund_fees_token_1 == 10
     assert decoded_changed.tick_array_bitmap == tuple(range(1, 17))
+
+
+def test_post_swap_mutation_serializes_and_commits_verified_pool_bytes():
+    _, evidence, _, _, _, pool_address, *_ = fixture()
+    decoded = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool_address
+    )
+    updated = apply_raydium_pool_after_swap(
+        decoded,
+        tick_current=1,
+        sqrt_price_x64=(1 << 64) + 1,
+        liquidity=2_000_000,
+        lp_fee=10,
+        protocol_fee=2,
+        fund_fee=1,
+        fee_growth_global_x64=123,
+        zero_for_one=True,
+        dynamic_fee_info=None,
+    )
+    digest = hashlib.sha256(updated.account_data).hexdigest()
+    assert updated.account_data_sha256 == digest
+    assert updated.source_account_data_sha256 == digest
+    updated_evidence = dataclasses.replace(
+        evidence,
+        data_bytes=updated.account_data,
+        data_length=len(updated.account_data),
+        data_sha256=digest,
+    )
+    decoded_updated = decode_raydium_clmm_pool_state(
+        updated_evidence, expected_pool_address=pool_address
+    )
+    assert decoded_updated.tick_current == 1
+    assert decoded_updated.sqrt_price_x64 == (1 << 64) + 1
+    assert decoded_updated.liquidity == 2_000_000
+    assert decoded_updated.fee_growth_global_0_x64 == 123
+    assert decoded_updated.protocol_fees_token_0 == 2
+    assert decoded_updated.fund_fees_token_0 == 1
