@@ -811,7 +811,7 @@
     const confirmed = [];
     for (let i = 0; i < prepared.txs.length; i++) {
       const tx = assertExactReviewedBytes(prepared.txs[i], prepared.reviewedBytes[i]);
-      await inspectTransaction(tx, prepared.quote, prepared.reviewedBytes[i]);
+      await inspectDirectCpmmTransaction(tx, prepared.quote, prepared.reviewedBytes[i]);
       const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
       if (simulation.value.err) throw new Error("Pre-sign simulation failed; Phantom approval blocked: " + JSON.stringify(simulation.value.err));
       const finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i]);
