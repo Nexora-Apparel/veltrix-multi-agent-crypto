@@ -5,6 +5,7 @@ import hashlib
 import pytest
 from solders.pubkey import Pubkey
 
+from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
 from veltrix.raydium_clmm_observation import (
     RAYDIUM_OBSERVATION_COUNT,
     RaydiumClmmObservation,
