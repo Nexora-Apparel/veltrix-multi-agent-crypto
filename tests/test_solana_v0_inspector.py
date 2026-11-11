@@ -53,3 +53,22 @@ def test_truncated_transaction_rejected():
     encoded = base64.b64encode(b"\\x01\\x00").decode()
     with pytest.raises(V0DecodeError):
         parse_base64_v0_transaction(encoded)
+
+
+def test_lookup_address_extended_in_current_slot_is_rejected():
+    from veltrix.solana_v0_inspector import Lookup, resolve_v0_keys
+
+    metadata = bytearray(56)
+    metadata[0:4] = (1).to_bytes(4, "little")
+    metadata[4:12] = ((1 << 64) - 1).to_bytes(8, "little")
+    metadata[12:20] = (100).to_bytes(8, "little")
+    metadata[20] = 1  # address index 1 was appended in slot 100
+    addresses = bytes(32) + bytes([1]) * 32
+    encoded = base64.b64encode(bytes(metadata) + addresses).decode()
+    message = type("Message", (), {
+        "static_keys": (),
+        "lookups": (Lookup(b"k" * 32, (1,), ()),),
+        "instructions": (),
+    })()
+    with pytest.raises(V0DecodeError, match="extended in the current slot"):
+        resolve_v0_keys(message, {b"k" * 32: (ALT_PROGRAM_ID, encoded)}, current_slot=100)
