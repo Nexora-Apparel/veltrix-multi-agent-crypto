@@ -200,6 +200,10 @@ def verify_raydium_swap_post_state_parity(
             raise RaydiumSwapPostStateParityError("simulated pool-vault token balance identity differs from the verified vault")
         if balance.pre_amount_raw > (1 << 64) - 1 or balance.post_amount_raw > (1 << 64) - 1:
             raise RaydiumSwapPostStateParityError("simulated pool-vault balance exceeds u64")
+        if vault_snapshot.context_slot == simulation.context_slot:
+            snapshot_vault = next(item for item in pool_vaults if item.address == address)
+            if snapshot_vault.amount_raw != balance.pre_amount_raw:
+                raise RaydiumSwapPostStateParityError("same-slot vault snapshot differs from simulation pre-state balance")
         observed_deltas[address] = balance.post_amount_raw - balance.pre_amount_raw
 
     expected_delta_0 = finalization.settlement.amount_0 if finalization.zero_for_one else -finalization.settlement.amount_0
