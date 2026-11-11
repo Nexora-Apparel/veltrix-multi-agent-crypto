@@ -330,7 +330,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(isinstance(value, dict) and value.get("err") is None, "captured transaction simulation failed")
     inner_groups = value.get("innerInstructions")
     _expect(isinstance(inner_groups, list), "Devnet simulation did not return inner-instruction metadata")
-    inner_flat: list[tuple[int, str, list[int], bytes]] = []
+    inner_flat: list[tuple[int, str, list[Any], bytes, dict[str, Any]]] = []
     for group in inner_groups:
         outer_index = group.get("index")
         for inner in group.get("instructions", []):
@@ -421,7 +421,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             "missing Devnet USDC ATA is not created by the inspected setup CPI")
     allowed_transfer_pairs = {(key_strings[1], key_strings[7]), (key_strings[8], key_strings[3])}
     token_transfer_amounts: list[tuple[str, str, int]] = []
-    for _, program, account_indexes, data in inner_flat:
+    for _, program, account_indexes, data, raw_inner in inner_flat:
         if program not in {TOKEN, TOKEN_2022}:
             continue
         _expect(bool(data), "empty SPL Token CPI data")
