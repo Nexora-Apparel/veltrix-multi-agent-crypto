@@ -15,7 +15,7 @@ from veltrix.raydium_clmm_bitmap_traversal import (
     first_tick_array_index_with_extension_info,
     next_initialized_tick_array_start_index,
 )
-from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolState
+from veltrix.raydium_clmm_pool_state import RAYDIUM_CLMM_SOURCE_COMMIT, RaydiumClmmPoolState
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
@@ -342,8 +342,8 @@ def initialize_raydium_tick_array_queue(
     """Select the first bitmap-valid array and preserve Rust's current-array flag."""
     if not isinstance(pool, RaydiumClmmPoolState):
         raise RaydiumTickArrayCursorError("decoded Raydium PoolState is required")
-    if pool.source_commit == "":
-        raise RaydiumTickArrayCursorError("PoolState source revision is missing")
+    if pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT:
+        raise RaydiumTickArrayCursorError("PoolState source revision is not pinned")
     try:
         contains_current, first_start = first_tick_array_index_with_extension_info(
             pool,
