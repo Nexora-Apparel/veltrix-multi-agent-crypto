@@ -319,8 +319,9 @@ def test_vault_delta_rejects_underflow_and_overflow(amount_delta):
 
 
 def test_swap_vault_settlement_is_atomic_when_output_vault_would_underflow():
-    snapshot = fetch(fixture())
-    vault_0 = next(vault for vault in snapshot.vaults if vault.mint == snapshot.vaults[0].mint)
+    values = fixture()
+    snapshot = fetch(values)
+    vault_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
     vault_1 = next(vault for vault in snapshot.vaults if vault.address != vault_0.address)
     before = (vault_0.amount_raw, vault_1.amount_raw)
     with pytest.raises(RaydiumClmmVaultError, match="underflows or overflows"):
