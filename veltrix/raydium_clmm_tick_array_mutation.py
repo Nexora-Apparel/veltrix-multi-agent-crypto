@@ -344,3 +344,75 @@ def apply_raydium_tick_array_mutation(
         initialized_before=array_was_initialized, initialized_after=array_is_initialized,
         bitmap_changed=bitmap_changed,
     )
+
+
+def apply_raydium_tick_array_mutation_chained(
+    previous_mutation: RaydiumTickArrayMutationResult,
+    tick_array: RaydiumClmmTickArray,
+    *,
+    tick_index: int,
+    updated_tick: RaydiumClmmTick,
+    recent_epoch: int,
+    prior_array_mutation: RaydiumTickArrayMutationResult | None = None,
+) -> RaydiumTickArrayMutationResult:
+    """Continue an immutable in-memory swap mutation chain without fabricating commitments.
+
+    The original account hashes are required for the first mutation. Later calls
+    must carry the exact prior mutation result for the same array when its account
+    hash has intentionally been cleared. The latest global mutation supplies the
+    pool bitmap and extension state across arrays.
+    """
+    if not isinstance(previous_mutation, RaydiumTickArrayMutationResult):
+        raise RaydiumTickArrayMutationError("prior global tick-array mutation lineage is required")
+    if not isinstance(tick_array, RaydiumClmmTickArray):
+        raise RaydiumTickArrayMutationError("decoded tick-array state is required")
+    if previous_mutation.pool.pool_address != tick_array.pool_address:
+        raise RaydiumTickArrayMutationError("mutation lineage belongs to a different pool")
+
+    if tick_array.data_sha256 == "":
+        if (
+            not isinstance(prior_array_mutation, RaydiumTickArrayMutationResult)
+            or prior_array_mutation.tick_array is not tick_array
+        ):
+            raise RaydiumTickArrayMutationError(
+                "mutated tick array requires its exact prior mutation lineage"
+            )
+        working_array = replace(tick_array, data_sha256="0" * 64)
+    else:
+        if prior_array_mutation is not None:
+            raise RaydiumTickArrayMutationError(
+                "prior array lineage supplied for an unmutated source array"
+            )
+        working_array = tick_array
+
+    prior_pool_hash_empty = previous_mutation.pool.account_data_sha256 == ""
+    working_pool = (
+        replace(previous_mutation.pool, account_data_sha256="0" * 64)
+        if prior_pool_hash_empty else previous_mutation.pool
+    )
+    prior_extension = previous_mutation.bitmap_extension
+    prior_extension_hash_empty = (
+        prior_extension is not None and prior_extension.data_sha256 == ""
+    )
+    working_extension = (
+        replace(prior_extension, data_sha256="0" * 64)
+        if prior_extension_hash_empty else prior_extension
+    )
+
+    result = apply_raydium_tick_array_mutation(
+        working_pool,
+        working_array,
+        tick_index=tick_index,
+        updated_tick=updated_tick,
+        recent_epoch=recent_epoch,
+        bitmap_extension=working_extension,
+    )
+    next_pool = result.pool
+    if prior_pool_hash_empty or result.bitmap_changed:
+        next_pool = replace(next_pool, account_data_sha256="")
+    next_extension = result.bitmap_extension
+    if next_extension is not None and (
+        prior_extension_hash_empty or next_extension.data_sha256 == ""
+    ):
+        next_extension = replace(next_extension, data_sha256="")
+    return replace(result, pool=next_pool, bitmap_extension=next_extension)
