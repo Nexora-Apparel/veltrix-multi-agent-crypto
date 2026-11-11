@@ -442,8 +442,10 @@ def to_mutation_bitmap_extension(
     if (
         len(extension.positive_bitmaps) != EXTENSION_BITMAPS * 8
         or len(extension.negative_bitmaps) != EXTENSION_BITMAPS * 8
+        or any(isinstance(word, bool) or not isinstance(word, int) or not 0 <= word <= U64_MAX
+               for word in (*extension.positive_bitmaps, *extension.negative_bitmaps))
     ):
-        raise RaydiumTickArrayMutationError("snapshot bitmap extension must contain 112 words per direction")
+        raise RaydiumTickArrayMutationError("snapshot bitmap extension must contain 112 valid u64 words per direction")
     positive_bytes = tuple(
         int.from_bytes(extension.data_bytes[40 + index * 8:48 + index * 8], "little")
         for index in range(EXTENSION_BITMAPS * 8)
@@ -500,6 +502,8 @@ def update_tick_array_snapshot_bitmap_extension(
     if not isinstance(snapshot, RaydiumClmmTickArraySnapshot):
         raise RaydiumTickArrayMutationError("verified tick-array snapshot is required")
     if extension is None:
+        if snapshot.bitmap_extension_address is not None:
+            raise RaydiumTickArrayMutationError("cannot discard a bitmap extension supplied in the CPI account list")
         return replace(
             snapshot,
             bitmap_extension_address=None,
