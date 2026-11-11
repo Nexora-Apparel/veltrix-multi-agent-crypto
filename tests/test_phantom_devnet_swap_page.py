@@ -194,7 +194,7 @@ def test_adversarial_node_harness_is_wired_into_ci():
 
 def test_cpmm_and_token_account_decoders_are_exposed_only_to_guarded_tests():
     source = PAGE.read_text(encoding="utf-8")
-    assert "function decodeCpmmSwapData(data)" in source
+    assert "function decodeCpmmSwapData(data, expectedMinimum=0n)" in source
     assert "function decodeTokenAccount(" in source
     assert "decodeCpmmSwapData,decodeTokenAccount" in source
     harness = PAGE.parents[1] / "tests" / "phantom_verifier_adversarial.mjs"
