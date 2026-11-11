@@ -56,7 +56,15 @@ jobs:
         if: success()
         run: |
           python -m veltrix.solana_devnet_ephemeral_swap --output artifacts/raydium-devnet-ephemeral-swap.json
-      - name: Upload disposable-wallet swap evidence\n        if: always()\n        uses: actions/upload-artifact@v4\n        with:\n          name: raydium-devnet-ephemeral-swap\n          path: artifacts/raydium-devnet-ephemeral-swap.json\n          if-no-files-found: warn\n          retention-days: 14\n      - name: Upload Devnet swap evidence
+      - name: Upload disposable-wallet swap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raydium-devnet-ephemeral-swap
+          path: artifacts/raydium-devnet-ephemeral-swap.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload Devnet swap evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
