@@ -253,6 +253,7 @@ def inspect_jupiter_v6_route(
 
     grouped_percent: dict[int, int] = {}
     grouped_bps: dict[int, int] = {}
+    token_mints: dict[int, str] = {0: order.input_mint, len(decoded_steps): order.output_mint}
     for decoded, quoted in zip(decoded_steps, order.route_plan):
         if decoded.dex_label not in policy.allowed_dex_labels or decoded.dex_label != quoted.label:
             raise JupiterV6RouteError("on-chain DEX enum differs from the quoted route label")
@@ -266,8 +267,14 @@ def inspect_jupiter_v6_route(
             or quoted.bps != decoded.percent * 100
         ):
             raise JupiterV6RouteError("on-chain route split differs from the quoted percent/bps")
+        for token_index, mint in ((decoded.input_index, quoted.input_mint), (decoded.output_index, quoted.output_mint)):
+            if token_index in token_mints and token_mints[token_index] != mint:
+                raise JupiterV6RouteError("quoted route mint graph differs from the on-chain token indexes")
+            token_mints[token_index] = mint
         grouped_percent[decoded.input_index] = grouped_percent.get(decoded.input_index, 0) + decoded.percent
         grouped_bps[decoded.input_index] = grouped_bps.get(decoded.input_index, 0) + quoted.bps
+    if token_mints.get(0) != order.input_mint or token_mints.get(len(decoded_steps)) != order.output_mint:
+        raise JupiterV6RouteError("quoted route endpoints differ from the order input/output mints")
     if any(value != 100 for value in grouped_percent.values()) or any(value != 10_000 for value in grouped_bps.values()):
         raise JupiterV6RouteError("route branches do not allocate exactly 100 percent / 10000 bps")
 
