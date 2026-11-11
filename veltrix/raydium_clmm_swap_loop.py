@@ -214,6 +214,12 @@ def _is_fee_on_token0(fee_on: int, zero_for_one: bool) -> bool:
 
 
 def _unfilled_limit_order_amount(tick: RaydiumClmmTick) -> int:
+    for value, field in (
+        (tick.orders_amount, "orders_amount"),
+        (tick.part_filled_orders_remaining, "part_filled_orders_remaining"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= (1 << 64) - 1:
+            raise RaydiumSwapLoopError(f"{field} must fit u64")
     total = tick.orders_amount + tick.part_filled_orders_remaining
     if total > (1 << 64) - 1:
         raise RaydiumSwapLoopError("limit-order unfilled amount overflows u64")
@@ -261,6 +267,16 @@ def apply_raydium_swap_loop_boundary(
     ):
         raise RaydiumSwapLoopError("three updated Raydium reward records are required")
 
+    for value, field in (
+        (current_sqrt_price_x64, "current sqrt price"),
+        (tick_boundary_price_x64, "tick boundary sqrt price"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < (1 << 128):
+            raise RaydiumSwapLoopError(f"{field} must be a positive u128")
+    if zero_for_one and tick_boundary_price_x64 > current_sqrt_price_x64:
+        raise RaydiumSwapLoopError("leftward tick boundary price is above the current price")
+    if not zero_for_one and tick_boundary_price_x64 < current_sqrt_price_x64:
+        raise RaydiumSwapLoopError("rightward tick boundary price is below the current price")
     tick_next = cursor.tick.tick_index
     if pre_step.swap_step.sqrt_price_next_x64 != tick_boundary_price_x64:
         return RaydiumClmmSwapLoopBoundaryResult(
