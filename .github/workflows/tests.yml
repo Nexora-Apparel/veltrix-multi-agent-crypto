@@ -32,20 +32,3 @@ jobs:
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
         run: python -m veltrix.solana_meme.risk_smoke
-
-      - name: Live Raydium Devnet quote, pool verification and unsigned simulation
-        if: github.event_name == 'pull_request' && github.head_ref == 'work/devnet-raydium-swap-preflight'
-        run: |
-          mkdir -p artifacts
-          python -m veltrix.solana_devnet_swap_preflight \
-            --wallet "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U" \
-            --amount-lamports "10000000" \
-            --output artifacts/raydium-devnet-swap-preflight.json
-      - name: Upload Raydium Devnet preflight evidence
-        if: always() && github.event_name == 'pull_request' && github.head_ref == 'work/devnet-raydium-swap-preflight'
-        uses: actions/upload-artifact@v4
-        with:
-          name: raydium-devnet-swap-preflight
-          path: artifacts/raydium-devnet-swap-preflight.json
-          if-no-files-found: warn
-          retention-days: 14
