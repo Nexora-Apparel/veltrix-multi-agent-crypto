@@ -384,12 +384,20 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     allowed_user_atas = {key_strings[1], key_strings[3]}
     created_user_atas: set[str] = set()
     for _, program, account_indexes, data, raw_inner in inner_flat:
+        parsed = raw_inner.get("parsed") if isinstance(raw_inner, dict) else None
         if program == ATA_PROGRAM:
-            names = inner_account_names(account_indexes)
-            _expect(data in {b"\\x00", b"\\x01"} and len(names) == 6,
-                    "associated-token CPI shape mismatch: data=" + data.hex() +
-                    ", accounts=" + repr(names) + ", raw=" + repr(raw_inner))
-            payer, ata, owner, mint, system_program, token_program = names
+            if isinstance(parsed, dict):
+                info = parsed.get("info", {})
+                _expect(parsed.get("type") in {"create", "createIdempotent"},
+                        "associated-token parsed CPI is not create/create-idempotent")
+                payer, ata = info.get("source"), info.get("account")
+                owner, mint = info.get("wallet"), info.get("mint")
+                system_program, token_program = info.get("systemProgram"), info.get("tokenProgram")
+            else:
+                names = inner_account_names(account_indexes)
+                _expect(data in {bytes([0]), bytes([1])} and len(names) == 6,
+                        "associated-token compiled CPI has an unexpected shape")
+                payer, ata, owner, mint, system_program, token_program = names
             _expect(payer == WALLET and ata in allowed_user_atas and owner == WALLET,
                     "associated-token CPI payer, owner or destination is unexpected")
             _expect((ata, mint, token_program) in {
@@ -397,84 +405,130 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
             } and system_program == SYSTEM, "associated-token CPI mint/program tuple is unexpected")
             created_user_atas.add(ata)
         elif program == SYSTEM:
-            _expect(len(data) >= 4, "System Program CPI data is truncated")
-            tag = int.from_bytes(data[:4], "little")
-            names = [key_strings[index] for index in account_indexes]
-            if tag == 0:  # CreateAccount
-                _expect(len(data) == 52 and len(names) == 2, "System CreateAccount CPI has unexpected shape")
-                lamports = read_u64(data, 4)
-                space = read_u64(data, 12)
-                owner_program = b58encode(data[20:52])
-                _expect(names[0] == WALLET and names[1] in allowed_user_atas,
-                        "System CreateAccount payer or destination is unexpected")
-                _expect(0 < lamports <= 10_000_000 and space == 165 and owner_program == TOKEN,
-                        "System CreateAccount rent, space or owner is unexpected")
-            elif tag == 2:  # Transfer
-                _expect(len(data) == 12 and len(names) == 2, "System Transfer CPI has unexpected shape")
-                _expect(names == [WALLET, key_strings[1]] and read_u64(data, 4) == INPUT_AMOUNT,
-                        "System Transfer is not the exact wrapped-SOL funding transfer")
+            if isinstance(parsed, dict):
+                info = parsed.get("info", {})
+                kind = parsed.get("type")
+                if kind == "transfer":
+                    _expect(info.get("source") == WALLET and info.get("destination") == key_strings[1]
+                            and int(info.get("lamports", -1)) == INPUT_AMOUNT,
+                            "parsed System Transfer is not the exact wrapped-SOL funding transfer")
+                elif kind == "createAccount":
+                    _expect(info.get("source") == WALLET and info.get("newAccount") in allowed_user_atas,
+                            "parsed System CreateAccount payer or destination is unexpected")
+                    _expect(0 < int(info.get("lamports", 0)) <= 10_000_000
+                            and int(info.get("space", 0)) == 165 and info.get("owner") == TOKEN,
+                            "parsed System CreateAccount rent, space or owner is unexpected")
+                else:
+                    raise AuditError("disallowed parsed System Program CPI type " + repr(kind))
             else:
-                raise AuditError(f"disallowed System Program CPI instruction {tag}")
+                _expect(len(data) >= 4, "System Program CPI data is truncated")
+                tag = int.from_bytes(data[:4], "little")
+                names = inner_account_names(account_indexes)
+                if tag == 0:
+                    _expect(len(data) == 52 and len(names) == 2, "System CreateAccount CPI has unexpected shape")
+                    lamports = read_u64(data, 4)
+                    space = read_u64(data, 12)
+                    owner_program = b58encode(data[20:52])
+                    _expect(names[0] == WALLET and names[1] in allowed_user_atas,
+                            "System CreateAccount payer or destination is unexpected")
+                    _expect(0 < lamports <= 10_000_000 and space == 165 and owner_program == TOKEN,
+                            "System CreateAccount rent, space or owner is unexpected")
+                elif tag == 2:
+                    _expect(len(data) == 12 and len(names) == 2, "System Transfer CPI has unexpected shape")
+                    _expect(names == [WALLET, key_strings[1]] and read_u64(data, 4) == INPUT_AMOUNT,
+                            "System Transfer is not the exact wrapped-SOL funding transfer")
+                else:
+                    raise AuditError("disallowed System Program CPI instruction " + str(tag))
     _expect(input_account_present or key_strings[1] in created_user_atas,
             "missing wrapped-SOL ATA is not created by the inspected setup CPI")
     _expect(output_account_present or key_strings[3] in created_user_atas,
             "missing Devnet USDC ATA is not created by the inspected setup CPI")
+
     allowed_transfer_pairs = {(key_strings[1], key_strings[7]), (key_strings[8], key_strings[3])}
     token_transfer_amounts: list[tuple[str, str, int]] = []
+    close_cpi_verified = False
+    sync_native_verified = False
     for _, program, account_indexes, data, raw_inner in inner_flat:
         if program not in {TOKEN, TOKEN_2022}:
             continue
-        _expect(bool(data), "empty SPL Token CPI data")
-        tag = data[0]
-        account_names = [key_strings[index] for index in account_indexes]
-        if tag == 9:  # CloseAccount: account, destination, authority
-            _expect(len(account_names) == 3 and account_names == [key_strings[1], WALLET, WALLET],
-                    "CloseAccount CPI has an unexpected account or lamport recipient")
-        elif tag == 17:  # SyncNative
-            _expect(account_names == [key_strings[1]], "SyncNative targets an unexpected token account")
-        elif tag == 3:  # Transfer
-            _expect(len(data) == 9 and len(account_names) == 3, "SPL Transfer CPI has unexpected shape")
-            source, destination, authority_name = account_names
-            amount = read_u64(data, 1)
-            _expect((source, destination) in allowed_transfer_pairs,
-                    "SPL Transfer CPI has an unexpected source or recipient")
-            _expect(authority_name in {WALLET, str(authority)}, "SPL Transfer CPI authority is unexpected")
-            if source == key_strings[1]:
-                _expect(amount == INPUT_AMOUNT, "wrapped-SOL transfer amount is not exact")
+        parsed = raw_inner.get("parsed") if isinstance(raw_inner, dict) else None
+        if isinstance(parsed, dict):
+            kind = parsed.get("type")
+            info = parsed.get("info", {})
+            if kind == "closeAccount":
+                _expect(info.get("account") == key_strings[1]
+                        and info.get("destination") == WALLET
+                        and info.get("owner") == WALLET,
+                        "parsed CloseAccount has an unexpected account or lamport recipient")
+                close_cpi_verified = True
+            elif kind == "syncNative":
+                _expect(info.get("account") == key_strings[1],
+                        "parsed SyncNative targets an unexpected token account")
+                sync_native_verified = True
+            elif kind in {"transfer", "transferChecked"}:
+                source, destination = info.get("source"), info.get("destination")
+                authority_name = info.get("authority") or info.get("owner")
+                if kind == "transferChecked":
+                    mint_name = info.get("mint")
+                    token_amount = info.get("tokenAmount", {})
+                    amount = int(token_amount.get("amount", -1))
+                    _expect(mint_name == (WSOL if source == key_strings[1] else USDC),
+                            "parsed TransferChecked mint does not match its token accounts")
+                else:
+                    amount = int(info.get("amount", -1))
+                _expect((source, destination) in allowed_transfer_pairs,
+                        "parsed SPL transfer has an unexpected source or recipient")
+                _expect(authority_name in {WALLET, str(authority)},
+                        "parsed SPL transfer authority is unexpected")
+                if source == key_strings[1]:
+                    _expect(amount == INPUT_AMOUNT, "wrapped-SOL transfer amount is not exact")
+                else:
+                    _expect(amount >= MIN_OUTPUT, "USDC transfer is below the reviewed minimum")
+                token_transfer_amounts.append((source, destination, amount))
             else:
-                _expect(amount >= MIN_OUTPUT, "USDC transfer is below the reviewed minimum")
-            token_transfer_amounts.append((source, destination, amount))
-        elif tag == 12:  # TransferChecked
-            _expect(len(data) == 10 and len(account_names) == 4, "SPL TransferChecked CPI has unexpected shape")
-            source, mint_name, destination, authority_name = account_names
-            amount = read_u64(data, 1)
-            _expect((source, destination) in allowed_transfer_pairs,
-                    "SPL TransferChecked has an unexpected source or recipient")
-            _expect(mint_name == (WSOL if source == key_strings[1] else USDC),
-                    "SPL TransferChecked mint does not match its token accounts")
-            _expect(authority_name in {WALLET, str(authority)}, "SPL TransferChecked authority is unexpected")
-            if source == key_strings[1]:
-                _expect(amount == INPUT_AMOUNT, "wrapped-SOL TransferChecked amount is not exact")
-            else:
-                _expect(amount >= MIN_OUTPUT, "USDC TransferChecked amount is below the reviewed minimum")
-            token_transfer_amounts.append((source, destination, amount))
+                raise AuditError("disallowed parsed SPL Token instruction type " + repr(kind))
         else:
-            raise AuditError(f"disallowed SPL Token instruction tag {tag}")
+            names = inner_account_names(account_indexes)
+            _expect(bool(data), "empty compiled SPL Token CPI data")
+            tag = data[0]
+            if tag == 9:
+                _expect(len(names) == 3 and names == [key_strings[1], WALLET, WALLET],
+                        "CloseAccount CPI has an unexpected account or lamport recipient")
+                close_cpi_verified = True
+            elif tag == 17:
+                _expect(names == [key_strings[1]], "SyncNative targets an unexpected token account")
+                sync_native_verified = True
+            elif tag in {3, 12}:
+                checked = tag == 12
+                expected_data_len = 10 if checked else 9
+                expected_accounts_len = 4 if checked else 3
+                _expect(len(data) == expected_data_len and len(names) == expected_accounts_len,
+                        "SPL transfer CPI has unexpected shape")
+                if checked:
+                    source, mint_name, destination, authority_name = names
+                    _expect(mint_name == (WSOL if source == key_strings[1] else USDC),
+                            "SPL TransferChecked mint does not match its token accounts")
+                else:
+                    source, destination, authority_name = names
+                amount = read_u64(data, 1)
+                _expect((source, destination) in allowed_transfer_pairs,
+                        "SPL transfer CPI has an unexpected source or recipient")
+                _expect(authority_name in {WALLET, str(authority)}, "SPL transfer authority is unexpected")
+                if source == key_strings[1]:
+                    _expect(amount == INPUT_AMOUNT, "wrapped-SOL transfer amount is not exact")
+                else:
+                    _expect(amount >= MIN_OUTPUT, "USDC transfer is below the reviewed minimum")
+                token_transfer_amounts.append((source, destination, amount))
+            else:
+                raise AuditError("disallowed SPL Token instruction tag " + str(tag))
+    _expect(sync_native_verified, "no exact SyncNative CPI for the wrapped-SOL ATA was observed")
+    _expect(close_cpi_verified, "no exact CloseAccount CPI returning rent to the wallet was observed")
     _expect(any(src == key_strings[1] and dst == key_strings[7] and amount == INPUT_AMOUNT
                 for src, dst, amount in token_transfer_amounts),
             "no exact wrapped-SOL transfer into the CPMM input vault was observed")
     _expect(any(src == key_strings[8] and dst == key_strings[3] and amount >= MIN_OUTPUT
                 for src, dst, amount in token_transfer_amounts),
             "no minimum-sized USDC transfer into the wallet output account was observed")
-    close_cpis = [
-        item for item in inner_flat
-        if item[1] in {TOKEN, TOKEN_2022} and item[3][:1] == b"\x09"
-    ]
-    _expect(len(close_cpis) == 1, "expected exactly one SPL CloseAccount CPI")
-    _, _, close_accounts, close_data, _close_raw = close_cpis[0]
-    _expect(len(close_data) == 1 and len(close_accounts) == 3, "CloseAccount CPI has unexpected shape")
-    _expect(inner_account_names(close_accounts) == [key_strings[1], WALLET, WALLET],
-            "temporary wrapped-SOL account is not closed to the connected wallet")
 
     return {
         "evidence_type": "raydium_devnet_transaction_semantic_audit",
