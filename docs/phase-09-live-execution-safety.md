@@ -445,3 +445,19 @@ Remaining limitation: strict order and account identity do not yet prove that no
 #### Pinned PoolState allocation-size correction
 
 A source-layout audit corrected the full PoolState account allocation from the earlier 1,544-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
+
+
+### 09.29 — Reproduce PoolState and extension bitmap traversal
+
+Implemented in `veltrix/raydium_clmm_bitmap_traversal.py`.
+
+- Reads the 1,024-bit default initialized-array bitmap already decoded from the pinned 1,544-byte PoolState at the source-defined `tick_array_bitmap` field offset.
+- Decodes and retains the extension account's 14 positive and 14 negative 512-bit bitmap blocks (each block is eight little-endian u64 words), bound to the validated extension PDA, pool ID, provider snapshot and SHA-256 digest.
+- Reproduces the pinned Raydium default bitmap index mapping (`start / (60 * tick_spacing) + 512`) and the extension block/bit mapping on both positive and negative tick ranges.
+- Starts from the PoolState current tick's containing array, determines whether it is initialized, then reproduces the next initialized-array search in swap direction.
+- Compares the bitmap-derived initialized-array sequence with the decoded CPI-supplied arrays and rejects any initialized boundary omitted between the current array and the last CPI-supplied array. Uninitialized candidate accounts may remain in the supplied list because the pinned swap loop advances through them until the next bitmap-selected initialized array.
+- Preserves the exact CPI trailing-account order and returns a bounded-interval proof, never an execution authorization.
+
+**Proof boundary:** this proves bitmap completeness only from the current tick-array boundary through the last array supplied in the CPI account list. It does not prove how many arrays the simulated swap actually consumed, that no further array beyond the final supplied account was needed, that the quote's amount/price limit would stop within the supplied range, or the exact initialized ticks/liquidity transitions consumed by the swap. Those require binding the full simulation execution trace/state transition to the account sequence and independently replaying the pinned swap loop. Executable liquidity/depth and price-impact calculation remain separate gaps.
+
+All results remain evidence-only. No wallet signing, Jupiter `/execute`, transaction submission, broadcast, or live execution is enabled.
