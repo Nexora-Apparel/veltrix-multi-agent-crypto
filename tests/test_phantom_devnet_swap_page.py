@@ -64,8 +64,8 @@ def test_quote_and_signing_are_invalidated_on_account_or_amount_change():
 
 def test_missing_negative_or_excessive_price_impact_fails_closed():
     source = PAGE.read_text(encoding="utf-8")
-    assert "impact < 0 || impact > MAX_IMPACT" in source
-    assert "Price impact is missing, invalid or above" in source
+    assert "impact<0 || impact>MAX_IMPACT" in source
+    assert "Direct CPMM price impact exceeds the 2% safety ceiling." in source
 
 
 def test_amount_is_locked_during_quote_and_signing_operations():
@@ -86,7 +86,8 @@ def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
 
 def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
     source = PAGE.read_text(encoding="utf-8")
-    assert "built.data.length !== 1" in source
+    assert "prepared.txs.length !== 1" in source
+    assert "prepared.reviewedBytes.length !== 1" in source
     assert "Date.now() - prepared.preparedAt > 60000" in source
     assert "prepared.walletAddress !== wallet.toBase58()" in source
 
@@ -140,8 +141,8 @@ def test_browser_cpmm_policy_checks_live_pool_and_inner_swap_cpi():
 
 def test_browser_semantic_audit_runs_before_review_and_before_signing():
     source = PAGE.read_text(encoding="utf-8")
-    assert "await inspectTransaction(tx, q, snapshot)" in source
-    assert "await inspectTransaction(tx, prepared.quote, prepared.reviewedBytes[i])" in source
+    assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
+    assert "await inspectDirectCpmmTransaction(tx, prepared.quote, prepared.reviewedBytes[i])" in source
     assert "Transaction intent rejected:" in source
     assert "provider.signAndSendTransaction(finalTx" in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
@@ -169,9 +170,11 @@ def test_pool_vault_direction_is_bound_to_mint_order():
 
 def test_quote_is_locked_to_the_exactly_audited_single_hop_pool():
     source = PAGE.read_text(encoding="utf-8")
-    assert "q.routePlan.length !== 1" in source
-    assert "q.routePlan[0].poolId !== POOL" in source
-    assert "Multi-hop or changed-pool routes are rejected." in source
+    assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in source
+    assert "poolInfo.id !== POOL || poolInfo.programId !== CPMM" in source
+    assert "raydium.cpmm.swap(" in source
+    assert "minimumOut=swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000))" in source
+    assert "const TRADE =" not in source
 
 
 def test_browser_verifier_checks_pool_token_programs_and_all_privileges():
@@ -260,3 +263,14 @@ def test_amm_config_discriminator_is_compared_as_raw_bytes():
     assert "expectedConfigDisc = Uint8Array.from([218,244,33,104,203,203,43,111])" in source
     assert "equalBytes(configData.slice(0,8),expectedConfigDisc)" in source
     assert 'b58encode(accountDataBytes(config,"AMM config").slice(0,8)) !== "daf42168cbcb2b6f"' not in source
+
+
+
+def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
+    assert "getPoolInfoFromRpc(POOL)" in source
+    assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
+    assert 'throw new Error("Phantom signing is disabled.' in source
+    assert '$("execute").disabled = true' in source
+    assert 'textContent="Phantom signing disabled"' not in source
