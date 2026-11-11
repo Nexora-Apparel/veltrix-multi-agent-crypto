@@ -39,6 +39,8 @@ def fixture(
     input_amount=1_000,
     quoted_output=2_000,
     minimum_output=1_950,
+    order_input_amount=None,
+    order_quoted_output=None,
     slippage_bps=250,
     platform_fee_bps=0,
     route_label="Raydium CLMM",
@@ -154,8 +156,8 @@ def fixture(
         fee_payer=str(taker),
         input_mint=str(input_mint),
         output_mint=str(output_mint),
-        input_amount_raw=input_amount,
-        output_amount_raw=quoted_output,
+        input_amount_raw=input_amount if order_input_amount is None else order_input_amount,
+        output_amount_raw=quoted_output if order_quoted_output is None else order_quoted_output,
         minimum_output_amount_raw=minimum_output,
         price_impact_pct=0.2,
         fee_bps=50.0,
@@ -241,7 +243,7 @@ def test_rejects_invalid_boolean_swap_variant_payload():
 
 def test_rejects_route_instruction_amount_or_slippage_mismatch():
     with pytest.raises(JupiterV6RouteError, match="route amounts differ"):
-        inspect(fixture(input_amount=999))
+        inspect(fixture(input_amount=999, order_input_amount=1_000))
     with pytest.raises(JupiterV6RouteError, match="minimum output"):
         inspect(fixture(minimum_output=1_949))
 
