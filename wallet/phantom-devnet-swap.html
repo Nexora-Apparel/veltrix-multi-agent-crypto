@@ -328,7 +328,7 @@
     const p = effectivePrivileges(message,resolved);
     if (p[10].signer || p[10].writable || p[15].signer || p[15].writable || p[17].signer || p[17].writable) fail("program account has signer/writable escalation");
     const requiredPrivileges = [
-      [0,true,true],[1,false,true],[3,false,true],[5,false,false],[6,false,true],
+      [0,true,true],[1,false,true],[2,false,true],[3,false,true],[4,false,true],[5,false,true],[6,false,true],
       [7,false,true],[8,false,true],[9,false,true],[10,false,false],[15,false,false],
       [16,false,true],[17,false,false]
     ];
