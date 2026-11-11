@@ -268,6 +268,91 @@ def test_rejects_genesis_hash_mismatch_for_account_snapshot():
         )
 
 
+def test_fetches_provider_pinned_account_snapshot_at_minimum_context_slot():
+    _, _, _, _, fixture_data = fixture()
+    session = FakeSession(fixture_data)
+    snapshot = adapter(session).fetch_account_snapshot(
+        tuple(fixture_data["addresses"]),
+        min_context_slot=500,
+    )
+    assert snapshot.provider_id == "rpc-primary"
+    assert snapshot.cluster == "mainnet-beta"
+    assert snapshot.genesis_hash == "test-genesis"
+    assert snapshot.context_slot == 500
+    assert tuple(account.address for account in snapshot.accounts) == tuple(fixture_data["addresses"])
+    assert snapshot.accounts[0].owner == TOKEN_PROGRAM
+    assert snapshot.accounts[0].lamports == 2_039_280
+    assert len(snapshot.accounts[0].data) == 165
+    request = next(call for call in session.calls if call["method"] == "getMultipleAccounts")
+    assert request["params"][1] == {
+        "encoding": "base64",
+        "commitment": "confirmed",
+        "minContextSlot": 500,
+    }
+
+
+def test_rejects_duplicate_or_noncanonical_account_snapshot_addresses():
+    _, _, _, _, fixture_data = fixture()
+    rpc = adapter(FakeSession(fixture_data))
+    with pytest.raises(SolanaRpcAdapterError, match="must not contain duplicates"):
+        rpc.fetch_account_snapshot((fixture_data["addresses"][0], fixture_data["addresses"][0]), min_context_slot=500)
+    with pytest.raises(SolanaRpcAdapterError, match="invalid public key"):
+        rpc.fetch_account_snapshot(("not-a-public-key",), min_context_slot=500)
+
+
+def test_rejects_account_snapshot_older_than_simulation_slot():
+    _, _, _, _, fixture_data = fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="older than the required simulation slot"):
+        adapter(FakeSession(fixture_data)).fetch_account_snapshot(
+            tuple(fixture_data["addresses"]),
+            min_context_slot=501,
+        )
+
+
+def test_rejects_missing_account_from_snapshot():
+    _, _, _, _, fixture_data = fixture()
+    response = {
+        "context": {"slot": 500},
+        "value": [fixture_data["pre_accounts"][0], None],
+    }
+    with pytest.raises(SolanaRpcAdapterError, match="is missing"):
+        adapter(FakeSession(fixture_data, overrides={"getMultipleAccounts": response})).fetch_account_snapshot(
+            tuple(fixture_data["addresses"]),
+            min_context_slot=500,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda info: {**info, "owner": "bad-owner"}, "invalid owner"),
+        (lambda info: {**info, "lamports": True}, "invalid lamports"),
+        (lambda info: {**info, "executable": "false"}, "executable flag"),
+        (lambda info: {**info, "data": ["***", "base64"]}, "valid base64"),
+        (lambda info: {**info, "data": [info["data"][0], "base64+zstd"]}, "base64 RPC encoding"),
+        (lambda info: {**info, "space": 164}, "differs from RPC space"),
+    ],
+)
+def test_rejects_malformed_account_snapshot_fields(mutate, message):
+    _, _, _, _, fixture_data = fixture()
+    info = mutate(fixture_data["pre_accounts"][0])
+    response = {"context": {"slot": 500}, "value": [info, fixture_data["pre_accounts"][1]]}
+    with pytest.raises(SolanaRpcAdapterError, match=message):
+        adapter(FakeSession(fixture_data, overrides={"getMultipleAccounts": response})).fetch_account_snapshot(
+            tuple(fixture_data["addresses"]),
+            min_context_slot=500,
+        )
+
+
+def test_rejects_genesis_hash_mismatch_for_account_snapshot():
+    _, _, _, _, fixture_data = fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="genesis hash"):
+        adapter(FakeSession(fixture_data, overrides={"getGenesisHash": "wrong-genesis"})).fetch_account_snapshot(
+            tuple(fixture_data["addresses"]),
+            min_context_slot=500,
+        )
+
+
 def test_builds_unsigned_simulation_and_returns_gate_compatible_evidence():
     raw, intent, tx_policy, expected, data = fixture()
     session = FakeSession(data)
