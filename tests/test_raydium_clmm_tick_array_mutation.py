@@ -158,7 +158,7 @@ def test_negative_default_bitmap_lower_boundary_stays_in_poolstate_bitmap():
 
 
 def test_u128_liquidity_gross_is_accepted_without_u64_truncation():
-    p = pool()
+    p = pool(tick_array_bitmap=(0,) * 8 + (1,) + (0,) * 7)
     a = array(p, initialized=1)
     updated = tick(0, gross=(1 << 64) + 7)
     result = apply_raydium_tick_array_mutation(
