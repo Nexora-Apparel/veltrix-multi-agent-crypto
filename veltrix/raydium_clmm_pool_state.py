@@ -105,9 +105,14 @@ def derive_raydium_clmm_pool_address(
             b"" if seed_index == 0 else seed_index.to_bytes(2, "little"),
             bytes((bump,)),
         ]
-        return str(Pubkey.create_program_address(seeds, program_key))
+        address, derived_bump = Pubkey.find_program_address(seeds[:-1], program_key)
+        if derived_bump != bump:
+            raise RaydiumClmmPoolStateError("Raydium pool PDA bump does not match the canonical derivation")
+        return str(address)
+    except RaydiumClmmPoolStateError:
+        raise
     except Exception as exc:
-        raise RaydiumClmmPoolStateError("Raydium pool PDA derivation failed") from exc
+        raise RaydiumClmmPoolStateError(f"Raydium pool PDA derivation failed: {exc}") from exc
 
 
 def decode_raydium_clmm_pool_state(
@@ -211,32 +216,39 @@ def decode_raydium_clmm_pool_state(
 def validate_raydium_clmm_pool_for_route(
     snapshot: DexPoolEvidenceSnapshot,
     route_inspection: JupiterV6RouteInspection,
+    order: JupiterOrderTransaction,
 ) -> tuple[RaydiumClmmPoolRouteCheck, ...]:
     """Bind each Raydium CLMM quote hop to its owner-verified pool mint pair and swap state."""
     if not isinstance(snapshot, DexPoolEvidenceSnapshot):
         raise RaydiumClmmPoolStateError("verified DEX pool evidence snapshot is required")
     if not isinstance(route_inspection, JupiterV6RouteInspection):
         raise RaydiumClmmPoolStateError("Jupiter V6 route inspection is required")
+    if not isinstance(order, JupiterOrderTransaction):
+        raise RaydiumClmmPoolStateError("Jupiter order quote is required to bind route-hop mints")
     if snapshot.route_message_sha256 != route_inspection.message_sha256:
         raise RaydiumClmmPoolStateError("pool evidence and Jupiter route inspection message digests differ")
     by_address = {account.amm_key: account for account in snapshot.accounts}
     if len(by_address) != len(snapshot.accounts):
         raise RaydiumClmmPoolStateError("pool evidence contains duplicate AMM addresses")
+    if len(route_inspection.route_steps) != len(order.route_plan):
+        raise RaydiumClmmPoolStateError("decoded route steps differ in count from the Jupiter quote")
     checks = []
-    for step in route_inspection.route_steps:
+    for step, quote_step in zip(route_inspection.route_steps, order.route_plan):
+        if step.amm_key != quote_step.amm_key or step.dex_label != quote_step.label:
+            raise RaydiumClmmPoolStateError("decoded route step AMM key or DEX label differs from the Jupiter quote")
         if step.dex_label != "Raydium CLMM":
             continue
         account = by_address.get(step.amm_key)
         if account is None:
             raise RaydiumClmmPoolStateError("Raydium route step has no matching pool account evidence")
         pool = decode_raydium_clmm_pool_state(account, expected_pool_address=step.amm_key)
-        if {step.input_mint, step.output_mint} != {pool.token_mint_0, pool.token_mint_1}:
+        if {quote_step.input_mint, quote_step.output_mint} != {pool.token_mint_0, pool.token_mint_1}:
             raise RaydiumClmmPoolStateError("Raydium pool token mints do not match the quoted route hop")
         checks.append(RaydiumClmmPoolRouteCheck(
             passed=True,
             pool=pool,
-            route_input_mint=step.input_mint,
-            route_output_mint=step.output_mint,
+            route_input_mint=quote_step.input_mint,
+            route_output_mint=quote_step.output_mint,
         ))
     if not checks:
         raise RaydiumClmmPoolStateError("route contains no supported Raydium CLMM hop")
