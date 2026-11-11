@@ -326,7 +326,7 @@ def test_rejects_missing_approved_jupiter_aggregator_program():
         ).hexdigest(),
     )
     policy = dataclasses.replace(policy, allowed_jupiter_program_ids=(alternate,))
-    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
+    with pytest.raises(JupiterProgramTraceError, match="Jupiter V6 instruction validation failed"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
