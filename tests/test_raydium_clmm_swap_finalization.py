@@ -25,6 +25,7 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_rewards import update_raydium_reward_infos
 from veltrix.raydium_clmm_swap_parity import (
     RaydiumSwapParityError,
+    build_raydium_swap_simulation_plan,
     reconcile_raydium_swap_simulation,
 )
 from veltrix.raydium_clmm_swap_finalization import (
@@ -373,6 +374,13 @@ def test_simulation_reconciles_exact_account_bytes_and_both_pool_vault_deltas():
         pool, pool_raw, tick_array, tick_raw, observation, observation_raw, execution, finalized,
         simulation, vault_snapshot, message_sha,
     ) = parity_fixture()
+    plan = build_raydium_swap_simulation_plan(pool, execution, finalized)
+    assert plan.observed_account_addresses == (
+        pool.pool_address, observation.address, tick_array.address,
+    )
+    assert tuple(item.delta_raw for item in plan.expected_token_deltas) == (
+        -finalized.settlement.amount_0, finalized.settlement.amount_1,
+    )
     report = reconcile_raydium_swap_simulation(
         pool, execution, finalized, simulation, vault_snapshot,
         expected_message_sha256=message_sha,
@@ -439,6 +447,10 @@ def test_zero_for_one_simulation_reconciles_opposite_pool_vault_directions():
         execution, finalized, simulation, vault_snapshot, message_sha,
     ) = parity_fixture(zero_for_one=True)
     assert execution.state.zero_for_one is True
+    plan = build_raydium_swap_simulation_plan(pool, execution, finalized)
+    assert tuple(item.delta_raw for item in plan.expected_token_deltas) == (
+        finalized.settlement.amount_0, -finalized.settlement.amount_1,
+    )
     report = reconcile_raydium_swap_simulation(
         pool, execution, finalized, simulation, vault_snapshot,
         expected_message_sha256=message_sha,
