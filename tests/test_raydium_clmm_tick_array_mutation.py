@@ -85,7 +85,7 @@ def test_last_tick_removed_clears_default_bitmap_and_count():
 
 
 def test_mutating_tick_without_array_initialization_transition_does_not_flip_bitmap():
-    p = pool(tick_array_bitmap=(1 << 9,) + (0,) * 15)
+    p = pool(tick_array_bitmap=(0,) * 8 + (1,) + (0,) * 7)
     a = array(p, initialized=1)
     replacement = replace(a.ticks[0], liquidity_gross=2)
     result = apply_raydium_tick_array_mutation(p, a, tick_index=0, updated_tick=replacement)
@@ -175,3 +175,22 @@ def test_bitmap_extension_rejects_bad_discriminator_and_wrong_pool():
             address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
             executable=False, data=bytes(data), expected_pool_address=p.pool_address,
         )
+
+
+def test_negative_extension_boundary_uses_source_asymmetric_bitmap_bit():
+    p = pool(tick_spacing=1)
+    start = -(60 * 513)
+    a = array(p, start=start)
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=derive_raydium_tick_array_bitmap_extension_address(p.pool_address),
+        pool_address=p.pool_address,
+        positive_bitmaps=((0,) * 8,) * 14,
+        negative_bitmaps=((0,) * 8,) * 14,
+        data_sha256="d" * 64,
+    )
+    result = apply_raydium_tick_array_mutation(
+        p, a, tick_index=start, updated_tick=tick(start), bitmap_extension=extension,
+    )
+    assert result.bitmap_changed is True
+    assert result.bitmap_extension.negative_bitmaps[0][7] == (1 << 63)
+    assert not any(any(word for word in row) for row in result.bitmap_extension.positive_bitmaps)
