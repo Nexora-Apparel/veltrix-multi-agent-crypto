@@ -7,6 +7,7 @@ signing/submission.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import re
 
 from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
@@ -101,6 +102,12 @@ def build_raydium_clmm_account_commitments(
     if len(pool_accounts) != 1:
         raise RaydiumClmmSimulationStateError("exactly one owner-verified PoolState account must match the CPI pool")
     pool_account = pool_accounts[0]
+    if (
+        pool_account.owner_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.expected_program_id != RAYDIUM_CLMM_PROGRAM_ID
+        or pool_account.executable is not False
+    ):
+        raise RaydiumClmmSimulationStateError("PoolState owner or executable metadata is invalid")
     commitments = [
         RaydiumClmmAccountCommitment(
             address=pool_account.amm_key,
@@ -191,6 +198,16 @@ def evaluate_raydium_clmm_simulation_state_binding(
     """Bind every Raydium account's decoded pre-state hash to the exact simulation capture."""
     if not isinstance(order, JupiterOrderTransaction):
         raise RaydiumClmmSimulationStateError("Jupiter order is required")
+    if not isinstance(cpi, RaydiumClmmCpiResult) or cpi.passed is not True:
+        raise RaydiumClmmSimulationStateError("successful Raydium CPI evidence is required")
+    if not isinstance(pool_evidence, DexPoolEvidenceSnapshot):
+        raise RaydiumClmmSimulationStateError("verified PoolState account evidence is required")
+    if not isinstance(vault_snapshot, RaydiumClmmVaultSnapshot):
+        raise RaydiumClmmSimulationStateError("verified vault snapshot is required")
+    if not isinstance(tick_array_snapshot, RaydiumClmmTickArraySnapshot):
+        raise RaydiumClmmSimulationStateError("verified tick-array snapshot is required")
+    if not isinstance(aux_snapshot, RaydiumClmmAuxAccountSnapshot):
+        raise RaydiumClmmSimulationStateError("verified auxiliary account snapshot is required")
     if not isinstance(validation, TransactionValidationResult):
         raise RaydiumClmmSimulationStateError("validated transaction result is required")
     if not isinstance(simulation, SimulationEvidence):
@@ -200,7 +217,7 @@ def evaluate_raydium_clmm_simulation_state_binding(
     if not isinstance(pool_check, RaydiumClmmPoolRouteCheck) or pool_check.passed is not True:
         raise RaydiumClmmSimulationStateError("successful PoolState route check is required")
 
-    digest = __import__("hashlib").sha256(order.message_bytes).hexdigest()
+    digest = hashlib.sha256(order.message_bytes).hexdigest()
     if (
         validation.message_sha256 != digest
         or simulation.message_sha256 != digest
@@ -237,8 +254,22 @@ def evaluate_raydium_clmm_simulation_state_binding(
         or aux_snapshot.simulation_context_slot != simulation.context_slot
     ):
         raise RaydiumClmmSimulationStateError("decoded Raydium snapshots are not bound to the exact simulation response")
-    if pool_check.pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT or pool_check.pool.pool_address != cpi.pool_state:
-        raise RaydiumClmmSimulationStateError("PoolState route evidence does not match the pinned CPI pool")
+    if (
+        pool_check.pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT
+        or pool_check.pool.pool_address != cpi.pool_state
+        or cpi.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT
+    ):
+        raise RaydiumClmmSimulationStateError("PoolState route or CPI evidence does not match the pinned source and pool")
+    if (
+        tuple(tick_array_snapshot.cpi_account_order) != tuple(cpi.tick_array_accounts)
+        or tuple(item.address for item in tick_array_snapshot.tick_arrays)
+        != tuple(address for address in cpi.tick_array_accounts if address != tick_array_snapshot.bitmap_extension_address)
+        or tick_array_snapshot.bitmap_extension_sha256 != (
+            tick_array_snapshot.bitmap_extension.data_sha256
+            if tick_array_snapshot.bitmap_extension is not None else None
+        )
+    ):
+        raise RaydiumClmmSimulationStateError("tick-array snapshot does not preserve exact CPI account and bitmap-extension evidence")
 
     commitments = build_raydium_clmm_account_commitments(
         cpi,
