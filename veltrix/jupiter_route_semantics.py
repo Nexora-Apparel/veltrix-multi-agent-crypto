@@ -20,6 +20,7 @@ from veltrix.jupiter_swap_effects import (
     derive_associated_token_address,
 )
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
+from veltrix.jupiter_swap_effects import JupiterSwapEffectResult
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
