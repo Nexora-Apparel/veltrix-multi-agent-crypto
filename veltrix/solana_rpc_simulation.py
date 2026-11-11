@@ -16,6 +16,7 @@ import requests
 from solders.message import MessageV0, from_bytes_versioned, to_bytes_versioned
 from solders.address_lookup_table_account import AddressLookupTable, ID as ADDRESS_LOOKUP_TABLE_ID
 from solders.signature import Signature
+from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from veltrix.simulation_gate import (
