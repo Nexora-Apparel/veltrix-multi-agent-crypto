@@ -465,6 +465,16 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
                 _expect(info.get("account") == key_strings[1],
                         "parsed SyncNative targets an unexpected token account")
                 sync_native_verified = True
+            elif kind == "getAccountDataSize":
+                _expect(program == TOKEN_2022 and info.get("mint") in {WSOL, USDC},
+                        "Token-2022 account-size query references an unexpected mint")
+            elif kind == "initializeImmutableOwner":
+                _expect(program == TOKEN_2022 and info.get("account") in allowed_user_atas,
+                        "Token-2022 immutable-owner initialization targets an unexpected account")
+            elif kind in {"initializeAccount", "initializeAccount2", "initializeAccount3"}:
+                _expect(info.get("account") in allowed_user_atas and info.get("mint") in {WSOL, USDC}
+                        and info.get("owner") == WALLET,
+                        "SPL account initialization has an unexpected account, mint or owner")
             elif kind in {"transfer", "transferChecked"}:
                 source, destination = info.get("source"), info.get("destination")
                 authority_name = info.get("authority") or info.get("owner")
