@@ -508,7 +508,7 @@ def test_rejects_invalid_tick_order_ratio_and_reserved_padding():
     )
     invalid_ratio = bytearray(tick_array_data(pool, 0))
     invalid_ratio[44 + 140:44 + 156] = ((1 << 64) + 1).to_bytes(16, "little")
-    with pytest.raises(Exception, match="unfilled ratio"):
+    with pytest.raises(RaydiumClmmTickArrayError, match="unfilled ratio"):
         decode_raydium_clmm_tick_array(
             address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
             executable=False, data=bytes(invalid_ratio), expected_pool_address=pool,
@@ -516,7 +516,7 @@ def test_rejects_invalid_tick_order_ratio_and_reserved_padding():
         )
     invalid_padding = bytearray(tick_array_data(pool, 0))
     invalid_padding[44 + 156:44 + 160] = (1).to_bytes(4, "little")
-    with pytest.raises(Exception, match="reserved padding"):
+    with pytest.raises(RaydiumClmmTickArrayError, match="reserved padding"):
         decode_raydium_clmm_tick_array(
             address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
             executable=False, data=bytes(invalid_padding), expected_pool_address=pool,
