@@ -5,6 +5,9 @@ on:
     branches: [work/devnet-raydium-swap-preflight]
   pull_request:
     paths:
+      - 'wallet/phantom-devnet-swap.html'
+      - 'tests/test_phantom_devnet_swap_page.py'
+      - 'docs/phantom-devnet-swap.md'
       - 'veltrix/solana_devnet_swap_preflight.py'
       - 'tests/test_solana_devnet_swap_preflight.py'
       - 'veltrix/solana_devnet_ephemeral_swap.py'
