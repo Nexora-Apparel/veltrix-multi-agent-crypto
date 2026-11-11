@@ -1,6 +1,8 @@
 name: Raydium Devnet swap preflight
 
 on:
+  push:
+    branches: [work/devnet-raydium-swap-preflight]
   pull_request:
     paths:
       - 'veltrix/solana_devnet_swap_preflight.py'
