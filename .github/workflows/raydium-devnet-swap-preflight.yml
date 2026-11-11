@@ -65,6 +65,7 @@ jobs:
           Path("/tmp/phantom-devnet-swap.js").write_text(script, encoding="utf-8")
           PY
           node --check /tmp/phantom-devnet-swap.js
+          node tests/phantom_verifier_adversarial.mjs
       - name: Discover route, build unsigned transaction and simulate on Devnet
         env:
           WALLET_ADDRESS: ${{ inputs.wallet_address || 'FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U' }}
