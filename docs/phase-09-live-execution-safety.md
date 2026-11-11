@@ -240,6 +240,8 @@ Implemented in `veltrix/jupiter_route_semantics.py`, pinned to Jupiter's public 
 
 - Decodes only the Anchor `route` instruction discriminator and Borsh layout. It requires an exact payload length, bounded route-plan vector, positive raw amounts, valid token indexes, and no trailing bytes.
 - Compares the encoded DEX enum variant and split percentage of each step to the Jupiter order's quote route plan. It reconstructs a token-index-to-mint map and rejects conflicting mint mappings, non-contiguous indexes, or a route that does not start with the order input mint.
+- Enum discriminants are asserted against the pinned IDL: Raydium 7, Meteora 19, Raydium CLMM 26, Meteora DLMM 38, and Raydium CPMM 46. Only these unit-payload variants are enabled; payload-bearing variants are rejected.
+- Route-plan steps must be topologically ordered: an intermediate token index cannot be consumed before an earlier step produces it. Split percentages for every input token index must total exactly 100; this rejects incomplete or over-allocated route branches.
 - Requires encoded `inAmount` and `quotedOutAmount` to match the exact Jupiter order. Enforces local maximum slippage and platform-fee basis points.
 - Re-checks the exact message digest across order, structural validation, RPC simulation, SimulationGate, and Jupiter program-trace gate. It binds router, top-level program IDs and route labels to the prior gate evidence.
 - Requires the seven account positions from the pinned IDL to resolve to the classic SPL Token program, taker authority, taker's input/output classic ATAs, output mint, and omitted optional accounts represented by the Jupiter program sentinel.
