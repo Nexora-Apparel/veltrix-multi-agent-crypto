@@ -65,6 +65,8 @@ class RaydiumSwapParityReport:
 
 
 def _sha256(data: bytes) -> str:
+    if not isinstance(data, bytes):
+        raise RaydiumSwapParityError("account source data must be immutable bytes")
     return hashlib.sha256(data).hexdigest()
 
 
@@ -213,6 +215,26 @@ def reconcile_raydium_swap_simulation(
     ):
         raise RaydiumSwapParityError("vault and transaction simulation provenance or context slot is inconsistent")
 
+    if (
+        finalized.pool.account_data_sha256 != finalized.pool_account.data_sha256
+        or finalized.observation.data_sha256 != finalized.observation_account.data_sha256
+        or tuple(item.data_sha256 for item in finalized.tick_arrays)
+        != tuple(item.data_sha256 for item in finalized.tick_array_accounts)
+    ):
+        raise RaydiumSwapParityError("finalized account objects and serialized SHA-256 commitments differ")
+    if finalized.bitmap_extension is not None:
+        if (
+            finalized.bitmap_extension_account is None
+            or finalized.bitmap_extension.data_sha256 != finalized.bitmap_extension_account.data_sha256
+            or execution.bitmap_extension is None
+            or replace(
+                finalized.bitmap_extension,
+                data_sha256=execution.bitmap_extension.data_sha256,
+            ) != execution.bitmap_extension
+        ):
+            raise RaydiumSwapParityError("final bitmap-extension state differs from the executed mutation lineage")
+    elif execution.bitmap_extension is not None:
+        raise RaydiumSwapParityError("execution bitmap-extension state is missing from serialized finalization")
     expected_accounts = _expected_account_pairs(
         finalized,
         pool_data=initial_pool_account_data,
