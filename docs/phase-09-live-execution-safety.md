@@ -317,3 +317,16 @@ Implemented in `veltrix/raydium_amm_v4_cpi_semantics.py`, with adversarial cover
 - Rejects legacy orderbook `SwapBaseIn` (tag 9), exact-output variants, Token-2022, wrong authority PDA, unknown inner programs, unsupported DEX routes and incomplete evidence.
 
 This parser deliberately does not support the legacy orderbook route, whose 17/18-account market layout requires separate market/vault-signer validation. It also does not inspect the AMM account to read/verify the nonce or pool vault fields; the PDA is accepted only if it matches one of the 256 possible stored u8 nonces. On-chain pool state, vault/mint relationships and reserve consistency remain separate evidence requirements. No signing or broadcast is introduced.
+
+
+### 09.20 — Meteora DAMM v1 swap CPI semantic gate
+
+Implemented in `veltrix/meteora_damm_v1_cpi_semantics.py`, with adversarial coverage in `tests/test_meteora_damm_v1_cpi_semantics.py`.
+
+- Pins `MeteoraAg/damm-v1-sdk` revision `5386170f55d32deed0b4a128a36fd6a34d339610`, DAMM v1 program ID `Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB`, and vault program ID.
+- Decodes only the Anchor `swap` instruction: exact input amount and minimum output amount.
+- Requires the pinned 15-account layout and no remaining accounts; validates pool against the quoted AMM key, user signer, vault program, classic SPL Token program, and token-index account flow ending at the taker's input/output ATAs.
+- Binds CPI count/order, input amount and minimum output to the quote route plan and Jupiter route variant 19.
+- Rejects remaining depeg/referral accounts, wrong program/account layout, unknown CPI programs, wrong stack depth, mixed DEX routes and incomplete simulation evidence.
+
+This deliberately excludes stable/depeg pools requiring remaining accounts and any host-referral path. It does not inspect pool or Dynamic Vault account contents, validate token-A/token-B vault relationships, or independently recompute DAMM fees/curve math. Those remain separate state-verification requirements. No signing or broadcast is introduced.
