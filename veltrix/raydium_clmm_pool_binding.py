@@ -213,16 +213,6 @@ def evaluate_raydium_clmm_cpi_pool_binding(
             pool_address=pool.pool_address, start_tick_index=item.start_tick_index
         ) != item.address:
             raise RaydiumClmmPoolBindingError("tick-array address does not match the canonical pool PDA")
-    try:
-        traversal = verify_raydium_clmm_bitmap_traversal(
-            order,
-            pool_check=pool_check,
-            pool_evidence=pool_evidence,
-            tick_array_snapshot=tick_array_snapshot,
-        )
-    except RaydiumClmmBitmapTraversalError as exc:
-        raise RaydiumClmmPoolBindingError(f"Raydium bitmap traversal proof failed: {exc}") from exc
-
     if (
         pool_evidence.provider_id != simulation.provider_id
         or vault_snapshot.provider_id != simulation.provider_id
@@ -251,6 +241,16 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         and tick_array_snapshot.context_slot <= aux_snapshot.context_slot
     ):
         raise RaydiumClmmPoolBindingError("pool, vault and tick-array snapshot slots are not monotonically fresh")
+
+    try:
+        traversal = verify_raydium_clmm_bitmap_traversal(
+            order,
+            pool_check=pool_check,
+            pool_evidence=pool_evidence,
+            tick_array_snapshot=tick_array_snapshot,
+        )
+    except RaydiumClmmBitmapTraversalError as exc:
+        raise RaydiumClmmPoolBindingError(f"Raydium bitmap traversal proof failed: {exc}") from exc
 
     return RaydiumClmmPoolBindingResult(
         passed=True,
