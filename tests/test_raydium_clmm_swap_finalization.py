@@ -1,6 +1,7 @@
 """End-to-end tests for Raydium CLMM reward/oracle and account serialization."""
 import hashlib
 import struct
+from dataclasses import replace
 
 import pytest
 from solders.pubkey import Pubkey
@@ -22,6 +23,10 @@ from veltrix.raydium_clmm_pool_state import (
     derive_raydium_clmm_pool_address,
 )
 from veltrix.raydium_clmm_rewards import update_raydium_reward_infos
+from veltrix.raydium_clmm_swap_parity import (
+    RaydiumSwapParityError,
+    reconcile_raydium_swap_simulation,
+)
 from veltrix.raydium_clmm_swap_finalization import (
     RaydiumSwapFinalizationError,
     finalize_raydium_swap_state,
@@ -36,6 +41,16 @@ from veltrix.raydium_clmm_tick_arrays import (
     derive_raydium_clmm_tick_array_address,
 )
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
+from veltrix.raydium_clmm_vaults import (
+    CLASSIC_SPL_TOKEN_PROGRAM_ID,
+    RaydiumClmmVaultAccount,
+    RaydiumClmmVaultSnapshot,
+)
+from veltrix.simulation_gate import (
+    SimulatedAccountState,
+    SimulatedTokenBalance,
+    SimulationEvidence,
+)
 
 
 def fixture():
@@ -240,4 +255,162 @@ def test_finalization_rejects_incomplete_loop_and_wrong_original_account_bytes()
             initial_tick_arrays=(tick_array,),
             tick_array_account_data=(tick_raw,),
             block_timestamp=timestamp,
+        )
+
+
+def parity_fixture():
+    (
+        pool, pool_raw, tick_array, tick_raw, observation,
+        observation_raw, execution, timestamp,
+    ) = fixture()
+    finalized = finalize_raydium_swap_state(
+        pool, pool_raw, execution,
+        initial_observation=observation,
+        observation_account_data=observation_raw,
+        initial_tick_arrays=(tick_array,),
+        tick_array_account_data=(tick_raw,),
+        block_timestamp=timestamp,
+    )
+    message_sha = "c" * 64
+    account_pairs = (
+        (pool.pool_address, pool_raw, finalized.pool_account.data),
+        (observation.address, observation_raw, finalized.observation_account.data),
+        (tick_array.address, tick_raw, finalized.tick_array_accounts[0].data),
+    )
+    account_states = tuple(
+        SimulatedAccountState(
+            address=address,
+            pre_owner=RAYDIUM_CLMM_PROGRAM_ID,
+            post_owner=RAYDIUM_CLMM_PROGRAM_ID,
+            pre_lamports=1,
+            post_lamports=1,
+            pre_executable=False,
+            post_executable=False,
+            pre_data=pre_data,
+            post_data=post_data,
+            pre_data_sha256=hashlib.sha256(pre_data).hexdigest(),
+            post_data_sha256=hashlib.sha256(post_data).hexdigest(),
+        )
+        for address, pre_data, post_data in account_pairs
+    )
+    pre0 = pre1 = 10_000
+    delta0 = -finalized.settlement.amount_0
+    delta1 = finalized.settlement.amount_1
+    balances = (
+        SimulatedTokenBalance(
+            token_account=pool.token_vault_0,
+            mint=pool.token_mint_0,
+            owner=pool.pool_address,
+            pre_amount_raw=pre0,
+            post_amount_raw=pre0 + delta0,
+            token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+        ),
+        SimulatedTokenBalance(
+            token_account=pool.token_vault_1,
+            mint=pool.token_mint_1,
+            owner=pool.pool_address,
+            pre_amount_raw=pre1,
+            post_amount_raw=pre1 + delta1,
+            token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+        ),
+    )
+    vaults = (
+        RaydiumClmmVaultAccount(
+            address=pool.token_vault_0, pool_address=pool.pool_address,
+            mint=pool.token_mint_0, token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+            token_authority=pool.pool_address, amount_raw=pre0, state=1,
+            lamports=1, data_sha256="d" * 64,
+        ),
+        RaydiumClmmVaultAccount(
+            address=pool.token_vault_1, pool_address=pool.pool_address,
+            mint=pool.token_mint_1, token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+            token_authority=pool.pool_address, amount_raw=pre1, state=1,
+            lamports=1, data_sha256="e" * 64,
+        ),
+    )
+    simulation = SimulationEvidence(
+        message_sha256=message_sha,
+        recent_blockhash="recent-blockhash",
+        cluster="mainnet-beta",
+        genesis_hash="genesis",
+        provider_id="rpc-primary",
+        response_id="sim-response-1",
+        observed_at_epoch_ms=1_700_000_000_000,
+        context_slot=500,
+        current_block_height=900,
+        last_valid_block_height=950,
+        simulation_error=None,
+        units_consumed=100_000,
+        fee_lamports=5_000,
+        token_balances=balances,
+        account_states=account_states,
+    )
+    vault_snapshot = RaydiumClmmVaultSnapshot(
+        route_message_sha256=message_sha,
+        simulation_response_id=simulation.response_id,
+        simulation_context_slot=simulation.context_slot,
+        provider_id=simulation.provider_id,
+        cluster=simulation.cluster,
+        genesis_hash=simulation.genesis_hash,
+        context_slot=simulation.context_slot,
+        vaults=vaults,
+        execution_ready=False,
+    )
+    return (
+        pool, pool_raw, tick_raw, observation_raw, execution, finalized,
+        simulation, vault_snapshot, message_sha,
+    )
+
+
+def test_simulation_reconciles_exact_account_bytes_and_both_pool_vault_deltas():
+    (
+        pool, pool_raw, tick_raw, observation_raw, execution, finalized,
+        simulation, vault_snapshot, message_sha,
+    ) = parity_fixture()
+    report = reconcile_raydium_swap_simulation(
+        pool, execution, finalized, simulation, vault_snapshot,
+        expected_message_sha256=message_sha,
+        initial_pool_account_data=pool_raw,
+        initial_observation_account_data=observation_raw,
+        initial_tick_array_account_data=(tick_raw,),
+    )
+    assert report.passed is True
+    assert report.context_slot == 500
+    assert len(report.account_comparisons) == 3
+    assert all(item.exact_post_state_match for item in report.account_comparisons)
+    assert len(report.vault_reconciliations) == 2
+    assert all(item.reconciled for item in report.vault_reconciliations)
+
+
+def test_simulation_parity_fails_closed_on_account_bytes_or_vault_delta_mismatch():
+    (
+        pool, pool_raw, tick_raw, observation_raw, execution, finalized,
+        simulation, vault_snapshot, message_sha,
+    ) = parity_fixture()
+    first = simulation.account_states[0]
+    corrupted = replace(first, post_data=first.post_data[:-1] + bytes([first.post_data[-1] ^ 1]))
+    bad_account_simulation = replace(
+        simulation, account_states=(corrupted,) + simulation.account_states[1:]
+    )
+    with pytest.raises(RaydiumSwapParityError, match="post-state bytes"):
+        reconcile_raydium_swap_simulation(
+            pool, execution, finalized, bad_account_simulation, vault_snapshot,
+            expected_message_sha256=message_sha,
+            initial_pool_account_data=pool_raw,
+            initial_observation_account_data=observation_raw,
+            initial_tick_array_account_data=(tick_raw,),
+        )
+
+    first_balance = simulation.token_balances[0]
+    bad_balance = replace(first_balance, post_amount_raw=first_balance.post_amount_raw + 1)
+    bad_vault_simulation = replace(
+        simulation, token_balances=(bad_balance, simulation.token_balances[1])
+    )
+    with pytest.raises(RaydiumSwapParityError, match="post balance differs"):
+        reconcile_raydium_swap_simulation(
+            pool, execution, finalized, bad_vault_simulation, vault_snapshot,
+            expected_message_sha256=message_sha,
+            initial_pool_account_data=pool_raw,
+            initial_observation_account_data=observation_raw,
+            initial_tick_array_account_data=(tick_raw,),
         )
