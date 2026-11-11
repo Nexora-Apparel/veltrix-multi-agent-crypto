@@ -299,3 +299,12 @@ Implemented in `veltrix/jupiter_v6_route.py` with adversarial route fixtures in 
 - Explicitly returns `fully_decoded=false` when DEX-specific remaining account roles are present. Pool/vault/tick-array and DEX-specific writable/read-only account layouts remain a release blocker; this inspector is not a signer authorization.
 
 No signing, `/execute`, broadcast or live execution is introduced.
+
+
+### 09.20 — Jupiter V6 instruction inspection required by route preflight
+
+`evaluate_jupiter_route_programs` now calls `inspect_jupiter_v6_route` against the exact order message and structural validation evidence. The route gate rejects unsupported discriminators, quote/encoded amount mismatches, unsupported DEX enum variants, wrong fixed token-account/PDA roles, route-plan split or mint-graph mismatches, nonzero platform fees, and missing AMM keys. The result carries the route inspection, including `fully_decoded` and blocking reasons.
+
+A program-trace pass is not final execution approval. The current supported path still has trailing DEX account metas, which remain explicitly incomplete until a DEX-specific account-layout decoder validates pool, vault, tick-array and writable/read-only roles. Signing remains unavailable.
+
+The route-program result now includes `execution_ready=false` by default. A program-trace pass cannot be interpreted as transaction authorization while DEX-specific remaining account roles are unresolved.

@@ -133,6 +133,61 @@ def _pda(program_id: str, seeds: tuple[bytes, ...]) -> str:
         raise JupiterV6RouteError("Jupiter PDA derivation failed") from exc
 
 
+def _runtime_privileges(message: MessageV0, account_index: int) -> tuple[bool, bool]:
+    static_count = len(message.account_keys)
+    required = int(message.header.num_required_signatures)
+    readonly_signed = int(message.header.num_readonly_signed_accounts)
+    readonly_unsigned = int(message.header.num_readonly_unsigned_accounts)
+    if (
+        required < 1
+        or required > static_count
+        or readonly_signed > required
+        or readonly_unsigned > static_count - required
+    ):
+        raise JupiterV6RouteError("Solana message header contains impossible privilege counts")
+    if account_index < 0:
+        raise JupiterV6RouteError("Jupiter account index is negative")
+    if account_index < static_count:
+        signer = account_index < required
+        if signer:
+            writable = account_index < required - readonly_signed
+        else:
+            writable = account_index < static_count - readonly_unsigned
+        return signer, writable
+    loaded_writable_count = sum(len(lookup.writable_indexes) for lookup in message.address_table_lookups)
+    loaded_readonly_count = sum(len(lookup.readonly_indexes) for lookup in message.address_table_lookups)
+    if account_index >= static_count + loaded_writable_count + loaded_readonly_count:
+        raise JupiterV6RouteError("Jupiter account index is outside the resolved privilege map")
+    return False, account_index < static_count + loaded_writable_count
+
+
+def _validate_fixed_privileges(
+    message: MessageV0,
+    account_indices: tuple[int, ...],
+    *,
+    shared: bool,
+) -> None:
+    if shared:
+        expected = (
+            (False, False), (False, False), (True, True),
+            (False, True), (False, True), (False, True), (False, True),
+            (False, False), (False, False), (False, False), (False, False),
+            (False, False), (False, False),
+        )
+    else:
+        expected = (
+            (False, False), (True, True), (False, True),
+            (False, True), (False, False), (False, False),
+            (False, False), (False, False), (False, False),
+        )
+    for position, (expected_signer, expected_writable) in enumerate(expected):
+        actual = _runtime_privileges(message, account_indices[position])
+        if actual != (expected_signer, expected_writable):
+            raise JupiterV6RouteError(
+                f"Jupiter fixed account privilege mismatch at position {position}"
+            )
+
+
 def _decode_route_payload(data: bytes, *, shared: bool, policy: JupiterV6RoutePolicy):
     cursor = _Cursor(data, 8)
     authority_id = cursor.u8() if shared else None
@@ -203,6 +258,8 @@ def inspect_jupiter_v6_route(
         raise JupiterV6RouteError("order message digest differs from structural validation")
     if order.taker != order.fee_payer or validation.fee_payer != order.taker:
         raise JupiterV6RouteError("Jupiter taker must be the validated fee payer")
+    if order.taker not in validation.required_signers:
+        raise JupiterV6RouteError("Jupiter taker must be a required transaction signer")
 
     try:
         message = from_bytes_versioned(order.message_bytes)
@@ -293,6 +350,7 @@ def inspect_jupiter_v6_route(
     if any(index < 0 or index >= len(runtime_keys) for index in account_indices):
         raise JupiterV6RouteError("Jupiter route account index is outside the resolved account list")
     accounts = tuple(runtime_keys[index] for index in account_indices)
+    _validate_fixed_privileges(message, account_indices, shared=shared)
 
     expected_input_ata = derive_associated_token_address(order.taker, order.input_mint)
     expected_output_ata = derive_associated_token_address(order.taker, order.output_mint)
