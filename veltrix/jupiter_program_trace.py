@@ -23,6 +23,12 @@ from veltrix.compute_budget import (
 )
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
+from veltrix.jupiter_v6_route import (
+    JupiterV6RouteError,
+    JupiterV6RouteInspection,
+    JupiterV6RoutePolicy,
+    inspect_jupiter_v6_route,
+)
 from veltrix.transaction_validator import TransactionValidationResult
 
 
@@ -196,6 +202,7 @@ class JupiterRouteProgramGateResult:
     inner_program_ids: tuple[str, ...]
     registry_sha256: str
     compute_budget: ComputeBudgetResult
+    jupiter_route: JupiterV6RouteInspection
 
 
 def evaluate_jupiter_route_programs(
@@ -232,6 +239,18 @@ def evaluate_jupiter_route_programs(
         )
     except ComputeBudgetError as exc:
         raise JupiterProgramTraceError(f"Compute Budget validation failed: {exc}") from exc
+
+    try:
+        jupiter_route = inspect_jupiter_v6_route(
+            order,
+            validation=validation,
+            policy=JupiterV6RoutePolicy(
+                allowed_jupiter_program_ids=policy.allowed_jupiter_program_ids,
+                allowed_dex_labels=policy.allowed_dex_labels,
+            ),
+        )
+    except JupiterV6RouteError as exc:
+        raise JupiterProgramTraceError(f"Jupiter V6 instruction validation failed: {exc}") from exc
 
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if (
@@ -319,4 +338,5 @@ def evaluate_jupiter_route_programs(
         inner_program_ids=inner,
         registry_sha256=registry.sha256,
         compute_budget=compute_budget,
+        jupiter_route=jupiter_route,
     )
