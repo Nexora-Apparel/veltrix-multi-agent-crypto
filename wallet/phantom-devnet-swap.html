@@ -269,7 +269,7 @@
       const selected = validateLookupSelection(lookup,state,slot);
       writableLoaded.push(...selected.writable);
       readonlyLoaded.push(...selected.readonly);
-      lookupEvidence.push({address:tableKey,owner:info.owner,slot,addresses:addresses.length,
+      lookupEvidence.push({address:tableKey,owner:info.owner,slot,addresses:state.addresses.length,
         writableIndexes:[...lookup.writableIndexes],readonlyIndexes:[...lookup.readonlyIndexes]});
     }
     const resolved = [...staticKeys, ...writableLoaded, ...readonlyLoaded];
