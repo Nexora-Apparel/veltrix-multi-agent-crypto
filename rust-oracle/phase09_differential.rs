@@ -2,7 +2,7 @@
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, RewardInfo, TickState};
+use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickState};
 use anchor_lang::prelude::Pubkey;
 use serde_json::Value;
 
@@ -394,5 +394,93 @@ fn python_tick_crossing_fee_reward_and_liquidity_vectors_match_pinned_raydium_ru
                 "reward growth mismatch at slot {index}"
             );
         }
+    }
+}
+
+
+#[test]
+fn python_pool_post_swap_finalization_vectors_match_pinned_raydium_pool_state() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["pool_finalization"].as_array().expect("PoolState finalization cases");
+    assert_eq!(cases.len(), 6);
+
+    for case in cases {
+        let fee_on = case["fee_on"].as_u64().unwrap() as u8;
+        let zero_for_one = case["zero_for_one"].as_bool().unwrap();
+        let initial_dynamic = DynamicFeeInfo {
+            filter_period: 60,
+            decay_period: 3600,
+            reduction_factor: 5000,
+            dynamic_fee_control: 1000,
+            max_volatility_accumulator: 100000,
+            tick_spacing_index_reference: 3,
+            volatility_reference: 2000,
+            volatility_accumulator: 4000,
+            last_update_timestamp: 1000,
+            padding: [0u8; 46],
+        };
+        let updated_dynamic = DynamicFeeInfo {
+            filter_period: 60,
+            decay_period: 3600,
+            reduction_factor: 5000,
+            dynamic_fee_control: 1000,
+            max_volatility_accumulator: 100000,
+            tick_spacing_index_reference: 10,
+            volatility_reference: 2500,
+            volatility_accumulator: 5000,
+            last_update_timestamp: 1060,
+            padding: [0u8; 46],
+        };
+        let mut pool = PoolState::default();
+        pool.fee_on = fee_on;
+        pool.fee_growth_global_0_x64 = 10;
+        pool.fee_growth_global_1_x64 = 20;
+        pool.protocol_fees_token_0 = 100;
+        pool.protocol_fees_token_1 = 200;
+        pool.fund_fees_token_0 = 300;
+        pool.fund_fees_token_1 = 400;
+        pool.dynamic_fee_info = initial_dynamic;
+
+        pool.update_after_swap(
+            case["tick"].as_i64().unwrap() as i32,
+            parse_u128(&case["sqrt_price_x64"]),
+            case["liquidity"].as_u64().unwrap() as u128,
+            case["lp_fee"].as_u64().unwrap(),
+            case["protocol_fee"].as_u64().unwrap(),
+            case["fund_fee"].as_u64().unwrap(),
+            parse_u128(&case["fee_growth_global_x64"]),
+            zero_for_one,
+            Some(updated_dynamic),
+        )
+        .unwrap_or_else(|error| panic!("Rust PoolState finalization failed: {error:?}"));
+
+        let actual_tick = pool.tick_current;
+        let actual_sqrt_price = pool.sqrt_price_x64;
+        let actual_liquidity = pool.liquidity;
+        let actual_fee_growth_0 = pool.fee_growth_global_0_x64;
+        let actual_fee_growth_1 = pool.fee_growth_global_1_x64;
+        let actual_protocol_0 = pool.protocol_fees_token_0;
+        let actual_protocol_1 = pool.protocol_fees_token_1;
+        let actual_fund_0 = pool.fund_fees_token_0;
+        let actual_fund_1 = pool.fund_fees_token_1;
+        let actual_dynamic_tick_reference = pool.dynamic_fee_info.tick_spacing_index_reference;
+        let actual_dynamic_volatility_reference = pool.dynamic_fee_info.volatility_reference;
+        let actual_dynamic_volatility_accumulator = pool.dynamic_fee_info.volatility_accumulator;
+        let actual_dynamic_timestamp = pool.dynamic_fee_info.last_update_timestamp;
+        let expected = &case["expected"];
+
+        assert_eq!(actual_tick, expected["tick_current"].as_i64().unwrap() as i32);
+        assert_eq!(actual_sqrt_price, parse_u128(&expected["sqrt_price_x64"]));
+        assert_eq!(actual_liquidity, parse_u128(&expected["liquidity"]));
+        assert_eq!(actual_fee_growth_0, parse_u128(&expected["fee_growth_global_0_x64"]));
+        assert_eq!(actual_fee_growth_1, parse_u128(&expected["fee_growth_global_1_x64"]));
+        assert_eq!(actual_protocol_0, parse_u64(&expected["protocol_fees_token_0"]));
+        assert_eq!(actual_protocol_1, parse_u64(&expected["protocol_fees_token_1"]));
+        assert_eq!(actual_fund_0, parse_u64(&expected["fund_fees_token_0"]));
+        assert_eq!(actual_fund_1, parse_u64(&expected["fund_fees_token_1"]));
+        assert_eq!(actual_dynamic_tick_reference, expected["dynamic_tick_reference"].as_i64().unwrap() as i32);
+        assert_eq!(actual_dynamic_volatility_reference, expected["dynamic_volatility_reference"].as_u64().unwrap() as u32);
+        assert_eq!(actual_dynamic_volatility_accumulator, expected["dynamic_volatility_accumulator"].as_u64().unwrap() as u32);
+        assert_eq!(actual_dynamic_timestamp, expected["dynamic_last_update_timestamp"].as_u64().unwrap());
     }
 }
