@@ -325,6 +325,46 @@ def test_rejects_registry_label_without_exactly_one_pinned_program():
         )
 
 
+def test_rejects_simulation_from_different_rpc_provider_or_cluster():
+    values = fixture()
+    order, inspection, registry, route_policy, simulation, rpc, *_ = values
+    wrong_provider = dataclasses.replace(simulation, provider_id="rpc-secondary")
+    with pytest.raises(DexPoolEvidenceError, match="same provider and cluster"):
+        fetch_dex_pool_owner_evidence(
+            order,
+            route_inspection=inspection,
+            registry=registry,
+            route_policy=route_policy,
+            simulation=wrong_provider,
+            rpc_adapter=rpc,
+        )
+    wrong_cluster = dataclasses.replace(simulation, cluster="devnet")
+    with pytest.raises(DexPoolEvidenceError, match="same provider and cluster"):
+        fetch_dex_pool_owner_evidence(
+            order,
+            route_inspection=inspection,
+            registry=registry,
+            route_policy=route_policy,
+            simulation=wrong_cluster,
+            rpc_adapter=rpc,
+        )
+
+
+def test_rejects_simulation_digest_mismatch():
+    values = fixture()
+    order, inspection, registry, route_policy, simulation, rpc, *_ = values
+    simulation = dataclasses.replace(simulation, message_sha256="0" * 64)
+    with pytest.raises(DexPoolEvidenceError, match="exact order message"):
+        fetch_dex_pool_owner_evidence(
+            order,
+            route_inspection=inspection,
+            registry=registry,
+            route_policy=route_policy,
+            simulation=simulation,
+            rpc_adapter=rpc,
+        )
+
+
 def test_rejects_route_inspection_not_bound_to_exact_order_message():
     values = fixture()
     order, inspection, registry, route_policy, simulation, rpc, *_ = values
