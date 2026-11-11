@@ -100,10 +100,13 @@ class RaydiumClmmCpiResult:
     outer_instruction_index: int
     cpi_instruction_index: int
     payer: str
+    amm_config: str
     input_token_account: str
     output_token_account: str
     input_vault: str
     output_vault: str
+    observation_state: str
+    tick_array: str
     pool_state: str
     amount_raw: int
     minimum_output_raw: int
@@ -253,10 +256,13 @@ def evaluate_raydium_clmm_cpi(
         outer_instruction_index=cpi.outer_instruction_index,
         cpi_instruction_index=cpi_index,
         payer=payer,
+        amm_config=amm_config,
         input_token_account=input_account,
         output_token_account=output_account,
         input_vault=input_vault,
         output_vault=output_vault,
+        observation_state=observation,
+        tick_array=tick_array,
         pool_state=pool_state,
         amount_raw=decoded.amount_raw,
         minimum_output_raw=decoded.other_amount_threshold_raw,
