@@ -74,7 +74,7 @@ class MeteoraDlmmCpiResult:
     message_sha256: str
     program_id: str
     decoded_swaps: tuple[DecodedMeteoraDlmmSwap, ...]
-    minimum_slippage_bps: int
+    max_slippage_bps: int
     idl_commit: str = METEORA_DLMM_IDL_COMMIT
 
 
@@ -99,7 +99,7 @@ def decode_meteora_dlmm_swap(data: bytes, account_keys: tuple[str, ...], *, poli
         raise MeteoraDlmmCpiError("Meteora DLMM swap amounts must be positive")
     if account_keys[0] == OPTIONAL_ACCOUNT_SENTINEL:
         raise MeteoraDlmmCpiError("Meteora DLMM lb_pair account is missing")
-    if account_keys[1] == OPTIONAL_ACCOUNT_SENTINEL and not policy.allow_bitmap_extension:
+    if account_keys[1] != OPTIONAL_ACCOUNT_SENTINEL and not policy.allow_bitmap_extension:
         raise MeteoraDlmmCpiError("Meteora bitmap extension is outside local policy")
     if account_keys[2] == OPTIONAL_ACCOUNT_SENTINEL or account_keys[3] == OPTIONAL_ACCOUNT_SENTINEL:
         raise MeteoraDlmmCpiError("Meteora DLMM reserve accounts are missing")
@@ -178,7 +178,11 @@ def evaluate_meteora_dlmm_cpi(
         raise MeteoraDlmmCpiError("simulation reported an execution error")
     if order.router != "metis" or route_semantics.jupiter_program_id not in validation.program_ids:
         raise MeteoraDlmmCpiError("Meteora CPI decoder requires the pinned Metis Jupiter route")
-    if program_gate.router != order.router or tuple(program_gate.top_level_program_ids) != tuple(validation.program_ids):
+    if (
+        program_gate.router != order.router
+        or tuple(program_gate.top_level_program_ids) != tuple(validation.program_ids)
+        or tuple(simulation.top_level_program_ids) != tuple(validation.program_ids)
+    ):
         raise MeteoraDlmmCpiError("Jupiter program trace differs from the validated order message")
     if tuple(program_gate.route_labels) != tuple(dict.fromkeys(step.label for step in order.route_plan)):
         raise MeteoraDlmmCpiError("Jupiter program trace route labels differ from the order")
@@ -186,8 +190,11 @@ def evaluate_meteora_dlmm_cpi(
         raise MeteoraDlmmCpiError("mixed or non-Meteora DEX routes are not yet supported")
     if "Meteora DLMM" not in program_gate.route_labels:
         raise MeteoraDlmmCpiError("Meteora DLMM is absent from the approved Jupiter route labels")
-    if policy.program_id not in program_gate.inner_program_ids:
-        raise MeteoraDlmmCpiError("pinned Meteora DLMM program is absent from the simulated inner CPI trace")
+    if (
+        policy.program_id not in program_gate.inner_program_ids
+        or policy.program_id not in program_gate.dex_program_ids
+    ):
+        raise MeteoraDlmmCpiError("pinned Meteora DLMM program is absent from the approved DEX CPI trace")
     if not simulation.inner_instructions:
         raise MeteoraDlmmCpiError("complete simulated inner instruction data is required")
     if tuple(item.program_id for item in simulation.inner_instructions) != tuple(simulation.inner_program_ids):
@@ -234,5 +241,5 @@ def evaluate_meteora_dlmm_cpi(
         message_sha256=digest,
         program_id=policy.program_id,
         decoded_swaps=tuple(results),
-        minimum_slippage_bps=policy.max_slippage_bps,
+        max_slippage_bps=policy.max_slippage_bps,
     )
