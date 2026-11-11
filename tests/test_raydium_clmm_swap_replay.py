@@ -526,3 +526,94 @@ def test_replay_trace_hash_is_deterministic_and_trace_limit_fails_closed():
         replay_raydium_clmm_swap(
             bundle, traversal, **kwargs, max_trace_steps=0
         )
+
+
+def test_replay_stops_at_price_limit_with_unspent_exact_input_and_no_false_tick_cross():
+    bundle, _ = make_replay_bundle()
+    pool = bundle.pool
+    first_array = bundle.tick_arrays[0]
+    second_ticks = []
+    for offset, original in enumerate(first_array.ticks):
+        index = -60 + offset
+        if offset == 50:
+            second_ticks.append(replace(
+                original,
+                tick_index=index,
+                liquidity_net=25,
+                liquidity_gross=100,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=True,
+            ))
+        else:
+            second_ticks.append(replace(
+                original,
+                tick_index=index,
+                liquidity_net=0,
+                liquidity_gross=0,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=False,
+            ))
+    second_array = replace(
+        first_array,
+        address=derive_raydium_clmm_tick_array_address(
+            pool_address=pool.pool_address, start_tick_index=-60
+        ),
+        start_tick_index=-60,
+        ticks=tuple(second_ticks),
+        initialized_tick_count=1,
+        data_sha256="",
+    )
+    second_bytes = encode_raydium_clmm_tick_array(second_array)
+    second_array = replace(
+        second_array, data_sha256=hashlib.sha256(second_bytes).hexdigest()
+    )
+    words = list(pool.tick_array_bitmap)
+    words[7] |= 1 << 63
+    updated_pool = replace(pool, tick_array_bitmap=tuple(words))
+    pool_bytes = encode_raydium_clmm_pool_state(updated_pool)
+    updated_pool = replace(
+        updated_pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    bundle = build_raydium_clmm_replay_account_bundle(
+        updated_pool,
+        tick_arrays=(first_array, second_array),
+        observation=bundle.observation,
+        vaults=bundle.vaults,
+    )
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True,
+        pool_address=updated_pool.pool_address,
+        zero_for_one=True,
+        current_array_start_index=0,
+        first_initialized_array_start_index=0,
+        last_cpi_array_start_index=-60,
+        expected_initialized_array_starts=(0, -60),
+        supplied_initialized_array_starts=(0, -60),
+        supplied_array_starts=(0, -60),
+        bitmap_extension_sha256=None,
+        bounded_interval_complete=True,
+        execution_ready=False,
+    )
+    limit = get_sqrt_price_at_tick(-5)
+    result = replay_raydium_clmm_swap(
+        bundle,
+        traversal,
+        amount_specified=1000,
+        sqrt_price_limit_x64=limit,
+        base_fee_rate=0,
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+        block_timestamp=1000,
+        recent_epoch=2,
+        zero_for_one=True,
+        is_base_input=True,
+    )
+    assert result.final_bundle.pool.sqrt_price_x64 == limit
+    assert result.amount_specified_remaining > 0
+    assert result.outer_iterations == 2
+    assert result.boundary_crossings == 1
+    assert result.trace[-1].boundary_reached is False
