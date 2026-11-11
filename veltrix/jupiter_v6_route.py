@@ -69,10 +69,12 @@ class DecodedJupiterRouteStep:
     percent: int
     input_index: int
     output_index: int
+    amm_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class JupiterV6RouteInspection:
+    message_sha256: str
     instruction_name: str
     program_id: str
     shared_authority_id: int | None
@@ -400,11 +402,23 @@ def inspect_jupiter_v6_route(
         raise JupiterV6RouteError("one or more quoted AMM keys are absent from Jupiter remaining accounts")
 
     blocking = ("DEX-specific remaining account roles are not yet decoded",) if remaining else ()
+    bound_steps = tuple(
+        DecodedJupiterRouteStep(
+            amm_key=quoted.amm_key,
+            swap_variant=decoded.swap_variant,
+            dex_label=decoded.dex_label,
+            percent=decoded.percent,
+            input_index=decoded.input_index,
+            output_index=decoded.output_index,
+        )
+        for decoded, quoted in zip(decoded_steps, order.route_plan)
+    )
     return JupiterV6RouteInspection(
+        message_sha256=digest,
         instruction_name=instruction_name,
         program_id=program_id,
         shared_authority_id=authority_id,
-        route_steps=decoded_steps,
+        route_steps=bound_steps,
         input_amount_raw=input_amount,
         quoted_output_amount_raw=quoted_output,
         slippage_bps=slippage_bps,

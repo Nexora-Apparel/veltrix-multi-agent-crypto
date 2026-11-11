@@ -16,6 +16,7 @@ import requests
 from solders.message import MessageV0, from_bytes_versioned, to_bytes_versioned
 from solders.address_lookup_table_account import AddressLookupTable, ID as ADDRESS_LOOKUP_TABLE_ID
 from solders.signature import Signature
+from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from veltrix.simulation_gate import (
@@ -49,6 +50,24 @@ class SolanaRpcAdapterError(RuntimeError):
 class RpcSimulationResult:
     validation: TransactionValidationResult
     evidence: SimulationEvidence
+
+
+@dataclass(frozen=True, slots=True)
+class RpcAccountInfo:
+    address: str
+    owner: str
+    lamports: int
+    executable: bool
+    data: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class RpcAccountSnapshot:
+    provider_id: str
+    cluster: str
+    genesis_hash: str
+    context_slot: int
+    accounts: tuple[RpcAccountInfo, ...]
 
 
 class SolanaRpcSimulationAdapter:
@@ -129,6 +148,95 @@ class SolanaRpcSimulationAdapter:
         if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
             raise SolanaRpcAdapterError(f"RPC {method} returned an invalid context slot")
         return slot
+
+    def fetch_account_snapshot(
+        self,
+        addresses: tuple[str, ...],
+        *,
+        min_context_slot: int,
+    ) -> RpcAccountSnapshot:
+        """Fetch exact account bytes at or after a supplied simulation context slot."""
+        if not isinstance(addresses, tuple) or not 1 <= len(addresses) <= 100:
+            raise SolanaRpcAdapterError("account snapshot addresses must be a tuple of 1..100 keys")
+        if len(set(addresses)) != len(addresses):
+            raise SolanaRpcAdapterError("account snapshot addresses must not contain duplicates")
+        for address in addresses:
+            try:
+                if not isinstance(address, str) or str(Pubkey.from_string(address)) != address:
+                    raise ValueError("non-canonical")
+            except Exception as exc:
+                raise SolanaRpcAdapterError("account snapshot contains an invalid public key") from exc
+        if isinstance(min_context_slot, bool) or not isinstance(min_context_slot, int) or min_context_slot < 0:
+            raise SolanaRpcAdapterError("min_context_slot must be a non-negative integer")
+
+        genesis_hash = self._rpc("getGenesisHash", [])
+        if genesis_hash != self.expected_genesis_hash:
+            raise SolanaRpcAdapterError("RPC genesis hash differs from the configured cluster")
+        result = self._rpc(
+            "getMultipleAccounts",
+            [
+                list(addresses),
+                {
+                    "encoding": "base64",
+                    "commitment": "confirmed",
+                    "minContextSlot": min_context_slot,
+                },
+            ],
+        )
+        context_slot = self._context_slot(result, "getMultipleAccounts")
+        if context_slot < min_context_slot:
+            raise SolanaRpcAdapterError("account snapshot context slot is older than the required simulation slot")
+        values = result.get("value") if isinstance(result, dict) else None
+        if not isinstance(values, list) or len(values) != len(addresses):
+            raise SolanaRpcAdapterError("getMultipleAccounts returned a missing or mismatched account list")
+
+        accounts = []
+        for address, info in zip(addresses, values):
+            if not isinstance(info, dict):
+                raise SolanaRpcAdapterError(f"account {address} is missing from the requested snapshot")
+            owner = info.get("owner")
+            try:
+                if not isinstance(owner, str) or str(Pubkey.from_string(owner)) != owner:
+                    raise ValueError("non-canonical")
+            except Exception as exc:
+                raise SolanaRpcAdapterError(f"account {address} has an invalid owner public key") from exc
+            lamports = info.get("lamports")
+            if isinstance(lamports, bool) or not isinstance(lamports, int) or lamports < 0:
+                raise SolanaRpcAdapterError(f"account {address} has invalid lamports")
+            executable = info.get("executable")
+            if not isinstance(executable, bool):
+                raise SolanaRpcAdapterError(f"account {address} has an invalid executable flag")
+            encoded_data = info.get("data")
+            if (
+                not isinstance(encoded_data, list)
+                or len(encoded_data) != 2
+                or not isinstance(encoded_data[0], str)
+                or encoded_data[1] != "base64"
+            ):
+                raise SolanaRpcAdapterError(f"account {address} data must use the base64 RPC encoding")
+            try:
+                data = base64.b64decode(encoded_data[0], validate=True)
+            except Exception as exc:
+                raise SolanaRpcAdapterError(f"account {address} data is not valid base64") from exc
+            space = info.get("space")
+            if space is not None and (
+                isinstance(space, bool) or not isinstance(space, int) or space != len(data)
+            ):
+                raise SolanaRpcAdapterError(f"account {address} data length differs from RPC space")
+            accounts.append(RpcAccountInfo(
+                address=address,
+                owner=owner,
+                lamports=lamports,
+                executable=executable,
+                data=data,
+            ))
+        return RpcAccountSnapshot(
+            provider_id=self.provider_id,
+            cluster=self.cluster,
+            genesis_hash=genesis_hash,
+            context_slot=context_slot,
+            accounts=tuple(accounts),
+        )
 
     def _resolve_lookup_tables(
         self,

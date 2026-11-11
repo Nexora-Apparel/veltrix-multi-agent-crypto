@@ -308,3 +308,16 @@ No signing, `/execute`, broadcast or live execution is introduced.
 A program-trace pass is not final execution approval. The current supported path still has trailing DEX account metas, which remain explicitly incomplete until a DEX-specific account-layout decoder validates pool, vault, tick-array and writable/read-only roles. Signing remains unavailable.
 
 The route-program result now includes `execution_ready=false` by default. A program-trace pass cannot be interpreted as transaction authorization while DEX-specific remaining account roles are unresolved.
+
+
+### 09.21 — DEX AMM pool owner evidence
+
+Implemented in `veltrix/dex_pool_evidence.py`; `SolanaRpcSimulationAdapter.fetch_account_snapshot` now fetches read-only account bytes using the configured HTTPS host, expected genesis hash, confirmed commitment and `minContextSlot` no older than the simulation.
+
+- Maps every inspected routePlan AMM key to exactly one locally pinned DEX program ID through the verified Jupiter program registry.
+- Fetches the AMM accounts with `getMultipleAccounts`, checks exact result count, canonical owner keys, non-executable status, positive lamports, base64 data integrity, RPC `space`, and bounded data size.
+- Requires the account snapshot context slot to be at least the simulation slot and binds the snapshot to provider, cluster, genesis hash, route-message digest and registry digest.
+- Records the raw pool account bytes and SHA-256 for the next DEX-specific state decoder.
+- This proves only that the quoted AMM account is owned by the pinned DEX program and has account data. It does not decode pool mints, vaults, liquidity, tick arrays or instruction-specific account roles. `execution_ready` remains false.
+
+The pool-evidence function now requires the original `SimulationEvidence`, verifies its message digest/provider/cluster/genesis against the route and RPC adapter, and derives `minContextSlot` directly from `simulation.context_slot`; callers cannot lower the freshness floor by passing an arbitrary slot.
