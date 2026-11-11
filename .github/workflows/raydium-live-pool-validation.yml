@@ -1,0 +1,45 @@
+name: Raydium live pool account validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      pool_address:
+        description: "Raydium CLMM pool address (defaults to selected SOL/USDC candidate)"
+        required: false
+        type: string
+        default: "CYbD9RaToYMtWKA7QZyoLahnHdWq553Vm62Lh6qWtuxq"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-mainnet-pool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/phase-09.46-parity-reconciliation
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install pinned project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Validate real Raydium mainnet account state
+        env:
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          POOL_ADDRESS: ${{ inputs.pool_address }}
+        run: |
+          mkdir -p artifacts
+          python -m veltrix.live_raydium_pool_validation --pool "$POOL_ADDRESS" --output artifacts/raydium-live-pool-validation.json
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raydium-live-pool-validation
+          path: artifacts/raydium-live-pool-validation.json
+          if-no-files-found: warn
+          retention-days: 30
