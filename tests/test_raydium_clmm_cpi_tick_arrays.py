@@ -411,3 +411,60 @@ def test_bitmap_traversal_uses_negative_extension_bitmap_outside_default_range()
     )
     assert result.expected_initialized_array_starts == (-307800, -308400)
     assert result.zero_for_one is True
+
+
+def test_bitmap_traversal_rejects_uninitialized_extra_cpi_array():
+    values = fixture(include_bitmap=False)
+    snapshot = fetch(values)
+    pool_check, pool_evidence = _pool_check_with_initialized_arrays(values, (0, -600))
+    extra = _synthetic_array(pool_check.pool.pool_address, -1200)
+    first, second = snapshot.tick_arrays
+    changed = dataclasses.replace(
+        snapshot,
+        tick_arrays=(first, second, extra),
+        cpi_account_order=(first.address, second.address, extra.address),
+    )
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="uninitialized|differs from PoolState"):
+        verify_raydium_clmm_bitmap_traversal(
+            values[0], pool_check=pool_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=changed,
+        )
+
+
+def test_bitmap_traversal_rejects_pool_bitmap_object_tampering():
+    values = fixture(include_bitmap=False)
+    snapshot = fetch(values)
+    pool_check, pool_evidence = _pool_check_with_initialized_arrays(values, (0, -600))
+    tampered_pool = dataclasses.replace(
+        pool_check.pool, tick_array_bitmap=(0,) * 16
+    )
+    tampered_check = dataclasses.replace(pool_check, pool=tampered_pool)
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="bitmap words differ"):
+        verify_raydium_clmm_bitmap_traversal(
+            values[0], pool_check=tampered_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=snapshot,
+        )
+
+
+def test_bitmap_traversal_rejects_extension_words_not_matching_raw_account_digest():
+    values = fixture()
+    order, _, _, pool_check, *_ = values
+    pool = dataclasses.replace(pool_check.pool, tick_current=307200)
+    pool_check = dataclasses.replace(
+        pool_check, pool=pool, route_input_mint=pool.token_mint_1,
+        route_output_mint=pool.token_mint_0,
+    )
+    order = dataclasses.replace(order, input_mint=pool.token_mint_1, output_mint=pool.token_mint_0)
+    pool_check, pool_evidence = _sync_pool_account(values, pool_check)
+    snapshot = fetch(values)
+    changed_words = list(snapshot.bitmap_extension.positive_bitmaps)
+    changed_words[0] = 1
+    tampered_extension = dataclasses.replace(
+        snapshot.bitmap_extension, positive_bitmaps=tuple(changed_words)
+    )
+    snapshot = dataclasses.replace(snapshot, bitmap_extension=tampered_extension)
+    with pytest.raises(RaydiumClmmBitmapTraversalError, match="decoded bitmap words differ"):
+        verify_raydium_clmm_bitmap_traversal(
+            order, pool_check=pool_check, pool_evidence=pool_evidence,
+            tick_array_snapshot=snapshot,
+        )
