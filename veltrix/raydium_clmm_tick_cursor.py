@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from veltrix.raydium_clmm_pool_state import RAYDIUM_MAX_TICK, RAYDIUM_MIN_TICK
+from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
+from veltrix.raydium_clmm_replay_bundle import RaydiumClmmReplayAccountBundle
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
@@ -178,3 +180,84 @@ def next_tick_array_start_index(
     if not -(1 << 31) <= result < (1 << 31):
         raise RaydiumTickCursorError("next tick-array start index overflows i32")
     return result
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumBitmapTickSelection:
+    cursor: RaydiumInitializedTickCursor
+    sequence_index: int
+    visited_array_starts: tuple[int, ...]
+
+
+def select_next_initialized_tick_from_bitmap_sequence(
+    bundle: RaydiumClmmReplayAccountBundle,
+    traversal: RaydiumClmmBitmapTraversalResult,
+    *,
+    current_tick_index: int,
+    first_tick_array_contains_pool_tick: bool,
+) -> RaydiumBitmapTickSelection:
+    """Mirror swap_internal's first-array, then next-bitmap-array selection order."""
+    if not isinstance(bundle, RaydiumClmmReplayAccountBundle):
+        raise RaydiumTickCursorError("validated Raydium replay account bundle is required")
+    if not isinstance(traversal, RaydiumClmmBitmapTraversalResult) or traversal.passed is not True:
+        raise RaydiumTickCursorError("passed bitmap traversal proof is required")
+    if traversal.pool_address != bundle.pool.pool_address:
+        raise RaydiumTickCursorError("bitmap traversal proof belongs to a different pool")
+    if traversal.zero_for_one not in (True, False):
+        raise RaydiumTickCursorError("bitmap traversal direction is invalid")
+    if not traversal.bounded_interval_complete:
+        raise RaydiumTickCursorError("bitmap traversal interval is not complete")
+    expected = traversal.expected_initialized_array_starts
+    if (
+        not isinstance(expected, tuple)
+        or not expected
+        or expected != traversal.supplied_initialized_array_starts
+        or expected != traversal.supplied_array_starts
+    ):
+        raise RaydiumTickCursorError("bitmap traversal proof does not contain the exact ordered initialized-array sequence")
+    if not isinstance(first_tick_array_contains_pool_tick, bool):
+        raise RaydiumTickCursorError("first-array ownership flag must be boolean")
+    if not RAYDIUM_MIN_TICK <= current_tick_index <= RAYDIUM_MAX_TICK:
+        raise RaydiumTickCursorError("current tick is outside the Raydium protocol range")
+
+    by_start = {item.start_tick_index: item for item in bundle.tick_arrays}
+    if len(by_start) != len(bundle.tick_arrays) or set(by_start) != set(expected):
+        raise RaydiumTickCursorError("replay bundle tick arrays differ from the bitmap-proven CPI sequence")
+    if first_tick_array_contains_pool_tick:
+        expected_current = raydium_current_tick_array_start(
+            current_tick_index, bundle.pool.tick_spacing
+        )
+        if expected_current != expected[0]:
+            raise RaydiumTickCursorError("first-array ownership flag conflicts with the current pool tick")
+
+    visited = []
+    first_array = by_start[expected[0]]
+    first_result = select_next_initialized_tick_in_first_array(
+        first_array,
+        current_tick_index=current_tick_index,
+        tick_spacing=bundle.pool.tick_spacing,
+        zero_for_one=traversal.zero_for_one,
+        first_tick_array_contains_pool_tick=first_tick_array_contains_pool_tick,
+    )
+    visited.append(expected[0])
+    if first_result is not None:
+        return RaydiumBitmapTickSelection(
+            cursor=first_result,
+            sequence_index=0,
+            visited_array_starts=tuple(visited),
+        )
+
+    for sequence_index, start in enumerate(expected[1:], start=1):
+        array = by_start[start]
+        result = first_initialized_tick_in_array(
+            array, zero_for_one=traversal.zero_for_one
+        )
+        visited.append(start)
+        return RaydiumBitmapTickSelection(
+            cursor=result,
+            sequence_index=sequence_index,
+            visited_array_starts=tuple(visited),
+        )
+    raise RaydiumTickCursorError(
+        "bitmap proves initialized arrays but no next initialized tick exists in the supplied direction"
+    )
