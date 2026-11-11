@@ -9,6 +9,8 @@ on:
       - "veltrix/raydium_clmm_pool_state.py"
       - "veltrix/raydium_clmm_limit_orders.py"
       - "veltrix/raydium_clmm_tick_arrays.py"
+      - "veltrix/raydium_clmm_tick_array_mutation.py"
+      - "veltrix/raydium_clmm_tick_array_cursor.py"
       - "veltrix/raydium_clmm_tick_crossing.py"
       - "veltrix/raydium_clmm_pool_post_swap_finalization.py"
       - "veltrix/raydium_clmm_fee_accounting.py"
