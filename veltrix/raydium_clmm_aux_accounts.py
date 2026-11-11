@@ -202,10 +202,10 @@ def decode_raydium_clmm_observation_state(
         observed_pool = _canonical_pubkey(data[19:51], "observation pool")
     except Exception as exc:
         raise RaydiumClmmAuxAccountError("observation address or pool identity is invalid") from exc
-    if observed_address != derive_raydium_clmm_observation_address(pool_address=expected_pool):
-        raise RaydiumClmmAuxAccountError("observation account address does not match the canonical pool PDA")
     if observed_pool != expected_pool:
         raise RaydiumClmmAuxAccountError("observation state belongs to a different pool")
+    if observed_address != derive_raydium_clmm_observation_address(pool_address=expected_pool):
+        raise RaydiumClmmAuxAccountError("observation account address does not match the canonical pool PDA")
     initialized = data[8]
     if initialized not in (0, 1) or initialized != 1:
         raise RaydiumClmmAuxAccountError("observation state is not initialized")
