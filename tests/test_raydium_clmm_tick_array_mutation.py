@@ -1,5 +1,6 @@
 """Adversarial tests for Raydium CLMM tick-array and bitmap mutation."""
 from dataclasses import replace
+import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
@@ -13,6 +14,8 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTick,
     RaydiumClmmTickArray,
     derive_raydium_clmm_tick_array_address,
+    decode_raydium_clmm_tick_array,
+    encode_raydium_clmm_tick_array,
 )
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
@@ -72,7 +75,9 @@ def test_first_initialized_tick_sets_default_bitmap_and_count():
     result = apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0))
     assert result.tick_array.initialized_tick_count == 1
     assert result.tick_array.recent_epoch == 2
-    assert result.tick_array.data_sha256 == ""
+    assert result.tick_array.data_sha256 == hashlib.sha256(
+        encode_raydium_clmm_tick_array(result.tick_array)
+    ).hexdigest()
     assert result.pool.account_data_sha256 == ""
     assert result.initialized_before is False and result.initialized_after is True
     assert result.bitmap_changed is True
@@ -319,3 +324,23 @@ def test_negative_extension_boundary_uses_source_asymmetric_bitmap_bit():
     assert result.bitmap_changed is True
     assert result.bitmap_extension.negative_bitmaps[0][7] == (1 << 63)
     assert not any(any(word for word in row) for row in result.bitmap_extension.positive_bitmaps)
+
+
+def test_tick_array_serializer_roundtrips_exact_layout_and_preserves_opaque_account_padding():
+    p = pool()
+    original = replace(array(p), padding=bytes(range(107)))
+    raw = encode_raydium_clmm_tick_array(original)
+    decoded = decode_raydium_clmm_tick_array(
+        address=original.address,
+        owner=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data=raw,
+        expected_pool_address=p.pool_address,
+        expected_start_tick_index=original.start_tick_index,
+        tick_spacing=p.tick_spacing,
+    )
+    assert decoded == replace(
+        original, data_sha256=hashlib.sha256(raw).hexdigest()
+    )
+    assert encode_raydium_clmm_tick_array(decoded) == raw
