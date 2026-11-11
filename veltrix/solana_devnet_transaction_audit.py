@@ -273,6 +273,7 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect({pool_mint0, pool_mint1} == {WSOL, USDC}, "pool state mint pair is not wrapped SOL/Devnet USDC")
     _expect({pool_vault0, pool_vault1} == {key_strings[7], key_strings[8]}, "pool state vaults differ from router vaults")
     _expect(pool_observation == key_strings[9], "pool observation account differs from route")
+    _expect(pool_data[329] & 4 == 0, "CPMM pool state has swaps disabled")
     _expect(account_map[key_strings[16]] is not None and account_map[key_strings[16]].get("owner") == CPMM,
             "AMM config account is not owned by CPMM")
     config_data = read_rpc_data(account_map[key_strings[16]])
@@ -302,9 +303,21 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     _expect(vin_owner == str(authority) and vout_owner == str(authority), "CPMM vault authority owner mismatch")
     _expect(pool_token_program0 in {TOKEN, TOKEN_2022} and pool_token_program1 in {TOKEN, TOKEN_2022},
             "pool state contains an unexpected token program")
+    vault0_mint = vin_mint if pool_vault0 == key_strings[7] else vout_mint
+    vault1_mint = vin_mint if pool_vault1 == key_strings[7] else vout_mint
+    _expect(account_map[pool_vault0].get("owner") == pool_token_program0 and vault0_mint == pool_mint0,
+            "token-0 vault program/mint does not match PoolState")
+    _expect(account_map[pool_vault1].get("owner") == pool_token_program1 and vault1_mint == pool_mint1,
+            "token-1 vault program/mint does not match PoolState")
     _expect(account_map[WSOL] is not None and account_map[USDC] is not None, "one or both mint accounts are missing")
     _expect(account_map[WSOL].get("owner") == TOKEN and account_map[USDC].get("owner") == TOKEN,
             "configured mint accounts are not owned by the classic SPL Token program")
+    wsol_mint_data = read_rpc_data(account_map[WSOL])
+    usdc_mint_data = read_rpc_data(account_map[USDC])
+    _expect(len(wsol_mint_data) >= 82 and wsol_mint_data[45] == 1 and wsol_mint_data[44] == 9,
+            "wrapped-SOL mint account layout/decimals mismatch")
+    _expect(len(usdc_mint_data) >= 82 and usdc_mint_data[45] == 1 and usdc_mint_data[44] == 6,
+            "Devnet USDC mint account layout/decimals mismatch")
 
     # Simulate the exact captured bytes with inner-instruction recording enabled.
     sim = rpc.call("simulateTransaction", [fixture["unsigned_transaction_base64"], {
