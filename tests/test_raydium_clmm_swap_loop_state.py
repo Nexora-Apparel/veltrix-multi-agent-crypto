@@ -81,9 +81,7 @@ def test_static_fee_step_uses_trade_fee_rate_and_applies_amounts():
     targeted = set_raydium_swap_loop_target(
         state, next_tick=100, sqrt_price_limit_x64=get_sqrt_price_at_tick(50),
     )
-    prepared = prepare_raydium_swap_step(
-        targeted, target_price_x64=get_sqrt_price_at_tick(50),
-    )
+    prepared = prepare_raydium_swap_step(targeted)
     assert prepared.total_fee_rate == 3000
     applied = apply_prepared_raydium_swap_step(
         prepared, protocol_fee_rate=1000, fund_fee_rate=1000,
@@ -129,7 +127,7 @@ def test_dynamic_fee_index_uses_post_transition_tick_and_target_price():
     targeted = set_raydium_swap_loop_target(
         state, next_tick=100, sqrt_price_limit_x64=get_sqrt_price_at_tick(50),
     )
-    prepared = prepare_raydium_swap_step(targeted, target_price_x64=get_sqrt_price_at_tick(50))
+    prepared = prepare_raydium_swap_step(targeted)
     applied = apply_prepared_raydium_swap_step(prepared, protocol_fee_rate=0, fund_fee_rate=0)
     advanced = advance_raydium_dynamic_fee_after_tick(
         applied, tick_after_transition=1, is_skipped_tick_spacing=False,
