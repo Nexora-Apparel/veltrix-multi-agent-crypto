@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+import hashlib
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -573,10 +574,12 @@ class SolanaRpcSimulationAdapter:
                 ))
         post_accounts = value.get("accounts")
         if not isinstance(post_accounts, list) or len(post_accounts) != len(addresses):
-            raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state token accounts")
+            raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state accounts")
+        post_by_address = dict(zip(addresses, post_accounts))
 
         token_balances = []
-        for address, post_info in zip(addresses, post_accounts):
+        for address in token_addresses:
+            post_info = post_by_address[address]
             pre_program, pre_mint, pre_owner, pre_amount = pre_balances[address]
             post_program, post_mint, post_owner, post_amount = self._token_balance(post_info, address)
             if (pre_program, pre_mint, pre_owner) != (post_program, post_mint, post_owner):
@@ -589,6 +592,29 @@ class SolanaRpcSimulationAdapter:
                 post_amount_raw=post_amount,
                 token_program_id=pre_program,
             ))
+
+        account_states = []
+        for address in tracked_account_addresses:
+            pre_owner, pre_lamports, pre_executable, pre_data = pre_tracked_states[address]
+            post_owner, post_lamports, post_executable, post_data = _decode_tracked_account_info(
+                post_by_address[address], address
+            )
+            try:
+                account_states.append(SimulatedAccountState(
+                    address=address,
+                    pre_owner=pre_owner,
+                    post_owner=post_owner,
+                    pre_lamports=pre_lamports,
+                    post_lamports=post_lamports,
+                    pre_executable=pre_executable,
+                    post_executable=post_executable,
+                    pre_data=pre_data,
+                    post_data=post_data,
+                    pre_data_sha256=hashlib.sha256(pre_data).hexdigest(),
+                    post_data_sha256=hashlib.sha256(post_data).hexdigest(),
+                ))
+            except SimulationGateError as exc:
+                raise SolanaRpcAdapterError("tracked account owner or executable state changed during simulation") from exc
 
         fee_result = self._rpc(
             "getFeeForMessage",
@@ -627,5 +653,6 @@ class SolanaRpcSimulationAdapter:
             inner_program_ids=tuple(inner_program_ids),
             inner_instruction_count=len(inner_program_ids),
             inner_instructions=tuple(inner_instructions),
+            account_states=tuple(account_states),
         )
         return RpcSimulationResult(validation=validation, evidence=evidence)
