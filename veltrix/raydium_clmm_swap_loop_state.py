@@ -54,6 +54,8 @@ class RaydiumSwapLoopState:
     tick: int
     sqrt_price_next_x64: int
     tick_next: int
+    target_price_x64: int
+    trade_fee_rate: int
     zero_for_one: bool
     is_base_input: bool
     is_fee_on_input: bool
@@ -151,6 +153,8 @@ def initialize_raydium_swap_loop_state(
         tick=pool.tick_current,
         sqrt_price_next_x64=0,
         tick_next=0,
+        target_price_x64=0,
+        trade_fee_rate=trade_fee_rate,
         zero_for_one=zero_for_one,
         is_base_input=is_base_input,
         is_fee_on_input=_fee_on_input(pool, zero_for_one),
@@ -192,17 +196,18 @@ def set_raydium_swap_loop_target(
         if sqrt_next < state.sqrt_price_x64:
             raise RaydiumSwapLoopStateError("next tick sqrt price is below current price for one-for-zero")
         target = sqrt_price_limit_x64 if sqrt_next > sqrt_price_limit_x64 else sqrt_next
-    return replace(state, tick_next=tick_next, sqrt_price_next_x64=sqrt_next)
+    return replace(state, tick_next=tick_next, sqrt_price_next_x64=sqrt_next, target_price_x64=target)
 
 
 def prepare_raydium_swap_step(
     state: RaydiumSwapLoopState,
-    *,
-    target_price_x64: int,
 ) -> RaydiumPreparedSwapStep:
     """Port the inner-loop fee/bound/compute sequence up to the amount transition."""
     if not isinstance(state, RaydiumSwapLoopState):
         raise RaydiumSwapLoopStateError("Raydium swap-loop state is required")
+    target_price_x64 = state.target_price_x64
+    if target_price_x64 == 0:
+        raise RaydiumSwapLoopStateError("next-tick target price must be set before preparing a step")
     _u128(target_price_x64, "target_price_x64")
 
     next_state = state
@@ -230,20 +235,11 @@ def prepare_raydium_swap_step(
         bounded_price = spacing.sqrt_price_x64
         bounded_tick = spacing.bounded_tick
     else:
-        fee_rate = state.dynamic_fee_state.base_fee_rate if state.dynamic_fee_state else 0
-        # Static-fee pools use the AMM config trade fee rate stored during initialization.
-        fee_rate = getattr(state, "trade_fee_rate", fee_rate)
+        # Static-fee pools use the AmmConfig trade fee retained at initialization.
+        fee_rate = state.trade_fee_rate
         is_skipped = True
         bounded_price = target_price_x64
         bounded_tick = None
-
-    if next_state.dynamic_fee_state is None:
-        # Static fee rate is retained separately by the immutable fee-state context.
-        fee_rate = getattr(state, "base_fee_rate", fee_rate)
-    if fee_rate == 0 and next_state.dynamic_fee_state is None:
-        # PoolState does not store the AmmConfig trade fee; require it explicitly via
-        # initialize_raydium_swap_loop_state's dynamic_fee_state-compatible field below.
-        raise RaydiumSwapLoopStateError("static-fee trade rate was not retained in swap-loop state")
 
     if state.sqrt_price_x64 == bounded_price:
         result = RaydiumSwapStepResult(
