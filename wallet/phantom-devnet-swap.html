@@ -340,6 +340,9 @@
         readKey(296,328) !== policy.observation) fail("pool config/vault/observation relationship mismatch");
     const mints = [readKey(168,200),readKey(200,232)];
     if (!mints.includes(SOL) || !mints.includes(USDC)) fail("pool mint pair is not WSOL/Devnet USDC");
+    const expectedVaultIn = mints[0] === SOL ? readKey(72,104) : readKey(104,136);
+    const expectedVaultOut = mints[0] === SOL ? readKey(104,136) : readKey(72,104);
+    if (policy.vaultIn !== expectedVaultIn || policy.vaultOut !== expectedVaultOut) fail("router vault direction does not match WSOL-to-USDC pool mint order");
     if ((pd[329] & 4) !== 0) fail("CPMM pool swaps disabled");
     const [authority,bump] = solanaWeb3.PublicKey.findProgramAddressSync([POOL_AUTH_SEED],new solanaWeb3.PublicKey(CPMM));
     if (authority.toBase58() !== policy.authority || bump !== pd[328]) fail("CPMM authority PDA/bump mismatch");
@@ -350,35 +353,99 @@
     const vaultMint0 = readKey(168,200), vaultMint1 = readKey(200,232);
     decodeTokenAccount(vault0,vaultMint0,policy.authority,"pool vault 0");
     decodeTokenAccount(vault1,vaultMint1,policy.authority,"pool vault 1");
-    decodeTokenAccount(snapshot.get(policy.inputAta),SOL,wallet.toBase58(),"wallet WSOL ATA");
-    decodeTokenAccount(snapshot.get(policy.outputAta),USDC,wallet.toBase58(),"wallet USDC ATA");
-    return snapshot;
+    const inputInfo = snapshot.get(policy.inputAta), outputInfo = snapshot.get(policy.outputAta);
+    if (inputInfo) decodeTokenAccount(inputInfo,SOL,wallet.toBase58(),"wallet WSOL ATA");
+    if (outputInfo) decodeTokenAccount(outputInfo,USDC,wallet.toBase58(),"wallet USDC ATA");
+    return {snapshot,inputAtaPresent:!!inputInfo,outputAtaPresent:!!outputInfo};
   }
-  async function verifyCpmmCpi(tx, policy, reviewedBytes) {
+  async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence) {
     const encoded = btoa(String.fromCharCode(...reviewedBytes));
     const simulation = await rpcCall("simulateTransaction", [encoded,{
       encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,
-      innerInstructions:true,accounts:{encoding:"base64",addresses:[policy.inputAta,policy.outputAta]}
+      innerInstructions:true
     }]);
     const value = simulation && simulation.value;
     if (!value || value.err || !Array.isArray(value.innerInstructions)) fail("simulation failed or omitted inner-instruction metadata");
     const all = [];
     for (const group of value.innerInstructions) for (const ix of group.instructions || []) all.push({outerIndex:group.index,ix});
-    const cpi = all.filter(item => {
-      const pid = Number.isInteger(item.ix.programIdIndex) ? policy.keys[item.ix.programIdIndex] : item.ix.programId;
-      return pid === CPMM;
-    });
-    if (cpi.length !== 1 || cpi[0].outerIndex !== 1) fail("expected exactly one CPMM CPI under the router route");
-    const ix = cpi[0].ix, data = b58decode(ix.data || "");
-    if (data.length !== 24 || [...data.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("") !== CPMM_SWAP_DISC) fail("CPMM CPI discriminator/layout mismatch");
-    if (readU64(data,8) !== BigInt(TEST_LAMPORTS)) fail("CPMM exact input amount mismatch");
-    const cpiAccounts = (ix.accounts || []).map(index => Number.isInteger(index) ? policy.keys[index] : index);
-    const expected = [wallet.toBase58(),policy.authority,policy.config,POOL,policy.inputAta,policy.outputAta,
+    const names = ix => {
+      if (!Array.isArray(ix.accounts) || ix.accounts.some(i => !Number.isInteger(i) || i < 0 || i >= policy.keys.length)) fail("inner CPI account index invalid");
+      return ix.accounts.map(i => policy.keys[i]);
+    };
+    const programOf = ix => Number.isInteger(ix.programIdIndex) ? policy.keys[ix.programIdIndex] : ix.programId;
+    const cpmm = all.filter(item => programOf(item.ix) === CPMM);
+    if (cpmm.length !== 1 || cpmm[0].outerIndex !== 1) fail("expected exactly one CPMM CPI under the router route");
+    const cpi = cpmm[0].ix, cpiData = b58decode(cpi.data || "");
+    if (cpiData.length !== 24 || [...cpiData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("") !== CPMM_SWAP_DISC) fail("CPMM CPI discriminator/layout mismatch");
+    if (readU64(cpiData,8) !== BigInt(TEST_LAMPORTS) || readU64(cpiData,16) !== 0n) fail("CPMM input/inner-minimum semantics changed");
+    const expectedCpmm = [wallet.toBase58(),policy.authority,policy.config,POOL,policy.inputAta,policy.outputAta,
       policy.vaultIn,policy.vaultOut,TOKEN,TOKEN,SOL,USDC,policy.observation];
-    if (cpiAccounts.join("|") !== expected.join("|")) fail("CPMM CPI account order/identity mismatch");
-    // The CPMM inner minimum is zero for this Raydium router path. The outer route threshold is
-    // separately verified by a one-unit-too-high adversarial simulation below.
-    if (readU64(data,16) !== 0n) fail("unexpected CPMM inner minimum; route semantics changed");
+    if (names(cpi).join("|") !== expectedCpmm.join("|")) fail("CPMM CPI account order/identity mismatch");
+
+    const allowedPrograms = new Set([CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM]);
+    const allowedAtas = new Set([policy.inputAta,policy.outputAta]);
+    const createdAtas = new Set(), transferProofs = [];
+    let syncNative = false, closeNative = false;
+    for (const item of all) {
+      const ix = item.ix, program = programOf(ix), accts = names(ix), data = b58decode(ix.data || "");
+      if (!allowedPrograms.has(program)) fail("unexpected inner CPI program " + program);
+      if (program === CPMM) continue;
+      if (program === ATA_PROGRAM) {
+        if (data.length !== 1 || ![0,1].includes(data[0]) || accts.length !== 6) fail("unexpected Associated Token instruction");
+        const [payer,ata,owner,mint,systemProgram,tokenProgram] = accts;
+        if (payer !== wallet.toBase58() || owner !== wallet.toBase58() || !allowedAtas.has(ata) ||
+            ![[policy.inputAta,SOL,TOKEN],[policy.outputAta,USDC,TOKEN]].some(x=>x[0]===ata&&x[1]===mint&&x[2]===tokenProgram) ||
+            systemProgram !== SYSTEM) fail("ATA creation payer/owner/mint/program mismatch");
+        createdAtas.add(ata);
+      } else if (program === SYSTEM) {
+        if (data.length < 4) fail("truncated System Program CPI");
+        const tag = new DataView(data.buffer,data.byteOffset,data.byteLength).getUint32(0,true);
+        if (tag === 0) {
+          if (data.length !== 52 || accts.length !== 2) fail("System CreateAccount shape mismatch");
+          const lamports = readU64(data,4), space = readU64(data,12), ownerProgram = b58encode(data.slice(20,52));
+          if (accts[0] !== wallet.toBase58() || !allowedAtas.has(accts[1]) ||
+              lamports <= 0n || lamports > 10000000n || space !== 165n || ownerProgram !== TOKEN) fail("System CreateAccount outside ATA rent policy");
+        } else if (tag === 2) {
+          if (data.length !== 12 || accts.join("|") !== [wallet.toBase58(),policy.inputAta].join("|") ||
+              readU64(data,4) !== BigInt(TEST_LAMPORTS)) fail("System transfer is not exact wrapped-SOL funding");
+        } else fail("disallowed System Program CPI tag " + tag);
+      } else if (program === TOKEN || program === TOKEN_2022) {
+        if (!data.length) fail("empty SPL Token CPI data");
+        const tag = data[0];
+        if (tag === 9) {
+          if (accts.join("|") !== [policy.inputAta,wallet.toBase58(),wallet.toBase58()].join("|")) fail("CloseAccount recipient/authority mismatch");
+          closeNative = true;
+        } else if (tag === 17) {
+          if (accts.join("|") !== policy.inputAta) fail("SyncNative target mismatch");
+          syncNative = true;
+        } else if (tag === 3 || tag === 12) {
+          const checked = tag === 12;
+          if (data.length !== (checked ? 10 : 9) || accts.length !== (checked ? 4 : 3)) fail("SPL transfer shape mismatch");
+          const source = accts[0], destination = checked ? accts[2] : accts[1], authorityName = checked ? accts[3] : accts[2];
+          const amount = readU64(data,1);
+          if (checked) {
+            const mintName = accts[1];
+            if (mintName !== (source === policy.inputAta ? SOL : USDC)) fail("TransferChecked mint mismatch");
+          }
+          if (authorityName !== wallet.toBase58() && authorityName !== policy.authority) fail("SPL transfer authority mismatch");
+          if (source === policy.inputAta && destination === policy.vaultIn && amount === BigInt(TEST_LAMPORTS)) transferProofs.push("input");
+          else if (source === policy.vaultOut && destination === policy.outputAta && amount >= policy.minOut) transferProofs.push("output");
+          else fail("unexpected SPL transfer source/destination/amount");
+        } else if (tag === 21) {
+          if (accts.length < 1 || ![SOL,USDC].includes(accts[0])) fail("Token-2022 account-size query mint mismatch");
+        } else if (tag === 22) {
+          if (accts.length !== 1 || !allowedAtas.has(accts[0])) fail("immutable-owner initialization target mismatch");
+        } else if ([1,16,18].includes(tag)) {
+          if (accts.length < 2 || !allowedAtas.has(accts[0]) || ![SOL,USDC].includes(accts[1])) fail("SPL account initialization target mismatch");
+        } else fail("disallowed SPL Token CPI tag " + tag);
+      }
+    }
+    if (!syncNative || !closeNative || !transferProofs.includes("input") || !transferProofs.includes("output")) {
+      fail("required wrapped-SOL sync/close or exact input/output transfer proof missing");
+    }
+    if (!accountPresence.inputAtaPresent && !createdAtas.has(policy.inputAta)) fail("missing WSOL ATA is not created by inspected CPI");
+    if (!accountPresence.outputAtaPresent && !createdAtas.has(policy.outputAta)) fail("missing USDC ATA is not created by inspected CPI");
+
     const actualOutputLine = (value.logs || []).find(line => /1000000 -> [0-9]+/.test(line));
     const match = actualOutputLine && actualOutputLine.match(/1000000 -> ([0-9]+)/);
     if (!match) fail("simulation did not expose the CPMM actual output");
@@ -387,8 +454,8 @@
     const mutatedInstructions = tx.message.compiledInstructions.map((item,index) => {
       if (index !== 1) return item;
       const dataCopy = new Uint8Array(item.data);
-      dataCopy.set(Uint8Array.from(Array.from({length:8},(_,i)=>Number(((actualOutput+1n) >> BigInt(i*8)) & 255n))),9);
-      return {programIdIndex:item.programIdIndex,accountKeyIndexes:item.accountKeyIndexes,data:dataCopy};
+      for (let i=0;i<8;i++) dataCopy[9+i] = Number(((actualOutput+1n) >> BigInt(i*8)) & 255n);
+      return {...item,data:dataCopy};
     });
     const mutatedMessage = new solanaWeb3.MessageV0(tx.message.header,tx.message.staticAccountKeys,
       tx.message.recentBlockhash,mutatedInstructions,tx.message.addressTableLookups);
@@ -402,7 +469,7 @@
       fail("router accepted a minimum output one raw unit above simulated output");
     }
     return {actualOutput:actualOutput.toString(),minimumOutput:policy.minOut.toString(),
-      negativeThreshold: (actualOutput+1n).toString(),outerMinimumEnforced:true};
+      negativeThreshold:(actualOutput+1n).toString(),outerMinimumEnforced:true,createdAtas:[...createdAtas]};
   }
   async function inspectTransaction(tx, quote, reviewedBytes) {
     if (!(tx instanceof solanaWeb3.VersionedTransaction) || tx.message.version !== 0) fail("only a v0 VersionedTransaction is supported");
@@ -411,8 +478,8 @@
     if (tx.signatures.length !== 1 || tx.signatures.some(sig => sig.some(byte => byte !== 0))) fail("transaction is not an unsigned single-signer message");
     const resolvedInfo = await resolveV0Accounts(tx.message);
     const policy = decodeRouterPolicy(tx.message,resolvedInfo.resolved,quote);
-    await verifyPoolAndAccounts(policy,resolvedInfo);
-    const cpi = await verifyCpmmCpi(tx,policy,reviewedBytes);
+    const accountPresence = await verifyPoolAndAccounts(policy,resolvedInfo);
+    const cpi = await verifyCpmmCpi(tx,policy,reviewedBytes,accountPresence);
     return {programs:policy.programs,lookupTables:resolvedInfo.lookupEvidence,slot:resolvedInfo.slot,
       resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
       router:{setup:"verified",route:"verified",cleanup:"verified"},cpmmCpi:"verified",runtime:cpi};
