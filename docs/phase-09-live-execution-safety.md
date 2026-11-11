@@ -477,3 +477,22 @@ Implemented in `veltrix/solana_rpc_simulation.py` and `veltrix/simulation_gate.p
 **Proof boundary:** these are RPC-reported simulated post-state bytes, not a locally executed replay of the Raydium swap. They do not independently establish which tick-array accounts were actually consumed, prove all state transitions are economically correct, or authorize signing/submission. Next stage: decode the pre/post PoolState and TickArrayState bytes and independently replay the pinned Raydium swap loop, then compare the replayed state transition with the simulation result. Provider support for the requested `simulateTransaction.accounts` response is mandatory; missing account data fails closed.
 
 No wallet signing, Jupiter `/execute`, transaction submission, broadcast, or live execution is introduced.
+
+
+### 09.31 — Bind simulated PoolState and TickArrayState transitions
+
+Implemented in `veltrix/raydium_clmm_simulation_state.py`.
+
+- Requires same-message, same-provider, same-cluster, same-genesis and same-simulation-response evidence from the owner-verified PoolState snapshot, CPI tick-array snapshot and Phase 09.30 simulation capture.
+- Requires raw simulation pre-state PoolState bytes to match the independently owner-verified PoolState bytes exactly; each pre-state TickArrayState hash must match the decoded CPI tick-array snapshot.
+- Decodes both pre- and post-simulation PoolState bytes using the pinned 1,544-byte decoder and each pre/post TickArrayState using the pinned 10,240-byte decoder.
+- Rejects changes to PoolState identity/configuration fields (pool PDA/bump, AMM config, creator, mint/vault/observation identities, decimals, tick spacing, swap status, fee mode, seed index and initialized-array bitmap).
+- Rejects changes to tick-array pool identity/start index/spacing and tick position identity or position liquidity (`tick_index`, `liquidity_net`, `liquidity_gross`). Fee-growth, reward-growth and limit-order state are not treated as immutable.
+- Requires the optional bitmap-extension account to be included in the simulation capture and remain byte-identical during the swap.
+- Returns decoded pre/post pool and tick-array states, changed tick-array addresses and changed limit-order counters. It never sets `execution_ready`.
+
+**Not a swap-math replay:** this phase verifies that the simulation's state transition is structurally consistent with the pinned account layouts and verified pre-state. It does not independently calculate the expected post-swap sqrt price, current tick, active liquidity, amount remaining, fee growth, protocol/fund fees, dynamic volatility fee, limit-order fills, reward accounting, observation updates or vault token deltas.
+
+The pinned Raydium implementation includes dynamic-fee state, tick-spacing-bounded price movement, fee-on-input/output modes, limit-order tick state, fee/reward growth outside values and observation updates. The next phase must reproduce those exact source paths and compare the computed transition against these captured post-state bytes; a generic constant-product or standard Uniswap-only replay is insufficient.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
