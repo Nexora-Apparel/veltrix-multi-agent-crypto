@@ -87,3 +87,32 @@ def test_provider_failure_is_recorded_without_claiming_order(monkeypatch, tmp_pa
     assert report["transaction_constructed"] is False
     assert report["transaction_signed"] is False
     assert report["execution_ready"] is False
+
+
+def test_provider_error_fields_are_persisted(monkeypatch, tmp_path):
+    monkeypatch.setattr("sys.argv", ["cli", "--amount-raw", "5000000", "--output", str(tmp_path / "provider.json")])
+    monkeypatch.setattr(cli, "settings", lambda: SimpleNamespace(jupiter_taker_public_key="FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"))
+
+    class ProviderFailure(RuntimeError):
+        provider_error_code = "INSUFFICIENT_BALANCE"
+        provider_error_message = "Taker account has insufficient balance"
+        http_status = 200
+        provider_request_id = "jup-req-789"
+
+    class FailedAdapter:
+        def __init__(self, **kwargs):
+            pass
+
+        def order_exact_in_for_configured_taker(self, *args, **kwargs):
+            raise ProviderFailure("Jupiter could not produce the requested order")
+
+    monkeypatch.setattr(cli, "JupiterSwapV2OrderAdapter", FailedAdapter)
+    assert cli.main() == 1
+    report = json.loads((tmp_path / "provider.json").read_text())
+    assert report["provider_error_code"] == "INSUFFICIENT_BALANCE"
+    assert report["provider_error_message"] == "Taker account has insufficient balance"
+    assert report["provider_http_status"] == 200
+    assert report["provider_request_id"] == "jup-req-789"
+    assert report["transaction_constructed"] is False
+    assert report["transaction_signed"] is False
+    assert report["execution_ready"] is False
