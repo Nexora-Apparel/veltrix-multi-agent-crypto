@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import hashlib
 
+from solders.pubkey import Pubkey
+
 from veltrix.raydium_clmm_observation import RaydiumClmmObservationState
 from veltrix.raydium_clmm_fee_accounting import settle_raydium_swap_amounts
 from veltrix.raydium_clmm_pool_state import (
@@ -27,7 +29,7 @@ from veltrix.raydium_clmm_vaults import (
     CLASSIC_SPL_TOKEN_PROGRAM_ID,
     RaydiumClmmVaultSnapshot,
 )
-from veltrix.simulation_gate import SimulatedAccountState, SimulationEvidence
+from veltrix.simulation_gate import ExpectedTokenDelta, SimulatedAccountState, SimulationEvidence
 
 
 class RaydiumSwapParityError(ValueError):
@@ -52,6 +54,12 @@ class RaydiumVaultReconciliation:
     expected_post_amount_raw: int
     observed_post_amount_raw: int
     reconciled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumSwapSimulationPlan:
+    observed_account_addresses: tuple[str, ...]
+    expected_token_deltas: tuple[ExpectedTokenDelta, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +103,65 @@ def _expected_account_pairs(
     if len(addresses) != len(set(addresses)):
         raise RaydiumSwapParityError("finalized Raydium account set contains duplicate addresses")
     return tuple(pairs)
+
+
+def build_raydium_swap_simulation_plan(
+    initial_pool: RaydiumClmmPoolState,
+    execution: RaydiumSwapLoopExecution,
+    finalized: RaydiumSwapFinalizedState,
+) -> RaydiumSwapSimulationPlan:
+    """Build the exact RPC account-capture and vault-delta request for simulateTransaction."""
+    if not isinstance(initial_pool, RaydiumClmmPoolState):
+        raise RaydiumSwapParityError("decoded original Raydium PoolState is required")
+    if not isinstance(execution, RaydiumSwapLoopExecution) or execution.complete is not True:
+        raise RaydiumSwapParityError("a fully terminated swap-loop replay is required")
+    if not isinstance(finalized, RaydiumSwapFinalizedState):
+        raise RaydiumSwapParityError("serialized Raydium final state is required")
+    if finalized.pool.pool_address != initial_pool.pool_address:
+        raise RaydiumSwapParityError("finalized swap belongs to a different PoolState")
+    addresses = [
+        finalized.pool_account.address,
+        finalized.observation_account.address,
+        *(account.address for account in finalized.tick_array_accounts),
+    ]
+    if finalized.bitmap_extension_account is not None:
+        addresses.append(finalized.bitmap_extension_account.address)
+    try:
+        if any(str(Pubkey.from_string(address)) != address for address in addresses):
+            raise ValueError("non-canonical")
+    except Exception as exc:
+        raise RaydiumSwapParityError("simulation plan contains a non-canonical account address") from exc
+    if len(addresses) != len(set(addresses)):
+        raise RaydiumSwapParityError("simulation plan contains duplicate observed account addresses")
+
+    amount0 = finalized.settlement.amount_0
+    amount1 = finalized.settlement.amount_1
+    if execution.state.zero_for_one:
+        delta0, delta1 = amount0, -amount1
+    else:
+        delta0, delta1 = -amount0, amount1
+    deltas = (
+        ExpectedTokenDelta(
+            token_account=initial_pool.token_vault_0,
+            mint=initial_pool.token_mint_0,
+            owner=initial_pool.pool_address,
+            delta_raw=delta0,
+        ),
+        ExpectedTokenDelta(
+            token_account=initial_pool.token_vault_1,
+            mint=initial_pool.token_mint_1,
+            owner=initial_pool.pool_address,
+            delta_raw=delta1,
+        ),
+    )
+    if set(addresses).intersection(item.token_account for item in deltas):
+        raise RaydiumSwapParityError("pool vault token accounts must not be duplicated in observed account addresses")
+    if len(addresses) + len(deltas) > 100:
+        raise RaydiumSwapParityError("simulation plan exceeds the 100-account capture limit")
+    return RaydiumSwapSimulationPlan(
+        observed_account_addresses=tuple(addresses),
+        expected_token_deltas=deltas,
+    )
 
 
 def reconcile_raydium_swap_simulation(
