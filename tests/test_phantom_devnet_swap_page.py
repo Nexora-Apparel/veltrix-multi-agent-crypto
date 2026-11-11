@@ -25,12 +25,16 @@ def test_swap_limits_and_impact_gate_are_present():
     assert "impact>MAX_IMPACT" in source
 
 
-def test_phantom_signing_requires_explicit_user_click_and_confirmation():
+def test_phantom_signing_is_disabled_in_the_verification_build():
     source = PAGE.read_text(encoding="utf-8")
-    assert 'id="execute"' in source
-    assert 'addEventListener("click"' in source
-    assert "window.confirm(" in source
-    assert "provider.signAndSendTransaction(finalTx" in source
+    assert '<button id="execute" disabled>Phantom signing disabled</button>' in source
+    assert "Phantom signing disabled · Solana Devnet only" in source
+    assert "Phantom signing and transaction submission are disabled for this verification build." in source
+    execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
+    assert 'throw new Error("Phantom signing is disabled.' in execute
+    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert execute.index("Phantom signing is disabled") < execute.index("provider.signAndSendTransaction(finalTx")
+    assert "window.confirm(" not in source
     assert "await provider.connect()" in source
 
 
