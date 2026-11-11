@@ -139,10 +139,10 @@ def test_bitmap_selected_arrays_may_skip_empty_array_intervals():
 
 
 def test_rejects_first_array_fallback_after_initial_array():
-    arrays = (array(0, 1, {5}), array(60, 1, {4}))
+    arrays = (array(60, 1, {5}), array(120, 1, {4}))
     with pytest.raises(RaydiumSwapLoopSelectionError, match="initial CPI array"):
         select_next_initialized_tick(
-            tick_arrays=arrays, traversal=traversal([0, 60], False),
+            tick_arrays=arrays, traversal=traversal([60, 120], False),
             current_tick=65, current_tick_array_index=1, tick_spacing=1,
             zero_for_one=False, first_tick_array_contains_pool_tick=False,
         )
