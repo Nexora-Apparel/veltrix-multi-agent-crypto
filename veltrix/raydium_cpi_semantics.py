@@ -150,6 +150,16 @@ def evaluate_raydium_clmm_cpis(
         raise RaydiumCpiSemanticError("order, validation, simulation and semantic evidence digests differ")
     if simulation.simulation_error is not None:
         raise RaydiumCpiSemanticError("simulation reported an execution error")
+    if (
+        simulation.recent_blockhash != order.recent_blockhash
+        or simulation.last_valid_block_height != order.last_valid_block_height
+    ):
+        raise RaydiumCpiSemanticError("simulation blockhash or last-valid height differs from the Jupiter order")
+    if (
+        tuple(simulation.top_level_program_ids) != tuple(validation.program_ids)
+        or tuple(program_gate.top_level_program_ids) != tuple(validation.program_ids)
+    ):
+        raise RaydiumCpiSemanticError("top-level program trace differs from the validated transaction")
     if simulation.provider_id != simulation_gate.provider_id or simulation.response_id != simulation_gate.response_id:
         raise RaydiumCpiSemanticError("simulation gate and detailed evidence refer to different RPC responses")
     if simulation.context_slot != simulation_gate.context_slot:
@@ -171,7 +181,9 @@ def evaluate_raydium_clmm_cpis(
     if len(route_semantics.route_steps) != len(order.route_plan):
         raise RaydiumCpiSemanticError("decoded Jupiter route-step count differs from the quote")
     if any(step.label != "Raydium CLMM" for step in order.route_plan):
-        raise RaydiumCpiSemanticError("this DEX semantic gate supports only all-Ray­dium-CLMM routes")
+        raise RaydiumCpiSemanticError("this DEX semantic gate supports only all-Raydium-CLMM routes")
+    if any(step.swap_variant_index != 26 for step in route_semantics.route_steps):
+        raise RaydiumCpiSemanticError("decoded Jupiter route contains a non-Ray​​dium-CLMM swap enum")
 
     dex_cpis = []
     for inner in simulation.inner_instructions:
