@@ -140,6 +140,14 @@ def apply_raydium_swap_boundary(
         applied = replace(applied, fee_state=fee_state)
 
     unfilled_after = matched_tick.orders_amount + matched_tick.part_filled_orders_remaining
+    if (
+        applied.fee_state.amount_specified_remaining != 0
+        and unfilled_after != unfilled_before
+        and unfilled_after != 0
+    ):
+        raise RaydiumSwapBoundaryError(
+            "source boundary invariant: remaining swap amount requires FIFO orders to be fully consumed"
+        )
     has_limit_orders = unfilled_after > 0
     crossed_liquidity = matched_tick.liquidity_gross > 0 and not has_limit_orders
     liquidity_next = applied.fee_state.liquidity
