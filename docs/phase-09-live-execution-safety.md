@@ -505,3 +505,18 @@ Implemented in `veltrix/raydium_clmm_tick_math.py`, pinned to Raydium source com
 **Proof boundary:** this is only the tick/sqrt-price primitive. It does not yet implement amount deltas, next-sqrt-price rounding, exact-input/output swap steps, fee-on-input/output calculations, dynamic fees, tick crossing, limit-order matching, rewards, observations or vault settlement. Those must be ported and tested as separate source-matched components before any end-to-end replay can be claimed.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.33 — Integer-exact Raydium single-step swap arithmetic
+
+Implemented in `veltrix/raydium_clmm_swap_step_math.py`, matching the pinned `liquidity_math.rs`, `sqrt_price_math.rs` and `swap_math.rs` source paths.
+
+- Ports token-0 and token-1 liquidity deltas with exact floor/ceiling behavior and u64 token-amount overflow rejection.
+- Ports next-sqrt-price updates for token-0 and token-1 input/output, preserving the upstream asymmetric rounding directions.
+- Ports directional combined amount-in/amount-out calculation and the static-fee single-step calculation.
+- Covers all combinations of exact-input/exact-output, zero-for-one/one-for-zero, and fee-on-input/fee-on-output, including partial-step dust behavior and the target-overflow fallback.
+- Uses integer arithmetic only; no floating-point token amounts or price transitions.
+
+**Proof boundary:** this is a single price segment only. It does not walk initialized ticks, cross liquidity boundaries, update dynamic volatility fees, match limit orders, update fee/reward growth outside, account for protocol/fund fees, update observation state, or reconcile vault transfers. It cannot be used as a complete Raydium swap replay until those source paths are implemented and composed.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
