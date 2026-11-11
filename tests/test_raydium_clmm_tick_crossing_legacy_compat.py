@@ -18,7 +18,7 @@ class LegacyCrossingResult:
     next_liquidity: int
 
 
-def legacy_cross_raydium_tick(
+def legacy_legacy_cross_raydium_tick(
     tick,
     *,
     fee_growth_global_0_x64,
@@ -95,7 +95,7 @@ def test_historical_combined_tick_cross_matches_canonical_composed_transition(
     fee0, fee1 = 3, 9
     reward_globals = (10, 999, 20)
     reward_initialized = (True, False, True)
-    historical = legacy_cross_raydium_tick(
+    historical = legacy_legacy_cross_raydium_tick(
         original,
         fee_growth_global_0_x64=fee0,
         fee_growth_global_1_x64=fee1,
@@ -134,7 +134,7 @@ def test_both_crossing_implementations_match_u128_fee_growth_wraparound():
     )
     globals_ = (1, 2, 3)
     flags = (True, False, True)
-    historical = cross_raydium_tick(
+    historical = legacy_cross_raydium_tick(
         original,
         fee_growth_global_0_x64=globals_[0],
         fee_growth_global_1_x64=globals_[1],
