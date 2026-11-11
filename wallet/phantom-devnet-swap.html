@@ -502,9 +502,11 @@
       for(let i=0;i<8;i++) data[16+i]=Number((threshold>>BigInt(i*8))&255n);
       return {...ix,data};
     });
-    const mutatedMessage=new solanaWeb3.MessageV0(tx.message.header,tx.message.staticAccountKeys,
-      tx.message.recentBlockhash,altered,tx.message.addressTableLookups);
-    const mutated=new solanaWeb3.VersionedTransaction(mutatedMessage);
+    const mutated=solanaWeb3.VersionedTransaction.deserialize(reviewedBytes);
+    const mutatedIndex=mutated.message.compiledInstructions.findIndex(ix=>
+      mutated.message.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
+    if(mutatedIndex<0) fail("direct CPMM instruction missing from adversarial clone");
+    mutated.message.compiledInstructions[mutatedIndex].data=altered[mutatedIndex].data;
     const negative=await rpcCall("simulateTransaction",[btoa(String.fromCharCode(...mutated.serialize())),{
       encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:false
     }]);
