@@ -320,10 +320,15 @@ def evaluate_raydium_pool_state(
         or output_vault_pre.authority != output_vault_post.authority
     ):
         raise RaydiumPoolStateError("Raydium vault authority changed during simulation")
-    if input_vault_pre.amount_raw - input_vault_post.amount_raw != -order.input_amount_raw:
-        raise RaydiumPoolStateError("Raydium input vault did not receive the exact route input amount")
-    if output_vault_pre.amount_raw - output_vault_post.amount_raw != order.output_amount_raw:
-        raise RaydiumPoolStateError("Raydium output vault debit differs from the exact quoted output amount")
+    if input_vault_post.amount_raw <= input_vault_pre.amount_raw:
+        raise RaydiumPoolStateError("Raydium input vault did not receive tokens during the swap")
+    if output_vault_post.amount_raw >= output_vault_pre.amount_raw:
+        raise RaydiumPoolStateError("Raydium output vault did not debit tokens during the swap")
+    if policy.require_exact_vault_balance_deltas and (
+        input_vault_post.amount_raw - input_vault_pre.amount_raw != order.input_amount_raw
+        or output_vault_pre.amount_raw - output_vault_post.amount_raw != order.output_amount_raw
+    ):
+        raise RaydiumPoolStateError("Raydium vault balance deltas differ from the exact route amounts")
 
     user_input_pre = decode_classic_token_account(input_user_snapshot.pre_data)
     user_input_post = decode_classic_token_account(input_user_snapshot.post_data)
@@ -349,7 +354,10 @@ def evaluate_raydium_pool_state(
     ):
         recorded = balance_map.get(address)
         if recorded is None or (
-            recorded.pre_amount_raw != pre.amount_raw
+            recorded.mint != pre.mint
+            or recorded.owner != pre.authority
+            or recorded.token_program_id != CLASSIC_TOKEN_PROGRAM_ID
+            or recorded.pre_amount_raw != pre.amount_raw
             or recorded.post_amount_raw != post.amount_raw
         ):
             raise RaydiumPoolStateError("token account raw data differs from the simulation balance evidence")
