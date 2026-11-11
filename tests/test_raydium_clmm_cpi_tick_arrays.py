@@ -37,6 +37,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
     derive_raydium_clmm_tick_array_address,
     RaydiumClmmTickArray,
+    RaydiumClmmTick,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.simulation_gate import SimulationEvidence
@@ -291,7 +292,10 @@ def _synthetic_array(pool_address, start, tick_spacing=10):
     return RaydiumClmmTickArray(
         address=address, pool_address=pool_address, start_tick_index=start,
         tick_spacing=tick_spacing, initialized_tick_count=1, recent_epoch=1,
-        ticks=(), data_sha256="a" * 64,
+        ticks=(RaydiumClmmTick(
+            tick_index=start, liquidity_net=0, liquidity_gross=1,
+            orders_amount=0, part_filled_orders_remaining=0, initialized=True,
+        ),), data_sha256="a" * 64,
     )
 
 
