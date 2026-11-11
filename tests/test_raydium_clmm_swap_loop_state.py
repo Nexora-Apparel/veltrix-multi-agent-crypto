@@ -105,9 +105,7 @@ def test_dynamic_fee_initialization_and_step_preparation():
     targeted = set_raydium_swap_loop_target(
         state, next_tick=100, sqrt_price_limit_x64=get_sqrt_price_at_tick(50),
     )
-    prepared = prepare_raydium_swap_step(
-        targeted, target_price_x64=get_sqrt_price_at_tick(50),
-    )
+    prepared = prepare_raydium_swap_step(targeted)
     assert prepared.total_fee_rate >= 3000
     assert prepared.state.dynamic_fee_state.info.last_update_timestamp == 100
 
