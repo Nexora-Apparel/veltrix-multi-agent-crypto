@@ -98,8 +98,10 @@ def replay_raydium_clmm_swap(
     if (
         set(starts) != set(traversal.supplied_array_starts)
         or len(starts) != len(traversal.supplied_array_starts)
-        or set(traversal.expected_initialized_array_starts)
-        != set(traversal.supplied_array_starts)
+        or traversal.expected_initialized_array_starts
+        != traversal.supplied_initialized_array_starts
+        or traversal.expected_initialized_array_starts
+        != traversal.supplied_array_starts
     ):
         raise RaydiumSwapReplayError("account bundle does not match the exact initial CPI tick-array set")
     if not isinstance(zero_for_one, bool) or not isinstance(is_base_input, bool):
