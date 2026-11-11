@@ -33,13 +33,27 @@ class ExpectedTokenDelta:
     token_account: str
     mint: str
     owner: str
-    delta_raw: int
+    delta_raw: int | None
+    minimum_delta_raw: int | None = None
+    maximum_delta_raw: int | None = None
 
     def __post_init__(self) -> None:
         for field in ("token_account", "mint", "owner"):
             _nonempty(getattr(self, field), field)
-        if isinstance(self.delta_raw, bool) or not isinstance(self.delta_raw, int):
-            raise SimulationGateError("expected token delta must be an integer")
+        if self.delta_raw is not None and (
+            isinstance(self.delta_raw, bool) or not isinstance(self.delta_raw, int)
+        ):
+            raise SimulationGateError("expected token delta must be an integer or None")
+        for field in ("minimum_delta_raw", "maximum_delta_raw"):
+            value = getattr(self, field)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+                raise SimulationGateError(f"{field} must be an integer or None")
+        bounded = self.minimum_delta_raw is not None or self.maximum_delta_raw is not None
+        if (self.delta_raw is None) != bounded:
+            raise SimulationGateError("expected token delta must use either exact or bounded mode")
+        if self.minimum_delta_raw is not None and self.maximum_delta_raw is not None:
+            if self.minimum_delta_raw > self.maximum_delta_raw:
+                raise SimulationGateError("minimum token delta exceeds maximum token delta")
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,14 +225,21 @@ def evaluate_simulation(
         for item in evidence.token_balances
     }
     expected = {
-        (item.token_account, item.mint, item.owner): item.delta_raw
+        (item.token_account, item.mint, item.owner): item
         for item in expected_token_deltas
     }
     if set(actual) != set(expected):
         raise SimulationGateError("simulated token-account set does not exactly match approved effects")
-    for key, expected_delta in expected.items():
-        if actual[key] != expected_delta:
-            raise SimulationGateError("simulated token-account balance delta differs from approved effect")
+    for key, expectation in expected.items():
+        actual_delta = actual[key]
+        if expectation.delta_raw is not None:
+            if actual_delta != expectation.delta_raw:
+                raise SimulationGateError("simulated token-account balance delta differs from approved effect")
+            continue
+        if expectation.minimum_delta_raw is not None and actual_delta < expectation.minimum_delta_raw:
+            raise SimulationGateError("simulated token-account balance delta is below the approved minimum")
+        if expectation.maximum_delta_raw is not None and actual_delta > expectation.maximum_delta_raw:
+            raise SimulationGateError("simulated token-account balance delta exceeds the approved maximum")
 
     return SimulationGateResult(
         approved=True,
