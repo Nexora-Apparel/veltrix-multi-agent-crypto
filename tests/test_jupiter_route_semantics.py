@@ -339,3 +339,99 @@ def test_rejects_missing_or_mismatched_quote_to_balance_effect_evidence():
     )
     with pytest.raises(JupiterRouteSemanticError, match="effect evidence differs"):
         evaluate((order, validation, simulation, sim_gate, program_gate, policy), bad_effects)
+
+
+@pytest.mark.parametrize(
+    ("label", "variant"),
+    [
+        ("Raydium", 7),
+        ("Meteora", 19),
+        ("Raydium CLMM", 26),
+        ("Meteora DLMM", 38),
+        ("Raydium CPMM", 46),
+    ],
+)
+def test_supported_swap_enum_indexes_are_pinned_to_the_jupiter_v6_idl(label, variant):
+    from veltrix.jupiter_route_semantics import JUPITER_V6_ROUTE_IDL_COMMIT, SUPPORTED_SWAP_VARIANTS
+    assert JUPITER_V6_ROUTE_IDL_COMMIT == "e6f77951377847c579112e6a16d8c17c5c092485"
+    assert dict(SUPPORTED_SWAP_VARIANTS)[label] == variant
+    decoded = decode_jupiter_route_instruction_data(route_data(variant=variant))
+    assert decoded.steps[0].swap_variant_index == variant
+
+
+def test_rejects_route_plan_consuming_an_intermediate_token_before_production():
+    order, validation, simulation, sim_gate, program_gate, policy = fixture()
+    input_mint, output_mint = order.input_mint, order.output_mint
+    intermediate = str(Pubkey.new_unique())
+    order = dataclasses.replace(
+        order,
+        route_plan=(
+            JupiterRouteStep(
+                amm_key="pool-1",
+                label="Raydium CLMM",
+                input_mint=input_mint,
+                output_mint=intermediate,
+                input_amount_raw=1_000,
+                output_amount_raw=1_500,
+                percent=100.0,
+                bps=10_000,
+            ),
+            JupiterRouteStep(
+                amm_key="pool-2",
+                label="Meteora",
+                input_mint=intermediate,
+                output_mint=output_mint,
+                input_amount_raw=1_500,
+                output_amount_raw=2_000,
+                percent=100.0,
+                bps=10_000,
+            ),
+        ),
+    )
+    decoded = type("Decoded", (), {"steps": (
+        type("RouteStep", (), {"swap_variant_index": 26, "percent": 100, "input_index": 0, "output_index": 1})(),
+        type("RouteStep", (), {"swap_variant_index": 19, "percent": 100, "input_index": 2, "output_index": 3})(),
+    )})()
+    with pytest.raises(JupiterRouteSemanticError, match="before it is produced"):
+        _bind_route_mints(order, decoded, policy)
+
+
+def test_rejects_split_percentages_not_summing_to_one_hundred_per_input_index():
+    order, _, _, _, _, policy = fixture()
+    input_mint = order.input_mint
+    mint_b = str(Pubkey.new_unique())
+    mint_c = order.output_mint
+    order = dataclasses.replace(
+        order,
+        route_plan=(
+            JupiterRouteStep("pool-a", "Raydium CLMM", input_mint, mint_b, 600, 900, 60.0, 6_000),
+            JupiterRouteStep("pool-b", "Meteora", input_mint, mint_c, 400, 1_100, 30.0, 3_000),
+        ),
+    )
+    decoded = type("Decoded", (), {"steps": (
+        type("RouteStep", (), {"swap_variant_index": 26, "percent": 60, "input_index": 0, "output_index": 1})(),
+        type("RouteStep", (), {"swap_variant_index": 19, "percent": 30, "input_index": 0, "output_index": 2})(),
+    )})()
+    with pytest.raises(JupiterRouteSemanticError, match="total exactly 100"):
+        _bind_route_mints(order, decoded, policy)
+
+
+def test_accepts_topologically_ordered_two_hop_route_plan():
+    order, _, _, _, _, policy = fixture()
+    intermediate = str(Pubkey.new_unique())
+    order = dataclasses.replace(
+        order,
+        route_plan=(
+            JupiterRouteStep("pool-a", "Raydium CLMM", order.input_mint, intermediate, 1_000, 1_500, 100.0, 10_000),
+            JupiterRouteStep("pool-b", "Meteora", intermediate, order.output_mint, 1_500, 2_000, 100.0, 10_000),
+        ),
+    )
+    decoded = type("Decoded", (), {"steps": (
+        type("RouteStep", (), {"swap_variant_index": 26, "percent": 100, "input_index": 0, "output_index": 1})(),
+        type("RouteStep", (), {"swap_variant_index": 19, "percent": 100, "input_index": 1, "output_index": 2})(),
+    )})()
+    assert _bind_route_mints(order, decoded, policy) == (
+        (0, order.input_mint),
+        (1, intermediate),
+        (2, order.output_mint),
+    )
