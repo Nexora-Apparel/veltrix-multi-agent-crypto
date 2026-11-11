@@ -307,9 +307,11 @@ def verify_raydium_clmm_bitmap_traversal(
         raise RaydiumClmmBitmapTraversalError("CPI tick-array account is marked initialized but has no initialized tick records")
     supplied_initialized = starts
 
-    # Require the first initialized array Raydium would select from the current tick
-    # to be present; uninitialized candidate accounts before it may be skipped by
-    # the pinned swap loop, but cannot conceal an earlier initialized boundary.
+    # This verifier intentionally accepts only the exact initialized-array
+    # sequence selected by the bitmap. Although the upstream swap loop can advance
+    # through supplied accounts while searching for the next selected array, this
+    # gate rejects unused/uninitialized padding accounts rather than broadening the
+    # accepted transaction shape without a separate account-consumption proof.
     first = expected[0]
     if first not in supplied_set:
         raise RaydiumClmmBitmapTraversalError("CPI omits the first initialized tick array selected by Raydium")
