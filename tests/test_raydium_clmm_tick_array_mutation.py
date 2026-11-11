@@ -12,6 +12,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
+    derive_raydium_clmm_tick_array_address,
 )
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
@@ -45,7 +46,7 @@ def array(p, start=0, initialized=0):
     for i in range(initialized):
         ticks[i] = replace(ticks[i], liquidity_gross=1, initialized=True)
     return RaydiumClmmTickArray(
-        address=str(Pubkey.new_unique()), pool_address=p.pool_address,
+        address=derive_raydium_clmm_tick_array_address(pool_address=p.pool_address, start_tick_index=start), pool_address=p.pool_address,
         start_tick_index=start, tick_spacing=p.tick_spacing,
         initialized_tick_count=initialized, recent_epoch=1,
         ticks=tuple(ticks), data_sha256="b" * 64,
