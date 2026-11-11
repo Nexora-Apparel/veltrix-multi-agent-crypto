@@ -55,7 +55,7 @@ def array(p, start=0, initialized=0):
 
 def tick(index, *, gross=1, orders=0, part=0):
     return RaydiumClmmTick(
-        recent_epoch=2, tick_index=index, liquidity_net=0, liquidity_gross=gross,
+        tick_index=index, liquidity_net=0, liquidity_gross=gross,
         orders_amount=orders, part_filled_orders_remaining=part,
         initialized=(gross > 0 or orders > 0 or part > 0),
     )
