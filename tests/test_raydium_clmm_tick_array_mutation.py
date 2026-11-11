@@ -166,6 +166,24 @@ def test_u128_liquidity_gross_is_accepted_without_u64_truncation():
     )
     assert result.tick_array.ticks[0].liquidity_gross == (1 << 64) + 7
 
+
+def test_mutation_rejects_malformed_pool_bitmap_and_tick_slot_identity():
+    p = pool(tick_array_bitmap=(0,) * 15)
+    a = array(p)
+    with pytest.raises(RaydiumTickArrayMutationError, match="16 u64 words"):
+        apply_raydium_tick_array_mutation(
+            p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0),
+        )
+    p = pool()
+    a = array(p)
+    bad_ticks = list(a.ticks)
+    bad_ticks[4] = replace(bad_ticks[4], tick_index=999)
+    with pytest.raises(RaydiumTickArrayMutationError, match="inconsistent with its array slot"):
+        apply_raydium_tick_array_mutation(
+            p, replace(a, ticks=tuple(bad_ticks)), recent_epoch=2,
+            tick_index=0, updated_tick=tick(0),
+        )
+
 def test_mutation_rejects_invalid_epoch_domain():
     p = pool()
     a = array(p)
