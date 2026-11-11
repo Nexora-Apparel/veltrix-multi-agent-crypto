@@ -50,7 +50,7 @@ jobs:
             --wallet "$WALLET_ADDRESS" \
             --amount-lamports "$AMOUNT_LAMPORTS" \
             --output artifacts/raydium-devnet-swap-preflight.json
-      - name: Upload Devnet swap evidence
+      - name: Execute one capped disposable-wallet Devnet swap\n        if: success()\n        run: |\n          python -m veltrix.solana_devnet_ephemeral_swap --output artifacts/raydium-devnet-ephemeral-swap.json\n      - name: Upload disposable-wallet swap evidence\n        if: always()\n        uses: actions/upload-artifact@v4\n        with:\n          name: raydium-devnet-ephemeral-swap\n          path: artifacts/raydium-devnet-ephemeral-swap.json\n          if-no-files-found: warn\n          retention-days: 14\n      - name: Upload Devnet swap evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
