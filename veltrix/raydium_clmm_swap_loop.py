@@ -64,6 +64,22 @@ def compute_raydium_swap_loop_pre_step(
             raise RaydiumSwapLoopError(f"{field} must be boolean")
     if isinstance(base_fee_rate, bool) or not isinstance(base_fee_rate, int) or not 0 <= base_fee_rate < 1_000_000:
         raise RaydiumSwapLoopError("base fee rate must be in [0, 1,000,000)")
+    for value, field in (
+        (sqrt_price_current_x64, "current sqrt price"),
+        (target_price_x64, "target sqrt price"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < (1 << 128):
+            raise RaydiumSwapLoopError(f"{field} must be a positive u128")
+    for value, field in (
+        (protocol_fee_rate, "protocol fee rate"),
+        (fund_fee_rate, "fund fee rate"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1_000_000:
+            raise RaydiumSwapLoopError(f"{field} must be in [0, 1,000,000]")
+    if protocol_fee_rate + fund_fee_rate > 1_000_000:
+        raise RaydiumSwapLoopError("protocol and fund fee rates exceed fee denominator")
+    if isinstance(fee_state.liquidity, bool) or not isinstance(fee_state.liquidity, int) or not 0 <= fee_state.liquidity < (1 << 128):
+        raise RaydiumSwapLoopError("fee-accounting liquidity is outside u128")
     if dynamic_fee_state is None:
         total_fee_rate = base_fee_rate
         spacing_bound = RaydiumSpacingBound(
