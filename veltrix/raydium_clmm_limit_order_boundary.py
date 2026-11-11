@@ -57,6 +57,8 @@ def apply_raydium_limit_order_boundary(
     """Match FIFO orders at the tick using the already-computed pre-advance fee rate."""
     if not isinstance(tick, RaydiumClmmTick):
         raise RaydiumLimitOrderBoundaryError("decoded initialized Raydium tick is required")
+    if tick.initialized is not True:
+        raise RaydiumLimitOrderBoundaryError("tick-boundary matching requires an initialized tick")
     if not isinstance(fee_state, RaydiumFeeAccountingState):
         raise RaydiumLimitOrderBoundaryError("Raydium fee-accounting state is required")
     before = _unfilled_amount(tick)
