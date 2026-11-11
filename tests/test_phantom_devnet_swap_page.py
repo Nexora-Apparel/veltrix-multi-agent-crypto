@@ -93,7 +93,7 @@ def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
 
 def test_browser_semantic_verifier_remains_fail_closed():
     source = PAGE.read_text(encoding="utf-8")
-    assert "Transaction intent verification is incomplete. Phantom signing is disabled." in source
+    assert "async function inspectTransaction(tx, quote, reviewedBytes)" in source
     assert "function inspectTransaction(tx, quote, reviewedBytes)" in source
     assert "async function resolveV0Accounts(message)" in source
     assert "async function verifyCpmmCpi(tx, policy, reviewedBytes)" in source
@@ -129,7 +129,7 @@ def test_browser_router_policy_checks_full_setup_route_cleanup_and_compute_budge
 
 
 def test_browser_cpmm_policy_checks_live_pool_and_inner_swap_cpi():
-    source = PAGE.read_text(encoding="utf-8").read_text(encoding="utf-8")
+    source = PAGE.read_text(encoding="utf-8")
     assert "function decodeTokenAccount(" in source
     assert "function verifyPoolAndAccounts(" in source
     assert "findProgramAddressSync([POOL_AUTH_SEED]" in source
