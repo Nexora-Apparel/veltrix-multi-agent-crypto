@@ -7,6 +7,7 @@ same-context pre/post snapshots captured by the read-only RPC adapter.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from solders.pubkey import Pubkey
 
@@ -19,6 +20,7 @@ from veltrix.jupiter_swap_effects import (
 from veltrix.meteora_dlmm_cpi import (
     METEORA_DLMM_IDL_COMMIT,
     METEORA_DLMM_PROGRAM_ID,
+    OPTIONAL_ACCOUNT_SENTINEL,
     MeteoraDlmmCpiResult,
 )
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult, SimulatedAccountState
@@ -176,7 +178,7 @@ def evaluate_meteora_dlmm_pool_state(
         raise MeteoraDlmmPoolStateError("successful quote-to-balance effect approval is required")
     if len(order.route_plan) != 1 or len(cpi_result.decoded_swaps) != 1:
         raise MeteoraDlmmPoolStateError("pool-state verification currently supports exactly one Meteora DLMM route hop")
-    digest = __import__("hashlib").sha256(order.message_bytes).hexdigest()
+    digest = hashlib.sha256(order.message_bytes).hexdigest()
     if any(value != digest for value in (
         simulation.message_sha256, simulation_gate.message_sha256,
         cpi_result.message_sha256, swap_effects.message_sha256,
@@ -187,6 +189,8 @@ def evaluate_meteora_dlmm_pool_state(
     if simulation.context_slot != simulation_gate.context_slot or swap_effects.simulation_context_slot != simulation.context_slot:
         raise MeteoraDlmmPoolStateError("pool account snapshots and token effects are not bound to the same simulation slot")
 
+    if cpi_result.program_id != METEORA_DLMM_PROGRAM_ID:
+        raise MeteoraDlmmPoolStateError("CPI result program differs from the pinned Meteora deployment")
     decoded = cpi_result.decoded_swaps[0]
     step = order.route_plan[0]
     if decoded.lb_pair != step.amm_key:
@@ -195,8 +199,10 @@ def evaluate_meteora_dlmm_pool_state(
     if len(snapshots) != len(simulation.account_states):
         raise MeteoraDlmmPoolStateError("simulation contains duplicate account-state snapshots")
     required_addresses = {decoded.lb_pair, decoded.reserve_x, decoded.reserve_y, decoded.oracle}
+    if decoded.bitmap_extension != OPTIONAL_ACCOUNT_SENTINEL:
+        required_addresses.add(decoded.bitmap_extension)
     if not required_addresses.issubset(snapshots):
-        raise MeteoraDlmmPoolStateError("pool, reserve, or oracle account state is missing from simulation evidence")
+        raise MeteoraDlmmPoolStateError("pool, reserve, oracle, or bitmap-extension account state is missing from simulation evidence")
 
     pool = parse_meteora_lb_pair_state(snapshots[decoded.lb_pair])
     if (
@@ -217,6 +223,11 @@ def evaluate_meteora_dlmm_pool_state(
 
     oracle_snapshot = snapshots[pool.oracle]
     _require_program_owned_discriminator(oracle_snapshot, METEORA_ORACLE_DISCRIMINATOR, "oracle")
+    if decoded.bitmap_extension != OPTIONAL_ACCOUNT_SENTINEL:
+        bitmap_snapshot = snapshots[decoded.bitmap_extension]
+        _require_program_owned_discriminator(
+            bitmap_snapshot, METEORA_BITMAP_EXTENSION_DISCRIMINATOR, "bitmap extension"
+        )
 
     input_ata = derive_associated_token_address(order.taker, order.input_mint)
     output_ata = derive_associated_token_address(order.taker, order.output_mint)
