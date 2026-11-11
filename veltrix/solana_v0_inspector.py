@@ -152,13 +152,20 @@ def resolve_v0_keys(message: V0Message, lookup_accounts: Mapping[bytes, tuple[st
             raise V0DecodeError("required lookup table was not supplied")
         owner, encoded_data = account
         addresses = parse_alt_account(owner, encoded_data, current_slot=current_slot)
+        raw_table = base64.b64decode(encoded_data, validate=True)
+        last_extended_slot = int.from_bytes(raw_table[12:20], "little")
+        last_extended_start = raw_table[20]
         for index in lookup.writable_indexes:
             if index >= len(addresses):
                 raise V0DecodeError("writable lookup index is out of bounds")
+            if last_extended_slot == current_slot and index >= last_extended_start:
+                raise V0DecodeError("writable lookup address was extended in the current slot")
             writable.append(addresses[index])
         for index in lookup.readonly_indexes:
             if index >= len(addresses):
                 raise V0DecodeError("readonly lookup index is out of bounds")
+            if last_extended_slot == current_slot and index >= last_extended_start:
+                raise V0DecodeError("readonly lookup address was extended in the current slot")
             readonly.append(addresses[index])
     keys = tuple(message.static_keys) + tuple(writable) + tuple(readonly)
     for ix in message.instructions:
