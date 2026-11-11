@@ -251,3 +251,17 @@ Implemented in `veltrix/jupiter_route_semantics.py`, pinned to Jupiter's public 
 - This first slice supports only the Metis router, the Jupiter v6 `route` instruction, and explicitly mapped unit-payload DEX variants (Raydium, Meteora, Raydium CLMM, Meteora DLMM, Raydium CPMM). It rejects other routers, Jupiter instruction variants, DEX enum variants, Token-2022, optional destination accounts, and platform-fee accounts.
 - It does not decode DEX-specific CPI payloads or prove pool account semantics. Those remain separate mandatory gates; unknown or unsupported instructions remain rejected.
 - No signing, Jupiter `/execute`, wallet signature request, transaction submission, or broadcast is implemented.
+
+
+### 09.14 — Jupiter v6 route instruction semantic decoder
+
+Implemented in `veltrix/jupiter_route_semantics.py`, with adversarial coverage in `tests/test_jupiter_route_semantics.py`.
+
+- Decodes only the Anchor `route` exact-in instruction format from a pinned Jupiter v6 IDL revision: `jup-ag/instruction-parser` commit `e6f77951377847c579112e6a16d8c17c5c092485`.
+- Validates the instruction discriminator, Borsh route-plan length, each enum variant, split percentage, input/output token indexes, exact input amount, quoted output amount, slippage and platform-fee basis points, and rejects trailing bytes.
+- Only unit-payload DEX enum variants are currently supported: Raydium (7), Meteora (19), Raydium CLMM (26), Meteora DLMM (38), and Raydium CPMM (46). Every other enum variant, including variants with payload fields, fails closed.
+- Supports only the Metis router and the seven-account Jupiter `route` instruction. Token-ledger routes, shared-account routes, exact-out, optional destination/fee accounts, address-lookup-loaded Jupiter accounts, Token-2022, and all other Jupiter instruction formats are rejected.
+- Binds the serialized instruction to the quote route plan, mint-index graph, exact input/output amounts, taker, classic SPL ATAs, and the independent program-trace and quote-to-balance effect evidence.
+- Validates topological token-index production and per-input split percentages. Unknown DEX labels are rejected even when their program IDs appear in a registry.
+
+This is a deliberately narrow parser, not a general Jupiter transaction decoder. The upstream IDL revision and enum mapping are pinned in code and tests; upgrading Jupiter requires an explicit reviewed IDL update and new fixtures. This parser does not decode each DEX CPI payload or prove pool-account semantics. No signer, `/execute` endpoint, broadcast, or live trading is introduced.
