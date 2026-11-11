@@ -12,10 +12,12 @@ import hashlib
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.raydium_clmm_cpi import RaydiumClmmCpiResult
 from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_CLMM_SOURCE_COMMIT,
     RaydiumClmmPoolRouteCheck,
 )
-from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot\nfrom veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
+from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
+from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTickArraySnapshot
 from veltrix.simulation_gate import SimulationEvidence
 
