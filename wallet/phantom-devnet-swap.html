@@ -111,6 +111,10 @@
     $("quote").disabled = false;
     status("Connected to canonical Devnet. No transaction has been signed or sent.","good");
   }
+  async function tokenBalanceRaw() {
+    const response = await connection.getTokenAccountsByOwner(wallet, {mint:new solanaWeb3.PublicKey(USDC)}, {commitment:"confirmed"});
+    return response.value.reduce((sum, row) => sum + BigInt(row.account.data.parsed.info.tokenAmount.amount), 0n);
+  }
   async function refreshBalance() {
     if (!wallet) return;
     const lamports = await connection.getBalance(wallet, "confirmed");
@@ -139,7 +143,9 @@
     const amount = Number($("amount").value);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 0.005) throw new Error("Enter an amount greater than zero and no more than 0.005 SOL.");
     const lamports = Math.floor(amount * 1e9);
+    if (lamports <= 0 || lamports > MAX_LAMPORTS) throw new Error("Input amount exceeds the hard lamport cap.");
     const balance = await refreshBalance();
+    const tokenBalanceBefore = await tokenBalanceRaw();
     if (balance < lamports + RESERVE_LAMPORTS) throw new Error("Insufficient Devnet SOL after preserving the 0.05 SOL reserve.");
     const quote = await json(TRADE + "/compute/swap-base-in?" + new URLSearchParams({
       inputMint:SOL,outputMint:USDC,amount:String(lamports),slippageBps:"100",txVersion:"V0"
@@ -167,7 +173,7 @@
       tx.message.compiledInstructions.forEach(ix => programSet.add(tx.message.staticAccountKeys[ix.programIdIndex].toBase58()));
       txs.push(tx);
     }
-    prepared = {txs, quote:q, impact, lamports, totalFee, programs:[...programSet]};
+    prepared = {txs, quote:q, impact, lamports, totalFee, programs:[...programSet], tokenBalanceBefore:tokenBalanceBefore.toString()};
     $("inputValue").textContent = fmtRaw(lamports,9) + " SOL";
     $("outputValue").textContent = fmtRaw(q.outputAmount,6) + " USDC";
     $("minimumValue").textContent = fmtRaw(q.otherAmountThreshold,6) + " USDC";
