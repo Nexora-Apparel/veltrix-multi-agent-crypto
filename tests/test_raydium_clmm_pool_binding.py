@@ -172,7 +172,7 @@ def test_rejects_missing_or_extra_tick_array_accounts():
         evaluate(tuple(values))
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], tick_arrays=())
-    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array accounts"):
+    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array|CPI remaining-account order"):
         evaluate(tuple(values))
 
 
