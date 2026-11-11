@@ -79,13 +79,31 @@ def _validate_extension(pool_address: str, extension, snapshot: RaydiumClmmTickA
         raise RaydiumClmmBitmapTraversalError("bitmap extension words belong to a different pool")
     if extension.address != snapshot.bitmap_extension_address:
         raise RaydiumClmmBitmapTraversalError("decoded bitmap extension address differs from the CPI snapshot")
+    raw = extension.data_bytes
     if (
-        extension.data_sha256 != snapshot.bitmap_extension_sha256
+        not isinstance(raw, bytes)
+        or len(raw) != 1832
+        or raw[:8] != __import__("hashlib").sha256(b"account:TickArrayBitmapExtension").digest()[:8]
+        or raw[8:40] != bytes(__import__("solders.pubkey", fromlist=["Pubkey"]).Pubkey.from_string(pool_address))
+        or extension.data_sha256 != snapshot.bitmap_extension_sha256
         or not isinstance(extension.data_sha256, str)
         or len(extension.data_sha256) != 64
         or any(character not in "0123456789abcdef" for character in extension.data_sha256)
+        or hashlib.sha256(raw).hexdigest() != extension.data_sha256
     ):
-        raise RaydiumClmmBitmapTraversalError("decoded bitmap extension digest differs from the CPI snapshot")
+        raise RaydiumClmmBitmapTraversalError("raw bitmap extension bytes, pool identity or SHA-256 digest are inconsistent")
+    words_per_side = EXTENSION_BITMAP_BLOCKS * EXTENSION_BITMAP_WORDS_PER_BLOCK
+    raw_positive = tuple(
+        int.from_bytes(raw[40 + index * 8:48 + index * 8], "little")
+        for index in range(words_per_side)
+    )
+    negative_start = 40 + words_per_side * 8
+    raw_negative = tuple(
+        int.from_bytes(raw[negative_start + index * 8:negative_start + (index + 1) * 8], "little")
+        for index in range(words_per_side)
+    )
+    if extension.positive_bitmaps != raw_positive or extension.negative_bitmaps != raw_negative:
+        raise RaydiumClmmBitmapTraversalError("decoded bitmap words differ from the retained raw extension account")
     if (
         len(extension.positive_bitmaps) != EXTENSION_BITMAP_BLOCKS * EXTENSION_BITMAP_WORDS_PER_BLOCK
         or len(extension.negative_bitmaps) != EXTENSION_BITMAP_BLOCKS * EXTENSION_BITMAP_WORDS_PER_BLOCK
