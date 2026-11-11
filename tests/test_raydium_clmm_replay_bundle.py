@@ -37,7 +37,11 @@ from veltrix.raydium_clmm_vaults import (
     derive_raydium_clmm_vault_address,
     encode_raydium_clmm_vault_token_account,
 )
-from veltrix.raydium_clmm_tick_cursor import select_next_initialized_tick_from_bitmap_sequence
+from veltrix.raydium_clmm_tick_cursor import (
+    select_next_initialized_tick_from_bitmap_sequence,
+    select_next_initialized_tick_from_live_bitmap,
+    RaydiumTickCursorError,
+)
 from veltrix.raydium_clmm_replay_bundle import (
     RaydiumReplayBundleError,
     build_raydium_clmm_replay_account_bundle,
@@ -378,3 +382,183 @@ def test_bitmap_sequence_rejects_incomplete_or_wrong_pool_traversal_proof():
             bundle, traversal, current_tick_index=0,
             first_tick_array_contains_pool_tick=True,
         )
+
+
+def test_live_bitmap_cursor_reselects_next_array_after_current_array_bit_removal():
+    pool, base_array, observation, vaults = fixture()
+
+    def make_array(start, initialized_offset):
+        ticks = []
+        for offset, original in enumerate(base_array.ticks):
+            index = start + offset * pool.tick_spacing
+            if offset == initialized_offset:
+                ticks.append(replace(
+                    original,
+                    tick_index=index,
+                    liquidity_net=1,
+                    liquidity_gross=1,
+                    initialized=True,
+                ))
+            else:
+                ticks.append(replace(original, tick_index=index))
+        item = replace(
+            base_array,
+            address=derive_raydium_clmm_tick_array_address(
+                pool_address=pool.pool_address, start_tick_index=start
+            ),
+            start_tick_index=start,
+            ticks=tuple(ticks),
+            initialized_tick_count=1,
+            data_sha256="",
+        )
+        raw = encode_raydium_clmm_tick_array(item)
+        return replace(item, data_sha256=hashlib.sha256(raw).hexdigest())
+
+    next_left_array = make_array(-600, 59)
+    words = list(pool.tick_array_bitmap)
+    words[7] |= 1 << 63  # only the next leftward array remains initialized
+    updated_pool = replace(pool, tick_array_bitmap=tuple(words))
+    raw_pool = encode_raydium_clmm_pool_state(updated_pool)
+    updated_pool = replace(
+        updated_pool,
+        account_data=raw_pool,
+        account_data_sha256=hashlib.sha256(raw_pool).hexdigest(),
+    )
+    result = select_next_initialized_tick_from_live_bitmap(
+        updated_pool,
+        tick_arrays=(next_left_array,),
+        current_tick_index=0,
+        zero_for_one=True,
+    )
+    assert result.cursor.tick.tick_index == -10
+    assert result.sequence_index == 0
+    assert result.visited_array_starts == (-600,)
+
+
+def test_live_bitmap_cursor_searches_current_array_before_advancing():
+    pool, base_array, observation, vaults = fixture()
+    current_ticks = list(base_array.ticks)
+    current_ticks[0] = replace(
+        current_ticks[0],
+        liquidity_net=1,
+        liquidity_gross=1,
+        initialized=True,
+    )
+    current_array = replace(
+        base_array,
+        ticks=tuple(current_ticks),
+        initialized_tick_count=1,
+        data_sha256="",
+    )
+    raw_array = encode_raydium_clmm_tick_array(current_array)
+    current_array = replace(
+        current_array, data_sha256=hashlib.sha256(raw_array).hexdigest()
+    )
+    words = list(pool.tick_array_bitmap)
+    words[8] |= 1
+    updated_pool = replace(pool, tick_array_bitmap=tuple(words))
+    raw_pool = encode_raydium_clmm_pool_state(updated_pool)
+    updated_pool = replace(
+        updated_pool,
+        account_data=raw_pool,
+        account_data_sha256=hashlib.sha256(raw_pool).hexdigest(),
+    )
+    result = select_next_initialized_tick_from_live_bitmap(
+        updated_pool,
+        tick_arrays=(current_array,),
+        current_tick_index=0,
+        zero_for_one=True,
+    )
+    assert result.cursor.tick.tick_index == 0
+    assert result.sequence_index == 0
+    assert result.visited_array_starts == (0,)
+
+
+def test_live_bitmap_cursor_fails_closed_when_initialized_array_account_is_missing():
+    pool, base_array, observation, vaults = fixture()
+    words = list(pool.tick_array_bitmap)
+    words[7] |= 1 << 63
+    updated_pool = replace(pool, tick_array_bitmap=tuple(words))
+    raw_pool = encode_raydium_clmm_pool_state(updated_pool)
+    updated_pool = replace(
+        updated_pool,
+        account_data=raw_pool,
+        account_data_sha256=hashlib.sha256(raw_pool).hexdigest(),
+    )
+    with pytest.raises(RaydiumTickCursorError, match="required initialized TickArrayState account is missing"):
+        select_next_initialized_tick_from_live_bitmap(
+            updated_pool,
+            tick_arrays=(base_array,),
+            current_tick_index=0,
+            zero_for_one=True,
+        )
+
+
+def test_live_bitmap_cursor_rejects_stale_pool_and_tick_array_commitments():
+    pool, tick_array, observation, vaults = fixture()
+    with pytest.raises(RaydiumTickCursorError, match="PoolState account bytes"):
+        select_next_initialized_tick_from_live_bitmap(
+            replace(pool, account_data_sha256="0" * 64),
+            tick_arrays=(tick_array,),
+            current_tick_index=0,
+            zero_for_one=True,
+        )
+    with pytest.raises(RaydiumTickCursorError, match="TickArrayState bytes"):
+        select_next_initialized_tick_from_live_bitmap(
+            pool,
+            tick_arrays=(replace(tick_array, data_sha256="0" * 64),),
+            current_tick_index=0,
+            zero_for_one=True,
+        )
+
+
+def test_live_bitmap_cursor_uses_active_array_start_after_tick_crossing():
+    pool, current_array, observation, vaults = fixture()
+    ticks = []
+    for offset, original in enumerate(current_array.ticks):
+        index = -600 + offset * pool.tick_spacing
+        if offset == 59:
+            ticks.append(replace(
+                original,
+                tick_index=index,
+                liquidity_net=1,
+                liquidity_gross=1,
+                initialized=True,
+            ))
+        else:
+            ticks.append(replace(original, tick_index=index))
+    next_array = replace(
+        current_array,
+        address=derive_raydium_clmm_tick_array_address(
+            pool_address=pool.pool_address, start_tick_index=-600
+        ),
+        start_tick_index=-600,
+        ticks=tuple(ticks),
+        initialized_tick_count=1,
+        data_sha256="",
+    )
+    next_bytes = encode_raydium_clmm_tick_array(next_array)
+    next_array = replace(
+        next_array, data_sha256=hashlib.sha256(next_bytes).hexdigest()
+    )
+    words = list(pool.tick_array_bitmap)
+    words[7] |= 1 << 63
+    updated_pool = replace(pool, tick_array_bitmap=tuple(words))
+    pool_bytes = encode_raydium_clmm_pool_state(updated_pool)
+    updated_pool = replace(
+        updated_pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    # PoolState.tick_current is still the pre-swap tick (0), while the active
+    # swap cursor moved to -1 and remains attached to the previously selected
+    # array start (0) until the bitmap chooses the next array.
+    result = select_next_initialized_tick_from_live_bitmap(
+        updated_pool,
+        tick_arrays=(current_array, next_array),
+        current_tick_index=-1,
+        zero_for_one=True,
+        current_array_start_index=0,
+    )
+    assert result.cursor.tick.tick_index == -10
+    assert result.visited_array_starts == (0, -600)

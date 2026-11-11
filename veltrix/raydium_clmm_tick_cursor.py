@@ -2,15 +2,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from veltrix.raydium_clmm_pool_state import RAYDIUM_MAX_TICK, RAYDIUM_MIN_TICK
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
 from veltrix.raydium_clmm_replay_bundle import RaydiumClmmReplayAccountBundle
+from veltrix.raydium_clmm_pool_state import (
+    RaydiumClmmPoolState,
+    encode_raydium_clmm_pool_state,
+)
+from veltrix.raydium_clmm_tick_array_mutation import RaydiumClmmTickArrayBitmapExtension
+from veltrix.raydium_clmm_bitmap_cursor import (
+    RaydiumBitmapCursorError,
+    first_raydium_tick_array_start_index,
+    next_initialized_raydium_tick_array_start_index,
+)
+from veltrix.raydium_clmm_tick_array_mutation import encode_raydium_tick_array_bitmap_extension
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
     raydium_current_tick_array_start,
+    encode_raydium_clmm_tick_array,
 )
 
 
@@ -260,4 +273,142 @@ def select_next_initialized_tick_from_bitmap_sequence(
         )
     raise RaydiumTickCursorError(
         "bitmap proves initialized arrays but no next initialized tick exists in the supplied direction"
+    )
+
+
+def select_next_initialized_tick_from_live_bitmap(
+    pool: RaydiumClmmPoolState,
+    *,
+    tick_arrays: tuple[RaydiumClmmTickArray, ...],
+    current_tick_index: int,
+    zero_for_one: bool,
+    bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
+    current_array_start_index: int | None = None,
+) -> RaydiumBitmapTickSelection:
+    """Select the next tick from the current mutated PoolState/extension bitmap.
+
+    Unlike the one-shot CPI traversal proof selector, this function can be
+    called after each boundary mutation. It re-reads the updated bitmap and
+    therefore skips arrays whose last initialized tick was just removed.
+    """
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumTickCursorError("decoded Raydium PoolState is required")
+    if not pool.account_data or hashlib.sha256(pool.account_data).hexdigest() != pool.account_data_sha256:
+        raise RaydiumTickCursorError("PoolState account bytes do not match their commitment")
+    try:
+        if encode_raydium_clmm_pool_state(pool) != pool.account_data:
+            raise RaydiumTickCursorError("PoolState fields differ from committed account bytes")
+    except Exception as exc:
+        if isinstance(exc, RaydiumTickCursorError):
+            raise
+        raise RaydiumTickCursorError(f"PoolState serialization validation failed: {exc}") from exc
+    if bitmap_extension is not None:
+        try:
+            extension_bytes = encode_raydium_tick_array_bitmap_extension(bitmap_extension)
+            if hashlib.sha256(extension_bytes).hexdigest() != bitmap_extension.data_sha256:
+                raise RaydiumTickCursorError("bitmap-extension account bytes do not match their commitment")
+        except Exception as exc:
+            if isinstance(exc, RaydiumTickCursorError):
+                raise
+            raise RaydiumTickCursorError(f"bitmap-extension validation failed: {exc}") from exc
+    if not isinstance(tick_arrays, tuple) or not tick_arrays:
+        raise RaydiumTickCursorError("supplied TickArrayState accounts are required")
+    if not isinstance(zero_for_one, bool):
+        raise RaydiumTickCursorError("swap direction must be boolean")
+    if not RAYDIUM_MIN_TICK <= current_tick_index <= RAYDIUM_MAX_TICK:
+        raise RaydiumTickCursorError("current tick is outside the Raydium protocol range")
+    by_start = {}
+    for item in tick_arrays:
+        if not isinstance(item, RaydiumClmmTickArray):
+            raise RaydiumTickCursorError("tick-array set contains a malformed account")
+        if item.pool_address != pool.pool_address or item.tick_spacing != pool.tick_spacing:
+            raise RaydiumTickCursorError("tick-array set contains an account for a different pool/spacing")
+        try:
+            array_bytes = encode_raydium_clmm_tick_array(item)
+            if hashlib.sha256(array_bytes).hexdigest() != item.data_sha256:
+                raise RaydiumTickCursorError("TickArrayState bytes do not match their commitment")
+        except Exception as exc:
+            if isinstance(exc, RaydiumTickCursorError):
+                raise
+            raise RaydiumTickCursorError(f"TickArrayState validation failed: {exc}") from exc
+        if item.start_tick_index in by_start:
+            raise RaydiumTickCursorError("tick-array set contains duplicate start indices")
+        by_start[item.start_tick_index] = item
+
+    if current_array_start_index is None:
+        if current_tick_index != pool.tick_current:
+            raise RaydiumTickCursorError(
+                "initial bitmap selection must start from the stored PoolState tick"
+            )
+        try:
+            first_contains_current, first_start = first_raydium_tick_array_start_index(
+                pool,
+                zero_for_one=zero_for_one,
+                bitmap_extension=bitmap_extension,
+            )
+        except RaydiumBitmapCursorError as exc:
+            raise RaydiumTickCursorError(str(exc)) from exc
+    else:
+        if isinstance(current_array_start_index, bool) or not isinstance(current_array_start_index, int):
+            raise RaydiumTickCursorError("current array start index must be an integer")
+        first_start = current_array_start_index
+        if raydium_current_tick_array_start(
+            first_start, pool.tick_spacing
+        ) != first_start:
+            raise RaydiumTickCursorError("current array start index is not canonically aligned")
+        first_contains_current = True
+    first_array = by_start.get(first_start)
+    if first_array is None:
+        raise RaydiumTickCursorError(
+            f"required initialized TickArrayState account is missing: {first_start}"
+        )
+
+    visited = [first_start]
+    if first_contains_current:
+        result = find_next_initialized_tick_in_array(
+            first_array,
+            current_tick_index=current_tick_index,
+            tick_spacing=pool.tick_spacing,
+            zero_for_one=zero_for_one,
+        )
+        if result is not None:
+            return RaydiumBitmapTickSelection(
+                cursor=result,
+                sequence_index=0,
+                visited_array_starts=tuple(visited),
+            )
+    else:
+        result = first_initialized_tick_in_array(
+            first_array, zero_for_one=zero_for_one
+        )
+        return RaydiumBitmapTickSelection(
+            cursor=result,
+            sequence_index=0,
+            visited_array_starts=tuple(visited),
+        )
+
+    try:
+        next_start = next_initialized_raydium_tick_array_start_index(
+            pool,
+            last_tick_array_start_index=first_start,
+            zero_for_one=zero_for_one,
+            bitmap_extension=bitmap_extension,
+        )
+    except RaydiumBitmapCursorError as exc:
+        raise RaydiumTickCursorError(str(exc)) from exc
+    if next_start is None:
+        raise RaydiumTickCursorError("no initialized tick array remains in the swap direction")
+    next_array = by_start.get(next_start)
+    if next_array is None:
+        raise RaydiumTickCursorError(
+            f"required initialized TickArrayState account is missing: {next_start}"
+        )
+    visited.append(next_start)
+    result = first_initialized_tick_in_array(
+        next_array, zero_for_one=zero_for_one
+    )
+    return RaydiumBitmapTickSelection(
+        cursor=result,
+        sequence_index=1,
+        visited_array_starts=tuple(visited),
     )
