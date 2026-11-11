@@ -1,7 +1,7 @@
 """Same-provider, same-or-newer-slot Raydium CLMM vault token-account verification."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 from solders.pubkey import Pubkey
@@ -10,6 +10,7 @@ from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RaydiumClmmPoolRouteCheck,
+    RaydiumClmmPoolState,
 )
 from veltrix.simulation_gate import SimulationEvidence
 from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
@@ -36,6 +37,8 @@ class RaydiumClmmVaultAccount:
     state: int
     lamports: int
     data_sha256: str
+    account_data: bytes = b""
+    source_data_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +106,109 @@ def _decode_token_account(data: bytes, *, address: str, pool_address: str, mint:
         state=state,
         lamports=lamports,
         data_sha256=data_sha256,
+        account_data=data,
+        source_data_sha256=data_sha256,
+    )
+
+
+def encode_raydium_clmm_vault_account(vault: RaydiumClmmVaultAccount) -> bytes:
+    """Patch the token amount into the verified 165-byte classic SPL account."""
+    if not isinstance(vault, RaydiumClmmVaultAccount):
+        raise RaydiumClmmVaultError("verified Raydium vault account is required")
+    if vault.token_program_id != CLASSIC_SPL_TOKEN_PROGRAM_ID:
+        raise RaydiumClmmVaultError("vault token program is not the classic SPL Token program")
+    if vault.address != derive_raydium_clmm_vault_address(
+        pool_address=vault.pool_address, mint=vault.mint
+    ):
+        raise RaydiumClmmVaultError("vault address is not the canonical pool/mint PDA")
+    if (
+        not isinstance(vault.account_data, bytes)
+        or len(vault.account_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH
+    ):
+        raise RaydiumClmmVaultError("verified original 165-byte vault account data is required")
+    source_hash = vault.source_data_sha256 or vault.data_sha256
+    if (
+        not isinstance(source_hash, str)
+        or len(source_hash) != 64
+        or hashlib.sha256(vault.account_data).hexdigest() != source_hash
+    ):
+        raise RaydiumClmmVaultError("original vault bytes do not match their source commitment")
+    if (
+        isinstance(vault.amount_raw, bool)
+        or not isinstance(vault.amount_raw, int)
+        or not 0 <= vault.amount_raw < (1 << 64)
+    ):
+        raise RaydiumClmmVaultError("vault amount must fit u64")
+    data = bytearray(vault.account_data)
+    data[64:72] = vault.amount_raw.to_bytes(8, "little")
+    encoded = bytes(data)
+    _decode_token_account(
+        encoded,
+        address=vault.address,
+        pool_address=vault.pool_address,
+        mint=vault.mint,
+        lamports=vault.lamports,
+        data_sha256=hashlib.sha256(encoded).hexdigest(),
+    )
+    return encoded
+
+
+def apply_raydium_clmm_vault_delta(
+    vault: RaydiumClmmVaultAccount, *, amount_delta: int
+) -> RaydiumClmmVaultAccount:
+    """Apply one signed base-unit delta and commit the resulting token-account bytes."""
+    if isinstance(amount_delta, bool) or not isinstance(amount_delta, int):
+        raise RaydiumClmmVaultError("vault amount delta must be an integer")
+    next_amount = vault.amount_raw + amount_delta
+    if not 0 <= next_amount < (1 << 64):
+        raise RaydiumClmmVaultError("vault balance delta underflows or overflows u64")
+    updated = replace(vault, amount_raw=next_amount, data_sha256="")
+    encoded = encode_raydium_clmm_vault_account(updated)
+    digest = hashlib.sha256(encoded).hexdigest()
+    return replace(
+        updated,
+        account_data=encoded,
+        data_sha256=digest,
+        source_data_sha256=digest,
+    )
+
+
+def apply_raydium_clmm_swap_vault_settlement(
+    pool: RaydiumClmmPoolState,
+    vault_0: RaydiumClmmVaultAccount,
+    vault_1: RaydiumClmmVaultAccount,
+    *,
+    amount_0: int,
+    amount_1: int,
+    zero_for_one: bool,
+) -> tuple[RaydiumClmmVaultAccount, RaydiumClmmVaultAccount]:
+    """Reconcile the two pool-vault deltas returned by swap_internal."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmVaultError("decoded Raydium PoolState is required")
+    if not isinstance(vault_0, RaydiumClmmVaultAccount) or not isinstance(vault_1, RaydiumClmmVaultAccount):
+        raise RaydiumClmmVaultError("two verified Raydium vault accounts are required")
+    if (
+        vault_0.pool_address != pool.pool_address
+        or vault_1.pool_address != pool.pool_address
+        or vault_0.mint != pool.token_mint_0
+        or vault_1.mint != pool.token_mint_1
+        or vault_0.address != pool.token_vault_0
+        or vault_1.address != pool.token_vault_1
+    ):
+        raise RaydiumClmmVaultError("vault accounts do not match PoolState token-0/token-1 identities")
+    if not isinstance(zero_for_one, bool):
+        raise RaydiumClmmVaultError("swap direction must be boolean")
+    for value, field in ((amount_0, "amount_0"), (amount_1, "amount_1")):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < (1 << 64):
+            raise RaydiumClmmVaultError(f"{field} must be a positive u64 amount")
+    if zero_for_one:
+        return (
+            apply_raydium_clmm_vault_delta(vault_0, amount_delta=amount_0),
+            apply_raydium_clmm_vault_delta(vault_1, amount_delta=-amount_1),
+        )
+    return (
+        apply_raydium_clmm_vault_delta(vault_0, amount_delta=-amount_0),
+        apply_raydium_clmm_vault_delta(vault_1, amount_delta=amount_1),
     )
 
 

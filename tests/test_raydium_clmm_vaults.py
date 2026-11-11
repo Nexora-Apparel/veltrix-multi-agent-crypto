@@ -12,6 +12,9 @@ from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolRouteCheck, RaydiumCl
 from veltrix.raydium_clmm_vaults import (
     CLASSIC_SPL_TOKEN_PROGRAM_ID,
     RaydiumClmmVaultError,
+    apply_raydium_clmm_swap_vault_settlement,
+    apply_raydium_clmm_vault_delta,
+    encode_raydium_clmm_vault_account,
     derive_raydium_clmm_vault_address,
     fetch_raydium_clmm_vault_snapshot,
 )
@@ -261,4 +264,92 @@ def test_rejects_pool_evidence_from_another_simulation():
             pool_checks=checks,
             simulation=simulation,
             rpc_adapter=adapter,
+        )
+
+
+def test_vault_serializer_roundtrips_verified_classic_spl_account_bytes():
+    values = fixture()
+    snapshot = fetch(values)
+    for vault in snapshot.vaults:
+        assert encode_raydium_clmm_vault_account(vault) == vault.account_data
+        assert vault.source_data_sha256 == vault.data_sha256
+
+
+@pytest.mark.parametrize(
+    "zero_for_one,expected_0,expected_1",
+    [
+        (True, 1_000_100, 999_800),
+        (False, 999_900, 1_000_200),
+    ],
+)
+def test_swap_vault_settlement_applies_directional_deltas_and_rehashes_accounts(
+    zero_for_one, expected_0, expected_1
+):
+    values = fixture()
+    snapshot = fetch(values)
+    vault_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    vault_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    pool_state = values[1][0].pool
+    updated_0, updated_1 = apply_raydium_clmm_swap_vault_settlement(
+        pool_state, vault_0, vault_1,
+        amount_0=100,
+        amount_1=200,
+        zero_for_one=zero_for_one,
+    )
+    assert (vault_0.amount_raw, vault_1.amount_raw) == (1_000_000, 1_000_000)
+    assert (updated_0.amount_raw, updated_1.amount_raw) == (
+        expected_0, expected_1
+    )
+    for updated in (updated_0, updated_1):
+        digest = hashlib.sha256(updated.account_data).hexdigest()
+        assert updated.data_sha256 == digest
+        assert updated.source_data_sha256 == digest
+        assert encode_raydium_clmm_vault_account(updated) == updated.account_data
+
+
+@pytest.mark.parametrize(
+    "amount_delta",
+    [-(1_000_001), (1 << 64)],
+)
+def test_vault_delta_rejects_underflow_and_overflow(amount_delta):
+    snapshot = fetch(fixture())
+    vault = snapshot.vaults[0]
+    with pytest.raises(RaydiumClmmVaultError, match="underflows or overflows"):
+        apply_raydium_clmm_vault_delta(vault, amount_delta=amount_delta)
+
+
+def test_swap_vault_settlement_is_atomic_when_output_vault_would_underflow():
+    values = fixture()
+    snapshot = fetch(values)
+    vault_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    vault_1 = next(vault for vault in snapshot.vaults if vault.address != vault_0.address)
+    before = (vault_0.amount_raw, vault_1.amount_raw)
+    with pytest.raises(RaydiumClmmVaultError, match="underflows or overflows"):
+        apply_raydium_clmm_swap_vault_settlement(
+            values[1][0].pool, vault_0, vault_1,
+            amount_0=10,
+            amount_1=vault_1.amount_raw + 1,
+            zero_for_one=True,
+        )
+    assert (vault_0.amount_raw, vault_1.amount_raw) == before
+
+
+def test_swap_vault_settlement_rejects_zero_amounts_and_wrong_pool_identity():
+    values = fixture()
+    snapshot = fetch(values)
+    vault_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    vault_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    pool_state = values[1][0].pool
+    with pytest.raises(RaydiumClmmVaultError, match="positive u64"):
+        apply_raydium_clmm_swap_vault_settlement(
+            pool_state, vault_0, vault_1,
+            amount_0=0, amount_1=1, zero_for_one=True,
+        )
+    wrong_pool = dataclasses.replace(
+        pool_state, token_vault_0=str(Pubkey.new_unique())
+    )
+    with pytest.raises(RaydiumClmmVaultError, match="do not match PoolState"):
+        apply_raydium_clmm_swap_vault_settlement(
+            wrong_pool, vault_0, vault_1,
+            amount_0=1, amount_1=1, zero_for_one=True,
         )
