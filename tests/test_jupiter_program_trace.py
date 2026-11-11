@@ -367,7 +367,7 @@ def test_rejects_nonmatching_fee_payer_or_blockhash():
 def test_rejects_resolved_account_key_evidence_mismatch():
     order, validation, simulation, gate, registry, policy = fixture()
     validation = dataclasses.replace(validation, account_keys=validation.account_keys[:-1])
-    with pytest.raises(JupiterProgramTraceError, match="Jupiter V6 instruction validation failed"):
+    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
