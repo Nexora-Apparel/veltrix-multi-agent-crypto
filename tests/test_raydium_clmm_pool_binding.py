@@ -22,13 +22,18 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolState,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultAccount, RaydiumClmmVaultSnapshot
-from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTickArray, RaydiumClmmTickArraySnapshot
+from veltrix.raydium_clmm_tick_arrays import (
+    RaydiumClmmTickArray,
+    RaydiumClmmTickArraySnapshot,
+    derive_raydium_clmm_tick_array_address,
+)
 from veltrix.simulation_gate import SimulationEvidence
 
 
 def fixture():
     key = lambda: str(Pubkey.new_unique())
-    taker, mint_in, mint_out, pool, vault0, vault1, tick = (key() for _ in range(7))
+    taker, mint_in, mint_out, pool, vault0, vault1 = (key() for _ in range(6))
+    tick = derive_raydium_clmm_tick_array_address(pool_address=pool, start_tick_index=0)
     message = b"approved-raydium-message"
     digest = hashlib.sha256(message).hexdigest()
     pool_bytes = b"source-pinned-pool-state"
