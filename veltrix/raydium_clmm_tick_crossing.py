@@ -69,6 +69,8 @@ def cross_tick_state(
     fee0 = _u128(fee_growth_global_0_x64, "global token-0 fee growth")
     fee1 = _u128(fee_growth_global_1_x64, "global token-1 fee growth")
     liquidity_net = _i128(tick.liquidity_net, "tick liquidity net")
+    if tick.initialized is not True:
+        raise RaydiumTickCrossingError("tick crossing requires a decoded initialized tick")
     if tick.liquidity_gross <= 0 or tick.orders_amount > 0 or tick.part_filled_orders_remaining > 0:
         raise RaydiumTickCrossingError(
             "tick crossing requires liquidity and no outstanding limit orders"
