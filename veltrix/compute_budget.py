@@ -102,8 +102,11 @@ def validate_compute_budget_instructions(
         message.sanitize()
         if len(message.instructions) != validation.instruction_count:
             raise ComputeBudgetError("instruction count differs from structural validation evidence")
-        account_keys = tuple(str(key) for key in message.account_keys)
-        if account_keys != validation.account_keys:
+        static_account_keys = tuple(str(key) for key in message.account_keys)
+        account_keys = validation.account_keys
+        if not isinstance(account_keys, tuple) or len(account_keys) < len(static_account_keys):
+            raise ComputeBudgetError("resolved account-key evidence is incomplete")
+        if tuple(account_keys[:len(static_account_keys)]) != static_account_keys:
             raise ComputeBudgetError("static account keys differ from structural validation evidence")
         program_ids = tuple(
             account_keys[int(ix.program_id_index)]
