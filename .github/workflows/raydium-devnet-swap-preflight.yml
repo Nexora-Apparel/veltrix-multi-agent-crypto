@@ -11,6 +11,10 @@ on:
       - 'veltrix/solana_devnet_swap_preflight.py'
       - 'tests/test_solana_devnet_swap_preflight.py'
       - 'veltrix/solana_devnet_ephemeral_swap.py'
+      - 'veltrix/solana_devnet_transaction_audit.py'
+      - 'veltrix/solana_v0_inspector.py'
+      - 'tests/fixtures/raydium_devnet_swap_v0_fixture.json'
+      - 'tests/test_solana_devnet_transaction_audit.py'
       - 'tests/test_solana_devnet_ephemeral_swap.py'
       - '.github/workflows/raydium-devnet-swap-preflight.yml'
   workflow_dispatch:
@@ -71,6 +75,20 @@ jobs:
             --wallet "$WALLET_ADDRESS" \
             --amount-lamports "$AMOUNT_LAMPORTS" \
             --output artifacts/raydium-devnet-swap-preflight.json
+      - name: Resolve captured ALT and audit transaction semantics against canonical Devnet
+        run: |
+          mkdir -p artifacts
+          python -m veltrix.solana_devnet_transaction_audit \
+            --fixture tests/fixtures/raydium_devnet_swap_v0_fixture.json \
+            --output artifacts/raydium-devnet-transaction-audit.json
+      - name: Upload live transaction audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raydium-devnet-transaction-audit
+          path: artifacts/raydium-devnet-transaction-audit.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Execute one capped disposable-wallet Devnet swap (opt-in)
         if: success() && inputs.try_ephemeral_swap == true
         run: |
