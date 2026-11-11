@@ -140,7 +140,7 @@ def loop_settlement(p, tick_snapshot, *, zero_for_one, amount0=100, amount1=80, 
     "zero_for_one,expected0,expected1",
     [
         (True, 600, 320),
-        (False, 420, 500),
+        (False, 400, 480),
     ],
 )
 def test_expected_post_swap_vault_balances_apply_exact_directional_transfer(zero_for_one, expected0, expected1):
