@@ -1,4 +1,6 @@
 """Differential regressions for PR #76 combined crossing vs PR #78 composition."""
+from dataclasses import dataclass, replace
+
 import pytest
 
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
@@ -6,7 +8,52 @@ from veltrix.raydium_clmm_tick_crossing import (
     RaydiumRewardGrowth,
     cross_tick_and_apply_liquidity,
 )
-from veltrix.raydium_clmm_tick_transitions import cross_raydium_tick
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyCrossingResult:
+    tick: RaydiumClmmTick
+    liquidity_net: int
+    next_tick_current: int
+    next_liquidity: int
+
+
+def legacy_cross_raydium_tick(
+    tick,
+    *,
+    fee_growth_global_0_x64,
+    fee_growth_global_1_x64,
+    reward_growths_global_x64,
+    reward_initialized,
+    zero_for_one,
+    liquidity,
+):
+    """Frozen PR #76 combined crossing transition used as a test oracle."""
+    rewards = list(tick.reward_growths_outside_x64)
+    for index in range(3):
+        if reward_initialized[index]:
+            rewards[index] = (
+                reward_growths_global_x64[index] - rewards[index]
+            ) % (1 << 128)
+    updated = replace(
+        tick,
+        fee_growth_outside_0_x64=(
+            fee_growth_global_0_x64 - tick.fee_growth_outside_0_x64
+        ) % (1 << 128),
+        fee_growth_outside_1_x64=(
+            fee_growth_global_1_x64 - tick.fee_growth_outside_1_x64
+        ) % (1 << 128),
+        reward_growths_outside_x64=tuple(rewards),
+    )
+    liquidity_net = tick.liquidity_net
+    delta = -liquidity_net if zero_for_one else liquidity_net
+    next_liquidity = liquidity + delta
+    if not 0 <= next_liquidity < (1 << 128):
+        raise ValueError("historical liquidity transition out of u128 range")
+    next_tick_current = tick.tick_index - 1 if zero_for_one else tick.tick_index
+    return LegacyCrossingResult(
+        updated, liquidity_net, next_tick_current, next_liquidity
+    )
 
 
 def make_tick(**overrides):
@@ -48,7 +95,7 @@ def test_historical_combined_tick_cross_matches_canonical_composed_transition(
     fee0, fee1 = 3, 9
     reward_globals = (10, 999, 20)
     reward_initialized = (True, False, True)
-    historical = cross_raydium_tick(
+    historical = legacy_cross_raydium_tick(
         original,
         fee_growth_global_0_x64=fee0,
         fee_growth_global_1_x64=fee1,
