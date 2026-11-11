@@ -10,6 +10,7 @@ import argparse
 import base64
 from dataclasses import asdict, dataclass
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,8 @@ RAYDIUM_DEVNET_TRADE_API = "https://transaction-v1-devnet.raydium.io"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 DEVNET_USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
 DEFAULT_WALLET = "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
-DEFAULT_AMOUNT_LAMPORTS = 10_000_000
+DEFAULT_AMOUNT_LAMPORTS = 1_000_000
+MAX_PRICE_IMPACT_PCT = 2.0
 MAX_AMOUNT_LAMPORTS = 50_000_000
 ALLOWED_RAYDIUM_PROGRAMS = {
     "DRaya7Kj3aMWQSy19kSjvmuwq9docCHofyP9kanQGaav",
@@ -141,6 +143,15 @@ class RaydiumDevnetSwapPreflight:
         qdata = quote["data"]
         if qdata.get("inputMint") != SOL_MINT or qdata.get("outputMint") != DEVNET_USDC_MINT:
             raise DevnetSwapPreflightError("Quote token pair does not match requested Devnet SOL/USDC pair")
+        impact_raw = qdata.get("priceImpactPct")
+        try:
+            impact = float(impact_raw)
+        except (TypeError, ValueError) as exc:
+            raise DevnetSwapPreflightError("Quote price impact is missing or invalid") from exc
+        if not math.isfinite(impact) or impact < 0 or impact > MAX_PRICE_IMPACT_PCT:
+            raise DevnetSwapPreflightError(
+                f"Quote price impact {impact_raw!r} exceeds the {MAX_PRICE_IMPACT_PCT:.2f}% safety ceiling"
+            )
         route = qdata.get("routePlan")
         if not isinstance(route, list) or not route:
             raise DevnetSwapPreflightError("Quote contains no executable liquidity route")
@@ -228,7 +239,7 @@ class RaydiumDevnetSwapPreflight:
             input_amount_lamports=amount_lamports,
             quoted_output_amount_raw=str(qdata.get("outputAmount")) if qdata.get("outputAmount") is not None else None,
             minimum_output_amount_raw=str(qdata.get("otherAmountThreshold")) if qdata.get("otherAmountThreshold") is not None else None,
-            price_impact_pct=float(qdata["priceImpactPct"]) if qdata.get("priceImpactPct") is not None else None,
+            price_impact_pct=impact,
             route_pool_ids=pool_ids,
             verified_pool_program_owners=verified_owners,
             unsigned_transaction_count=len(txs),
