@@ -304,3 +304,16 @@ Implemented in `veltrix/raydium_cpmm_cpi_semantics.py`, with adversarial coverag
 - Rejects exact-output, Token-2022, unknown CPI programs, wrong PDA/account layout, mixed DEX routes, malformed payloads and incomplete simulation evidence.
 
 This gate does not independently inspect CPMM pool/config/vault account contents, verify token-vault mint ownership against on-chain account data, or recompute constant-product math and creator/protocol fees. Those remain separate state-evidence requirements. No signer, broadcast, or live execution is introduced.
+
+
+### 09.19 — Raydium AMM v4 SwapBaseInV2 CPI semantic gate
+
+Implemented in `veltrix/raydium_amm_v4_cpi_semantics.py`, with adversarial coverage in `tests/test_raydium_amm_v4_cpi_semantics.py`.
+
+- Pins `raydium-io/raydium-amm` source revision `91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6` and mainnet program ID `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`.
+- Decodes only the orderbook-disabled `SwapBaseInV2` instruction (tag 16): exact input amount and minimum output amount.
+- Requires the exact eight-account V2 layout, classic SPL Token, taker signer, quoted AMM pool key, and vault-authority PDA derived from the pinned `amm authority` seed plus the AMM's stored u8 nonce.
+- Matches the CPI count/order and amount thresholds to Jupiter route steps, then binds user source/destination accounts to the route token-index graph and final taker ATAs.
+- Rejects legacy orderbook `SwapBaseIn` (tag 9), exact-output variants, Token-2022, wrong authority PDA, unknown inner programs, unsupported DEX routes and incomplete evidence.
+
+This parser deliberately does not support the legacy orderbook route, whose 17/18-account market layout requires separate market/vault-signer validation. It also does not inspect the AMM account to read/verify the nonce or pool vault fields; the PDA is accepted only if it matches one of the 256 possible stored u8 nonces. On-chain pool state, vault/mint relationships and reserve consistency remain separate evidence requirements. No signing or broadcast is introduced.
