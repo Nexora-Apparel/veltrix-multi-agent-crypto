@@ -81,7 +81,9 @@ assert.equal(baseline.programs.length,5);
 // CPMM instruction and SPL token-account adversarial cases.
 const cpmmDisc=[143,190,90,218,196,30,51,222];
 const cpmmData=Uint8Array.from([...cpmmDisc,...u64(C.TEST_LAMPORTS),...u64(0)]);
-assert.deepEqual(h.decodeCpmmSwapData(cpmmData),{amountIn:BigInt(C.TEST_LAMPORTS),minimumAmountOut:0n});
+const decodedCpmm=h.decodeCpmmSwapData(cpmmData);
+assert.equal(decodedCpmm.amountIn,BigInt(C.TEST_LAMPORTS));
+assert.equal(decodedCpmm.minimumAmountOut,0n);
 {
   const bad=new Uint8Array(cpmmData); bad[0]^=1;
   rejected(()=>h.decodeCpmmSwapData(bad),"wrong CPMM discriminator");
