@@ -223,8 +223,6 @@ def evaluate_meteora_dlmm_cpis(
             raise MeteoraCpiSemanticError("Meteora bin-array remaining accounts contain aliases")
         if accounts[0] != step.amm_key:
             raise MeteoraCpiSemanticError("Meteora LB pair differs from the quoted AMM key")
-        if accounts[1] == accounts[9] and accounts[1] != inner.program_id:
-            raise MeteoraCpiSemanticError("Meteora optional bitmap-extension account unexpectedly aliases the host-fee account")
         if accounts[2] == accounts[3] or accounts[4] == accounts[5]:
             raise MeteoraCpiSemanticError("Meteora reserves or user token accounts unexpectedly alias")
         if accounts[9] != inner.program_id:
