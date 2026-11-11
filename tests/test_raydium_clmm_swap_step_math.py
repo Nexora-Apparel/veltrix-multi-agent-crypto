@@ -25,7 +25,7 @@ def ceil_fraction(value):
 def test_amount_0_delta_matches_exact_rational_rounding(round_up):
     a = get_sqrt_price_at_tick(-1234)
     b = get_sqrt_price_at_tick(2345)
-    liquidity = (1 << 90) + 123_456_789
+    liquidity = 10**12
     exact = Fraction(liquidity * Q64 * (b - a), a * b)
     expected = ceil_fraction(exact) if round_up else exact.numerator // exact.denominator
     assert get_delta_amount_0_unsigned(a, b, liquidity, round_up=round_up) == expected
@@ -35,7 +35,7 @@ def test_amount_0_delta_matches_exact_rational_rounding(round_up):
 def test_amount_1_delta_matches_exact_rational_rounding(round_up):
     a = get_sqrt_price_at_tick(-1234)
     b = get_sqrt_price_at_tick(2345)
-    liquidity = (1 << 90) + 123_456_789
+    liquidity = 10**12
     exact = Fraction(liquidity * (b - a), Q64)
     expected = ceil_fraction(exact) if round_up else exact.numerator // exact.denominator
     assert get_delta_amount_1_unsigned(a, b, liquidity, round_up=round_up) == expected
