@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolState, encode_raydium_clmm_pool_state
 from veltrix.raydium_clmm_tick_arrays import (
@@ -80,10 +80,15 @@ def commit_raydium_swap_inner_tick_array(
             raise RaydiumSwapTickArrayCommitError("committed PoolState bytes differ from lossless serialization")
         if hashlib.sha256(encoded_pool).hexdigest() != mutation.pool.account_data_sha256:
             raise RaydiumSwapTickArrayCommitError("committed PoolState hash does not match serialized bytes")
-    if mutation.bitmap_extension is not None and mutation.bitmap_extension.data_bytes:
+    if mutation.bitmap_extension is not None:
         encoded_extension = encode_raydium_tick_array_bitmap_extension(mutation.bitmap_extension)
         if hashlib.sha256(encoded_extension).hexdigest() != mutation.bitmap_extension.data_sha256:
             raise RaydiumSwapTickArrayCommitError("committed bitmap-extension hash does not match serialized bytes")
+        # Keep the decoded raw-byte evidence synchronized with the changed bitmap words.
+        mutation = replace(
+            mutation,
+            bitmap_extension=replace(mutation.bitmap_extension, data_bytes=encoded_extension),
+        )
 
     return RaydiumSwapTickArrayCommitResult(
         pool=mutation.pool,
