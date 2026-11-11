@@ -388,7 +388,7 @@
     if (instructions.length !== 5) fail("direct CPMM transaction must contain exactly five top-level instructions");
     const programs=instructions.map(ix=>keys[ix.programIdIndex]);
     const expected=[SYSTEM,TOKEN,ATA_PROGRAM,CPMM,TOKEN];
-    if (programs.join("|")!==expected.join("|")) fail("direct CPMM top-level program sequence mismatch: "+JSON.stringify(programs));
+    if (programs.join("|")!==expected.join("|")) fail("direct CPMM top-level program sequence mismatch: "+JSON.stringify({programs,expected,equal:programs.map((value,index)=>value===expected[index])}));
     const accounts=ix=>ix.accountKeyIndexes.map(i=>keys[i]);
     const [create,initialize,createOutput,swap,close]=instructions;
     const createAccounts=accounts(create), initAccounts=accounts(initialize), ataAccounts=accounts(createOutput);
