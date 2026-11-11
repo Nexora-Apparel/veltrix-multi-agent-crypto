@@ -181,6 +181,10 @@ def decode_raydium_clmm_tick_array(
             int.from_bytes(data[offset + 156 + pad_index * 4:offset + 160 + pad_index * 4], "little")
             for pad_index in range(3)
         )
+        if unfilled_ratio > (1 << 64):
+            raise RaydiumClmmTickArrayError("tick limit-order unfilled ratio exceeds Q64.64 unity")
+        if any(padding):
+            raise RaydiumClmmTickArrayError("tick state contains unsupported non-zero reserved padding")
         initialized = liquidity_gross > 0 or orders_amount > 0 or part_filled > 0
         if initialized:
             expected_tick = start + index * tick_spacing
