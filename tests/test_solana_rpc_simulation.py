@@ -43,6 +43,16 @@ def token_info(mint, owner, amount, program=TOKEN_PROGRAM, length=165):
     }
 
 
+def raw_account_info(owner, data, *, lamports=1, executable=False):
+    return {
+        "owner": owner,
+        "lamports": lamports,
+        "executable": executable,
+        "data": [base64.b64encode(data).decode("ascii"), "base64"],
+        "space": len(data),
+    }
+
+
 class FakeResponse:
     status_code = 200
 
@@ -749,4 +759,95 @@ def test_rejects_mismatched_detailed_cpi_trace_in_simulation_evidence():
             fee_lamports=1, token_balances=(), inner_program_ids=("program-a",),
             inner_instruction_count=1,
             inner_instructions=(SimulatedInnerInstruction(0, "program-b", (), bytes([1]), 1),),
+        )
+
+
+def test_captures_hash_bound_pre_and_post_state_for_tracked_program_accounts():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    pre_data = b"raydium-pool-pre-state" * 30
+    post_data = b"raydium-pool-post-state" * 30
+    data["addresses"].append(address)
+    data["pre_accounts"].append(raw_account_info(owner, pre_data, lamports=100))
+    data["post_accounts"].append(raw_account_info(owner, post_data, lamports=120))
+    session = FakeSession(data)
+    result = adapter(session).simulate(
+        raw, intent=intent, transaction_policy=tx_policy,
+        expected_token_deltas=expected, minimum_context_slot=490,
+        last_valid_block_height=950, tracked_account_addresses=(address,),
+    )
+    assert len(result.evidence.account_states) == 1
+    state = result.evidence.account_states[0]
+    assert state.address == address
+    assert state.pre_data == pre_data
+    assert state.post_data == post_data
+    assert state.pre_lamports == 100
+    assert state.post_lamports == 120
+    assert state.pre_data_sha256 == __import__("hashlib").sha256(pre_data).hexdigest()
+    assert state.post_data_sha256 == __import__("hashlib").sha256(post_data).hexdigest()
+    assert state.pre_owner == state.post_owner == owner
+    request = next(call for call in session.calls if call["method"] == "simulateTransaction")
+    assert request["params"][1]["accounts"]["addresses"] == data["addresses"]
+
+
+def test_rejects_duplicate_or_noncanonical_tracked_account_addresses():
+    raw, intent, tx_policy, expected, _ = fixture()
+    address = str(Pubkey.new_unique())
+    with pytest.raises(SolanaRpcAdapterError, match="must not contain duplicates"):
+        adapter(FakeSession(fixture()[4])).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950,
+            tracked_account_addresses=(address, address),
+        )
+    with pytest.raises(SolanaRpcAdapterError, match="canonical Solana public key"):
+        adapter(FakeSession(fixture()[4])).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950, tracked_account_addresses=("not-a-key",),
+        )
+
+
+def test_rejects_missing_tracked_post_state_account():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    data["addresses"].append(address)
+    data["pre_accounts"].append(raw_account_info(owner, b"pre"))
+    with pytest.raises(SolanaRpcAdapterError, match="omitted requested post-state"):
+        adapter(FakeSession(data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950, tracked_account_addresses=(address,),
+        )
+
+
+def test_rejects_tracked_account_data_over_capture_limit():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner = str(Pubkey.new_unique())
+    data["addresses"].append(address)
+    data["pre_accounts"].append(raw_account_info(owner, b"pre"))
+    data["post_accounts"].append(raw_account_info(owner, b"x" * 16_385))
+    with pytest.raises(SolanaRpcAdapterError, match="16384-byte capture limit"):
+        adapter(FakeSession(data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950, tracked_account_addresses=(address,),
+        )
+
+
+def test_rejects_tracked_account_owner_change_between_pre_and_post_state():
+    raw, intent, tx_policy, expected, data = fixture()
+    address = str(Pubkey.new_unique())
+    owner_a, owner_b = str(Pubkey.new_unique()), str(Pubkey.new_unique())
+    data["addresses"].append(address)
+    data["pre_accounts"].append(raw_account_info(owner_a, b"pre"))
+    data["post_accounts"].append(raw_account_info(owner_b, b"post"))
+    with pytest.raises(SolanaRpcAdapterError, match="owner or executable state changed"):
+        adapter(FakeSession(data)).simulate(
+            raw, intent=intent, transaction_policy=tx_policy,
+            expected_token_deltas=expected, minimum_context_slot=490,
+            last_valid_block_height=950, tracked_account_addresses=(address,),
         )
