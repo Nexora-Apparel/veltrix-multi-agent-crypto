@@ -238,10 +238,7 @@ def evaluate_raydium_pool_state(
         raise RaydiumPoolStateError("only a single-hop Raydium CLMM route is supported")
     if order.route_plan[0].amm_key != cpi.pool_state:
         raise RaydiumPoolStateError("Jupiter route AMM key differs from the Raydium pool account")
-    if (
-        cpi.input_token_account != order.route_plan[0].amm_key
-        and cpi.input_token_account == cpi.output_token_account
-    ):
+    if cpi.input_token_account == cpi.output_token_account:
         raise RaydiumPoolStateError("Raydium user input/output token accounts unexpectedly alias")
     if not simulation.account_snapshots:
         raise RaydiumPoolStateError("same-slot transaction account snapshots are required")
