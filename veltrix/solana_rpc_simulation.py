@@ -23,6 +23,7 @@ from veltrix.simulation_gate import (
     ExpectedTokenDelta,
     SimulatedTokenBalance,
     SimulatedInnerInstruction,
+    SimulatedAccountState,
     SimulationEvidence,
     SimulationGateError,
 )
@@ -42,6 +43,8 @@ TOKEN_PROGRAM_IDS = frozenset({
 TOKEN_ACCOUNT_BASE_SIZE = 165
 MAX_TRACKED_TOKEN_ACCOUNTS = 100
 MAX_INNER_INSTRUCTION_DATA_BYTES = 4096
+MAX_TRACKED_SIMULATION_ACCOUNTS = 32
+MAX_SIMULATED_ACCOUNT_DATA_BYTES = 16_384
 _BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _BASE58_INDEX = {character: index for index, character in enumerate(_BASE58_ALPHABET)}
 
@@ -349,6 +352,7 @@ class SolanaRpcSimulationAdapter:
         expected_token_deltas: tuple[ExpectedTokenDelta, ...],
         minimum_context_slot: int,
         last_valid_block_height: int,
+        tracked_account_addresses: tuple[str, ...] = (),
     ) -> RpcSimulationResult:
         """Validate and simulate the exact message; return normalized evidence.
 
@@ -369,16 +373,24 @@ class SolanaRpcSimulationAdapter:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise SolanaRpcAdapterError(f"{name} must be a non-negative integer")
 
-        addresses = [item.token_account for item in expected_token_deltas]
-        if len(addresses) != len(set(addresses)):
+        token_addresses = [item.token_account for item in expected_token_deltas]
+        if len(token_addresses) != len(set(token_addresses)):
             raise SolanaRpcAdapterError("expected token-account addresses must be unique")
+        if not isinstance(tracked_account_addresses, tuple) or len(tracked_account_addresses) > MAX_TRACKED_SIMULATION_ACCOUNTS:
+            raise SolanaRpcAdapterError("tracked_account_addresses must be an immutable tuple of at most 32 addresses")
+        if any(not isinstance(address, str) or not address for address in tracked_account_addresses):
+            raise SolanaRpcAdapterError("tracked account addresses must be non-empty public-key strings")
+        if len(tracked_account_addresses) != len(set(tracked_account_addresses)):
+            raise SolanaRpcAdapterError("tracked account addresses must not contain duplicates")
 
+        addresses = list(dict.fromkeys(token_addresses + list(tracked_account_addresses)))
         from solders.pubkey import Pubkey
         for address in addresses:
             try:
-                Pubkey.from_string(address)
+                if str(Pubkey.from_string(address)) != address:
+                    raise ValueError("non-canonical")
             except Exception as exc:
-                raise SolanaRpcAdapterError("expected token-account address is not a valid Solana public key") from exc
+                raise SolanaRpcAdapterError("token or tracked account address is not a canonical Solana public key") from exc
 
         genesis = self._rpc("getGenesisHash", [])
         if genesis != self.expected_genesis_hash:
