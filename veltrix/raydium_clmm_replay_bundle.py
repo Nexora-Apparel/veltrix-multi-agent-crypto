@@ -20,6 +20,7 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
     encode_raydium_tick_array_bitmap_extension,
+    _extension_location,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArray,
@@ -112,6 +113,33 @@ def build_raydium_clmm_replay_account_bundle(
             raise RaydiumReplayBundleError("tick-array set contains duplicate starts or account addresses")
         starts.add(tick_array.start_tick_index)
         addresses.add(tick_array.address)
+        tick_count = 60 * pool.tick_spacing
+        default_boundary = tick_count * 512
+        if -default_boundary <= tick_array.start_tick_index < default_boundary:
+            bitmap_offset = tick_array.start_tick_index // tick_count + 512
+            bitmap_word, bitmap_bit = divmod(bitmap_offset, 64)
+            bitmap_initialized = bool(
+                (pool.tick_array_bitmap[bitmap_word] >> bitmap_bit) & 1
+            )
+        else:
+            if bitmap_extension is None:
+                raise RaydiumReplayBundleError(
+                    "out-of-range TickArrayState requires its bitmap-extension account"
+                )
+            side, extension_index, extension_bit = _extension_location(
+                tick_array.start_tick_index, pool.tick_spacing
+            )
+            rows = (
+                bitmap_extension.positive_bitmaps
+                if side == "positive"
+                else bitmap_extension.negative_bitmaps
+            )
+            word, bit = divmod(extension_bit, 64)
+            bitmap_initialized = bool((rows[extension_index][word] >> bit) & 1)
+        if bitmap_initialized != (tick_array.initialized_tick_count > 0):
+            raise RaydiumReplayBundleError(
+                "tick-array initialized count disagrees with its PoolState/extension bitmap bit"
+            )
         commitments.append(
             _verify_serialized_account(
                 tick_array.address,
