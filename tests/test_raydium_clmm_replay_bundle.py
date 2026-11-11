@@ -36,6 +36,7 @@ from veltrix.raydium_clmm_vaults import (
     derive_raydium_clmm_vault_address,
     encode_raydium_clmm_vault_token_account,
 )
+from veltrix.raydium_clmm_tick_cursor import select_next_initialized_tick_from_bitmap_sequence
 from veltrix.raydium_clmm_replay_bundle import (
     RaydiumReplayBundleError,
     build_raydium_clmm_replay_account_bundle,
@@ -276,4 +277,103 @@ def test_rejects_tick_array_count_that_disagrees_with_default_pool_bitmap():
         build_raydium_clmm_replay_account_bundle(
             changed_pool, tick_arrays=(tick_array,),
             observation=observation, vaults=vaults,
+        )
+
+
+def test_bitmap_sequence_skips_current_array_then_selects_directional_first_tick_in_next_array():
+    pool, base_array, observation, vaults = fixture()
+
+    def make_array(start, initialized_offset):
+        ticks = []
+        for offset, original in enumerate(base_array.ticks):
+            index = start + offset * pool.tick_spacing
+            if offset == initialized_offset:
+                ticks.append(replace(
+                    original,
+                    tick_index=index,
+                    liquidity_net=1,
+                    liquidity_gross=1,
+                    initialized=True,
+                ))
+            else:
+                ticks.append(replace(original, tick_index=index))
+        item = replace(
+            base_array,
+            address=derive_raydium_clmm_tick_array_address(
+                pool_address=pool.pool_address, start_tick_index=start
+            ),
+            start_tick_index=start,
+            ticks=tuple(ticks),
+            initialized_tick_count=1,
+            data_sha256="",
+        )
+        raw = encode_raydium_clmm_tick_array(item)
+        return replace(item, data_sha256=hashlib.sha256(raw).hexdigest())
+
+    current_array = make_array(0, 10)       # initialized only to the right of tick 0
+    next_left_array = make_array(-600, 59)  # first leftward tick is -10
+    words = list(pool.tick_array_bitmap)
+    words[8] |= 1       # array start 0 -> bit 512
+    words[7] |= 1 << 63 # array start -600 -> bit 511
+    changed_pool = replace(pool, tick_array_bitmap=tuple(words))
+    pool_bytes = encode_raydium_clmm_pool_state(changed_pool)
+    changed_pool = replace(
+        changed_pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    bundle = build_raydium_clmm_replay_account_bundle(
+        changed_pool,
+        tick_arrays=(current_array, next_left_array),
+        observation=observation,
+        vaults=vaults,
+    )
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True,
+        pool_address=changed_pool.pool_address,
+        zero_for_one=True,
+        current_array_start_index=0,
+        first_initialized_array_start_index=0,
+        last_cpi_array_start_index=-600,
+        expected_initialized_array_starts=(0, -600),
+        supplied_initialized_array_starts=(0, -600),
+        supplied_array_starts=(0, -600),
+        bitmap_extension_sha256=None,
+        bounded_interval_complete=True,
+        execution_ready=False,
+    )
+    result = select_next_initialized_tick_from_bitmap_sequence(
+        bundle,
+        traversal,
+        current_tick_index=0,
+        first_tick_array_contains_pool_tick=True,
+    )
+    assert result.cursor.tick.tick_index == -10
+    assert result.sequence_index == 1
+    assert result.visited_array_starts == (0, -600)
+
+
+def test_bitmap_sequence_rejects_incomplete_or_wrong_pool_traversal_proof():
+    pool, tick_array, observation, vaults = fixture()
+    bundle = build_raydium_clmm_replay_account_bundle(
+        pool, tick_arrays=(tick_array,), observation=observation, vaults=vaults
+    )
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True,
+        pool_address=str(Pubkey.new_unique()),
+        zero_for_one=True,
+        current_array_start_index=0,
+        first_initialized_array_start_index=0,
+        last_cpi_array_start_index=0,
+        expected_initialized_array_starts=(0,),
+        supplied_initialized_array_starts=(0,),
+        supplied_array_starts=(0,),
+        bitmap_extension_sha256=None,
+        bounded_interval_complete=False,
+        execution_ready=False,
+    )
+    with pytest.raises(Exception, match="different pool"):
+        select_next_initialized_tick_from_bitmap_sequence(
+            bundle, traversal, current_tick_index=0,
+            first_tick_array_contains_pool_tick=True,
         )
