@@ -129,6 +129,15 @@ def evaluate(values=None):
     )
 
 
+
+def test_program_trace_policy_rejects_routers_without_semantic_decoders():
+    _, _, _, _, _, policy = fixture()
+    assert policy.allowed_routers == ("metis",)
+    for router in ("dflow", "okx", "jupiterz"):
+        with pytest.raises(JupiterProgramTraceError, match="only Metis"):
+            dataclasses.replace(policy, allowed_routers=(router,))
+
+
 def test_accepts_order_route_when_simulated_cpi_trace_matches_jupiter_registry():
     result = evaluate()
     assert result.passed is True
