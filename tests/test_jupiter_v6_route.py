@@ -260,6 +260,14 @@ def test_rejects_quoted_route_label_or_split_mismatch():
         inspect(fixture(route_bps=9_999))
 
 
+def test_rejects_quoted_route_mint_graph_mismatch():
+    order, validation, policy, _ = fixture()
+    wrong_step = dataclasses.replace(order.route_plan[0], input_mint=str(Pubkey.new_unique()))
+    order = dataclasses.replace(order, route_plan=(wrong_step,))
+    with pytest.raises(JupiterV6RouteError, match="mint graph"):
+        inspect_jupiter_v6_route(order, validation=validation, policy=policy)
+
+
 def test_rejects_missing_amm_key_from_remaining_accounts():
     with pytest.raises(JupiterV6RouteError, match="AMM keys are absent"):
         inspect(fixture(trailing_amm=False))
