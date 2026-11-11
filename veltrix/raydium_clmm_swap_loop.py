@@ -30,6 +30,7 @@ from veltrix.raydium_clmm_swap_tick_array_commit import (
     RaydiumSwapTickArrayCommitError,
     commit_raydium_swap_inner_tick_array,
 )
+from veltrix.raydium_clmm_tick_array_mutation import encode_raydium_tick_array_bitmap_extension
 from veltrix.raydium_clmm_tick_array_cursor import (
     RaydiumClmmTickArrayQueue,
     RaydiumTickArrayCursorError,
@@ -145,6 +146,16 @@ def run_raydium_clmm_swap_loop(
         or tick_array_queue.arrays != tick_array_snapshot.tick_arrays
     ):
         raise RaydiumClmmSwapLoopError("tick-array queue differs from the pool-bound CPI snapshot")
+    try:
+        snapshot_queue = RaydiumClmmTickArrayQueue.from_snapshot(
+            pool_address=pool.pool_address,
+            tick_spacing=pool.tick_spacing,
+            snapshot=tick_array_snapshot,
+        )
+    except RaydiumTickArrayCursorError as exc:
+        raise RaydiumClmmSwapLoopError(f"CPI tick-array order validation failed: {exc}") from exc
+    if snapshot_queue.arrays != tick_array_queue.arrays:
+        raise RaydiumClmmSwapLoopError("tick-array queue does not match the exact CPI snapshot order")
     if not isinstance(first_tick_array_contains_pool_tick, bool):
         raise RaydiumClmmSwapLoopError("first-array current-tick flag must be boolean")
     if not isinstance(zero_for_one, bool) or not isinstance(is_base_input, bool):
@@ -193,6 +204,15 @@ def run_raydium_clmm_swap_loop(
         or extension.data_sha256 != tick_array_snapshot.bitmap_extension_sha256
     ):
         raise RaydiumClmmSwapLoopError("bitmap extension does not match the CPI snapshot")
+    if extension is not None:
+        if not isinstance(extension.data_bytes, bytes) or len(extension.data_bytes) != 1832:
+            raise RaydiumClmmSwapLoopError("verified raw bitmap-extension bytes are required")
+        encoded_extension = encode_raydium_tick_array_bitmap_extension(extension)
+        if (
+            encoded_extension != extension.data_bytes
+            or hashlib.sha256(extension.data_bytes).hexdigest() != extension.data_sha256
+        ):
+            raise RaydiumClmmSwapLoopError("bitmap-extension raw bytes, words and SHA-256 do not match")
 
     try:
         pool = apply_raydium_pool_reward_update(
