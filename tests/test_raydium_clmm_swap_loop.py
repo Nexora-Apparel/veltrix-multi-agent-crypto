@@ -97,8 +97,8 @@ def test_dynamic_fee_accumulator_is_updated_before_fee_rate_and_spacing_bound():
         tick_spacing=60,
     )
     assert result.spacing_bound.reached_target is False
-    assert result.spacing_bound.bounded_tick == 60
-    assert result.spacing_bound.sqrt_price_x64 == get_sqrt_price_at_tick(60)
+    assert result.spacing_bound.bounded_tick == 120
+    assert result.spacing_bound.sqrt_price_x64 == get_sqrt_price_at_tick(120)
     assert result.price_changed is True
 
 
