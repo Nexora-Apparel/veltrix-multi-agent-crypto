@@ -41,8 +41,8 @@ SUPPORTED_SWAP_VARIANTS = (
     ("Raydium", 7),
     ("Meteora", 19),
     ("Raydium CLMM", 26),
-    ("Meteora DLMM", 37),
-    ("Raydium CPMM", 43),
+    ("Meteora DLMM", 38),
+    ("Raydium CPMM", 46),
 )
 
 
@@ -185,7 +185,9 @@ def _bind_route_mints(order: JupiterOrderTransaction, decoded: DecodedJupiterRou
     if len(order.route_plan) != len(decoded.steps):
         raise JupiterRouteSemanticError("encoded Jupiter route step count differs from the quote route plan")
     label_map = dict(policy.label_to_variant_index)
-    token_index_mints: dict[int, str] = {}
+    token_index_mints: dict[int, str] = {0: order.input_mint}
+    produced_indexes = {0}
+    input_percent_totals: dict[int, int] = {}
     for index, (quoted, encoded) in enumerate(zip(order.route_plan, decoded.steps)):
         expected_variant = label_map.get(quoted.label)
         if expected_variant is None:
@@ -194,10 +196,16 @@ def _bind_route_mints(order: JupiterOrderTransaction, decoded: DecodedJupiterRou
             raise JupiterRouteSemanticError(f"route-plan step {index} DEX enum does not match quote label")
         if not float(quoted.percent).is_integer() or encoded.percent != int(quoted.percent):
             raise JupiterRouteSemanticError(f"route-plan step {index} split percent differs from quote")
+        if encoded.input_index not in produced_indexes:
+            raise JupiterRouteSemanticError(f"route-plan step {index} consumes a token index before it is produced")
+        input_percent_totals[encoded.input_index] = input_percent_totals.get(encoded.input_index, 0) + encoded.percent
         for token_index, mint in ((encoded.input_index, quoted.input_mint), (encoded.output_index, quoted.output_mint)):
             previous = token_index_mints.setdefault(token_index, mint)
             if previous != mint:
                 raise JupiterRouteSemanticError("encoded route token index maps to conflicting quote mints")
+        produced_indexes.add(encoded.output_index)
+    if any(total != 100 for total in input_percent_totals.values()):
+        raise JupiterRouteSemanticError("route split percentages for each input token index must total exactly 100")
     if token_index_mints.get(0) != order.input_mint:
         raise JupiterRouteSemanticError("Jupiter route token index zero does not map to the order input mint")
     if order.output_mint not in token_index_mints.values():
