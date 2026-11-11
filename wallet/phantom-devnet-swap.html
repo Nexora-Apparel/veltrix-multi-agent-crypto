@@ -275,7 +275,7 @@
     const resolved = [...staticKeys, ...writableLoaded, ...readonlyLoaded];
     const privileges = effectivePrivileges(message, resolved);
     const total = resolved.length;
-    if (total !== 18) fail("resolved account-key count differs from the audited transaction shape");
+    if (total < staticKeys.length || total > 256) fail("resolved account-key count is invalid");
     for (const ix of message.compiledInstructions) {
       if (ix.programIdIndex >= total || ix.accountKeyIndexes.some(i => i >= total)) fail("compiled instruction index out of bounds");
     }
@@ -378,9 +378,153 @@
       fail("pool mint account owner does not match pool token-program declarations");
     }
     const inputInfo = snapshot.get(policy.inputAta), outputInfo = snapshot.get(policy.outputAta);
-    if (inputInfo) decodeTokenAccount(inputInfo,SOL,wallet.toBase58(),"wallet WSOL ATA");
+    if (inputInfo) decodeTokenAccount(inputInfo,SOL,wallet.toBase58(),policy.temporaryInput ? "temporary WSOL account" : "wallet WSOL ATA");
     if (outputInfo) decodeTokenAccount(outputInfo,USDC,wallet.toBase58(),"wallet USDC ATA");
     return {snapshot,inputAtaPresent:!!inputInfo,outputAtaPresent:!!outputInfo};
+  }
+  function decodeDirectCpmmPolicy(message, resolved, quote) {
+    const keys=resolved.map(k=>k.toBase58());
+    const instructions=message.compiledInstructions;
+    if (instructions.length !== 5) fail("direct CPMM transaction must contain exactly five top-level instructions");
+    const programs=instructions.map(ix=>keys[ix.programIdIndex]);
+    const expected=[SYSTEM,TOKEN,ATA_PROGRAM,CPMM,TOKEN];
+    if (programs.join("|")!==expected.join("|")) fail("direct CPMM top-level program sequence mismatch");
+    const accounts=ix=>ix.accountKeyIndexes.map(i=>keys[i]);
+    const [create,initialize,createOutput,swap,close]=instructions;
+    const createAccounts=accounts(create), initAccounts=accounts(initialize), ataAccounts=accounts(createOutput);
+    const swapAccounts=accounts(swap), closeAccounts=accounts(close);
+    if (createAccounts.length!==2 || createAccounts[0]!==wallet.toBase58() || createAccounts[1]!==swapAccounts[4]) {
+      fail("temporary WSOL account creation payer/recipient mismatch");
+    }
+    if (create.data.length!==124 || new DataView(create.data.buffer,create.data.byteOffset,create.data.byteLength).getUint32(0,true)!==3) {
+      fail("temporary WSOL System CreateAccountWithSeed shape mismatch");
+    }
+    if (b58encode(create.data.slice(4,36))!==wallet.toBase58() ||
+        readU64(create.data,36)!==32n ||
+        readU64(create.data,84)!==165n ||
+        b58encode(create.data.slice(92,124))!==TOKEN) fail("temporary WSOL account seed/space/owner mismatch");
+    const seed=new TextDecoder().decode(create.data.slice(44,76));
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32}$/.test(seed)) fail("temporary WSOL account seed is malformed");
+    const rentFunding=readU64(create.data,76);
+    if (rentFunding<=0n || rentFunding>5000000n) fail("temporary WSOL account rent funding outside cap");
+    if (initialize.data.length!==1 || initialize.data[0]!==1 ||
+        initAccounts.join("|")!==[swapAccounts[4],SOL,wallet.toBase58(),"SysvarRent111111111111111111111111111111111"].join("|")) {
+      fail("temporary WSOL InitializeAccount instruction mismatch");
+    }
+    if (createOutput.data.length!==1 || createOutput.data[0]!==1 ||
+        ataAccounts.join("|")!==[wallet.toBase58(),swapAccounts[5],wallet.toBase58(),USDC,SYSTEM,TOKEN].join("|")) {
+      fail("Devnet USDC associated-token-account creation mismatch");
+    }
+    const decoded=decodeCpmmSwapData(swap.data);
+    if (swapAccounts.length!==13 || swapAccounts[0]!==wallet.toBase58() ||
+        swapAccounts[3]!==POOL || swapAccounts[4]===swapAccounts[5] ||
+        swapAccounts[8]!==TOKEN || swapAccounts[9]!==TOKEN ||
+        swapAccounts[10]!==SOL || swapAccounts[11]!==USDC) fail("direct CPMM account ordering/identity mismatch");
+    if (decoded.amountIn!==BigInt(TEST_LAMPORTS) || decoded.minimumAmountOut<=0n ||
+        decoded.minimumAmountOut!==BigInt(String(quote.otherAmountThreshold))) {
+      fail("direct CPMM input or reviewed minimum-output mismatch");
+    }
+    if (close.data.length!==1 || close.data[0]!==9 ||
+        closeAccounts.join("|")!==[swapAccounts[4],wallet.toBase58(),wallet.toBase58()].join("|")) {
+      fail("temporary WSOL close destination/authority mismatch");
+    }
+    const [payer,authority,config,pool,inputAta,outputAta,vaultIn,vaultOut,inputTokenProgram,outputTokenProgram,inputMint,outputMint,observation]=swapAccounts;
+    if (payer!==wallet.toBase58() || pool!==POOL || inputMint!==SOL || outputMint!==USDC) fail("direct CPMM pool/pair/payer mismatch");
+    const required=[payer,pool,inputAta,outputAta,vaultIn,vaultOut,observation];
+    for(const key of required){
+      const p=resolvedInfoPrivilege(message,resolved,key);
+      if(!p || !p.writable) fail("required direct CPMM writable account privilege missing: "+key);
+    }
+    for(const key of [authority,config,inputTokenProgram,outputTokenProgram,inputMint,outputMint]){
+      const p=resolvedInfoPrivilege(message,resolved,key);
+      if(!p || p.writable || p.signer) fail("direct CPMM readonly account privilege mismatch: "+key);
+    }
+    if (!resolvedInfoPrivilege(message,resolved,payer).signer) fail("direct CPMM payer is not a signer");
+    return {
+      keys:[...new Set([...keys,ROUTER,CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET])],
+      programs,authority,config,pool,inputAta,outputAta,vaultIn,vaultOut,observation,
+      inputMint,outputMint,inputTokenProgram,outputTokenProgram,
+      temporaryInput:true,amountIn:decoded.amountIn,minOut:decoded.minimumAmountOut
+    };
+  }
+  function resolvedInfoPrivilege(message,resolved,key) {
+    const list=effectivePrivileges(message,resolved);
+    return list.find(item=>item.key===key);
+  }
+  async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes) {
+    const encoded=btoa(String.fromCharCode(...reviewedBytes));
+    const simulation=await rpcCall("simulateTransaction",[encoded,{
+      encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:true
+    }]);
+    const value=simulation&&simulation.value;
+    if(!value || value.err || !Array.isArray(value.innerInstructions)) fail("direct CPMM simulation failed or omitted CPI metadata");
+    const eventLine=(value.logs||[]).find(line=>line.startsWith("Program data: "));
+    if(!eventLine) fail("direct CPMM swap event missing");
+    const event=Uint8Array.from(atob(eventLine.slice("Program data: ".length)),ch=>ch.charCodeAt(0));
+    if(event.length<72 || b58encode(event.slice(8,40))!==POOL ||
+       readU64(event,56)!==BigInt(TEST_LAMPORTS)) fail("direct CPMM swap event pool/input mismatch");
+    const actualOutput=readU64(event,64);
+    if(actualOutput<policy.minOut) fail("direct CPMM actual output is below reviewed minimum");
+    const inner=[];
+    for(const group of value.innerInstructions) for(const ix of group.instructions||[]) inner.push(ix);
+    const allowed=new Set([TOKEN,TOKEN_2022,SYSTEM,ATA_PROGRAM]);
+    const transferProofs=[];
+    for(const ix of inner){
+      if(!Number.isInteger(ix.programIdIndex)||ix.programIdIndex>=policy.keys.length) fail("inner CPI program index invalid");
+      const program=policy.keys[ix.programIdIndex];
+      if(!allowed.has(program)) fail("unexpected direct CPMM inner CPI program: "+program);
+      const accts=(ix.accounts||[]).map(index=>{
+        if(!Number.isInteger(index)||index<0||index>=policy.keys.length) fail("inner CPI account index invalid");
+        return policy.keys[index];
+      });
+      const data=b58decode(ix.data||"");
+      if(program===TOKEN || program===TOKEN_2022){
+        if(!data.length) fail("empty direct CPMM token CPI");
+        const tag=data[0];
+        if(tag===3 || tag===12){
+          const checked=tag===12;
+          if(data.length!==(checked?10:9) || accts.length!==(checked?4:3)) fail("direct CPMM token transfer layout mismatch");
+          const source=accts[0], destination=checked?accts[2]:accts[1];
+          const authority=checked?accts[3]:accts[2], amount=readU64(data,1);
+          if(checked && accts[1] !== (source===policy.inputAta?SOL:USDC)) fail("direct CPMM transfer checked mint mismatch");
+          if(authority!==policy.authority && authority!==wallet.toBase58()) fail("direct CPMM token transfer authority mismatch");
+          if(source===policy.inputAta && destination===policy.vaultIn && amount===BigInt(TEST_LAMPORTS)) transferProofs.push("input");
+          else if(source===policy.vaultOut && destination===policy.outputAta && amount===actualOutput) transferProofs.push("output");
+          else fail("direct CPMM token transfer source/destination/amount mismatch");
+        } else if(![1,9,17,18,21,22].includes(tag)) fail("unexpected direct CPMM SPL Token CPI tag "+tag);
+      }
+    }
+    if(!transferProofs.includes("input")||!transferProofs.includes("output")) fail("direct CPMM exact input/output token transfer CPIs not proven");
+    const altered=tx.message.compiledInstructions.map(ix=>{
+      const program=tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58();
+      if(program!==CPMM) return ix;
+      const data=new Uint8Array(ix.data); const threshold=actualOutput+1n;
+      for(let i=0;i<8;i++) data[16+i]=Number((threshold>>BigInt(i*8))&255n);
+      return {...ix,data};
+    });
+    const mutatedMessage=new solanaWeb3.MessageV0(tx.message.header,tx.message.staticAccountKeys,
+      tx.message.recentBlockhash,altered,tx.message.addressTableLookups);
+    const mutated=new solanaWeb3.VersionedTransaction(mutatedMessage);
+    const negative=await rpcCall("simulateTransaction",[btoa(String.fromCharCode(...mutated.serialize())),{
+      encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:false
+    }]);
+    if(!negative?.value?.err) fail("direct CPMM accepted minimum output one raw unit above actual output");
+    return {actualOutput:actualOutput.toString(),minimumOutput:policy.minOut.toString(),
+      adversarialMinimum:(actualOutput+1n).toString(),adversarialRejected:true,innerCpiCount:inner.length,
+      transferProofs,logs:(value.logs||[]).slice(-60)};
+  }
+  async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes) {
+    if(!(tx instanceof solanaWeb3.VersionedTransaction)||tx.message.version!==0) fail("direct CPMM requires a v0 VersionedTransaction");
+    if(!bytesEqual(tx.serialize(),reviewedBytes)) fail("direct CPMM transaction differs from exact reviewed bytes");
+    if(tx.signatures.length!==1||tx.signatures.some(sig=>sig.some(byte=>byte!==0))) fail("direct CPMM transaction must be unsigned with one empty signer slot");
+    const resolvedInfo=await resolveV0Accounts(tx.message);
+    const policy=decodeDirectCpmmPolicy(tx.message,resolvedInfo.resolved,quote);
+    const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo);
+    if(accountPresence.inputAtaPresent) fail("temporary WSOL account unexpectedly exists before signing");
+    const runtime=await verifyDirectCpmmRuntime(tx,policy,reviewedBytes);
+    return {programs:policy.programs,lookupTables:resolvedInfo.lookupEvidence,slot:resolvedInfo.slot,
+      resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
+      directCpmm:"verified",runtime};
   }
   function decodeCpmmSwapData(data) {
     const discriminator = Uint8Array.from([143,190,90,218,196,30,51,222]);
@@ -624,7 +768,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,inspectDirectCpmmTransaction,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
