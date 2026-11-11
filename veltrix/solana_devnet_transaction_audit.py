@@ -467,7 +467,8 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
                 sync_native_verified = True
             elif kind == "getAccountDataSize":
                 _expect(program == TOKEN_2022 and info.get("mint") in {WSOL, USDC},
-                        "Token-2022 account-size query references an unexpected mint")
+                        "Token-2022 account-size query mismatch: program=" + repr(program) +
+                        ", info=" + repr(info))
             elif kind == "initializeImmutableOwner":
                 _expect(program == TOKEN_2022 and info.get("account") in allowed_user_atas,
                         "Token-2022 immutable-owner initialization targets an unexpected account")
