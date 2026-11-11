@@ -20,6 +20,7 @@ from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_MAX_TICK,
     RAYDIUM_MIN_TICK,
     RaydiumClmmPoolState,
+    encode_raydium_clmm_pool_state,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
@@ -377,6 +378,15 @@ def apply_raydium_tick_array_mutation(
     bitmap_changed = array_was_initialized != array_is_initialized
     if bitmap_changed:
         next_pool, next_extension = _flip_bitmap(pool, bitmap_extension, tick_array.start_tick_index)
+        if next_pool.account_data:
+            encoded_pool = encode_raydium_clmm_pool_state(next_pool)
+            pool_digest = hashlib.sha256(encoded_pool).hexdigest()
+            next_pool = replace(
+                next_pool,
+                account_data=encoded_pool,
+                account_data_sha256=pool_digest,
+                source_account_data_sha256=pool_digest,
+            )
     ticks = list(tick_array.ticks)
     ticks[offset] = updated_tick
     next_array = replace(

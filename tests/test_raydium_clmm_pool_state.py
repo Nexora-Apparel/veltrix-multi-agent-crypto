@@ -9,6 +9,7 @@ from solders.pubkey import Pubkey
 from veltrix.dex_pool_evidence import DexPoolAccountEvidence, DexPoolEvidenceSnapshot
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_v6_route import DecodedJupiterRouteStep, JupiterV6RouteInspection
+from veltrix.raydium_clmm_pool_post_swap import apply_raydium_pool_after_swap
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_DISCRIMINATOR,
@@ -18,6 +19,7 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmDynamicFeeInfo,
     RaydiumClmmPoolStateError,
     decode_raydium_clmm_pool_state,
+    encode_raydium_clmm_pool_state,
     derive_raydium_clmm_pool_address,
     validate_raydium_clmm_pool_for_route,
 )
@@ -444,3 +446,117 @@ def test_rejects_invalid_reward_state_time_or_claimed_total(kwargs):
         decode_raydium_clmm_pool_state(
             changed_evidence, expected_pool_address=pool_address
         )
+
+
+def test_pool_state_serializer_roundtrips_all_modeled_and_opaque_bytes():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    data = bytearray(raw)
+    # Non-zero opaque padding and metadata must survive a decode/encode cycle.
+    for start, end in (
+        (273, 277), (325, 389), (393, 397), (1032, 1064),
+        (1080, 1096), (1176, 1288), (1288, 1544),
+    ):
+        data[start:end] = bytes((index % 251) + 1 for index in range(end - start))
+    raw = bytes(data)
+    evidence = dataclasses.replace(
+        evidence, data_bytes=raw, data_sha256=hashlib.sha256(raw).hexdigest()
+    )
+    decoded = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool_address
+    )
+    assert decoded.account_data == raw
+    assert decoded.source_account_data_sha256 == evidence.data_sha256
+    assert encode_raydium_clmm_pool_state(decoded) == raw
+
+
+def test_pool_state_serializer_patches_modeled_fields_without_losing_reserved_bytes():
+    raw, evidence, _, _, _, pool_address, *_ = fixture()
+    data = bytearray(raw)
+    data[273:277] = b"PAD!"
+    data[325:389] = bytes(range(64))
+    data[1032:1064] = bytes(range(32))
+    data[1080:1096] = bytes(range(16))
+    data[1176:1288] = bytes(range(112))
+    data[1288:1544] = bytes((index % 251) for index in range(256))
+    raw = bytes(data)
+    evidence = dataclasses.replace(
+        evidence, data_bytes=raw, data_sha256=hashlib.sha256(raw).hexdigest()
+    )
+    decoded = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool_address
+    )
+    changed = dataclasses.replace(
+        decoded,
+        tick_current=1,
+        liquidity=2_000_000,
+        sqrt_price_x64=(1 << 64) + 5,
+        fee_growth_global_0_x64=123,
+        fee_growth_global_1_x64=456,
+        protocol_fees_token_0=7,
+        protocol_fees_token_1=8,
+        fund_fees_token_0=9,
+        fund_fees_token_1=10,
+        tick_array_bitmap=tuple(range(1, 17)),
+    )
+    encoded = encode_raydium_clmm_pool_state(changed)
+    assert encoded[273:277] == raw[273:277]
+    assert encoded[325:389] == raw[325:389]
+    assert encoded[1032:1064] == raw[1032:1064]
+    assert encoded[1080:1096] == raw[1080:1096]
+    assert encoded[1176:1288] == raw[1176:1288]
+    assert encoded[1288:1544] == raw[1288:1544]
+    changed_evidence = dataclasses.replace(
+        evidence,
+        data_bytes=encoded,
+        data_sha256=hashlib.sha256(encoded).hexdigest(),
+    )
+    decoded_changed = decode_raydium_clmm_pool_state(
+        changed_evidence, expected_pool_address=pool_address
+    )
+    assert decoded_changed.tick_current == 1
+    assert decoded_changed.liquidity == 2_000_000
+    assert decoded_changed.sqrt_price_x64 == (1 << 64) + 5
+    assert decoded_changed.fee_growth_global_0_x64 == 123
+    assert decoded_changed.fee_growth_global_1_x64 == 456
+    assert decoded_changed.protocol_fees_token_0 == 7
+    assert decoded_changed.protocol_fees_token_1 == 8
+    assert decoded_changed.fund_fees_token_0 == 9
+    assert decoded_changed.fund_fees_token_1 == 10
+    assert decoded_changed.tick_array_bitmap == tuple(range(1, 17))
+
+
+def test_post_swap_mutation_serializes_and_commits_verified_pool_bytes():
+    _, evidence, _, _, _, pool_address, *_ = fixture()
+    decoded = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool_address
+    )
+    updated = apply_raydium_pool_after_swap(
+        decoded,
+        tick_current=1,
+        sqrt_price_x64=(1 << 64) + 1,
+        liquidity=2_000_000,
+        lp_fee=10,
+        protocol_fee=2,
+        fund_fee=1,
+        fee_growth_global_x64=123,
+        zero_for_one=True,
+        dynamic_fee_info=None,
+    )
+    digest = hashlib.sha256(updated.account_data).hexdigest()
+    assert updated.account_data_sha256 == digest
+    assert updated.source_account_data_sha256 == digest
+    updated_evidence = dataclasses.replace(
+        evidence,
+        data_bytes=updated.account_data,
+        data_length=len(updated.account_data),
+        data_sha256=digest,
+    )
+    decoded_updated = decode_raydium_clmm_pool_state(
+        updated_evidence, expected_pool_address=pool_address
+    )
+    assert decoded_updated.tick_current == 1
+    assert decoded_updated.sqrt_price_x64 == (1 << 64) + 1
+    assert decoded_updated.liquidity == 2_000_000
+    assert decoded_updated.fee_growth_global_0_x64 == 123
+    assert decoded_updated.protocol_fees_token_0 == 2
+    assert decoded_updated.fund_fees_token_0 == 1

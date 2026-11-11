@@ -362,7 +362,18 @@ def encode_raydium_clmm_tick_array(
     data[RAYDIUM_TICK_ARRAY_PADDING_OFFSET:] = tick_array.padding
     if len(data) != RAYDIUM_TICK_ARRAY_DATA_LENGTH:
         raise RaydiumClmmTickArrayError("serialized TickArrayState length is inconsistent")
-    return bytes(data)
+    encoded = bytes(data)
+    decode_raydium_clmm_tick_array(
+        address=tick_array.address,
+        owner=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data=encoded,
+        expected_pool_address=tick_array.pool_address,
+        expected_start_tick_index=tick_array.start_tick_index,
+        tick_spacing=tick_array.tick_spacing,
+    )
+    return encoded
 
 
 def fetch_raydium_clmm_current_tick_arrays(
