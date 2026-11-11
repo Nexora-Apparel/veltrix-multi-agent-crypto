@@ -105,6 +105,7 @@ def test_inner_iteration_composes_price_fee_crossing_and_tick_finalization():
     assert result.fee_state.liquidity == 1100
     assert result.tick == 10
     assert result.should_break is True
+    assert result.swap_complete is False  # reached a tick target, not the user price limit
 
 
 def test_inner_iteration_matches_fifo_orders_before_crossing_and_obeys_directional_tick_rule():
@@ -138,6 +139,7 @@ def test_inner_iteration_matches_fifo_orders_before_crossing_and_obeys_direction
     assert result.tick == 10
     assert result.fee_state.amount_specified_remaining == 0
     assert result.should_break is True
+    assert result.swap_complete is True  # order matching exhausted the specified amount
 
 
 def test_inner_iteration_continues_after_spacing_bound_and_advances_dynamic_index():
@@ -182,8 +184,10 @@ def test_inner_iteration_breaks_on_no_price_change_at_price_limit():
         fund_fee_rate=0,
         zero_for_one=False,
         is_base_input=True,
+        is_price_limit_target=True,
     )
     assert result.reached_initialized_tick is False
     assert result.tick == 5
     assert result.sqrt_price_x64 == get_sqrt_price_at_tick(5)
     assert result.should_break is True
+    assert result.swap_complete is True

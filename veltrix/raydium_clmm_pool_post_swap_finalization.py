@@ -63,8 +63,8 @@ def finalize_raydium_pool_after_swap(
         raise RaydiumPoolPostSwapFinalizationError("decoded Raydium PoolState is required")
     if not isinstance(iteration, RaydiumClmmSwapInnerIterationResult):
         raise RaydiumPoolPostSwapFinalizationError("completed Raydium swap iteration is required")
-    if iteration.should_break is not True:
-        raise RaydiumPoolPostSwapFinalizationError("PoolState finalization requires a terminated swap loop")
+    if iteration.swap_complete is not True:
+        raise RaydiumPoolPostSwapFinalizationError("PoolState finalization requires the entire swap to be complete")
     if not isinstance(zero_for_one, bool):
         raise RaydiumPoolPostSwapFinalizationError("swap direction must be boolean")
 

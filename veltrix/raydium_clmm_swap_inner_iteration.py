@@ -51,6 +51,7 @@ class RaydiumClmmSwapInnerIterationResult:
     reached_initialized_tick: bool
     crossed_tick: bool
     should_break: bool
+    swap_complete: bool = False
 
 
 def _unfilled_amount(tick: RaydiumClmmTick) -> int:
@@ -89,6 +90,7 @@ def run_raydium_clmm_swap_inner_iteration(
     zero_for_one: bool,
     is_base_input: bool,
     dynamic_fee_state: RaydiumDynamicFeeSwapState | None = None,
+    is_price_limit_target: bool = False,
 ) -> RaydiumClmmSwapInnerIterationResult:
     """Run one inner-loop iteration in the pinned source operation order."""
     if not isinstance(pool, RaydiumClmmPoolState):
@@ -101,6 +103,8 @@ def run_raydium_clmm_swap_inner_iteration(
         raise RaydiumClmmSwapInnerIterationError("next tick index differs from decoded TickState")
     if not isinstance(zero_for_one, bool) or not isinstance(is_base_input, bool):
         raise RaydiumClmmSwapInnerIterationError("swap direction and input mode must be boolean")
+    if not isinstance(is_price_limit_target, bool):
+        raise RaydiumClmmSwapInnerIterationError("price-limit target flag must be boolean")
 
     is_fee_on_input = _is_fee_on_input(pool, zero_for_one)
     try:
@@ -185,9 +189,14 @@ def run_raydium_clmm_swap_inner_iteration(
     except RaydiumSwapTickPriceFinalizationError as exc:
         raise RaydiumClmmSwapInnerIterationError(f"tick/price finalization failed: {exc}") from exc
 
-    should_break = (
+    # Raydium breaks the inner spacing/tick loop at either the next tick target
+    # or the user price limit. Only amount exhaustion or reaching the actual
+    # user price limit completes the entire swap.
+    reached_target = finalized.sqrt_price_x64 == target_price_x64
+    should_break = fee_state_after.amount_specified_remaining == 0 or reached_target
+    swap_complete = (
         fee_state_after.amount_specified_remaining == 0
-        or finalized.sqrt_price_x64 == target_price_x64
+        or (reached_target and is_price_limit_target)
     )
     if should_break:
         fee_state_after = replace(fee_state_after, liquidity=liquidity_next)
@@ -206,4 +215,5 @@ def run_raydium_clmm_swap_inner_iteration(
         reached_initialized_tick=reached_tick,
         crossed_tick=crossed,
         should_break=should_break,
+        swap_complete=swap_complete,
     )
