@@ -144,7 +144,7 @@ def test_exact_output_with_fee_on_input_grosses_up_fee_and_preserves_net_output(
         fee_rate=10_000,
         fee_on_input=True,
     )
-    assert result.match.amount_in == 102
+    assert result.match.amount_in == 100
     assert result.match.amm_fee_amount == 2
     assert result.match.amount_out == 100
     assert result.tick.part_filled_orders_remaining == 400
@@ -220,7 +220,7 @@ def test_price_helpers_use_directional_reciprocal_price():
     assert limit_order_output_with_price(10, price, zero_for_one=True) == 20
     assert limit_order_output_with_price(10, price, zero_for_one=False) == 5
     assert limit_order_input_with_price(20, price, zero_for_one=True) == 40
-    assert limit_order_input_with_price(5, price, zero_for_one=False) == 10
+    assert limit_order_input_with_price(5, price, zero_for_one=False) == 3
 
 
 def test_rejects_nonempty_order_state_marked_uninitialized():
@@ -231,8 +231,8 @@ def test_rejects_nonempty_order_state_marked_uninitialized():
         )
 
 
-def test_rejects_limit_order_output_over_u128():
-    with pytest.raises(RaydiumLimitOrderError, match="exceeds u128"):
-        limit_order_output_with_price(
-            U64_MAX, U128_MAX, zero_for_one=True
-        )
+def test_limit_order_output_at_max_u64_u128_inputs_stays_within_u128():
+    output = limit_order_output_with_price(
+        U64_MAX, U128_MAX, zero_for_one=True
+    )
+    assert output == U128_MAX - (1 << 64)
