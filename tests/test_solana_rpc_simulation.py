@@ -669,7 +669,7 @@ def test_captures_inner_cpi_program_ids_from_simulation_trace():
         {
             "index": 0,
             "instructions": [
-                {"programIdIndex": program_index, "accounts": [], "data": "", "stackHeight": 1}
+                {"programIdIndex": program_index, "accounts": [0], "data": "2", "stackHeight": 1}
             ],
         }
     ]
@@ -684,6 +684,10 @@ def test_captures_inner_cpi_program_ids_from_simulation_trace():
     assert result.evidence.top_level_program_ids == result.validation.program_ids
     assert result.evidence.inner_program_ids == (program,)
     assert result.evidence.inner_instruction_count == 1
+    assert result.evidence.inner_instructions[0].data == bytes([1])
+    assert result.evidence.inner_instructions[0].account_keys == (result.validation.account_keys[0],)
+    assert result.evidence.inner_instructions[0].outer_instruction_index == 0
+    assert result.evidence.inner_instructions[0].stack_height == 1
 
 
 def test_rejects_inner_cpi_program_index_outside_validated_account_list():
@@ -704,4 +708,45 @@ def test_rejects_inner_cpi_program_index_outside_validated_account_list():
             expected_token_deltas=expected,
             minimum_context_slot=490,
             last_valid_block_height=950,
+        )
+
+
+def test_rejects_invalid_inner_instruction_base58_data():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(intent.instructions[0].program_id)
+    data["inner_instructions"] = [{"index": 0, "instructions": [{"programIdIndex": program_index, "accounts": [], "data": "0", "stackHeight": 1}]}]
+    with pytest.raises(SolanaRpcAdapterError, match="invalid base58"):
+        adapter(FakeSession(data)).simulate(raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected, minimum_context_slot=490, last_valid_block_height=950)
+
+
+def test_rejects_inner_instruction_account_index_outside_resolved_keys():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(intent.instructions[0].program_id)
+    data["inner_instructions"] = [{"index": 0, "instructions": [{"programIdIndex": program_index, "accounts": [255], "data": "", "stackHeight": 1}]}]
+    with pytest.raises(SolanaRpcAdapterError, match="account index is outside"):
+        adapter(FakeSession(data)).simulate(raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected, minimum_context_slot=490, last_valid_block_height=950)
+
+
+def test_rejects_inner_instruction_group_with_invalid_outer_index():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    program_index = tuple(str(key) for key in message.account_keys).index(intent.instructions[0].program_id)
+    data["inner_instructions"] = [{"index": 9, "instructions": [{"programIdIndex": program_index, "accounts": [], "data": "", "stackHeight": 1}]}]
+    with pytest.raises(SolanaRpcAdapterError, match="outer instruction index"):
+        adapter(FakeSession(data)).simulate(raw, intent=intent, transaction_policy=tx_policy, expected_token_deltas=expected, minimum_context_slot=490, last_valid_block_height=950)
+
+
+def test_rejects_mismatched_detailed_cpi_trace_in_simulation_evidence():
+    from veltrix.simulation_gate import SimulatedInnerInstruction, SimulationEvidence, SimulationGateError
+    with pytest.raises(SimulationGateError, match="program IDs differ"):
+        SimulationEvidence(
+            message_sha256="a" * 64, recent_blockhash="blockhash", cluster="mainnet-beta",
+            genesis_hash="genesis", provider_id="rpc", response_id="response",
+            observed_at_epoch_ms=1, context_slot=1, current_block_height=1,
+            last_valid_block_height=2, simulation_error=None, units_consumed=1,
+            fee_lamports=1, token_balances=(), inner_program_ids=("program-a",),
+            inner_instruction_count=1,
+            inner_instructions=(SimulatedInnerInstruction(0, "program-b", (), bytes([1]), 1),),
         )
