@@ -315,3 +315,38 @@ def test_rejects_simulation_digest_or_program_trace_mismatch():
     program_gate = dataclasses.replace(program_gate, inner_program_ids=("unexpected",))
     with pytest.raises(RaydiumCpiSemanticError, match="trace differs"):
         evaluate((order, validation, simulation, sim_gate, program_gate, route_semantics, policy))
+
+
+@pytest.mark.parametrize(
+    ("account_index", "message"),
+    [
+        (3, "input token account is not the taker's"),
+        (4, "output token account is not the taker's"),
+    ],
+)
+def test_rejects_user_token_accounts_not_bound_to_the_taker_atas(account_index, message):
+    values = list(fixture())
+    inner = values[2].inner_instructions[0]
+    accounts = list(inner.account_keys)
+    accounts[account_index] = str(Pubkey.new_unique())
+    changed = dataclasses.replace(inner, account_keys=tuple(accounts))
+    values[2] = dataclasses.replace(values[2], inner_instructions=(changed,))
+    with pytest.raises(RaydiumCpiSemanticError, match=message):
+        evaluate(tuple(values))
+
+
+def test_rejects_minimum_output_threshold_above_route_quote():
+    values = list(fixture())
+    inner = values[2].inner_instructions[0]
+    changed = dataclasses.replace(inner, data=instruction_data(threshold=2_001))
+    values[2] = dataclasses.replace(values[2], inner_instructions=(changed,))
+    with pytest.raises(RaydiumCpiSemanticError, match="threshold exceeds"):
+        evaluate(tuple(values))
+
+
+def test_rejects_cpi_at_wrong_stack_depth():
+    values = list(fixture())
+    inner = dataclasses.replace(values[2].inner_instructions[0], stack_height=3)
+    values[2] = dataclasses.replace(values[2], inner_instructions=(inner,))
+    with pytest.raises(RaydiumCpiSemanticError, match="depth-2"):
+        evaluate(tuple(values))
