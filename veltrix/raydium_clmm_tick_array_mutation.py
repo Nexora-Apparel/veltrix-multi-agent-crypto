@@ -31,6 +31,7 @@ from veltrix.raydium_clmm_tick_arrays import (
 
 U8_MAX = 0xFF
 U64_MAX = (1 << 64) - 1
+U128_MAX = (1 << 128) - 1
 DEFAULT_BITMAP_BITS = 1024
 DEFAULT_BITMAP_HALF = DEFAULT_BITMAP_BITS // 2
 EXTENSION_BITMAPS = 14
@@ -247,17 +248,32 @@ def apply_raydium_tick_array_mutation(
         raise RaydiumTickArrayMutationError("tick-array offset exceeds the 60 tick slots")
     if updated_tick.tick_index != tick_index:
         raise RaydiumTickArrayMutationError("replacement tick index differs from the requested slot")
+    _integer(updated_tick.tick_index, RAYDIUM_MIN_TICK, RAYDIUM_MAX_TICK, "replacement tick index")
+    if not isinstance(updated_tick.initialized, bool):
+        raise RaydiumTickArrayMutationError("replacement tick initialized flag must be boolean")
     if updated_tick.initialized is not (updated_tick.liquidity_gross > 0 or updated_tick.orders_amount > 0 or updated_tick.part_filled_orders_remaining > 0):
         raise RaydiumTickArrayMutationError("replacement tick initialized flag disagrees with its source fields")
     _integer(updated_tick.liquidity_net, -(1 << 127), (1 << 127) - 1, "liquidity_net")
-    if updated_tick.liquidity_gross < 0 or updated_tick.orders_amount < 0 or updated_tick.part_filled_orders_remaining < 0:
-        raise RaydiumTickArrayMutationError("replacement tick contains negative unsigned state")
-    if updated_tick.liquidity_gross > U64_MAX or updated_tick.orders_amount > U64_MAX or updated_tick.part_filled_orders_remaining > U64_MAX:
-        raise RaydiumTickArrayMutationError("replacement tick exceeds its source u64 domain")
+    _integer(updated_tick.liquidity_gross, 0, U128_MAX, "liquidity_gross")
+    _integer(updated_tick.orders_amount, 0, U64_MAX, "orders_amount")
+    _integer(updated_tick.part_filled_orders_remaining, 0, U64_MAX, "part_filled_orders_remaining")
+    _integer(updated_tick.order_phase, 0, U64_MAX, "order_phase")
+    _integer(updated_tick.unfilled_ratio_x64, 0, U128_MAX, "unfilled_ratio_x64")
+    _integer(updated_tick.fee_growth_outside_0_x64, 0, U128_MAX, "fee_growth_outside_0_x64")
+    _integer(updated_tick.fee_growth_outside_1_x64, 0, U128_MAX, "fee_growth_outside_1_x64")
+    if len(updated_tick.reward_growths_outside_x64) != 3:
+        raise RaydiumTickArrayMutationError("replacement tick must contain exactly three reward-growth values")
+    for value in updated_tick.reward_growths_outside_x64:
+        _integer(value, 0, U128_MAX, "reward_growths_outside_x64")
     if updated_tick.liquidity_gross > 0 and abs(updated_tick.liquidity_net) > updated_tick.liquidity_gross:
         raise RaydiumTickArrayMutationError("replacement tick net liquidity exceeds gross liquidity")
+    if len(updated_tick.padding) != 3:
+        raise RaydiumTickArrayMutationError("replacement tick must contain exactly three reserved padding values")
+    for value in updated_tick.padding:
+        _integer(value, 0, (1 << 32) - 1, "tick padding")
     if any(updated_tick.padding):
         raise RaydiumTickArrayMutationError("replacement tick reserved padding must remain zero")
+    _integer(tick_array.initialized_tick_count, 0, RAYDIUM_TICK_ARRAY_SIZE, "initialized_tick_count")
     if tick_array.initialized_tick_count != sum(1 for tick in tick_array.ticks if tick.initialized):
         raise RaydiumTickArrayMutationError("tick-array initialized count is stale before mutation")
     current_tick = tick_array.ticks[offset]
