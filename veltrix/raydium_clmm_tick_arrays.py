@@ -53,6 +53,15 @@ class RaydiumClmmTickArray:
 
 
 @dataclass(frozen=True, slots=True)
+class RaydiumClmmTickArrayBitmapExtension:
+    address: str
+    pool_address: str
+    positive_bitmaps: tuple[int, ...]
+    negative_bitmaps: tuple[int, ...]
+    data_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class RaydiumClmmTickArraySnapshot:
     route_message_sha256: str
     simulation_response_id: str
@@ -65,6 +74,7 @@ class RaydiumClmmTickArraySnapshot:
     cpi_account_order: tuple[str, ...] = ()
     bitmap_extension_address: str | None = None
     bitmap_extension_sha256: str | None = None
+    bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None
     execution_ready: bool = False
 
 
