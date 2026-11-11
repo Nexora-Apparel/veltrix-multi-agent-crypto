@@ -69,7 +69,7 @@ def make_observation(pool, *, initialized=True, timestamp=1000, cumulative=500):
     return replace(state, data_sha256=hashlib.sha256(encoded).hexdigest())
 
 
-def make_iteration(*, tick=11, should_break=True):
+def make_iteration(*, tick=11, should_break=True, swap_complete=True):
     return RaydiumClmmSwapInnerIterationResult(
         fee_state=RaydiumFeeAccountingState(
             amount_specified_remaining=0,
@@ -92,6 +92,7 @@ def make_iteration(*, tick=11, should_break=True):
         reached_initialized_tick=False,
         crossed_tick=False,
         should_break=should_break,
+        swap_complete=swap_complete,
     )
 
 
@@ -141,6 +142,6 @@ def test_finalization_validates_observation_identity_hash_and_loop_completion():
         )
     with pytest.raises(RaydiumSwapStateFinalizationError, match="PoolState finalization"):
         finalize_raydium_swap_state_bundle(
-            p, observation, make_iteration(should_break=False),
+            p, observation, make_iteration(should_break=True, swap_complete=False),
             block_timestamp=1015, zero_for_one=True,
         )
