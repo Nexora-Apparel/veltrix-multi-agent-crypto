@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import os
 from dotenv import load_dotenv
+from solders.pubkey import Pubkey
 
 load_dotenv()
+
+DEFAULT_JUPITER_TAKER_PUBLIC_KEY = "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
 
 def _addresses(name: str) -> tuple[str, ...]:
     return tuple(x.strip() for x in os.getenv(name, "").split(",") if x.strip())
@@ -46,6 +49,7 @@ class Settings:
     helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
     alchemy_api_key: str = os.getenv("ALCHEMY_API_KEY", "")
     solana_rpc_url: str = os.getenv("SOLANA_RPC_URL", "")
+    jupiter_taker_public_key: str = os.getenv("JUPITER_TAKER_PUBLIC_KEY", DEFAULT_JUPITER_TAKER_PUBLIC_KEY)
     solana_liquidity_pool_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_POOL_RPC_URL", "")
     solana_liquidity_locker_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_LOCKER_RPC_URL", "")
     solana_raydium_amm_v4_executable_hash: str = os.getenv("SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH", "")
@@ -88,6 +92,11 @@ def settings() -> Settings:
     if os.getenv("LIVE_TRADING", "false").lower() == "true":
         raise RuntimeError("Live trading is disabled in this project.")
     s = Settings()
+    try:
+        if str(Pubkey.from_string(s.jupiter_taker_public_key)) != s.jupiter_taker_public_key:
+            raise ValueError("non-canonical")
+    except Exception as exc:
+        raise ValueError("JUPITER_TAKER_PUBLIC_KEY must be a canonical Solana public key") from exc
     if (s.balance <= 0 or s.max_position <= 0 or s.max_open < 1 or not 0 < s.stop_loss < 1
             or s.poll_seconds < 15 or s.max_discovered_per_chain < 1
             or s.wallet_evidence_max_age_ms <= 0 or s.safety_evidence_max_age_ms <= 0
