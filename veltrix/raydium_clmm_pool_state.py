@@ -386,6 +386,15 @@ def encode_raydium_clmm_pool_state(pool: RaydiumClmmPoolState) -> bytes:
         raise RaydiumClmmPoolStateError("PoolState source commit differs from the pinned layout")
     if not isinstance(pool.account_data, bytes) or len(pool.account_data) != RAYDIUM_POOL_STATE_LENGTH:
         raise RaydiumClmmPoolStateError("original verified PoolState bytes are required for lossless serialization")
+    expected_pool_address = derive_raydium_clmm_pool_address(
+        amm_config=pool.amm_config,
+        token_mint_0=pool.token_mint_0,
+        token_mint_1=pool.token_mint_1,
+        bump=pool.bump,
+        seed_index=pool.seed_index,
+    )
+    if expected_pool_address != pool.pool_address:
+        raise RaydiumClmmPoolStateError("PoolState identity fields no longer match its canonical PDA")
     data = bytearray(pool.account_data)
 
     def integer(value, size, field, *, signed=False):
