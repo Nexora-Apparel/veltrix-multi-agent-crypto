@@ -203,7 +203,7 @@ def test_rejects_unapproved_route_label():
 def test_rejects_unknown_inner_cpi_program():
     order, validation, simulation, gate, registry, policy = fixture()
     simulation = dataclasses.replace(simulation, inner_program_ids=("unknown-program",))
-    with pytest.raises(JupiterProgramTraceError, match="outside the route allowlist"):
+    with pytest.raises(JupiterProgramTraceError, match="outside the DEX/token allowlist"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
@@ -224,7 +224,7 @@ def test_rejects_missing_jupiter_aggregator_program():
     order, validation, simulation, gate, registry, policy = fixture()
     validation = dataclasses.replace(validation, program_ids=("unknown-program",))
     simulation = dataclasses.replace(simulation, top_level_program_ids=("unknown-program",))
-    with pytest.raises(JupiterProgramTraceError, match="does not invoke an approved Jupiter"):
+    with pytest.raises(JupiterProgramTraceError, match="exactly one approved Jupiter"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
