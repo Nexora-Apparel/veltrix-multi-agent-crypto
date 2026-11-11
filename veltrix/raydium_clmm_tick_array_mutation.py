@@ -176,7 +176,7 @@ def _read_bitmap_bit(pool: RaydiumClmmPoolState, extension, start: int) -> bool:
 
 def _flip_bitmap(pool: RaydiumClmmPoolState, extension, start: int):
     ticks_per_array = _ticks_per_array(pool.tick_spacing)
-    if -ticks_per_array * EXTENSION_BITMAP_BITS < start < ticks_per_array * EXTENSION_BITMAP_BITS:
+    if -ticks_per_array * EXTENSION_BITMAP_BITS <= start < ticks_per_array * EXTENSION_BITMAP_BITS:
         offset = start // ticks_per_array + DEFAULT_BITMAP_HALF
         if not 0 <= offset < DEFAULT_BITMAP_BITS:
             raise RaydiumTickArrayMutationError("default bitmap offset is outside 1024 bits")
