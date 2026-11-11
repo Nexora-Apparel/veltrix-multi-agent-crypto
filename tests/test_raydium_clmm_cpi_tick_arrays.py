@@ -177,6 +177,8 @@ def test_fetches_all_cpi_tick_arrays_in_exact_order_and_bitmap_extension():
     assert result.cpi_account_order == values[1].tick_array_accounts
     assert tuple(item.start_tick_index for item in result.tick_arrays) == (0, -600)
     assert result.bitmap_extension_address == values[8]
+    assert result.bitmap_extension_sha256 is not None
+    assert len(result.bitmap_extension_sha256) == 64
     request = next(call for call in values[7].calls if call["method"] == "getMultipleAccounts")
     assert request["params"][1]["minContextSlot"] == 502
 
