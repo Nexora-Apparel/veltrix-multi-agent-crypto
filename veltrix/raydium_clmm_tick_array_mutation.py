@@ -223,6 +223,8 @@ def apply_raydium_tick_array_mutation(
     for slot, existing_tick in enumerate(tick_array.ticks):
         if not isinstance(existing_tick, RaydiumClmmTick):
             raise RaydiumTickArrayMutationError("tick array contains a malformed TickState record")
+        if not isinstance(existing_tick.initialized, bool):
+            raise RaydiumTickArrayMutationError("tick array contains a non-boolean initialized flag")
         expected_index = tick_array.start_tick_index + slot * pool.tick_spacing
         if existing_tick.tick_index not in (0, expected_index):
             raise RaydiumTickArrayMutationError("tick record index is inconsistent with its array slot")
@@ -263,8 +265,6 @@ def apply_raydium_tick_array_mutation(
     _integer(updated_tick.tick_index, RAYDIUM_MIN_TICK, RAYDIUM_MAX_TICK, "replacement tick index")
     if not isinstance(updated_tick.initialized, bool):
         raise RaydiumTickArrayMutationError("replacement tick initialized flag must be boolean")
-    if updated_tick.initialized is not (updated_tick.liquidity_gross > 0 or updated_tick.orders_amount > 0 or updated_tick.part_filled_orders_remaining > 0):
-        raise RaydiumTickArrayMutationError("replacement tick initialized flag disagrees with its source fields")
     _integer(updated_tick.liquidity_net, -(1 << 127), (1 << 127) - 1, "liquidity_net")
     _integer(updated_tick.liquidity_gross, 0, U128_MAX, "liquidity_gross")
     _integer(updated_tick.orders_amount, 0, U64_MAX, "orders_amount")
