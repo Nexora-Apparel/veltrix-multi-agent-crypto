@@ -22,7 +22,7 @@ def test_swap_limits_and_impact_gate_are_present():
     assert "lamports > MAX_LAMPORTS" in source
     assert "RESERVE_LAMPORTS = 50000000" in source
     assert "MAX_IMPACT = 2" in source
-    assert "impact > MAX_IMPACT" in source
+    assert "impact>MAX_IMPACT" in source
 
 
 def test_phantom_signing_requires_explicit_user_click_and_confirmation():
