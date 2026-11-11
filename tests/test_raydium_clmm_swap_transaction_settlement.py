@@ -100,6 +100,7 @@ def iteration(*, zero_for_one, is_base_input, remaining=0, price_delta=10):
         reached_initialized_tick=False,
         crossed_tick=False,
         should_break=True,
+        swap_complete=True,
     )
 
 
