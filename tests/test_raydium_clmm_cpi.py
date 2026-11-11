@@ -286,6 +286,10 @@ def test_rejects_wrong_outer_instruction_index_or_duplicate_raydium_cpi():
         inner_instruction_count=2,
         inner_instructions=simulation.inner_instructions * 2,
     )
+    values[4] = dataclasses.replace(
+        values[4],
+        inner_program_ids=(RAYDIUM_CLMM_MAINNET_PROGRAM_ID,) * 2,
+    )
     with pytest.raises(RaydiumClmmCpiError, match="exactly one"):
         evaluate(tuple(values))
 
