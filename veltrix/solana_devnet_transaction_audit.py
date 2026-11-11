@@ -343,6 +343,37 @@ def audit_fixture(fixture: dict[str, Any], *, rpc: DevnetRPC | None = None) -> d
     allowed_inner_programs = {CPMM, TOKEN, TOKEN_2022, ATA_PROGRAM, SYSTEM}
     _expect(all(item[1] in allowed_inner_programs for item in inner_flat),
             "simulation contains an unrecognized CPI program")
+    allowed_user_atas = {key_strings[1], key_strings[3]}
+    for _, program, account_indexes, data in inner_flat:
+        if program == ATA_PROGRAM:
+            names = [key_strings[index] for index in account_indexes]
+            _expect(data in {b"\x00", b"\x01"} and len(names) == 6,
+                    "associated-token CPI is not create/create-idempotent")
+            payer, ata, owner, mint, system_program, token_program = names
+            _expect(payer == WALLET and ata in allowed_user_atas and owner == WALLET,
+                    "associated-token CPI payer, owner or destination is unexpected")
+            _expect((ata, mint, token_program) in {
+                (key_strings[1], WSOL, TOKEN), (key_strings[3], USDC, TOKEN)
+            } and system_program == SYSTEM, "associated-token CPI mint/program tuple is unexpected")
+        elif program == SYSTEM:
+            _expect(len(data) >= 4, "System Program CPI data is truncated")
+            tag = int.from_bytes(data[:4], "little")
+            names = [key_strings[index] for index in account_indexes]
+            if tag == 0:  # CreateAccount
+                _expect(len(data) == 52 and len(names) == 2, "System CreateAccount CPI has unexpected shape")
+                lamports = read_u64(data, 4)
+                space = read_u64(data, 12)
+                owner_program = b58encode(data[20:52])
+                _expect(names[0] == WALLET and names[1] in allowed_user_atas,
+                        "System CreateAccount payer or destination is unexpected")
+                _expect(0 < lamports <= 10_000_000 and space == 165 and owner_program == TOKEN,
+                        "System CreateAccount rent, space or owner is unexpected")
+            elif tag == 2:  # Transfer
+                _expect(len(data) == 12 and len(names) == 2, "System Transfer CPI has unexpected shape")
+                _expect(names == [WALLET, key_strings[1]] and read_u64(data, 4) == INPUT_AMOUNT,
+                        "System Transfer is not the exact wrapped-SOL funding transfer")
+            else:
+                raise AuditError(f"disallowed System Program CPI instruction {tag}")
     allowed_transfer_pairs = {(key_strings[1], key_strings[7]), (key_strings[8], key_strings[3])}
     token_transfer_amounts: list[tuple[str, str, int]] = []
     for _, program, account_indexes, data in inner_flat:
