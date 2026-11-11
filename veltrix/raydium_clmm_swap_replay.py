@@ -12,7 +12,10 @@ from veltrix.raydium_clmm_dynamic_fee import (
     RaydiumDynamicFeeSwapState,
     initialize_dynamic_fee_swap_state,
 )
-from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
+from veltrix.raydium_clmm_fee_accounting import (
+    RaydiumFeeAccountingState,
+    RaydiumSwapSettlement,
+)
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_MAX_TICK,
     RAYDIUM_MIN_TICK,
@@ -43,7 +46,7 @@ class RaydiumSwapReplayError(ValueError):
 @dataclass(frozen=True, slots=True)
 class RaydiumClmmSwapReplayResult:
     final_bundle: RaydiumClmmReplayAccountBundle
-    settlement: object
+    settlement: RaydiumSwapSettlement
     outer_iterations: int
     inner_iterations: int
     boundary_crossings: int
