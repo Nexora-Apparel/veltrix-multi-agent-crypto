@@ -116,8 +116,16 @@ def encode_raydium_clmm_vault_token_account(
         raise RaydiumClmmVaultError("verified Raydium vault account is required")
     if not isinstance(vault.account_data, bytes) or len(vault.account_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH:
         raise RaydiumClmmVaultError("original verified 165-byte SPL token-account data is required")
+    if hashlib.sha256(vault.account_data).hexdigest() != vault.data_sha256:
+        raise RaydiumClmmVaultError("vault account bytes differ from the stored SHA-256 commitment")
     if vault.token_program_id != CLASSIC_SPL_TOKEN_PROGRAM_ID:
         raise RaydiumClmmVaultError("vault token program is not the classic SPL Token program")
+    if vault.token_authority != vault.pool_address:
+        raise RaydiumClmmVaultError("vault authority differs from its Raydium pool PDA")
+    if vault.address != derive_raydium_clmm_vault_address(
+        pool_address=vault.pool_address, mint=vault.mint
+    ):
+        raise RaydiumClmmVaultError("vault address is not the canonical pool/mint PDA")
     try:
         mint = str(Pubkey.from_bytes(vault.account_data[0:32]))
         authority = str(Pubkey.from_bytes(vault.account_data[32:64]))
