@@ -42,6 +42,7 @@ class RaydiumClmmPoolBindingResult:
     pool_account_sha256: str
     vault_snapshot_slot: int
     tick_array_snapshot_slot: int
+    aux_snapshot_slot: int
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     execution_ready: bool = False
 
@@ -231,5 +232,6 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         pool_account_sha256=pool.account_data_sha256,
         vault_snapshot_slot=vault_snapshot.context_slot,
         tick_array_snapshot_slot=tick_array_snapshot.context_slot,
+        aux_snapshot_slot=aux_snapshot.context_slot,
         execution_ready=False,
     )
