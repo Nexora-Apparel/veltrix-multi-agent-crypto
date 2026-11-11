@@ -153,17 +153,274 @@
     if (!bytesEqual(reparsed.serialize(), reviewedBytes)) throw new Error("Reviewed transaction bytes failed round-trip verification.");
     return reparsed;
   }
-  function inspectTransaction(tx) {
-    // Fail closed until the full ALT-aware instruction-intent verifier is installed.
-    // Byte binding is not a substitute for semantic verification.
-    throw new Error("Transaction intent verification is incomplete. Phantom signing is disabled.");
-    const message = tx.message;
-    const keys = message.staticAccountKeys;
-    if (!keys.length || !keys[0].equals(wallet)) throw new Error("Unexpected transaction fee payer.");
-    if (message.header.numRequiredSignatures !== 1) throw new Error("Unexpected additional transaction signer.");
-    const programIds = message.compiledInstructions.map(ix => keys[ix.programIdIndex].toBase58());
-    for (const id of programIds) if (!ALLOWED.has(id)) throw new Error("Blocked unapproved program: " + id);
-    return programIds;
+  const ROUTER = "DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd";
+  const CPMM = "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb";
+  const ALT_PROGRAM = "AddressLookupTab1e1111111111111111111111111";
+  const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBf9Ss623VQ5DA";
+  const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+  const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+  const SYSTEM = "11111111111111111111111111111111";
+  const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
+  const ALT_ADDRESS = "EFhMuDw1PKEuckuFRW9PavNfTH4LKP5uKHgyXDmWpFCq";
+  const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo";
+  const CPMM_SWAP_DISC = "8fbe5adac41e33de";
+  const ROUTER_ACCOUNT_COUNT = 17;
+  const POOL_AUTH_SEED = new TextEncoder().encode("vault_and_lp_mint_auth_seed");
+  const U64_MAX = (1n << 64n) - 1n;
+
+  function fail(message) { throw new Error("Transaction intent rejected: " + message); }
+  function b58decode(value) {
+    const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let n = 0n;
+    for (const ch of value) {
+      const i = alphabet.indexOf(ch);
+      if (i < 0) fail("invalid base58 value");
+      n = n * 58n + BigInt(i);
+    }
+    let body = [];
+    while (n > 0n) { body.push(Number(n & 255n)); n >>= 8n; }
+    body.reverse();
+    let zeros = 0;
+    while (zeros < value.length && value[zeros] === "1") zeros++;
+    return Uint8Array.from([...new Array(zeros).fill(0), ...body]);
+  }
+  function b58encode(bytes) {
+    const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let n = 0n;
+    for (const b of bytes) n = (n << 8n) | BigInt(b);
+    let out = "";
+    while (n > 0n) { const r = Number(n % 58n); out = alphabet[r] + out; n /= 58n; }
+    let zeros = 0;
+    while (zeros < bytes.length && bytes[zeros] === 0) zeros++;
+    return "1".repeat(zeros) + out;
+  }
+  function readU64(bytes, offset) {
+    if (!(bytes instanceof Uint8Array) || offset < 0 || offset + 8 > bytes.length) fail("truncated u64");
+    let n = 0n;
+    for (let i = 7; i >= 0; i--) n = (n << 8n) | BigInt(bytes[offset + i]);
+    return n;
+  }
+  function equalBytes(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    return diff === 0;
+  }
+  function accountDataBytes(info, label) {
+    if (!info || !Array.isArray(info.data) || info.data[1] !== "base64") fail(label + " account data missing/not base64");
+    const raw = Uint8Array.from(atob(info.data[0]), ch => ch.charCodeAt(0));
+    return raw;
+  }
+  function effectivePrivileges(message, resolved) {
+    const h = message.header, staticCount = message.staticAccountKeys.length;
+    const writableSignedEnd = h.numRequiredSignatures - h.numReadonlySignedAccounts;
+    const writableUnsignedEnd = staticCount - h.numReadonlyUnsignedAccounts;
+    const out = [];
+    for (let i = 0; i < resolved.length; i++) {
+      if (i < staticCount) out.push({
+        key: resolved[i].toBase58(), signer: i < h.numRequiredSignatures,
+        writable: i < writableSignedEnd || (i >= h.numRequiredSignatures && i < writableUnsignedEnd)
+      });
+      else {
+        const writableCount = message.addressTableLookups.reduce((n, x) => n + x.writableIndexes.length, 0);
+        out.push({key:resolved[i].toBase58(), signer:false, writable:i < staticCount + writableCount});
+      }
+    }
+    return out;
+  }
+  async function rpcCall(method, params) {
+    const response = await fetch(RPC, {method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});
+    if (!response.ok) fail("canonical Devnet RPC HTTP " + response.status);
+    const body = await response.json();
+    if (body.error || !("result" in body)) fail("canonical Devnet RPC " + method + " failed");
+    return body.result;
+  }
+  async function resolveV0Accounts(message) {
+    const genesis = await rpcCall("getGenesisHash", []);
+    if (genesis !== GENESIS) fail("RPC genesis hash is not canonical Devnet");
+    const slot = Number(await rpcCall("getSlot", [{commitment:"finalized"}]));
+    if (!Number.isSafeInteger(slot) || slot <= 0) fail("invalid finalized Devnet slot");
+    const staticKeys = message.staticAccountKeys;
+    const writableLoaded = [], readonlyLoaded = [], lookupEvidence = [];
+    for (const lookup of message.addressTableLookups) {
+      const tableKey = lookup.accountKey.toBase58();
+      if (tableKey !== ALT_ADDRESS) fail("unapproved address lookup table " + tableKey);
+      const result = await rpcCall("getAccountInfo", [tableKey,{encoding:"base64",commitment:"finalized",minContextSlot:slot}]);
+      const info = result && result.value;
+      if (!info || info.owner !== ALT_PROGRAM || info.executable !== false) fail("ALT missing or has wrong owner/executable flag");
+      const data = accountDataBytes(info, "ALT");
+      const state = solanaWeb3.AddressLookupTableAccount.deserialize(data);
+      if (state.deactivationSlot !== U64_MAX) fail("ALT is deactivated/deactivating");
+      if (state.lastExtendedSlot > BigInt(slot)) fail("ALT extension slot is in the future");
+      const addresses = state.addresses;
+      const indexes = [...lookup.writableIndexes, ...lookup.readonlyIndexes];
+      if (!indexes.length || indexes.some(i => i >= addresses.length)) fail("ALT index out of range");
+      if (state.lastExtendedSlot === BigInt(slot) &&
+          indexes.some(i => i >= state.lastExtendedSlotStartIndex)) fail("ALT address was extended in the current slot");
+      for (const i of lookup.writableIndexes) writableLoaded.push(addresses[i]);
+      for (const i of lookup.readonlyIndexes) readonlyLoaded.push(addresses[i]);
+      lookupEvidence.push({address:tableKey,owner:info.owner,slot,addresses:addresses.length,
+        writableIndexes:[...lookup.writableIndexes],readonlyIndexes:[...lookup.readonlyIndexes]});
+    }
+    const resolved = [...staticKeys, ...writableLoaded, ...readonlyLoaded];
+    const privileges = effectivePrivileges(message, resolved);
+    const total = resolved.length;
+    for (const ix of message.compiledInstructions) {
+      if (ix.programIdIndex >= total || ix.accountKeyIndexes.some(i => i >= total)) fail("compiled instruction index out of bounds");
+    }
+    if (message.header.numRequiredSignatures !== 1 || !staticKeys[0].equals(wallet)) fail("fee payer or signer count mismatch");
+    if (privileges.filter(x => x.signer).length !== 1 || !privileges[0].writable) fail("unexpected signer/writable privilege map");
+    return {resolved,privileges,lookupEvidence,slot};
+  }
+  async function fetchAccountSnapshot(keys, minSlot) {
+    const unique = [...new Set(keys)];
+    const result = await rpcCall("getMultipleAccounts", [unique,{encoding:"base64",commitment:"finalized",minContextSlot:minSlot}]);
+    if (!result || !Array.isArray(result.value) || Number(result.context.slot) < minSlot || result.value.length !== unique.length) {
+      fail("finalized account snapshot incomplete or stale");
+    }
+    return new Map(unique.map((key,i) => [key,result.value[i]]));
+  }
+  function decodeTokenAccount(info, expectedMint, expectedOwner, label) {
+    if (!info || ![TOKEN,TOKEN_2022].includes(info.owner) || info.executable !== false) fail(label + " token program owner invalid");
+    const data = accountDataBytes(info,label);
+    if (data.length < 165 || b58encode(data.slice(0,32)) !== expectedMint ||
+        b58encode(data.slice(32,64)) !== expectedOwner || ![1,2].includes(data[108])) fail(label + " mint/owner/state mismatch");
+    return {mint:b58encode(data.slice(0,32)),owner:b58encode(data.slice(32,64)),amount:readU64(data,64)};
+  }
+  function decodeRouterPolicy(message, resolved, quote) {
+    const keys = resolved.map(k => k.toBase58());
+    const instructions = message.compiledInstructions;
+    if (instructions.length !== 5) fail("expected exactly five top-level instructions");
+    const programs = instructions.map(ix => keys[ix.programIdIndex]);
+    if (programs.join("|") !== [ROUTER,ROUTER,ROUTER,COMPUTE_BUDGET,COMPUTE_BUDGET].join("|")) fail("top-level program sequence mismatch");
+    const [setup,route,cleanup,cuPrice,cuLimit] = instructions;
+    const accounts = ix => ix.accountKeyIndexes.map(i => keys[i]);
+    const inputAta = keys[1], outputAta = keys[3], authority = keys[5], config = keys[16];
+    const vaultIn = keys[7], vaultOut = keys[8], observation = keys[9];
+    const minOut = BigInt(String(quote.otherAmountThreshold));
+    if (setup.data.length !== 9 || setup.data[0] !== 5 || readU64(setup.data,1) !== BigInt(TEST_LAMPORTS)) fail("wrapped-SOL setup amount/tag mismatch");
+    if (route.data.length !== 17 || route.data[0] !== 0 || readU64(route.data,1) !== BigInt(TEST_LAMPORTS) ||
+        readU64(route.data,9) !== minOut || minOut <= 0n) fail("router route amount/minimum mismatch");
+    if (cleanup.data.length !== 1 || cleanup.data[0] !== 6) fail("wrapped-SOL cleanup tag mismatch");
+    if (cuPrice.data.length !== 9 || cuPrice.data[0] !== 3 || readU64(cuPrice.data,1) > 1000000n) fail("compute-unit price invalid");
+    if (cuLimit.data.length !== 5 || cuLimit.data[0] !== 2) fail("compute-unit limit instruction malformed");
+    const limit = new DataView(cuLimit.data.buffer,cuLimit.data.byteOffset,cuLimit.data.byteLength).getUint32(1,true);
+    if (limit < 50000 || limit > 1400000) fail("compute-unit limit outside policy");
+    const expectedSetup = [wallet.toBase58(),inputAta,SOL,TOKEN,ATA_PROGRAM,SYSTEM];
+    const expectedRoute = [TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM,wallet.toBase58(),inputAta,outputAta,CPMM,
+      outputAta,SOL,USDC,authority,config,POOL,vaultIn,vaultOut,observation];
+    const expectedCleanup = [wallet.toBase58(),inputAta,wallet.toBase58(),TOKEN,ATA_PROGRAM,SYSTEM];
+    if (accounts(setup).join("|") !== expectedSetup.join("|")) fail("router setup account order/identity mismatch");
+    if (accounts(route).length !== ROUTER_ACCOUNT_COUNT || accounts(route).join("|") !== expectedRoute.join("|")) fail("router CPMM route account order/identity mismatch");
+    if (accounts(cleanup).join("|") !== expectedCleanup.join("|")) fail("router cleanup account order/recipient mismatch");
+    if (keys[10] !== ROUTER || keys[15] !== COMPUTE_BUDGET || keys[17] !== CPMM) fail("program key positions differ from pinned v0 fixture layout");
+    const p = effectivePrivileges(message,resolved);
+    if (p[10].signer || p[10].writable || p[15].signer || p[15].writable || p[17].signer || p[17].writable) fail("program account has signer/writable escalation");
+    if (p[1].signer || !p[1].writable || p[3].signer || !p[3].writable ||
+        p[7].signer || !p[7].writable || p[8].signer || !p[8].writable || p[9].signer || !p[9].writable) fail("token/pool writable privileges mismatch");
+    return {keys,inputAta,outputAta,authority,config,vaultIn,vaultOut,observation,minOut,programs};
+  }
+  async function verifyPoolAndAccounts(policy, resolvedInfo) {
+    const keys = policy.keys;
+    const snapshot = await fetchAccountSnapshot(keys, resolvedInfo.slot);
+    const mustExec = [ROUTER,CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET];
+    for (const address of mustExec) {
+      const info = snapshot.get(address);
+      if (!info || info.executable !== true) fail("required program missing/not executable: " + address);
+    }
+    const pool = snapshot.get(POOL);
+    if (!pool || pool.owner !== CPMM || pool.executable !== false) fail("pool owner/executable mismatch");
+    const pd = accountDataBytes(pool,"CPMM pool");
+    if (pd.length < 330 || b58encode(pd.slice(0,8)) !== "2f6b0f2f5f1d0000") {
+      // The account discriminator is checked below against the pinned SHA-derived bytes.
+      const expectedPoolDisc = Uint8Array.from([247,237,227,245,215,195,222,70]);
+      if (pd.length < 330 || !equalBytes(pd.slice(0,8),expectedPoolDisc)) fail("pool state discriminator/layout mismatch");
+    }
+    const readKey = (start,end) => b58encode(pd.slice(start,end));
+    if (readKey(8,40) !== policy.config || readKey(72,104) !== policy.vaultIn && readKey(72,104) !== policy.vaultOut ||
+        readKey(104,136) !== policy.vaultIn && readKey(104,136) !== policy.vaultOut ||
+        readKey(296,328) !== policy.observation) fail("pool config/vault/observation relationship mismatch");
+    const mints = [readKey(168,200),readKey(200,232)];
+    if (!mints.includes(SOL) || !mints.includes(USDC)) fail("pool mint pair is not WSOL/Devnet USDC");
+    if ((pd[329] & 4) !== 0) fail("CPMM pool swaps disabled");
+    const [authority,bump] = solanaWeb3.PublicKey.findProgramAddressSync([POOL_AUTH_SEED],new solanaWeb3.PublicKey(CPMM));
+    if (authority.toBase58() !== policy.authority || bump !== pd[328]) fail("CPMM authority PDA/bump mismatch");
+    const config = snapshot.get(policy.config), observation = snapshot.get(policy.observation);
+    if (!config || config.owner !== CPMM || b58encode(accountDataBytes(config,"AMM config").slice(0,8)) !== "daf42168cbcb2b6f") fail("AMM config identity mismatch");
+    if (!observation || observation.owner !== CPMM) fail("observation account owner mismatch");
+    const vault0 = snapshot.get(readKey(72,104)), vault1 = snapshot.get(readKey(104,136));
+    const vaultMint0 = readKey(168,200), vaultMint1 = readKey(200,232);
+    decodeTokenAccount(vault0,vaultMint0,policy.authority,"pool vault 0");
+    decodeTokenAccount(vault1,vaultMint1,policy.authority,"pool vault 1");
+    decodeTokenAccount(snapshot.get(policy.inputAta),SOL,wallet.toBase58(),"wallet WSOL ATA");
+    decodeTokenAccount(snapshot.get(policy.outputAta),USDC,wallet.toBase58(),"wallet USDC ATA");
+    return snapshot;
+  }
+  async function verifyCpmmCpi(tx, policy, reviewedBytes) {
+    const encoded = btoa(String.fromCharCode(...reviewedBytes));
+    const simulation = await rpcCall("simulateTransaction", [encoded,{
+      encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,
+      innerInstructions:true,accounts:{encoding:"base64",addresses:[policy.inputAta,policy.outputAta]}
+    }]);
+    const value = simulation && simulation.value;
+    if (!value || value.err || !Array.isArray(value.innerInstructions)) fail("simulation failed or omitted inner-instruction metadata");
+    const all = [];
+    for (const group of value.innerInstructions) for (const ix of group.instructions || []) all.push({outerIndex:group.index,ix});
+    const cpi = all.filter(item => {
+      const pid = Number.isInteger(item.ix.programIdIndex) ? policy.keys[item.ix.programIdIndex] : item.ix.programId;
+      return pid === CPMM;
+    });
+    if (cpi.length !== 1 || cpi[0].outerIndex !== 1) fail("expected exactly one CPMM CPI under the router route");
+    const ix = cpi[0].ix, data = b58decode(ix.data || "");
+    if (data.length !== 24 || [...data.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("") !== CPMM_SWAP_DISC) fail("CPMM CPI discriminator/layout mismatch");
+    if (readU64(data,8) !== BigInt(TEST_LAMPORTS)) fail("CPMM exact input amount mismatch");
+    const cpiAccounts = (ix.accounts || []).map(index => Number.isInteger(index) ? policy.keys[index] : index);
+    const expected = [wallet.toBase58(),policy.authority,policy.config,POOL,policy.inputAta,policy.outputAta,
+      policy.vaultIn,policy.vaultOut,TOKEN,TOKEN,SOL,USDC,policy.observation];
+    if (cpiAccounts.join("|") !== expected.join("|")) fail("CPMM CPI account order/identity mismatch");
+    // The CPMM inner minimum is zero for this Raydium router path. The outer route threshold is
+    // separately verified by a one-unit-too-high adversarial simulation below.
+    if (readU64(data,16) !== 0n) fail("unexpected CPMM inner minimum; route semantics changed");
+    const actualOutputLine = (value.logs || []).find(line => /1000000 -> [0-9]+/.test(line));
+    const match = actualOutputLine && actualOutputLine.match(/1000000 -> ([0-9]+)/);
+    if (!match) fail("simulation did not expose the CPMM actual output");
+    const actualOutput = BigInt(match[1]);
+    if (actualOutput < policy.minOut) fail("simulated output is below reviewed outer minimum");
+    const mutatedInstructions = tx.message.compiledInstructions.map((item,index) => {
+      if (index !== 1) return item;
+      const dataCopy = new Uint8Array(item.data);
+      dataCopy.set(Uint8Array.from(Array.from({length:8},(_,i)=>Number(((actualOutput+1n) >> BigInt(i*8)) & 255n))),9);
+      return new solanaWeb3.MessageCompiledInstruction({
+        programIdIndex:item.programIdIndex,accountKeyIndexes:item.accountKeyIndexes,data:dataCopy
+      });
+    });
+    const mutatedMessage = new solanaWeb3.MessageV0(tx.message.header,tx.message.staticAccountKeys,
+      tx.message.recentBlockhash,mutatedInstructions,tx.message.addressTableLookups);
+    const mutatedTx = new solanaWeb3.VersionedTransaction(mutatedMessage);
+    const mutatedEncoded = btoa(String.fromCharCode(...mutatedTx.serialize()));
+    const negative = await rpcCall("simulateTransaction", [mutatedEncoded,{
+      encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:false
+    }]);
+    if (!negative || !negative.value || !negative.value.err ||
+        !(negative.value.logs || []).some(line => line.includes(ROUTER) && line.includes("failed"))) {
+      fail("router accepted a minimum output one raw unit above simulated output");
+    }
+    return {actualOutput:actualOutput.toString(),minimumOutput:policy.minOut.toString(),
+      negativeThreshold: (actualOutput+1n).toString(),outerMinimumEnforced:true};
+  }
+  async function inspectTransaction(tx, quote, reviewedBytes) {
+    if (!(tx instanceof solanaWeb3.VersionedTransaction) || tx.message.version !== 0) fail("only a v0 VersionedTransaction is supported");
+    const bytes = tx.serialize();
+    if (!bytesEqual(bytes,reviewedBytes)) fail("transaction bytes differ from the reviewed snapshot");
+    if (tx.signatures.length !== 1 || tx.signatures.some(sig => sig.some(byte => byte !== 0))) fail("transaction is not an unsigned single-signer message");
+    const resolvedInfo = await resolveV0Accounts(tx.message);
+    const policy = decodeRouterPolicy(tx.message,resolvedInfo.resolved,quote);
+    await verifyPoolAndAccounts(policy,resolvedInfo);
+    const cpi = await verifyCpmmCpi(tx,policy,reviewedBytes);
+    return {programs:policy.programs,lookupTables:resolvedInfo.lookupEvidence,slot:resolvedInfo.slot,
+      resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
+      router:{setup:"verified",route:"verified",cleanup:"verified"},cpmmCpi:"verified",runtime:cpi};
   }
   async function prepareQuote() {
     if (!wallet) throw new Error("Connect Phantom first.");
@@ -198,7 +455,7 @@
       const bytes = Uint8Array.from(atob(item.transaction), c => c.charCodeAt(0));
       const tx = solanaWeb3.VersionedTransaction.deserialize(bytes);
       const snapshot = snapshotUnsignedTransaction(tx);
-      inspectTransaction(tx);
+      const semanticAudit = await inspectTransaction(tx, q, snapshot);
       const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
       if (simulation.value.err) throw new Error("Devnet simulation rejected transaction: " + JSON.stringify(simulation.value.err));
       const fee = await connection.getFeeForMessage(tx.message, "confirmed");
@@ -206,6 +463,7 @@
       tx.message.compiledInstructions.forEach(ix => programSet.add(tx.message.staticAccountKeys[ix.programIdIndex].toBase58()));
       txs.push(tx);
       reviewedBytes.push(snapshot);
+      if (semanticAudit.resolvedAccountCount !== 18) fail("unexpected resolved account count");
     }
     prepared = {txs, reviewedBytes, quote:q, impact, lamports, totalFee, programs:[...programSet],
       tokenBalanceBefore:tokenBalanceBefore.toString(), preparedAt:Date.now(), walletAddress:wallet.toBase58()};
@@ -247,7 +505,7 @@
     const confirmed = [];
     for (let i = 0; i < prepared.txs.length; i++) {
       const tx = assertExactReviewedBytes(prepared.txs[i], prepared.reviewedBytes[i]);
-      inspectTransaction(tx);
+      await inspectTransaction(tx, prepared.quote, prepared.reviewedBytes[i]);
       const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
       if (simulation.value.err) throw new Error("Pre-sign simulation failed; Phantom approval blocked: " + JSON.stringify(simulation.value.err));
       const finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i]);
