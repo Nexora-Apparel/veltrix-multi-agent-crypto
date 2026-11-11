@@ -73,13 +73,15 @@ class FakeSession:
             assert params[1]["sigVerify"] is False
             assert params[1]["replaceRecentBlockhash"] is False
             assert params[1]["encoding"] == "base64"
-            assert params[1]["accounts"]["addresses"] == self.fixture["addresses"]
+            requested_accounts = params[1]["accounts"]["addresses"]
+            expected_requested = self.fixture.get("expected_simulation_addresses", self.fixture["addresses"])
+            assert requested_accounts == expected_requested
             result = {
                 "context": {"slot": self.fixture["slot"]},
                 "value": {
                     "err": None,
                     "unitsConsumed": 120_000,
-                    "accounts": self.fixture["post_accounts"],
+                    "accounts": [self.fixture["post_accounts"][self.fixture["addresses"].index(address)] if address in self.fixture["addresses"] else self.fixture.get("extra_post_accounts", {}).get(address, {"owner": "11111111111111111111111111111111", "lamports": 1, "executable": False, "data": ["", "base64"], "rentEpoch": 0, "space": 0}) for address in requested_accounts],
                     "innerInstructions": self.fixture.get("inner_instructions", []),
                 },
             }
