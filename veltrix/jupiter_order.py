@@ -33,7 +33,7 @@ class JupiterOrderIntakeError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class JupiterOrderPolicy:
-    allowed_routers: tuple[str, ...] = ("metis", "dflow", "okx")
+    allowed_routers: tuple[str, ...] = ("metis",)
     max_price_impact_pct: float = 5.0
     max_fee_bps: float = 300.0
     max_route_steps: int = 12
@@ -46,6 +46,8 @@ class JupiterOrderPolicy:
             raise JupiterOrderIntakeError("allowed_routers contains an unknown Jupiter router")
         if len(set(self.allowed_routers)) != len(self.allowed_routers):
             raise JupiterOrderIntakeError("allowed_routers must not contain duplicates")
+        if set(self.allowed_routers) != {"metis"}:
+            raise JupiterOrderIntakeError("only Metis is approved until alternate routers have independent semantic decoders")
         for field in ("max_price_impact_pct", "max_fee_bps"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
