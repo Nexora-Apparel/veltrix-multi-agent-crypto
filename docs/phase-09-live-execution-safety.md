@@ -461,3 +461,19 @@ Implemented in `veltrix/raydium_clmm_bitmap_traversal.py`.
 **Proof boundary:** this proves bitmap completeness only from the current tick-array boundary through the last array supplied in the CPI account list. It does not prove how many arrays the simulated swap actually consumed, that no further array beyond the final supplied account was needed, that the quote's amount/price limit would stop within the supplied range, or the exact initialized ticks/liquidity transitions consumed by the swap. Those require binding the full simulation execution trace/state transition to the account sequence and independently replaying the pinned swap loop. Executable liquidity/depth and price-impact calculation remain separate gaps.
 
 All results remain evidence-only. No wallet signing, Jupiter `/execute`, transaction submission, broadcast, or live execution is enabled.
+
+
+### 09.30 — Transaction-specific simulation account-state capture
+
+Implemented in `veltrix/simulation_gate.py` and `veltrix/solana_rpc_simulation.py`.
+
+- Adds immutable `SimulatedAccountState` records containing the exact pre-state and simulated post-state account owner, lamports, executable flag, raw bytes, and SHA-256 digest.
+- Extends the read-only `simulate()` adapter with an explicit `observed_account_addresses` tuple. It captures those accounts in the same `getMultipleAccounts` pre-state context and the `simulateTransaction` response's post-state accounts.
+- Requires pre-state and simulated post-state account lists to be complete and ordered exactly as requested; the existing exact context-slot equality between pre-state and simulation remains enforced.
+- Rejects duplicate or token-overlapping observed addresses, malformed account owners/data/space, missing accounts, owner/executable changes, malformed logs, and more than 100 combined token/observed accounts.
+- Retains bounded simulation logs and ties all account-state evidence to the same message digest, response ID, provider, cluster, genesis hash and context slot carried by `SimulationEvidence`.
+- Does not change the default call behavior: callers must explicitly request observed accounts. No automatic capture of every transaction key is enabled.
+
+**Integration boundary:** the adapter now has the evidence primitive, but the orchestration call site has not yet been changed to supply the complete Raydium account set. The next phase must derive a bounded, deterministic observed-account set from the validated transaction and CPI account trace, then bind the captured pre/post bytes to the independently decoded PoolState, vault, tick-array, bitmap-extension, AMM-config and observation evidence. Until that integration is complete, the new raw state records are not proof of swap-loop consumption.
+
+All account capture remains read-only simulation. No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast, or live execution is enabled.
