@@ -35,6 +35,7 @@ from veltrix.raydium_clmm_pool_state import (
 from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_DATA_LENGTH,
     RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
+    RaydiumClmmTickArrayError,
     derive_raydium_clmm_tick_array_address,
     RaydiumClmmTickArray,
     RaydiumClmmTick,
