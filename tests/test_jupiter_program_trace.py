@@ -289,7 +289,7 @@ def test_rejects_system_program_in_standard_allowlist_configuration():
 def test_rejects_unapproved_route_label():
     order, validation, simulation, gate, registry, policy = fixture()
     policy = dataclasses.replace(policy, allowed_dex_labels=("Orca Whirlpool",))
-    with pytest.raises(JupiterProgramTraceError, match="outside local policy"):
+    with pytest.raises(JupiterProgramTraceError, match="quoted route label"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
@@ -326,7 +326,7 @@ def test_rejects_missing_approved_jupiter_aggregator_program():
         ).hexdigest(),
     )
     policy = dataclasses.replace(policy, allowed_jupiter_program_ids=(alternate,))
-    with pytest.raises(JupiterProgramTraceError, match="Jupiter V6 instruction validation failed"):
+    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
@@ -355,7 +355,7 @@ def test_rejects_stale_registry_snapshot():
 def test_rejects_nonmatching_fee_payer_or_blockhash():
     order, validation, simulation, gate, registry, policy = fixture()
     order = dataclasses.replace(order, fee_payer="other-payer")
-    with pytest.raises(JupiterProgramTraceError, match="not the transaction fee payer"):
+    with pytest.raises(JupiterProgramTraceError, match="validated fee payer"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
     order, validation, simulation, gate, registry, policy = fixture()
