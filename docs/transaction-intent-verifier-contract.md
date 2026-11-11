@@ -151,3 +151,39 @@ above, not the mainnet `address` field in that IDL.
   the temporary wrapped-SOL account created by the first router instruction.
 - Keep the signer guard active until these checks and mutation tests are implemented against
   the captured bytes and a newly built transaction.
+
+
+## Canonical Devnet RPC audit findings (2026-11-11)
+
+A read-only audit now resolves the captured ALT from `https://api.devnet.solana.com`
+using finalized commitment. It checks the ALT program owner, initialization/deactivation
+metadata, all referenced indexes, same-slot extension safety, the full v0 key order, and
+effective signer/writable privileges. It also fetches the referenced program, mint, user ATA,
+pool, config, vault and observation accounts in a finalized account snapshot.
+
+The captured transaction's resolved router route has these verified structural properties:
+- one wallet fee-payer signature slot, still all-zero/unsigned;
+- 18 resolved account keys: 16 static keys, one loaded writable config key, one loaded
+  read-only CPMM program key;
+- the router is the pinned Devnet AMM Routing program and the CPMM CPI target is the pinned
+  Devnet CPMM program;
+- the three router instruction tags are `5` (wrapped-native setup), `0` (CPMM route),
+  and `6` (wrapped-native cleanup), in that order;
+- the outer route instruction carries exactly 1,000,000 lamports input and 3,396 raw USDC
+  minimum output;
+- the CPMM pool state, AMM config, authority PDA/bump, observation account, vault mint pair,
+  vault token-program owners, wallet token-account derivations and mint decimals are checked
+  against live Devnet account data.
+
+**Critical rejection:** simulation of the captured route shows the inner CPMM
+`SwapBaseInput` CPI receives `amount_in=1,000,000` but
+`minimum_amount_out=0`. The outer router instruction carries `minimum_amount_out=3,396`,
+but the AMM Routing program's source is not publicly available in Raydium's current program
+reference. Therefore the outer threshold cannot be independently proven to be enforced after
+the CPMM CPI from public source/IDL evidence alone. A successful simulation is not proof of
+that post-CPI check. The route is consequently rejected for wallet signing.
+
+The next safe implementation path is a direct Devnet CPMM transaction (not the opaque router):
+the user ATA setup and cleanup instructions remain explicitly decoded, while the top-level
+CPMM `SwapBaseInput` must itself carry the reviewed non-zero minimum output. The current
+router transaction remains a valuable adversarial fixture and must never be signed.
