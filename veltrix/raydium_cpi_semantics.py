@@ -167,6 +167,8 @@ def evaluate_raydium_clmm_cpis(
         raise RaydiumCpiSemanticError("Jupiter route instruction index is invalid")
     if not order.route_plan or len(order.route_plan) > policy.max_cpi_count:
         raise RaydiumCpiSemanticError("Jupiter route plan is empty or exceeds the CPI count policy")
+    if len(route_semantics.route_steps) != len(order.route_plan):
+        raise RaydiumCpiSemanticError("decoded Jupiter route-step count differs from the quote")
     if any(step.label != "Raydium CLMM" for step in order.route_plan):
         raise RaydiumCpiSemanticError("this DEX semantic gate supports only all-Ray­dium-CLMM routes")
 
@@ -185,7 +187,8 @@ def evaluate_raydium_clmm_cpis(
     amounts = []
     thresholds = []
     seen_pools = set()
-    for index, (step, inner) in enumerate(zip(order.route_plan, dex_cpis)):
+    token_index_accounts: dict[int, str] = {}
+    for index, (step, inner, decoded_route_step) in enumerate(zip(order.route_plan, dex_cpis, route_semantics.route_steps)):
         if inner.program_id not in policy.allowed_program_ids:
             raise RaydiumCpiSemanticError("Raydium CPI program ID is not locally pinned")
         if inner.stack_height != 2:
@@ -203,6 +206,13 @@ def evaluate_raydium_clmm_cpis(
             raise RaydiumCpiSemanticError("Raydium pool state differs from the quoted AMM key")
         if accounts[3] == accounts[4] or accounts[5] == accounts[6]:
             raise RaydiumCpiSemanticError("Raydium user token accounts or pool vaults unexpectedly alias")
+        for token_index, account in (
+            (decoded_route_step.input_index, accounts[3]),
+            (decoded_route_step.output_index, accounts[4]),
+        ):
+            previous_account = token_index_accounts.setdefault(token_index, account)
+            if previous_account != account:
+                raise RaydiumCpiSemanticError("Raydium CPI token accounts do not preserve Jupiter route token-index flow")
         if accounts[8] != CLASSIC_TOKEN_PROGRAM_ID:
             raise RaydiumCpiSemanticError("Raydium swap_v2 must use classic SPL Token for this supported path")
         if accounts[9] != TOKEN_2022_PROGRAM_ID or accounts[10] != MEMO_PROGRAM_ID:
@@ -224,6 +234,16 @@ def evaluate_raydium_clmm_cpis(
         pool_ids.append(accounts[2])
         amounts.append(decoded.amount_raw)
         thresholds.append(decoded.other_amount_threshold_raw)
+
+    expected_input_ata = __import__("veltrix.jupiter_swap_effects", fromlist=["derive_associated_token_address"]).derive_associated_token_address(order.taker, order.input_mint)
+    expected_output_ata = __import__("veltrix.jupiter_swap_effects", fromlist=["derive_associated_token_address"]).derive_associated_token_address(order.taker, order.output_mint)
+    output_indexes = tuple(index for index, mint in route_semantics.token_index_mints if mint == order.output_mint)
+    if len(output_indexes) != 1:
+        raise RaydiumCpiSemanticError("decoded Jupiter route does not identify exactly one final output token index")
+    if token_index_accounts.get(0) != expected_input_ata:
+        raise RaydiumCpiSemanticError("Raydium route input token account is not the taker's classic SPL input ATA")
+    if token_index_accounts.get(output_indexes[0]) != expected_output_ata:
+        raise RaydiumCpiSemanticError("Raydium route output token account is not the taker's classic SPL output ATA")
 
     return RaydiumCpiSemanticResult(
         passed=True,
