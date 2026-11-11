@@ -764,7 +764,7 @@ def test_rejects_mismatched_detailed_cpi_trace_in_simulation_evidence():
 
 def test_captures_hash_bound_pre_and_post_state_for_tracked_program_accounts():
     raw, intent, tx_policy, expected, data = fixture()
-    address = str(Pubkey.new_unique())
+    address = intent.fee_payer
     owner = str(Pubkey.new_unique())
     pre_data = b"raydium-pool-pre-state" * 30
     post_data = b"raydium-pool-post-state" * 30
@@ -793,7 +793,7 @@ def test_captures_hash_bound_pre_and_post_state_for_tracked_program_accounts():
 
 def test_rejects_duplicate_or_noncanonical_tracked_account_addresses():
     raw, intent, tx_policy, expected, _ = fixture()
-    address = str(Pubkey.new_unique())
+    address = intent.fee_payer
     with pytest.raises(SolanaRpcAdapterError, match="must not contain duplicates"):
         adapter(FakeSession(fixture()[4])).simulate(
             raw, intent=intent, transaction_policy=tx_policy,
@@ -811,7 +811,7 @@ def test_rejects_duplicate_or_noncanonical_tracked_account_addresses():
 
 def test_rejects_missing_tracked_post_state_account():
     raw, intent, tx_policy, expected, data = fixture()
-    address = str(Pubkey.new_unique())
+    address = intent.fee_payer
     owner = str(Pubkey.new_unique())
     data["addresses"].append(address)
     data["pre_accounts"].append(raw_account_info(owner, b"pre"))
@@ -825,7 +825,7 @@ def test_rejects_missing_tracked_post_state_account():
 
 def test_rejects_tracked_account_data_over_capture_limit():
     raw, intent, tx_policy, expected, data = fixture()
-    address = str(Pubkey.new_unique())
+    address = intent.fee_payer
     owner = str(Pubkey.new_unique())
     data["addresses"].append(address)
     data["pre_accounts"].append(raw_account_info(owner, b"pre"))
@@ -840,7 +840,7 @@ def test_rejects_tracked_account_data_over_capture_limit():
 
 def test_rejects_tracked_account_owner_change_between_pre_and_post_state():
     raw, intent, tx_policy, expected, data = fixture()
-    address = str(Pubkey.new_unique())
+    address = intent.fee_payer
     owner_a, owner_b = str(Pubkey.new_unique()), str(Pubkey.new_unique())
     data["addresses"].append(address)
     data["pre_accounts"].append(raw_account_info(owner_a, b"pre"))
