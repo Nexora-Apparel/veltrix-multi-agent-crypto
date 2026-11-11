@@ -70,7 +70,7 @@ def account_evidence(account, label: str) -> DexPoolAccountEvidence:
     )
 
 
-def decode_token_vault(account, expected_mint: str) -> dict:
+def decode_token_vault(account, expected_mint: str, expected_authority: str) -> dict:
     if account.owner not in TOKEN_PROGRAMS:
         raise ValueError(f"vault {account.address} is not owned by a supported SPL Token program")
     data = account.data
@@ -81,8 +81,10 @@ def decode_token_vault(account, expected_mint: str) -> dict:
     amount = int.from_bytes(data[64:72], "little")
     if mint != expected_mint:
         raise ValueError(f"vault {account.address} mint does not match PoolState")
-    if token_owner == str(Pubkey.default()):
-        raise ValueError(f"vault {account.address} has a default token authority")
+    if token_owner != expected_authority:
+        raise ValueError(
+            f"vault {account.address} token authority does not match the Raydium pool authority"
+        )
     return {
         "address": account.address,
         "token_program": account.owner,
@@ -92,6 +94,17 @@ def decode_token_vault(account, expected_mint: str) -> dict:
         "data_length": len(data),
         "data_sha256": hashlib.sha256(data).hexdigest(),
     }
+
+
+
+def require_stable_pool_dependencies(
+    discovered: tuple[str, ...], authoritative: tuple[str, ...]
+) -> None:
+    """Fail closed if PoolState references changed before the authoritative snapshot."""
+    if discovered != authoritative:
+        raise ValueError(
+            "PoolState dependencies changed between discovery and authoritative snapshot; retry validation"
+        )
 
 
 def main() -> int:
@@ -144,10 +157,40 @@ def main() -> int:
     )
     if observation_address != pool.observation_key:
         raise SystemExit("PoolState observation key is not the canonical pool-derived PDA")
-    snapshot = adapter.fetch_account_snapshot(addresses, min_context_slot=pool_snapshot.context_slot)
+    # The first PoolState read only discovers dependent addresses. The authoritative
+    # evidence snapshot re-fetches PoolState and every dependency in ONE RPC call,
+    # so all reported account bytes share the same bank/context slot.
+    authoritative_addresses = (pool_address, *addresses)
+    snapshot = adapter.fetch_account_snapshot(
+        authoritative_addresses, min_context_slot=pool_snapshot.context_slot
+    )
     by_address = {account.address: account for account in snapshot.accounts}
-    if len(by_address) != len(addresses):
-        raise SystemExit("RPC snapshot returned duplicate or missing dependent accounts")
+    if len(by_address) != len(authoritative_addresses):
+        raise SystemExit("RPC snapshot returned duplicate or missing pool/dependent accounts")
+
+    authoritative_pool_account = by_address[pool_address]
+    authoritative_pool = decode_raydium_clmm_pool_state(
+        account_evidence(authoritative_pool_account, "Raydium CLMM"),
+        expected_pool_address=pool_address,
+    )
+    if {authoritative_pool.token_mint_0, authoritative_pool.token_mint_1} != {WSOL_MINT, USDC_MINT}:
+        raise SystemExit("Authoritative PoolState is not the expected WSOL/USDC mint pair")
+    if authoritative_pool.liquidity <= 0 or not authoritative_pool.swaps_enabled:
+        raise SystemExit("Authoritative pool has zero liquidity or swaps are disabled")
+    authoritative_observation, _ = derive_raydium_clmm_observation_address(pool_address)
+    if authoritative_observation != authoritative_pool.observation_key:
+        raise SystemExit("Authoritative PoolState observation key is not the canonical pool-derived PDA")
+    authoritative_dependencies = (
+        authoritative_pool.amm_config,
+        authoritative_pool.observation_key,
+        authoritative_pool.token_vault_0,
+        authoritative_pool.token_vault_1,
+    )
+    try:
+        require_stable_pool_dependencies(addresses, authoritative_dependencies)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    pool = authoritative_pool
 
     def evidence(address: str, label: str) -> DexPoolAccountEvidence:
         account = by_address[address]
@@ -165,8 +208,8 @@ def main() -> int:
         expected_address=pool.observation_key,
         expected_pool_address=pool_address,
     )
-    vault0 = decode_token_vault(by_address[pool.token_vault_0], pool.token_mint_0)
-    vault1 = decode_token_vault(by_address[pool.token_vault_1], pool.token_mint_1)
+    vault0 = decode_token_vault(by_address[pool.token_vault_0], pool.token_mint_0, pool_address)
+    vault1 = decode_token_vault(by_address[pool.token_vault_1], pool.token_mint_1, pool_address)
 
     report = {
         "schema_version": 1,
@@ -179,6 +222,7 @@ def main() -> int:
         "cluster": snapshot.cluster,
         "genesis_hash": snapshot.genesis_hash,
         "context_slot": snapshot.context_slot,
+        "snapshot_account_addresses": list(authoritative_addresses),
         "pool_address": pool.pool_address,
         "program_id": RAYDIUM_CLMM_PROGRAM_ID,
         "source_commit": pool.source_commit,
