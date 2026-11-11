@@ -177,7 +177,7 @@ class RaydiumDevnetSwapPreflight:
             f"{RAYDIUM_DEVNET_TRADE_API}/transaction/swap-base-in",
             {
                 "computeUnitPriceMicroLamports": "50000",
-                "swapResponse": qdata,
+                "swapResponse": quote,
                 "txVersion": "V0",
                 "wallet": wallet,
                 "wrapSol": True,
