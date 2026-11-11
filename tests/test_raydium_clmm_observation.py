@@ -14,6 +14,7 @@ from veltrix.raydium_clmm_observation import (
     RaydiumClmmObservationError,
     apply_raydium_observation_update,
     decode_raydium_clmm_observation_state,
+    encode_raydium_clmm_observation_state,
     derive_raydium_clmm_observation_address,
 )
 
@@ -209,3 +210,20 @@ def test_observation_update_rejects_values_outside_source_integer_domains(timest
         apply_raydium_observation_update(
             state, block_timestamp=timestamp, tick=tick
         )
+
+
+def test_observation_state_encoder_roundtrips_exact_verified_account_bytes():
+    account, address, pool = fixture(initialized=True, observation_index=9)
+    state = decode(account, address, pool)
+    assert encode_raydium_clmm_observation_state(state) == account.data_bytes
+
+
+def test_observation_update_recomputes_serialized_account_hash():
+    account, address, pool = fixture(initialized=True, observation_index=5)
+    state = decode(account, address, pool)
+    updated = apply_raydium_observation_update(
+        state, block_timestamp=1_700_000_015, tick=10
+    )
+    encoded = encode_raydium_clmm_observation_state(updated)
+    assert updated.data_sha256 == hashlib.sha256(encoded).hexdigest()
+    assert len(encoded) == RAYDIUM_OBSERVATION_STATE_LENGTH
