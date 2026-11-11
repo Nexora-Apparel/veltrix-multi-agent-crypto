@@ -290,7 +290,7 @@ def _synthetic_array(pool_address, start, tick_spacing=10):
     )
     return RaydiumClmmTickArray(
         address=address, pool_address=pool_address, start_tick_index=start,
-        tick_spacing=tick_spacing, initialized_tick_count=0, recent_epoch=1,
+        tick_spacing=tick_spacing, initialized_tick_count=1, recent_epoch=1,
         ticks=(), data_sha256="a" * 64,
     )
 
@@ -330,20 +330,19 @@ def test_bitmap_traversal_rejects_skipped_initialized_array_between_cpi_accounts
 
 
 def _extension_with_bitmaps(extension, *, positive=None, negative=None):
+    from veltrix.raydium_clmm_cpi_tick_arrays import TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
     positive = tuple(positive if positive is not None else extension.positive_bitmaps)
     negative = tuple(negative if negative is not None else extension.negative_bitmaps)
-    raw = bytearray(extension.data_bytes)
-    words_per_side = len(positive)
-    for index, word in enumerate(positive):
-        raw[40 + index * 8:48 + index * 8] = word.to_bytes(8, "little")
-    negative_start = 40 + words_per_side * 8
-    for index, word in enumerate(negative):
-        raw[negative_start + index * 8:negative_start + (index + 1) * 8] = word.to_bytes(8, "little")
-    raw = bytes(raw)
+    raw = (
+        TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+        + bytes(Pubkey.from_string(extension.pool_address))
+        + b"".join(word.to_bytes(8, "little") for word in positive)
+        + b"".join(word.to_bytes(8, "little") for word in negative)
+    )
     digest = hashlib.sha256(raw).hexdigest()
     return dataclasses.replace(
         extension, positive_bitmaps=positive, negative_bitmaps=negative,
-        data_bytes=raw, data_sha256=digest,
+        data_sha256=digest,
     )
 
 
@@ -403,7 +402,8 @@ def test_bitmap_traversal_uses_negative_extension_bitmap_outside_default_range()
         bitmap_extension_sha256=extension.data_sha256,
     )
     result = verify_raydium_clmm_bitmap_traversal(
-        order, pool_check=pool_check, tick_array_snapshot=snapshot
+        order, pool_check=pool_check, pool_evidence=pool_evidence,
+        tick_array_snapshot=snapshot
     )
     assert result.expected_initialized_array_starts == (-307800, -308400)
     assert result.zero_for_one is True
