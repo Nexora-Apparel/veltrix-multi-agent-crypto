@@ -1,0 +1,55 @@
+name: Raydium Devnet swap preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      wallet_address:
+        description: "Public Solana wallet address only; never enter a private key or seed phrase"
+        required: true
+        type: string
+        default: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
+      amount_lamports:
+        description: "Devnet SOL input in lamports (default 0.01 SOL; maximum 0.05 SOL)"
+        required: true
+        type: string
+        default: "10000000"
+
+permissions:
+  contents: read
+
+jobs:
+  devnet-swap-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run isolated unit tests
+        run: python -m pytest tests/test_solana_devnet_swap_preflight.py -q
+      - name: Discover route, build unsigned transaction and simulate on Devnet
+        env:
+          WALLET_ADDRESS: ${{ inputs.wallet_address }}
+          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports }}
+        run: |
+          mkdir -p artifacts
+          python -m veltrix.solana_devnet_swap_preflight \
+            --wallet "$WALLET_ADDRESS" \
+            --amount-lamports "$AMOUNT_LAMPORTS" \
+            --output artifacts/raydium-devnet-swap-preflight.json
+      - name: Upload Devnet swap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raydium-devnet-swap-preflight
+          path: artifacts/raydium-devnet-swap-preflight.json
+          if-no-files-found: warn
+          retention-days: 14
