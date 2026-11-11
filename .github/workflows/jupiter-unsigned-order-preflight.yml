@@ -1,0 +1,40 @@
+name: Jupiter 0.005 SOL unsigned order preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-order-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Request unsigned Jupiter order only
+        env:
+          JUPITER_API_KEY: ${{ secrets.JUPITER_API_KEY }}
+          JUPITER_TAKER_PUBLIC_KEY: ${{ vars.JUPITER_TAKER_PUBLIC_KEY }}
+          LIVE_TRADING: "false"
+        run: |
+          mkdir -p artifacts
+          python -m veltrix.jupiter_unsigned_order_preflight --amount-raw 5000000 --output artifacts/jupiter-unsigned-order-preflight.json
+      - name: Upload unsigned order evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupiter-unsigned-order-preflight
+          path: artifacts/jupiter-unsigned-order-preflight.json
+          if-no-files-found: warn
+          retention-days: 7
