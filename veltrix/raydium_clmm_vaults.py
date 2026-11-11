@@ -250,6 +250,16 @@ def validate_raydium_exact_internal_settlement(
             or prior.pool_address != pool.pool_address
         ):
             raise RaydiumClmmVaultError(f"vault {index} identity changed during exact_internal")
+        for observed in (prior, current):
+            encoded = encode_raydium_clmm_vault_account(observed)
+            if (
+                encoded != observed.account_data
+                or hashlib.sha256(observed.account_data).hexdigest()
+                != observed.data_sha256
+            ):
+                raise RaydiumClmmVaultError(
+                    f"vault {index} before/after account bytes are not hash-verified"
+                )
     if (
         vault_0_before.address != pool.token_vault_0
         or vault_1_before.address != pool.token_vault_1
