@@ -20,7 +20,6 @@ from veltrix.jupiter_swap_effects import (
     derive_associated_token_address,
 )
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
-from veltrix.jupiter_swap_effects import JupiterSwapEffectResult
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -42,8 +41,8 @@ SUPPORTED_SWAP_VARIANTS = (
     ("Raydium", 7),
     ("Meteora", 19),
     ("Raydium CLMM", 26),
-    ("Meteora DLMM", 38),
-    ("Raydium CPMM", 46),
+    ("Meteora DLMM", 37),
+    ("Raydium CPMM", 43),
 )
 
 
@@ -317,7 +316,7 @@ def evaluate_jupiter_route_semantics(
     if accounts[2] != expected_source or accounts[3] != expected_destination:
         raise JupiterRouteSemanticError("Jupiter route source/destination accounts are not the taker's classic SPL ATAs")
     if accounts[4] != jupiter_program_id or accounts[6] != jupiter_program_id:
-        raise JupiterRouteSemanticError("optional destination or platform-fee account is not omitted using the program sentinel")
+        raise JupiterRouteSemanticError("optional destination or platform-fee account is not omitted using the Jupiter program-ID sentinel")
     if accounts[5] != order.output_mint:
         raise JupiterRouteSemanticError("Jupiter route destination mint differs from the order output mint")
 
