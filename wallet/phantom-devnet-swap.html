@@ -94,6 +94,7 @@
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
     $("execute").disabled = value || !prepared;
+    $("amount").disabled = value;
   }
   function getProvider() {
     const p = window.phantom && window.phantom.solana ? window.phantom.solana : window.solana;
