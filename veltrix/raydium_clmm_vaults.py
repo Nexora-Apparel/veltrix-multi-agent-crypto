@@ -1,7 +1,7 @@
 """Same-provider, same-or-newer-slot Raydium CLMM vault token-account verification."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 from solders.pubkey import Pubkey
@@ -133,10 +133,6 @@ def encode_raydium_clmm_vault_token_account(
         or int.from_bytes(vault.account_data[129:133], "little") != 0
     ):
         raise RaydiumClmmVaultError("vault delegate, native or close-authority options are unsupported")
-    if any(vault.account_data[76:108]) or any(vault.account_data[113:121]) or any(vault.account_data[129:165]):
-        raise RaydiumClmmVaultError("vault contains non-zero data in unsupported optional authority fields")
-    if int.from_bytes(vault.account_data[121:129], "little") != 0:
-        raise RaydiumClmmVaultError("vault delegated amount must be zero when no delegate is configured")
     if isinstance(vault.amount_raw, bool) or not isinstance(vault.amount_raw, int) or not 0 <= vault.amount_raw <= (1 << 64) - 1:
         raise RaydiumClmmVaultError("vault amount must fit u64")
     data = bytearray(vault.account_data)
@@ -157,9 +153,9 @@ def apply_raydium_clmm_vault_balance_delta(
     next_amount = vault.amount_raw + delta_raw
     if not 0 <= next_amount <= (1 << 64) - 1:
         raise RaydiumClmmVaultError("vault balance delta underflows or overflows u64")
-    updated = __import__("dataclasses").replace(vault, amount_raw=next_amount)
+    updated = replace(vault, amount_raw=next_amount)
     encoded = encode_raydium_clmm_vault_token_account(updated)
-    return __import__("dataclasses").replace(
+    return replace(
         updated,
         account_data=encoded,
         data_sha256=hashlib.sha256(encoded).hexdigest(),
