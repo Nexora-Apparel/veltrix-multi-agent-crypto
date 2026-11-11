@@ -18,6 +18,7 @@ from veltrix.jupiter_program_trace import (
 )
 from veltrix.jupiter_v6_route import JupiterV6RouteInspection
 from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
+from veltrix.simulation_gate import SimulationEvidence
 
 
 class DexPoolEvidenceError(ValueError):
@@ -55,6 +56,8 @@ class DexPoolAccountEvidence:
 class DexPoolEvidenceSnapshot:
     route_message_sha256: str
     registry_sha256: str
+    simulation_response_id: str
+    simulation_context_slot: int
     provider_id: str
     cluster: str
     genesis_hash: str
@@ -69,8 +72,8 @@ def fetch_dex_pool_owner_evidence(
     route_inspection: JupiterV6RouteInspection,
     registry: JupiterProgramRegistrySnapshot,
     route_policy: JupiterRouteProgramPolicy,
+    simulation: SimulationEvidence,
     rpc_adapter: SolanaRpcSimulationAdapter,
-    min_context_slot: int,
     policy: DexPoolEvidencePolicy | None = None,
 ) -> DexPoolEvidenceSnapshot:
     """Fetch and verify every routePlan AMM account against the pinned DEX program owner."""
@@ -82,17 +85,22 @@ def fetch_dex_pool_owner_evidence(
         raise DexPoolEvidenceError("verified Jupiter program registry snapshot is required")
     if not isinstance(route_policy, JupiterRouteProgramPolicy):
         raise DexPoolEvidenceError("locally pinned Jupiter route program policy is required")
+    if not isinstance(simulation, SimulationEvidence):
+        raise DexPoolEvidenceError("successful RPC simulation evidence is required")
     if not isinstance(rpc_adapter, SolanaRpcSimulationAdapter):
         raise DexPoolEvidenceError("provider-pinned Solana RPC adapter is required")
     policy = policy or DexPoolEvidencePolicy()
     if not isinstance(policy, DexPoolEvidencePolicy):
         raise DexPoolEvidenceError("DexPoolEvidencePolicy is required")
-    if isinstance(min_context_slot, bool) or not isinstance(min_context_slot, int) or min_context_slot < 0:
-        raise DexPoolEvidenceError("min_context_slot must be a non-negative integer")
-
     message_digest = hashlib.sha256(order.message_bytes).hexdigest()
-    if route_inspection.message_sha256 != message_digest:
-        raise DexPoolEvidenceError("route inspection is not bound to the exact order message")
+    if route_inspection.message_sha256 != message_digest or simulation.message_sha256 != message_digest:
+        raise DexPoolEvidenceError("route inspection and simulation must be bound to the exact order message")
+    if (
+        simulation.provider_id != rpc_adapter.provider_id
+        or simulation.cluster != rpc_adapter.cluster
+        or simulation.genesis_hash != rpc_adapter.expected_genesis_hash
+    ):
+        raise DexPoolEvidenceError("simulation and pool-account RPC provenance must use the same provider and cluster")
     if route_inspection.program_id not in route_policy.allowed_jupiter_program_ids:
         raise DexPoolEvidenceError("route inspection Jupiter program is not locally pinned")
     if registry.sha256 == "" or registry.program_labels is None:
@@ -122,11 +130,11 @@ def fetch_dex_pool_owner_evidence(
 
     snapshot = rpc_adapter.fetch_account_snapshot(
         tuple(sorted(expected_by_amm)),
-        min_context_slot=min_context_slot,
+        min_context_slot=simulation.context_slot,
     )
     if snapshot.genesis_hash != rpc_adapter.expected_genesis_hash:
         raise DexPoolEvidenceError("account snapshot belongs to a different Solana cluster")
-    if snapshot.context_slot < min_context_slot:
+    if snapshot.context_slot < simulation.context_slot:
         raise DexPoolEvidenceError("account snapshot is older than the simulation context slot")
     if len(snapshot.accounts) != len(expected_by_amm):
         raise DexPoolEvidenceError("account snapshot count differs from the quoted AMM key set")
@@ -167,6 +175,8 @@ def fetch_dex_pool_owner_evidence(
     return DexPoolEvidenceSnapshot(
         route_message_sha256=message_digest,
         registry_sha256=registry.sha256,
+        simulation_response_id=simulation.response_id,
+        simulation_context_slot=simulation.context_slot,
         provider_id=snapshot.provider_id,
         cluster=snapshot.cluster,
         genesis_hash=snapshot.genesis_hash,
