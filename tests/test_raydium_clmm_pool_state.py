@@ -71,6 +71,7 @@ def fixture():
     inspection = JupiterV6RouteInspection(
         message_sha256=digest,
         instruction_name="route",
+        instruction_index=0,
         program_id="JupiterV6Program",
         shared_authority_id=None,
         route_steps=(route_step,),
