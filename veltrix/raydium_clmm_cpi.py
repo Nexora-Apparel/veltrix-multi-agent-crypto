@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import math
 import struct
 
 from solders.pubkey import Pubkey
@@ -78,8 +77,7 @@ def decode_raydium_clmm_swap(data: bytes) -> DecodedRaydiumClmmSwap:
         raise RaydiumClmmCpiError("Raydium CLMM CPI discriminator is not the supported swap instruction")
     if len(data) != 41:
         raise RaydiumClmmCpiError("Raydium CLMM swap instruction has an invalid Borsh payload length")
-    amount, threshold, sqrt_price_limit = struct.unpack("<QQQ", data[8:32])
-    # The final 16 bytes encode the u128 price limit; unpack it separately.
+    amount, threshold = struct.unpack("<QQ", data[8:24])
     sqrt_price_limit = int.from_bytes(data[24:40], "little")
     bool_value = data[40]
     if bool_value not in (0, 1):
@@ -170,10 +168,18 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("Jupiter route instruction index is invalid")
     if len(order.route_plan) != 1 or order.route_plan[0].label != "Raydium CLMM":
         raise RaydiumClmmCpiError("only a single-hop Raydium CLMM route is supported")
-    if route_semantics.route_steps != route_semantics.route_steps[:1]:
+    if len(route_semantics.route_steps) != 1:
         raise RaydiumClmmCpiError("route semantic evidence contains an invalid route step count")
     if policy.program_id not in program_gate.dex_program_ids:
         raise RaydiumClmmCpiError("Raydium CLMM program ID is not present in the pinned DEX trace")
+    if program_gate.route_labels != ("Raydium CLMM",):
+        raise RaydiumClmmCpiError("program trace route labels do not identify the supported single-hop Raydium CLMM route")
+    if (
+        route_semantics.route_steps[0].swap_variant_index != 26
+        or route_semantics.input_amount_raw != order.input_amount_raw
+        or route_semantics.quoted_output_amount_raw != order.output_amount_raw
+    ):
+        raise RaydiumClmmCpiError("Jupiter route semantic evidence differs from the supported Raydium CLMM quote")
     if not simulation.inner_instructions or len(simulation.inner_instructions) != simulation.inner_instruction_count:
         raise RaydiumClmmCpiError("complete raw inner-CPI instruction evidence is required")
     if tuple(item.program_id for item in simulation.inner_instructions) != simulation.inner_program_ids:
