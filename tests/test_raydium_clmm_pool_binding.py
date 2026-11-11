@@ -226,3 +226,27 @@ def test_rejects_auxiliary_config_tick_spacing_or_observation_pool_mismatch():
     values[6] = __import__("dataclasses").replace(values[6], observations=(wrong_observation,))
     with pytest.raises(RaydiumClmmPoolBindingError, match="observation account"):
         evaluate(tuple(values))
+
+
+def test_rejects_tick_array_snapshot_that_omits_cpi_remaining_account_order():
+    values = list(fixture())
+    values[5] = __import__("dataclasses").replace(
+        values[5], cpi_account_order=(), bitmap_extension_address=None
+    )
+    with pytest.raises(RaydiumClmmPoolBindingError, match="exact CPI remaining-account order"):
+        evaluate(tuple(values))
+
+
+def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
+    values = list(fixture())
+    bitmap = str(Pubkey.new_unique())
+    values[1] = __import__("dataclasses").replace(
+        values[1], tick_array_accounts=(values[1].tick_array_accounts[0], bitmap)
+    )
+    values[5] = __import__("dataclasses").replace(
+        values[5],
+        cpi_account_order=(values[1].tick_array_accounts[0], bitmap),
+        bitmap_extension_address=bitmap,
+    )
+    result = evaluate(tuple(values))
+    assert result.tick_array_addresses == (values[1].tick_array_accounts[0],)
