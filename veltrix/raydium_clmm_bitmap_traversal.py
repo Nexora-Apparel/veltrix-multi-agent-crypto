@@ -8,6 +8,7 @@ prove how far the swap consumed liquidity or authorize execution.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.raydium_clmm_pool_state import (
@@ -141,7 +142,7 @@ def verify_raydium_clmm_bitmap_traversal(
            for word in pool.tick_array_bitmap):
         raise RaydiumClmmBitmapTraversalError("PoolState default bitmap contains invalid u64 words")
     if (
-        tick_array_snapshot.route_message_sha256 != __import__("hashlib").sha256(order.message_bytes).hexdigest()
+        tick_array_snapshot.route_message_sha256 != hashlib.sha256(order.message_bytes).hexdigest()
         or tick_array_snapshot.provider_id == ""
         or tick_array_snapshot.cluster == ""
         or tick_array_snapshot.genesis_hash == ""
@@ -149,6 +150,19 @@ def verify_raydium_clmm_bitmap_traversal(
     ):
         raise RaydiumClmmBitmapTraversalError("tick-array snapshot identity or provenance is invalid")
     _validate_extension(pool.pool_address, tick_array_snapshot.bitmap_extension, tick_array_snapshot)
+    expected_account_order = tuple(
+        address for address in tick_array_snapshot.cpi_account_order
+        if address != tick_array_snapshot.bitmap_extension_address
+    )
+    observed_array_order = tuple(item.address for item in tick_array_snapshot.tick_arrays)
+    if (
+        not tick_array_snapshot.cpi_account_order
+        or len(set(tick_array_snapshot.cpi_account_order)) != len(tick_array_snapshot.cpi_account_order)
+        or expected_account_order != observed_array_order
+        or (tick_array_snapshot.bitmap_extension_address is not None
+            and tick_array_snapshot.bitmap_extension_address not in tick_array_snapshot.cpi_account_order)
+    ):
+        raise RaydiumClmmBitmapTraversalError("decoded tick arrays do not preserve the exact CPI trailing-account order")
 
     tick_count = _tick_array_count(pool.tick_spacing)
     current = (pool.tick_current // tick_count) * tick_count
