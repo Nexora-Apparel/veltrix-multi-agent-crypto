@@ -42,8 +42,8 @@ jobs:
         run: python -m pytest tests/test_solana_devnet_swap_preflight.py -q
       - name: Discover route, build unsigned transaction and simulate on Devnet
         env:
-          WALLET_ADDRESS: ${{ inputs.wallet_address }}
-          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports }}
+          WALLET_ADDRESS: ${{ inputs.wallet_address || 'FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U' }}
+          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports || '10000000' }}
         run: |
           mkdir -p artifacts
           python -m veltrix.solana_devnet_swap_preflight \
