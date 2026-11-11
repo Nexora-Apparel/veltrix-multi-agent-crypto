@@ -38,6 +38,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     derive_raydium_clmm_tick_array_address,
     RaydiumClmmTickArray,
     RaydiumClmmTick,
+    decode_raydium_clmm_tick_array,
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.simulation_gate import SimulationEvidence
@@ -468,3 +469,33 @@ def test_bitmap_traversal_rejects_extension_words_not_matching_raw_account_diges
             order, pool_check=pool_check, pool_evidence=pool_evidence,
             tick_array_snapshot=snapshot,
         )
+
+
+def test_decodes_full_tick_state_fee_reward_and_limit_order_fields():
+    pool = str(Pubkey.new_unique())
+    address = derive_raydium_clmm_tick_array_address(
+        pool_address=pool, start_tick_index=0
+    )
+    data = bytearray(tick_array_data(pool, 0))
+    offset = 44
+    data[offset + 36:offset + 52] = (111).to_bytes(16, "little")
+    data[offset + 52:offset + 68] = (222).to_bytes(16, "little")
+    for index, value in enumerate((333, 444, 555)):
+        data[offset + 68 + index * 16:offset + 84 + index * 16] = value.to_bytes(16, "little")
+    data[offset + 116:offset + 124] = (7).to_bytes(8, "little")
+    data[offset + 124:offset + 132] = (3).to_bytes(8, "little")
+    data[offset + 132:offset + 140] = (2).to_bytes(8, "little")
+    data[offset + 140:offset + 156] = ((1 << 64) // 2).to_bytes(16, "little")
+    decoded = decode_raydium_clmm_tick_array(
+        address=address, owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+        executable=False, data=bytes(data), expected_pool_address=pool,
+        expected_start_tick_index=0, tick_spacing=10, current_tick=0,
+    )
+    tick = decoded.ticks[0]
+    assert tick.fee_growth_outside_0_x64 == 111
+    assert tick.fee_growth_outside_1_x64 == 222
+    assert tick.reward_growths_outside_x64 == (333, 444, 555)
+    assert tick.order_phase == 7
+    assert tick.orders_amount == 3
+    assert tick.part_filled_orders_remaining == 2
+    assert tick.unfilled_ratio_x64 == (1 << 63)
