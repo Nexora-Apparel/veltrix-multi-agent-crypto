@@ -224,3 +224,24 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert "tx.sign(" not in source
     assert "sendRawTransaction" not in source
     assert "devnet:cpmm:build" in workflow
+
+
+
+def test_browser_direct_cpmm_verifier_checks_pool_accounts_and_runtime_slippage():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeDirectCpmmPolicy(message, resolved, quote)" in source
+    assert "async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes)" in source
+    assert "async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes)" in source
+    assert "temporary WSOL System CreateAccountWithSeed shape mismatch" in source
+    assert "direct CPMM exact input/output token transfer CPIs not proven" in source
+    assert "direct CPMM accepted minimum output one raw unit above actual output" in source
+    assert "inspectDirectCpmmTransaction" in source
+
+
+def test_fresh_direct_cpmm_transaction_is_audited_in_browser_harness():
+    root = PAGE.parents[1]
+    harness = root / "tests" / "phantom_direct_cpmm_live_audit.mjs"
+    workflow = root / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml"
+    assert harness.exists()
+    assert "inspectDirectCpmmTransaction(tx" in harness.read_text(encoding="utf-8")
+    assert "node tests/phantom_direct_cpmm_live_audit.mjs" in workflow.read_text(encoding="utf-8")
