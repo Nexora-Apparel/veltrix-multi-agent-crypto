@@ -199,3 +199,29 @@ def test_rejects_wrong_route_mint_direction():
     values[2] = __import__("dataclasses").replace(values[2], route_input_mint=str(Pubkey.new_unique()))
     with pytest.raises(RaydiumClmmPoolBindingError, match="mint direction"):
         evaluate(tuple(values))
+
+
+def test_rejects_cpi_config_or_observation_role_mismatch():
+    values = list(fixture())
+    values[1] = __import__("dataclasses").replace(values[1], amm_config=str(Pubkey.new_unique()))
+    with pytest.raises(RaydiumClmmPoolBindingError, match="AMM config or observation"):
+        evaluate(tuple(values))
+    values = list(fixture())
+    values[1] = __import__("dataclasses").replace(values[1], observation_state=str(Pubkey.new_unique()))
+    with pytest.raises(RaydiumClmmPoolBindingError, match="AMM config or observation"):
+        evaluate(tuple(values))
+
+
+def test_rejects_auxiliary_config_tick_spacing_or_observation_pool_mismatch():
+    values = list(fixture())
+    wrong_config = __import__("dataclasses").replace(values[6].amm_configs[0], tick_spacing=20)
+    values[6] = __import__("dataclasses").replace(values[6], amm_configs=(wrong_config,))
+    with pytest.raises(RaydiumClmmPoolBindingError, match="tick spacing"):
+        evaluate(tuple(values))
+    values = list(fixture())
+    wrong_observation = __import__("dataclasses").replace(
+        values[6].observations[0], pool_address=str(Pubkey.new_unique())
+    )
+    values[6] = __import__("dataclasses").replace(values[6], observations=(wrong_observation,))
+    with pytest.raises(RaydiumClmmPoolBindingError, match="observation account"):
+        evaluate(tuple(values))
