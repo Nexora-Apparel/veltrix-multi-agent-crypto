@@ -58,3 +58,20 @@ The regression PRs form a draft dependency chain: **#86 → #87 → #88 → #89*
 - No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast, or live trading was introduced by this work.
 - Value/risk gates and live execution remain locked.
 - CI success is software regression evidence only. It is not certification, on-chain parity, or authorization to enable execution.
+
+
+### Exact `exact_internal` wrapper validation
+
+[PR #96](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/96) adds the outer-wrapper vault reload validator: PoolState-bound token identities, byte/hash-verified before/after vaults, direction-specific balance deltas, nonzero amount requirements, sqrt-price monotonicity/limit checks, and no-limit full-fill constraints. It returns actual output for exact-input and actual input for exact-output, matching the pinned wrapper.
+
+**PR #96 CI:** 1,384 passed, 5 skipped. Live Solana smoke checks remain skipped.
+
+### Current remaining release blockers
+
+- The exact internal loop is still not implemented as one atomic Python replay. The transition modules and source-order specification exist, but tick-array traversal, step math, dynamic fees, FIFO matching, crossing, fees, observations, and settlement are not yet composed end-to-end.
+- User token-account state and CPI transfer effects/reloads are not yet modeled. PR #96 validates pool-vault deltas and exact wrapper constraints only.
+- No executable pinned Rust/Python differential harness or on-chain replay certification has passed.
+- Live Solana discovery, market-data, finalized-account, and transaction replay smoke tests remain skipped.
+- Real Linux host isolation and independent source review remain unverified.
+
+PRs #86–#96 remain draft/unmerged. Do not enable live execution based on passing Python CI.

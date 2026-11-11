@@ -57,3 +57,8 @@ A future Python replay implementation must provide:
 - byte-for-byte post-state serialization and vault/token delta reconciliation.
 
 Until those criteria and the blockers in `phase-09-differential-regression-status.md` are satisfied, this ordering document is not execution authorization.
+
+
+## Executable wrapper validator status
+
+PR #96 implements a pure validator for the wrapper's pool-vault reload and exact-fill checks. It does not invoke SPL CPI transfers or model user token accounts. The complete loop and actual transfer execution remain unimplemented; the source-order specification is not itself a replay engine.
