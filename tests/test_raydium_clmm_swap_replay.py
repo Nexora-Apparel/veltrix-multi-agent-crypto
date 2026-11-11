@@ -297,7 +297,15 @@ def test_replay_advances_across_two_initialized_tick_arrays_after_first_crossing
                 initialized=True,
             ))
         else:
-            second_ticks.append(replace(original, tick_index=index))
+            second_ticks.append(replace(
+                original,
+                tick_index=index,
+                liquidity_net=0,
+                liquidity_gross=0,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=False,
+            ))
     second_array = replace(
         first_array,
         address=derive_raydium_clmm_tick_array_address(
