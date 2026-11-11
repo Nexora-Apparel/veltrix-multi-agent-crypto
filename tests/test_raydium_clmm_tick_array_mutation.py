@@ -1,5 +1,6 @@
 """Adversarial tests for Raydium CLMM tick-array and bitmap mutation."""
 from dataclasses import replace
+import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
@@ -13,11 +14,14 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTick,
     RaydiumClmmTickArray,
     derive_raydium_clmm_tick_array_address,
+    decode_raydium_clmm_tick_array,
+    encode_raydium_clmm_tick_array,
 )
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
     RaydiumTickArrayMutationError,
     apply_raydium_tick_array_mutation,
+    encode_raydium_tick_array_bitmap_extension,
     decode_raydium_tick_array_bitmap_extension,
     derive_raydium_tick_array_bitmap_extension_address,
     TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR,
@@ -72,7 +76,9 @@ def test_first_initialized_tick_sets_default_bitmap_and_count():
     result = apply_raydium_tick_array_mutation(p, a, recent_epoch=2, tick_index=0, updated_tick=tick(0))
     assert result.tick_array.initialized_tick_count == 1
     assert result.tick_array.recent_epoch == 2
-    assert result.tick_array.data_sha256 == ""
+    assert result.tick_array.data_sha256 == hashlib.sha256(
+        encode_raydium_clmm_tick_array(result.tick_array)
+    ).hexdigest()
     assert result.pool.account_data_sha256 == ""
     assert result.initialized_before is False and result.initialized_after is True
     assert result.bitmap_changed is True
@@ -142,6 +148,7 @@ def test_bitmap_extension_decode_checks_pda_pool_and_layout():
     assert decoded.address == address
     assert len(decoded.positive_bitmaps) == 14
     assert len(decoded.negative_bitmaps) == 14
+    assert encode_raydium_tick_array_bitmap_extension(decoded) == bytes(data)
 
 
 
@@ -239,7 +246,9 @@ def test_extension_bitmap_mutation_updates_only_the_correct_side():
     )
     assert result.bitmap_changed is True
     assert any(any(word for word in row) for row in result.bitmap_extension.positive_bitmaps)
-    assert result.bitmap_extension.data_sha256 == ""
+    assert result.bitmap_extension.data_sha256 == hashlib.sha256(
+        encode_raydium_tick_array_bitmap_extension(result.bitmap_extension)
+    ).hexdigest()
     assert not any(any(word for word in row) for row in result.bitmap_extension.negative_bitmaps)
 
 
@@ -319,3 +328,54 @@ def test_negative_extension_boundary_uses_source_asymmetric_bitmap_bit():
     assert result.bitmap_changed is True
     assert result.bitmap_extension.negative_bitmaps[0][7] == (1 << 63)
     assert not any(any(word for word in row) for row in result.bitmap_extension.positive_bitmaps)
+
+
+def test_tick_array_serializer_roundtrips_exact_layout_and_preserves_opaque_account_padding():
+    p = pool()
+    original = replace(array(p), padding=bytes(range(107)))
+    raw = encode_raydium_clmm_tick_array(original)
+    decoded = decode_raydium_clmm_tick_array(
+        address=original.address,
+        owner=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data=raw,
+        expected_pool_address=p.pool_address,
+        expected_start_tick_index=original.start_tick_index,
+        tick_spacing=p.tick_spacing,
+    )
+    assert decoded == replace(
+        original, data_sha256=hashlib.sha256(raw).hexdigest()
+    )
+    assert encode_raydium_clmm_tick_array(decoded) == raw
+
+
+def test_bitmap_extension_serializer_roundtrips_all_positive_and_negative_words():
+    p = pool()
+    positive = tuple(
+        tuple(((group + 1) * 1000 + word) for word in range(8))
+        for group in range(14)
+    )
+    negative = tuple(
+        tuple(((group + 1) * 2000 + word) for word in range(8))
+        for group in range(14)
+    )
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=derive_raydium_tick_array_bitmap_extension_address(p.pool_address),
+        pool_address=p.pool_address,
+        positive_bitmaps=positive,
+        negative_bitmaps=negative,
+        data_sha256="",
+    )
+    encoded = encode_raydium_tick_array_bitmap_extension(extension)
+    decoded = decode_raydium_tick_array_bitmap_extension(
+        address=extension.address,
+        owner=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data=encoded,
+        expected_pool_address=p.pool_address,
+    )
+    assert decoded.positive_bitmaps == positive
+    assert decoded.negative_bitmaps == negative
+    assert encode_raydium_tick_array_bitmap_extension(decoded) == encoded

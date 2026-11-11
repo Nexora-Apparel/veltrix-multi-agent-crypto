@@ -24,6 +24,9 @@ RAYDIUM_TICK_ARRAY_DATA_LENGTH = 10_240
 RAYDIUM_TICK_ARRAY_DISCRIMINATOR = hashlib.sha256(b"account:TickArrayState").digest()[:8]
 RAYDIUM_TICK_ARRAY_TICKS_OFFSET = 44
 RAYDIUM_TICK_ARRAY_INITIALIZED_COUNT_OFFSET = 10_124
+RAYDIUM_TICK_ARRAY_RECENT_EPOCH_OFFSET = 10_125
+RAYDIUM_TICK_ARRAY_PADDING_OFFSET = 10_133
+RAYDIUM_TICK_ARRAY_PADDING_LENGTH = 107
 
 
 class RaydiumClmmTickArrayError(ValueError):
@@ -56,6 +59,7 @@ class RaydiumClmmTickArray:
     recent_epoch: int
     ticks: tuple[RaydiumClmmTick, ...]
     data_sha256: str
+    padding: bytes = bytes(RAYDIUM_TICK_ARRAY_PADDING_LENGTH)
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +215,10 @@ def decode_raydium_clmm_tick_array(
     recorded_count = data[RAYDIUM_TICK_ARRAY_INITIALIZED_COUNT_OFFSET]
     if recorded_count != initialized_count:
         raise RaydiumClmmTickArrayError("initialized tick count differs from the decoded tick records")
-    recent_epoch = int.from_bytes(data[10_125:10_133], "little")
+    recent_epoch = int.from_bytes(
+        data[RAYDIUM_TICK_ARRAY_RECENT_EPOCH_OFFSET:RAYDIUM_TICK_ARRAY_PADDING_OFFSET],
+        "little",
+    )
     return RaydiumClmmTickArray(
         address=observed_address,
         pool_address=expected_pool,
@@ -221,7 +228,141 @@ def decode_raydium_clmm_tick_array(
         recent_epoch=recent_epoch,
         ticks=tuple(ticks),
         data_sha256=hashlib.sha256(data).hexdigest(),
+        padding=data[RAYDIUM_TICK_ARRAY_PADDING_OFFSET:],
     )
+
+
+
+def encode_raydium_clmm_tick_array(
+    tick_array: RaydiumClmmTickArray,
+) -> bytes:
+    """Serialize the exact pinned 10,240-byte TickArrayState account layout.
+
+    The 107-byte account padding is opaque and preserved byte-for-byte. Tick
+    record padding remains constrained to zero, matching the canonical decoder.
+    """
+    if not isinstance(tick_array, RaydiumClmmTickArray):
+        raise RaydiumClmmTickArrayError("decoded Raydium TickArrayState is required")
+    if not isinstance(tick_array.pool_address, str):
+        raise RaydiumClmmTickArrayError("tick-array pool address must be a string")
+    try:
+        pool = Pubkey.from_string(tick_array.pool_address)
+        if str(pool) != tick_array.pool_address:
+            raise ValueError("non-canonical pool address")
+    except Exception as exc:
+        raise RaydiumClmmTickArrayError("tick-array pool address is invalid") from exc
+    if tick_array.address != derive_raydium_clmm_tick_array_address(
+        pool_address=tick_array.pool_address,
+        start_tick_index=tick_array.start_tick_index,
+    ):
+        raise RaydiumClmmTickArrayError("tick-array address is not the canonical Raydium PDA")
+    if (
+        isinstance(tick_array.tick_spacing, bool)
+        or not isinstance(tick_array.tick_spacing, int)
+        or not 1 <= tick_array.tick_spacing <= 0xFFFF
+    ):
+        raise RaydiumClmmTickArrayError("tick spacing must fit a positive u16")
+    if (
+        isinstance(tick_array.start_tick_index, bool)
+        or not isinstance(tick_array.start_tick_index, int)
+        or not -(1 << 31) <= tick_array.start_tick_index < (1 << 31)
+        or tick_array.start_tick_index % (RAYDIUM_TICK_ARRAY_SIZE * tick_array.tick_spacing)
+    ):
+        raise RaydiumClmmTickArrayError("tick-array start index is invalid or unaligned")
+    if not isinstance(tick_array.ticks, tuple) or len(tick_array.ticks) != RAYDIUM_TICK_ARRAY_SIZE:
+        raise RaydiumClmmTickArrayError("tick array must contain exactly 60 TickState records")
+    if (
+        isinstance(tick_array.initialized_tick_count, bool)
+        or not isinstance(tick_array.initialized_tick_count, int)
+        or not 0 <= tick_array.initialized_tick_count <= RAYDIUM_TICK_ARRAY_SIZE
+    ):
+        raise RaydiumClmmTickArrayError("initialized tick count must be in [0, 60]")
+    if (
+        isinstance(tick_array.recent_epoch, bool)
+        or not isinstance(tick_array.recent_epoch, int)
+        or not 0 <= tick_array.recent_epoch <= (1 << 64) - 1
+    ):
+        raise RaydiumClmmTickArrayError("recent epoch must fit u64")
+    if not isinstance(tick_array.padding, bytes) or len(tick_array.padding) != RAYDIUM_TICK_ARRAY_PADDING_LENGTH:
+        raise RaydiumClmmTickArrayError("TickArrayState account padding must contain exactly 107 bytes")
+
+    def pack(value: int, size: int, field: str, *, signed: bool = False) -> bytes:
+        minimum = -(1 << (size * 8 - 1)) if signed else 0
+        maximum = (1 << (size * 8 - (1 if signed else 0))) - 1
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise RaydiumClmmTickArrayError(f"{field} is outside its serialized integer domain")
+        return value.to_bytes(size, "little", signed=signed)
+
+    data = bytearray(RAYDIUM_TICK_ARRAY_DATA_LENGTH)
+    data[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
+    data[8:40] = bytes(pool)
+    struct.pack_into("<i", data, 40, tick_array.start_tick_index)
+
+    initialized_count = 0
+    offset = RAYDIUM_TICK_ARRAY_TICKS_OFFSET
+    for index, tick in enumerate(tick_array.ticks):
+        if not isinstance(tick, RaydiumClmmTick):
+            raise RaydiumClmmTickArrayError("tick array contains a malformed TickState record")
+        if not isinstance(tick.initialized, bool):
+            raise RaydiumClmmTickArrayError("tick initialized flag must be boolean")
+        expected_tick = tick_array.start_tick_index + index * tick_array.tick_spacing
+        if tick.initialized and tick.tick_index != expected_tick:
+            raise RaydiumClmmTickArrayError("initialized tick index does not match its array offset and spacing")
+        if tick.initialized != (
+            tick.liquidity_gross > 0
+            or tick.orders_amount > 0
+            or tick.part_filled_orders_remaining > 0
+        ):
+            raise RaydiumClmmTickArrayError("tick initialized flag disagrees with its source fields")
+        if tick.initialized:
+            initialized_count += 1
+            if tick.liquidity_gross > 0 and abs(tick.liquidity_net) > tick.liquidity_gross:
+                raise RaydiumClmmTickArrayError("initialized tick net liquidity exceeds gross liquidity")
+        if len(tick.reward_growths_outside_x64) != 3:
+            raise RaydiumClmmTickArrayError("tick must contain exactly three reward-growth values")
+        if len(tick.padding) != 3:
+            raise RaydiumClmmTickArrayError("tick must contain exactly three reserved padding values")
+        if any(tick.padding):
+            raise RaydiumClmmTickArrayError("tick reserved padding must remain zero")
+        if tick.unfilled_ratio_x64 > (1 << 64):
+            raise RaydiumClmmTickArrayError("tick limit-order unfilled ratio exceeds Q64.64 unity")
+
+        fields = (
+            (tick.tick_index, 4, "tick index", True),
+            (tick.liquidity_net, 16, "liquidity net", True),
+            (tick.liquidity_gross, 16, "liquidity gross", False),
+            (tick.fee_growth_outside_0_x64, 16, "token-0 fee growth", False),
+            (tick.fee_growth_outside_1_x64, 16, "token-1 fee growth", False),
+        )
+        for value, size, field, signed in fields:
+            data[offset:offset + size] = pack(value, size, field, signed=signed)
+            offset += size
+        for reward in tick.reward_growths_outside_x64:
+            data[offset:offset + 16] = pack(reward, 16, "reward growth")
+            offset += 16
+        for value, field in (
+            (tick.order_phase, "order phase"),
+            (tick.orders_amount, "orders amount"),
+            (tick.part_filled_orders_remaining, "part-filled amount"),
+        ):
+            data[offset:offset + 8] = pack(value, 8, field)
+            offset += 8
+        data[offset:offset + 16] = pack(tick.unfilled_ratio_x64, 16, "unfilled ratio")
+        offset += 16
+        for value in tick.padding:
+            data[offset:offset + 4] = pack(value, 4, "tick padding")
+            offset += 4
+
+    if initialized_count != tick_array.initialized_tick_count:
+        raise RaydiumClmmTickArrayError("initialized tick count differs from the serialized tick records")
+    data[RAYDIUM_TICK_ARRAY_INITIALIZED_COUNT_OFFSET] = initialized_count
+    data[RAYDIUM_TICK_ARRAY_RECENT_EPOCH_OFFSET:RAYDIUM_TICK_ARRAY_PADDING_OFFSET] = pack(
+        tick_array.recent_epoch, 8, "recent epoch"
+    )
+    data[RAYDIUM_TICK_ARRAY_PADDING_OFFSET:] = tick_array.padding
+    if len(data) != RAYDIUM_TICK_ARRAY_DATA_LENGTH:
+        raise RaydiumClmmTickArrayError("serialized TickArrayState length is inconsistent")
+    return bytes(data)
 
 
 def fetch_raydium_clmm_current_tick_arrays(
