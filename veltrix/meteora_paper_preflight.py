@@ -30,6 +30,7 @@ class MeteoraPaperPreflightError(ValueError):
 @dataclass(frozen=True, slots=True)
 class MeteoraPaperPreflightPolicy:
     max_order_age_ms: int = 10_000
+    max_simulation_age_ms: int = 10_000
     max_future_skew_ms: int = 1_000
     max_price_impact_pct: float = 1.0
     max_fee_bps: float = 100.0
@@ -38,11 +39,11 @@ class MeteoraPaperPreflightPolicy:
     max_fee_lamports: int = 10_000_000
 
     def __post_init__(self) -> None:
-        for field in ("max_order_age_ms", "max_future_skew_ms", "max_slippage_bps", "max_compute_units", "max_fee_lamports"):
+        for field in ("max_order_age_ms", "max_simulation_age_ms", "max_future_skew_ms", "max_slippage_bps", "max_compute_units", "max_fee_lamports"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MeteoraPaperPreflightError(f"{field} must be a non-negative integer")
-        if self.max_order_age_ms == 0 or self.max_compute_units == 0:
+        if self.max_order_age_ms == 0 or self.max_simulation_age_ms == 0 or self.max_compute_units == 0:
             raise MeteoraPaperPreflightError("order-age and compute ceilings must be positive")
         for field in ("max_price_impact_pct", "max_fee_bps"):
             value = getattr(self, field)
@@ -138,6 +139,15 @@ def evaluate_meteora_paper_preflight(
         raise MeteoraPaperPreflightError("simulation evidence, token effects and SimulationGate do not share one RPC response and slot")
     if simulation.simulation_error is not None:
         raise MeteoraPaperPreflightError("simulation reported an execution error")
+    if simulation.observed_at_epoch_ms > now_epoch_ms + policy.max_future_skew_ms:
+        raise MeteoraPaperPreflightError("simulation timestamp is future-dated")
+    if now_epoch_ms - simulation.observed_at_epoch_ms > policy.max_simulation_age_ms:
+        raise MeteoraPaperPreflightError("simulation evidence is stale")
+    if (
+        simulation_gate.units_consumed != simulation.units_consumed
+        or simulation_gate.fee_lamports != simulation.fee_lamports
+    ):
+        raise MeteoraPaperPreflightError("SimulationGate compute/fee evidence differs from the RPC simulation")
     if simulation.current_block_height > simulation.last_valid_block_height:
         raise MeteoraPaperPreflightError("Jupiter recent blockhash expired before the paper preflight")
     if simulation.last_valid_block_height != order.last_valid_block_height:
@@ -158,12 +168,22 @@ def evaluate_meteora_paper_preflight(
         raise MeteoraPaperPreflightError("Jupiter program trace differs from structural validation")
     if tuple(simulation.top_level_program_ids) != tuple(validation.program_ids):
         raise MeteoraPaperPreflightError("simulated top-level program trace differs from structural validation")
+    if route_semantics.jupiter_program_id not in validation.program_ids:
+        raise MeteoraPaperPreflightError("route semantic result does not identify a validated Jupiter aggregator")
+    if (
+        program_gate.inner_program_ids != simulation.inner_program_ids
+        or METEORA_DLMM_PROGRAM_ID not in program_gate.dex_program_ids
+        or METEORA_DLMM_PROGRAM_ID not in simulation.inner_program_ids
+    ):
+        raise MeteoraPaperPreflightError("simulated inner CPI trace differs from the approved Meteora DEX trace")
     if tuple(program_gate.route_labels) != ("Meteora DLMM",):
         raise MeteoraPaperPreflightError("Jupiter program trace does not identify the exact Meteora route")
     if simulation.inner_instruction_count != len(simulation.inner_instructions):
         raise MeteoraPaperPreflightError("complete simulated CPI instruction data is required")
     if simulation.inner_program_ids != tuple(item.program_id for item in simulation.inner_instructions):
         raise MeteoraPaperPreflightError("simulated CPI program IDs differ from the preserved inner instruction records")
+    if any(item.parent_instruction_index != route_semantics.instruction_index for item in simulation.inner_instructions if item.program_id == METEORA_DLMM_PROGRAM_ID):
+        raise MeteoraPaperPreflightError("Meteora CPI evidence is not nested under the approved Jupiter route instruction")
 
     if order.observed_at_epoch_ms <= 0 or order.observed_at_epoch_ms > now_epoch_ms + policy.max_future_skew_ms:
         raise MeteoraPaperPreflightError("Jupiter order timestamp is invalid or future-dated")
@@ -177,6 +197,16 @@ def evaluate_meteora_paper_preflight(
         raise MeteoraPaperPreflightError("Jupiter quoted fee exceeds the paper risk ceiling")
     if route_semantics.slippage_bps > policy.max_slippage_bps:
         raise MeteoraPaperPreflightError("encoded Jupiter slippage exceeds the paper risk ceiling")
+    if cpi_result.decoded_swaps[0].minimum_amount_out < (
+        order.output_amount_raw * (10_000 - policy.max_slippage_bps) + 9_999
+    ) // 10_000:
+        raise MeteoraPaperPreflightError("Meteora CPI minimum output exceeds the paper slippage risk ceiling")
+    if (
+        route_semantics.input_amount_raw != order.input_amount_raw
+        or route_semantics.quoted_output_amount_raw != order.output_amount_raw
+        or swap_effects.exact_output_amount_raw != order.output_amount_raw
+    ):
+        raise MeteoraPaperPreflightError("route semantics or swap effects differ from the exact Jupiter quote")
     if route_semantics.platform_fee_bps != 0:
         raise MeteoraPaperPreflightError("non-zero Jupiter platform fee is not approved")
     if simulation.units_consumed > policy.max_compute_units:
