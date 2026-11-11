@@ -100,6 +100,50 @@ def test_accepts_fresh_successful_simulation_with_exact_token_deltas():
     assert result.units_consumed == 120_000
 
 
+def test_accepts_bounded_output_delta_above_minimum():
+    intent, validation, expected, evidence, policy = valid_fixture()
+    bounded = (
+        expected[0],
+        ExpectedTokenDelta("token-account-2", "mint-1", "owner-2", None, minimum_delta_raw=240),
+    )
+    balances = list(evidence.token_balances)
+    balances[1] = dataclasses.replace(balances[1], post_amount_raw=275)
+    result = evaluate(
+        dataclasses.replace(evidence, token_balances=tuple(balances)),
+        intent=intent,
+        validation=validation,
+        expected=bounded,
+        policy=policy,
+    )
+    assert result.approved is True
+    assert result.verified_token_account_count == 2
+
+
+def test_rejects_bounded_output_delta_below_minimum():
+    intent, validation, expected, evidence, policy = valid_fixture()
+    bounded = (
+        expected[0],
+        ExpectedTokenDelta("token-account-2", "mint-1", "owner-2", None, minimum_delta_raw=240),
+    )
+    with pytest.raises(SimulationGateError, match="below the approved minimum"):
+        evaluate(
+            evidence,
+            intent=intent,
+            validation=validation,
+            expected=bounded,
+            policy=policy,
+        )
+
+
+def test_rejects_invalid_exact_and_bounded_delta_modes():
+    with pytest.raises(SimulationGateError, match="either exact or bounded"):
+        ExpectedTokenDelta("account", "mint", "owner", 10, minimum_delta_raw=5)
+    with pytest.raises(SimulationGateError, match="either exact or bounded"):
+        ExpectedTokenDelta("account", "mint", "owner", None)
+    with pytest.raises(SimulationGateError, match="exceeds maximum"):
+        ExpectedTokenDelta("account", "mint", "owner", None, minimum_delta_raw=11, maximum_delta_raw=10)
+
+
 def test_rejects_missing_simulation_evidence():
     intent, validation, expected, _, policy = valid_fixture()
     with pytest.raises(SimulationGateError, match="evidence is required"):
