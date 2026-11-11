@@ -231,6 +231,9 @@ def decode_raydium_clmm_pool_state(
             or not 0 < dynamic_fee_info.reduction_factor < RAYDIUM_DYNAMIC_FEE_REDUCTION_DENOMINATOR
             or dynamic_fee_info.dynamic_fee_control >= RAYDIUM_DYNAMIC_FEE_CONTROL_DENOMINATOR
             or dynamic_fee_info.max_volatility_accumulator * tick_spacing > 0xFFFFFFFF
+            or dynamic_fee_info.volatility_reference > dynamic_fee_info.max_volatility_accumulator
+            or dynamic_fee_info.volatility_accumulator > dynamic_fee_info.max_volatility_accumulator
+            or any(dynamic_fee_info.padding)
         ):
             raise RaydiumClmmPoolStateError("dynamic-fee parameters fail the pinned Raydium validation rules")
 
