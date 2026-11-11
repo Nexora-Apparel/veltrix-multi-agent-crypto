@@ -53,7 +53,7 @@ from veltrix.simulation_gate import (
 )
 
 
-def fixture():
+def fixture(*, zero_for_one=False):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint0, mint1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -79,8 +79,9 @@ def fixture():
     pool_data[234] = 6
     struct.pack_into("<H", pool_data, 235, 1)
     pool_data[237:253] = (10_000).to_bytes(16, "little")
-    pool_data[253:269] = get_sqrt_price_at_tick(0).to_bytes(16, "little")
-    struct.pack_into("<i", pool_data, 269, 0)
+    current_tick = 10 if zero_for_one else 0
+    pool_data[253:269] = get_sqrt_price_at_tick(current_tick).to_bytes(16, "little")
+    struct.pack_into("<i", pool_data, 269, current_tick)
     pool_data[389] = 0
     pool_data[390] = 0
     pool_data[391:393] = (0).to_bytes(2, "little")
@@ -101,8 +102,9 @@ def fixture():
     tick_data[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
     tick_data[8:40] = bytes(Pubkey.from_string(pool_address))
     struct.pack_into("<i", tick_data, 40, 0)
-    tick_offset = 44 + 10 * 168
-    struct.pack_into("<i", tick_data, tick_offset, 10)
+    next_tick = 0 if zero_for_one else 10
+    tick_offset = 44 + next_tick * 168
+    struct.pack_into("<i", tick_data, tick_offset, next_tick)
     tick_data[tick_offset + 20:tick_offset + 36] = (1_000).to_bytes(16, "little")
     tick_data[10_124] = 1
     tick_data[10_125:10_133] = (1).to_bytes(8, "little")
@@ -137,7 +139,7 @@ def fixture():
     )
 
     traversal = RaydiumClmmBitmapTraversalResult(
-        passed=True, pool_address=pool_address, zero_for_one=False,
+        passed=True, pool_address=pool_address, zero_for_one=zero_for_one,
         current_array_start_index=0, first_initialized_array_start_index=0,
         last_cpi_array_start_index=0, expected_initialized_array_starts=(0,),
         supplied_initialized_array_starts=(0,), supplied_array_starts=(0,),
@@ -150,11 +152,11 @@ def fixture():
     )
     state = initialize_raydium_swap_loop_state(
         pool, amount_specified=100_000, trade_fee_rate=0,
-        zero_for_one=False, is_base_input=True, block_timestamp=timestamp,
+        zero_for_one=zero_for_one, is_base_input=True, block_timestamp=timestamp,
     )
     execution = execute_raydium_swap_loop(
         state, tick_arrays=(tick_array,), traversal=traversal,
-        sqrt_price_limit_x64=get_sqrt_price_at_tick(10),
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(next_tick),
         first_tick_array_contains_pool_tick=True,
         updated_reward_infos=rewards, recent_epoch=2,
         protocol_fee_rate=0, fund_fee_rate=0, max_iterations=10,
@@ -258,11 +260,11 @@ def test_finalization_rejects_incomplete_loop_and_wrong_original_account_bytes()
         )
 
 
-def parity_fixture():
+def parity_fixture(*, zero_for_one=False):
     (
         pool, pool_raw, tick_array, tick_raw, observation,
         observation_raw, execution, timestamp,
-    ) = fixture()
+    ) = fixture(zero_for_one=zero_for_one)
     finalized = finalize_raydium_swap_state(
         pool, pool_raw, execution,
         initial_observation=observation,
@@ -294,8 +296,12 @@ def parity_fixture():
         for address, pre_data, post_data in account_pairs
     )
     pre0 = pre1 = 10_000
-    delta0 = -finalized.settlement.amount_0
-    delta1 = finalized.settlement.amount_1
+    if execution.state.zero_for_one:
+        delta0 = finalized.settlement.amount_0
+        delta1 = -finalized.settlement.amount_1
+    else:
+        delta0 = -finalized.settlement.amount_0
+        delta1 = finalized.settlement.amount_1
     balances = (
         SimulatedTokenBalance(
             token_account=pool.token_vault_0,
@@ -425,3 +431,23 @@ def test_simulation_parity_fails_closed_on_account_bytes_or_vault_delta_mismatch
             initial_tick_arrays=(tick_array,),
             initial_tick_array_account_data=(tick_raw,),
         )
+
+
+def test_zero_for_one_simulation_reconciles_opposite_pool_vault_directions():
+    (
+        pool, pool_raw, tick_array, tick_raw, observation, observation_raw,
+        execution, finalized, simulation, vault_snapshot, message_sha,
+    ) = parity_fixture(zero_for_one=True)
+    assert execution.state.zero_for_one is True
+    report = reconcile_raydium_swap_simulation(
+        pool, execution, finalized, simulation, vault_snapshot,
+        expected_message_sha256=message_sha,
+        initial_pool_account_data=pool_raw,
+        initial_observation=observation,
+        initial_observation_account_data=observation_raw,
+        initial_tick_arrays=(tick_array,),
+        initial_tick_array_account_data=(tick_raw,),
+    )
+    assert report.passed is True
+    assert report.vault_reconciliations[0].expected_delta_raw > 0
+    assert report.vault_reconciliations[1].expected_delta_raw < 0
