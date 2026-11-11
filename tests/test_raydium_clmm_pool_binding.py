@@ -25,6 +25,8 @@ from veltrix.raydium_clmm_pool_state import (
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultAccount, RaydiumClmmVaultSnapshot
 from veltrix.raydium_clmm_aux_accounts import (
+    AMM_CONFIG_DATA_LENGTH,
+    OBSERVATION_STATE_DATA_LENGTH,
     RaydiumClmmAmmConfig,
     RaydiumClmmObservationState,
     RaydiumClmmAuxAccountSnapshot,
@@ -34,9 +36,16 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArraySnapshot,
     RaydiumClmmTickArrayBitmapExtension,
     RaydiumClmmTick,
+    RAYDIUM_TICK_ARRAY_DATA_LENGTH,
+    RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
     derive_raydium_clmm_tick_array_address,
 )
-from veltrix.simulation_gate import SimulationEvidence
+from veltrix.simulation_gate import SimulatedAccountState, SimulationEvidence, SimulationGateResult
+from veltrix.transaction_validator import TransactionValidationResult
+from veltrix.raydium_clmm_simulation_state import (
+    RaydiumClmmSimulationStateError,
+    evaluate_raydium_clmm_simulation_state_binding,
+)
 
 
 def fixture():
@@ -89,13 +98,31 @@ def fixture():
         simulation_context_slot=500, provider_id="rpc-primary", cluster="mainnet-beta",
         genesis_hash="genesis", context_slot=501, accounts=(pool_account,),
     )
+    vault0_data = bytearray(165)
+    vault0_data[0:32] = bytes(Pubkey.from_string(mint_in))
+    vault0_data[32:64] = bytes(Pubkey.from_string(pool))
+    vault0_data[64:72] = (1000).to_bytes(8, "little")
+    vault0_data[108] = 1
+    vault0_data = bytes(vault0_data)
+    vault1_data = bytearray(165)
+    vault1_data[0:32] = bytes(Pubkey.from_string(mint_out))
+    vault1_data[32:64] = bytes(Pubkey.from_string(pool))
+    vault1_data[64:72] = (2000).to_bytes(8, "little")
+    vault1_data[108] = 1
+    vault1_data = bytes(vault1_data)
     vaults = (
-        RaydiumClmmVaultAccount(vault0, pool, mint_in, CLASSIC_TOKEN_PROGRAM_ID, pool, 1000, 1, 1, "a" * 64),
-        RaydiumClmmVaultAccount(vault1, pool, mint_out, CLASSIC_TOKEN_PROGRAM_ID, pool, 2000, 1, 1, "b" * 64),
+        RaydiumClmmVaultAccount(vault0, pool, mint_in, CLASSIC_TOKEN_PROGRAM_ID, pool, 1000, 1, 1, hashlib.sha256(vault0_data).hexdigest()),
+        RaydiumClmmVaultAccount(vault1, pool, mint_out, CLASSIC_TOKEN_PROGRAM_ID, pool, 2000, 1, 1, hashlib.sha256(vault1_data).hexdigest()),
     )
     vault_snapshot = RaydiumClmmVaultSnapshot(
         digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 502, vaults,
     )
+    tick_data_mut = bytearray(RAYDIUM_TICK_ARRAY_DATA_LENGTH)
+    tick_data_mut[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
+    tick_data_mut[8:40] = bytes(Pubkey.from_string(pool))
+    tick_data_mut[40:44] = (0).to_bytes(4, "little", signed=True)
+    tick_data_mut[10_124] = 1
+    tick_data = bytes(tick_data_mut)
     tick_array = RaydiumClmmTickArray(
         address=tick, pool_address=pool, start_tick_index=0, tick_spacing=10,
         initialized_tick_count=1, recent_epoch=1,
@@ -103,7 +130,7 @@ def fixture():
             tick_index=0, liquidity_net=0, liquidity_gross=1,
             orders_amount=0, part_filled_orders_remaining=0, initialized=True,
         ),),
-        data_sha256="c" * 64,
+        data_sha256=hashlib.sha256(tick_data).hexdigest(),
     )
     tick_snapshot = RaydiumClmmTickArraySnapshot(
         digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503,
@@ -113,6 +140,8 @@ def fixture():
         digest, "blockhash", "mainnet-beta", "genesis", "rpc-primary", "sim-1",
         1000, 500, 900, 950, None, 100_000, 5000, (),
     )
+    config_data = bytes(AMM_CONFIG_DATA_LENGTH)
+    observation_data = bytes(OBSERVATION_STATE_DATA_LENGTH)
     aux_snapshot = RaydiumClmmAuxAccountSnapshot(
         route_message_sha256=digest, simulation_response_id="sim-1",
         simulation_context_slot=500, provider_id="rpc-primary",
@@ -120,12 +149,14 @@ def fixture():
         amm_configs=(RaydiumClmmAmmConfig(
             address=amm_config, bump=1, index=1, owner=key(),
             protocol_fee_rate=1000, trade_fee_rate=3000,
-            tick_spacing=10, fund_fee_rate=1000, data_sha256="d" * 64,
+            tick_spacing=10, fund_fee_rate=1000,
+            data_sha256=hashlib.sha256(config_data).hexdigest(),
         ),),
         observations=(RaydiumClmmObservationState(
             address=observation, pool_address=pool, initialized=True,
             recent_epoch=1, observation_index=0, latest_observation_timestamp=999,
-            latest_tick_cumulative=0, data_sha256="e" * 64,
+            latest_tick_cumulative=0,
+            data_sha256=hashlib.sha256(observation_data).hexdigest(),
         ),),
     )
     cpi = RaydiumClmmCpiResult(
