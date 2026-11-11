@@ -9,8 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 
+from veltrix.raydium_clmm_observation import RaydiumClmmObservationState
+from veltrix.raydium_clmm_fee_accounting import settle_raydium_swap_amounts
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_CLMM_SOURCE_COMMIT,
     RaydiumClmmPoolState,
 )
 from veltrix.raydium_clmm_swap_finalization import (
@@ -101,8 +104,11 @@ def reconcile_raydium_swap_simulation(
     *,
     expected_message_sha256: str,
     initial_pool_account_data: bytes,
+    initial_observation: RaydiumClmmObservationState,
     initial_observation_account_data: bytes,
+    initial_tick_arrays: tuple[RaydiumClmmTickArray, ...],
     initial_tick_array_account_data: tuple[bytes, ...],
+    initial_bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
     initial_bitmap_extension_account_data: bytes | None = None,
 ) -> RaydiumSwapParityReport:
     """Require byte-identical simulated account post-state and exact vault deltas."""
@@ -116,6 +122,77 @@ def reconcile_raydium_swap_simulation(
         raise RaydiumSwapParityError("same-context Solana simulation evidence is required")
     if not isinstance(vault_snapshot, RaydiumClmmVaultSnapshot):
         raise RaydiumSwapParityError("verified Raydium pool-vault snapshot is required")
+    if initial_pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT:
+        raise RaydiumSwapParityError("original PoolState source commit differs from the pinned Raydium version")
+    if _sha256(initial_pool_account_data) != initial_pool.account_data_sha256:
+        raise RaydiumSwapParityError("original PoolState bytes do not match the decoded source commitment")
+    if not isinstance(initial_observation, RaydiumClmmObservationState):
+        raise RaydiumSwapParityError("decoded original ObservationState is required")
+    if (
+        _sha256(initial_observation_account_data) != initial_observation.data_sha256
+        or initial_observation.address != initial_pool.observation_key
+        or initial_observation.pool_id != initial_pool.pool_address
+    ):
+        raise RaydiumSwapParityError("original ObservationState bytes or identity differ from the source snapshot")
+    if (
+        len(initial_tick_arrays) != len(initial_tick_array_account_data)
+        or len(initial_tick_arrays) != len(finalized.tick_arrays)
+        or len(initial_tick_arrays) != len(execution.tick_arrays)
+    ):
+        raise RaydiumSwapParityError("original, executed and finalized TickArray sequences must align")
+    for index, (original, raw, executed, finalized_array) in enumerate(zip(
+        initial_tick_arrays, initial_tick_array_account_data,
+        execution.tick_arrays, finalized.tick_arrays,
+    )):
+        if (
+            _sha256(raw) != original.data_sha256
+            or original.address != executed.address
+            or original.address != finalized_array.address
+            or original.pool_address != initial_pool.pool_address
+            or replace(finalized_array, data_sha256=executed.data_sha256) != executed
+        ):
+            raise RaydiumSwapParityError(f"TickArray {index} source commitment or final state lineage is inconsistent")
+    if finalized.observation.address != initial_observation.address or finalized.observation.pool_id != initial_pool.pool_address:
+        raise RaydiumSwapParityError("final ObservationState identity differs from the original pool")
+    if (
+        finalized.pool.tick_current != execution.state.tick
+        or finalized.pool.sqrt_price_x64 != execution.state.sqrt_price_x64
+        or finalized.pool.liquidity != execution.state.fee_state.liquidity
+        or finalized.pool.tick_array_bitmap != execution.state.pool.tick_array_bitmap
+        or finalized.pool.reward_infos != execution.updated_reward_infos
+    ):
+        raise RaydiumSwapParityError("final PoolState fields differ from the completed swap-loop state")
+
+    fee_on_token0 = (
+        execution.state.zero_for_one if initial_pool.fee_on == 0
+        else initial_pool.fee_on == 1 if initial_pool.fee_on in (1, 2)
+        else None
+    )
+    if fee_on_token0 is None:
+        raise RaydiumSwapParityError("original PoolState fee_on mode is invalid")
+    expected_settlement = settle_raydium_swap_amounts(
+        execution.state.fee_state,
+        amount_specified=execution.state.amount_specified,
+        zero_for_one=execution.state.zero_for_one,
+        is_base_input=execution.state.is_base_input,
+        fee_on_token0=fee_on_token0,
+    )
+    if finalized.settlement != expected_settlement:
+        raise RaydiumSwapParityError("serialized finalization settlement differs from completed swap state")
+
+    if (
+        (initial_bitmap_extension is None) != (initial_bitmap_extension_account_data is None)
+        or (initial_bitmap_extension is None) != (finalized.bitmap_extension is None)
+    ):
+        raise RaydiumSwapParityError("original and finalized bitmap-extension evidence is incomplete")
+    if initial_bitmap_extension is not None:
+        if (
+            _sha256(initial_bitmap_extension_account_data) != initial_bitmap_extension.data_sha256
+            or finalized.bitmap_extension.address != initial_bitmap_extension.address
+            or finalized.bitmap_extension.pool_address != initial_pool.pool_address
+        ):
+            raise RaydiumSwapParityError("bitmap-extension source commitment or final identity is inconsistent")
+
     if (
         not isinstance(expected_message_sha256, str)
         or len(expected_message_sha256) != 64
@@ -187,7 +264,7 @@ def reconcile_raydium_swap_simulation(
 
     vaults = {vault.address: vault for vault in vault_snapshot.vaults}
     expected_vault_addresses = {initial_pool.token_vault_0, initial_pool.token_vault_1}
-    if set(vaults) != expected_vault_addresses:
+    if len(vaults) != 2 or len(vault_snapshot.vaults) != 2 or set(vaults) != expected_vault_addresses:
         raise RaydiumSwapParityError("vault snapshot must contain exactly the two canonical PoolState vaults")
     simulated_balances = {balance.token_account: balance for balance in simulation.token_balances}
     if len(simulated_balances) != len(simulation.token_balances):
