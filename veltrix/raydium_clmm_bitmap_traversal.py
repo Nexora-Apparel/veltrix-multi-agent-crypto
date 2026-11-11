@@ -83,8 +83,8 @@ def _validate_extension(pool_address: str, extension, snapshot: RaydiumClmmTickA
     if (
         not isinstance(raw, bytes)
         or len(raw) != 1832
-        or raw[:8] != __import__("hashlib").sha256(b"account:TickArrayBitmapExtension").digest()[:8]
-        or raw[8:40] != bytes(__import__("solders.pubkey", fromlist=["Pubkey"]).Pubkey.from_string(pool_address))
+        or raw[:8] != hashlib.sha256(b"account:TickArrayBitmapExtension").digest()[:8]
+        or raw[8:40] != bytes(Pubkey.from_string(pool_address))
         or extension.data_sha256 != snapshot.bitmap_extension_sha256
         or not isinstance(extension.data_sha256, str)
         or len(extension.data_sha256) != 64
