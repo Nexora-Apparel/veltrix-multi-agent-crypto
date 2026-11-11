@@ -1,5 +1,6 @@
 """End-to-end extension-bitmap mutation and serialization regression."""
 import hashlib
+from dataclasses import replace
 from solders.pubkey import Pubkey
 
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
@@ -19,6 +20,7 @@ from veltrix.raydium_clmm_pool_state import (
 )
 from veltrix.raydium_clmm_swap_finalization import finalize_raydium_swap_state
 from veltrix.raydium_clmm_swap_loop_engine import execute_raydium_swap_loop
+from veltrix.raydium_clmm_post_state_parity import build_raydium_swap_simulation_plan
 from veltrix.raydium_clmm_tick_array_mutation import (
     TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR,
     RaydiumClmmTickArrayBitmapExtension,
@@ -181,3 +183,38 @@ def test_extension_bitmap_last_tick_removal_serializes_zero_bit_and_updated_hash
     assert final.tick_arrays[0].ticks[1].initialized is False
     assert final.tick_array_data[0][RAYDIUM_TICK_ARRAY_INITIALIZED_COUNT_OFFSET] == 0
     assert hashlib.sha256(final.bitmap_extension_data).hexdigest() == final.bitmap_extension.data_sha256
+
+
+def test_simulation_plan_captures_extension_and_directional_vault_deltas():
+    pool, array, extension, traversal, observation = fixture()
+    result = execute_raydium_swap_loop(
+        pool, (array,), traversal,
+        amount_specified=100_000,
+        trade_fee_rate=3000,
+        zero_for_one=False,
+        is_base_input=True,
+        block_timestamp=100,
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(30721),
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+        recent_epoch=2,
+        bitmap_extension=extension,
+    )
+    final = finalize_raydium_swap_state(result, observation)
+    plan = build_raydium_swap_simulation_plan(final)
+    assert plan.observed_account_addresses == (
+        pool.pool_address,
+        observation.address,
+        array.address,
+        extension.address,
+    )
+    assert tuple(item.delta_raw for item in plan.expected_token_deltas) == (
+        -final.settlement.amount_0,
+        final.settlement.amount_1,
+    )
+
+    reverse = build_raydium_swap_simulation_plan(replace(final, zero_for_one=True))
+    assert tuple(item.delta_raw for item in reverse.expected_token_deltas) == (
+        final.settlement.amount_0,
+        -final.settlement.amount_1,
+    )
