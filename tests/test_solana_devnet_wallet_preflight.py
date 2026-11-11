@@ -53,7 +53,9 @@ def test_rejects_wrong_cluster_genesis():
     try:
         SolanaDevnetWalletPreflight(session=session).check(DEFAULT_WALLET)
     except DevnetPreflightError as exc:
-        assert "Solana Devnet" in str(exc)
+        assert "genesis hash mismatch" in str(exc)
+        assert "received='wrong-cluster'" in str(exc)
+        assert DEVNET_GENESIS_HASH in str(exc)
     else:
         raise AssertionError("wrong cluster must fail closed")
 
