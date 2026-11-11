@@ -59,6 +59,7 @@ class RaydiumClmmTickArrayBitmapExtension:
     positive_bitmaps: tuple[int, ...]
     negative_bitmaps: tuple[int, ...]
     data_sha256: str
+    data_bytes: bytes = b""
 
 
 @dataclass(frozen=True, slots=True)
