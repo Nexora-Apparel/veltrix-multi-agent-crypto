@@ -87,7 +87,8 @@ def fixture():
         initialized_tick_count=0, recent_epoch=1, ticks=(), data_sha256="c" * 64,
     )
     tick_snapshot = RaydiumClmmTickArraySnapshot(
-        digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503, (tick_array,),
+        digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503,
+        (tick_array,), cpi_account_order=(tick,), bitmap_extension_address=None,
     )
     simulation = SimulationEvidence(
         digest, "blockhash", "mainnet-beta", "genesis", "rpc-primary", "sim-1",
@@ -167,11 +168,11 @@ def test_rejects_vault_from_different_pool_or_wrong_token_program():
 def test_rejects_missing_or_extra_tick_array_accounts():
     values = list(fixture())
     values[1] = __import__("dataclasses").replace(values[1], tick_array_accounts=())
-    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array accounts"):
+    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array|CPI remaining-account order"):
         evaluate(tuple(values))
     values = list(fixture())
     values[5] = __import__("dataclasses").replace(values[5], tick_arrays=())
-    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array accounts"):
+    with pytest.raises(RaydiumClmmPoolBindingError, match="tick-array|CPI remaining-account order"):
         evaluate(tuple(values))
 
 
@@ -225,3 +226,28 @@ def test_rejects_auxiliary_config_tick_spacing_or_observation_pool_mismatch():
     values[6] = __import__("dataclasses").replace(values[6], observations=(wrong_observation,))
     with pytest.raises(RaydiumClmmPoolBindingError, match="observation account"):
         evaluate(tuple(values))
+
+
+def test_rejects_tick_array_snapshot_that_omits_cpi_remaining_account_order():
+    values = list(fixture())
+    values[5] = __import__("dataclasses").replace(
+        values[5], cpi_account_order=(), bitmap_extension_address=None
+    )
+    with pytest.raises(RaydiumClmmPoolBindingError, match="exact CPI remaining-account order"):
+        evaluate(tuple(values))
+
+
+def test_binds_bitmap_extension_without_mistaking_it_for_a_tick_array():
+    values = list(fixture())
+    bitmap = str(Pubkey.new_unique())
+    values[1] = __import__("dataclasses").replace(
+        values[1], tick_array_accounts=(values[1].tick_array_accounts[0], bitmap)
+    )
+    values[5] = __import__("dataclasses").replace(
+        values[5],
+        cpi_account_order=(values[1].tick_array_accounts[0], bitmap),
+        bitmap_extension_address=bitmap,
+        bitmap_extension_sha256="f" * 64,
+    )
+    result = evaluate(tuple(values))
+    assert result.tick_array_addresses == (values[1].tick_array_accounts[0],)

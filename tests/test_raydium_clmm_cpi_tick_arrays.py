@@ -1,0 +1,222 @@
+"""Adversarial tests for CPI-ordered Raydium CLMM tick-array evidence."""
+import base64
+import hashlib
+
+import pytest
+from solders.pubkey import Pubkey
+
+from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
+from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
+from veltrix.raydium_clmm_cpi import (
+    RAYDIUM_CLMM_MAINNET_PROGRAM_ID,
+    RaydiumClmmCpiResult,
+)
+from veltrix.raydium_clmm_cpi_tick_arrays import (
+    TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR,
+    TICK_ARRAY_BITMAP_EXTENSION_DATA_LENGTH,
+    RaydiumClmmCpiTickArrayError,
+    derive_raydium_clmm_tick_array_bitmap_extension_address,
+    fetch_raydium_clmm_cpi_tick_array_snapshot,
+    validate_raydium_clmm_tick_array_bitmap_extension,
+)
+from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_CLMM_PROGRAM_ID,
+    RAYDIUM_CLMM_SOURCE_COMMIT,
+    RaydiumClmmPoolRouteCheck,
+    RaydiumClmmPoolState,
+)
+from veltrix.raydium_clmm_tick_arrays import (
+    RAYDIUM_TICK_ARRAY_DATA_LENGTH,
+    RAYDIUM_TICK_ARRAY_DISCRIMINATOR,
+    derive_raydium_clmm_tick_array_address,
+)
+from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
+from veltrix.simulation_gate import SimulationEvidence
+from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
+
+
+class FakeResponse:
+    status_code = 200
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+
+class FakeSession:
+    def __init__(self, accounts, *, slot=503):
+        self.accounts = accounts
+        self.slot = slot
+        self.calls = []
+
+    def post(self, endpoint, *, json, headers, timeout, allow_redirects):
+        self.calls.append(json)
+        if json["method"] == "getGenesisHash":
+            result = "genesis"
+        elif json["method"] == "getMultipleAccounts":
+            result = {
+                "context": {"slot": self.slot},
+                "value": [self.accounts.get(address) for address in json["params"][0]],
+            }
+        else:
+            raise AssertionError(json["method"])
+        return FakeResponse({"jsonrpc": "2.0", "id": json["id"], "result": result})
+
+
+def tick_array_data(pool, start):
+    data = bytearray(RAYDIUM_TICK_ARRAY_DATA_LENGTH)
+    data[:8] = RAYDIUM_TICK_ARRAY_DISCRIMINATOR
+    data[8:40] = bytes(Pubkey.from_string(pool))
+    data[40:44] = start.to_bytes(4, "little", signed=True)
+    data[10_124] = 0
+    data[10_125:10_133] = (1).to_bytes(8, "little")
+    return bytes(data)
+
+
+def account(data):
+    return {
+        "owner": RAYDIUM_CLMM_PROGRAM_ID,
+        "lamports": 1,
+        "executable": False,
+        "data": [base64.b64encode(data).decode(), "base64"],
+        "space": len(data),
+    }
+
+
+def fixture(*, reverse=False, include_bitmap=True, slot=503, bad_bitmap_pool=False):
+    key = lambda: str(Pubkey.new_unique())
+    taker, mint0, mint1, pool_address = key(), key(), key(), key()
+    amm_config, observation = key(), key()
+    tick0 = derive_raydium_clmm_tick_array_address(pool_address=pool_address, start_tick_index=0)
+    tick1 = derive_raydium_clmm_tick_array_address(pool_address=pool_address, start_tick_index=-600)
+    bitmap = derive_raydium_clmm_tick_array_bitmap_extension_address(pool_address=pool_address)
+    message = b"raydium-cpi-traversal-message"
+    digest = hashlib.sha256(message).hexdigest()
+    order = JupiterOrderTransaction(
+        provider_id="jupiter-swap-v2", request_id="order", quote_id="quote",
+        observed_at_epoch_ms=1000, taker=taker, fee_payer=taker,
+        input_mint=mint0, output_mint=mint1, input_amount_raw=100,
+        output_amount_raw=190, minimum_output_amount_raw=180,
+        price_impact_pct=0.1, fee_bps=0.0, router="metis", transaction_version=0,
+        last_valid_block_height=950, recent_blockhash="blockhash",
+        message_bytes=message, serialized_transaction_bytes=b"unsigned",
+        route_plan=(JupiterRouteStep(pool_address, "Raydium CLMM", mint0, mint1, 100, 190, 100.0, 10_000),),
+        signature_fee_lamports=5000, prioritization_fee_lamports=0, rent_fee_lamports=0,
+    )
+    pool = RaydiumClmmPoolState(
+        pool_address=pool_address, bump=1, amm_config=amm_config,
+        pool_creator=key(), token_mint_0=mint0, token_mint_1=mint1,
+        token_vault_0=key(), token_vault_1=key(), observation_key=observation,
+        mint_decimals_0=6, mint_decimals_1=6, tick_spacing=10,
+        liquidity=1000, sqrt_price_x64=1 << 64, tick_current=5,
+        status=0, fee_on=0, seed_index=0, account_data_sha256="a" * 64,
+    )
+    pool_check = RaydiumClmmPoolRouteCheck(True, pool, mint0, mint1)
+    pool_evidence = DexPoolEvidenceSnapshot(
+        route_message_sha256=digest, registry_sha256="registry",
+        simulation_response_id="sim-cpi", simulation_context_slot=500,
+        provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        context_slot=501, accounts=(),
+    )
+    vaults = RaydiumClmmVaultSnapshot(
+        route_message_sha256=digest, simulation_response_id="sim-cpi",
+        simulation_context_slot=500, provider_id="rpc-primary",
+        cluster="mainnet-beta", genesis_hash="genesis", context_slot=502, vaults=(),
+    )
+    simulation = SimulationEvidence(
+        message_sha256=digest, recent_blockhash="blockhash",
+        cluster="mainnet-beta", genesis_hash="genesis", provider_id="rpc-primary",
+        response_id="sim-cpi", observed_at_epoch_ms=1000, context_slot=500,
+        current_block_height=900, last_valid_block_height=950, simulation_error=None,
+        units_consumed=100_000, fee_lamports=5000, token_balances=(),
+    )
+    bitmap_data = bytearray(TICK_ARRAY_BITMAP_EXTENSION_DATA_LENGTH)
+    bitmap_data[:8] = TICK_ARRAY_BITMAP_EXTENSION_DISCRIMINATOR
+    bitmap_data[8:40] = bytes(Pubkey.from_string(key() if bad_bitmap_pool else pool_address))
+    accounts = {
+        tick0: account(tick_array_data(pool_address, 0)),
+        tick1: account(tick_array_data(pool_address, -600)),
+    }
+    cpi_order = (tick0, bitmap, tick1) if include_bitmap else (tick0, tick1)
+    if include_bitmap:
+        accounts[bitmap] = account(bytes(bitmap_data))
+    if reverse:
+        cpi_order = tuple(reversed(cpi_order))
+    cpi = RaydiumClmmCpiResult(
+        passed=True, message_sha256=digest, program_id=RAYDIUM_CLMM_MAINNET_PROGRAM_ID,
+        outer_instruction_index=0, cpi_instruction_index=0, payer=taker,
+        input_token_account=key(), output_token_account=key(),
+        amm_config=amm_config, pool_state=pool_address, input_vault=pool.token_vault_0,
+        output_vault=pool.token_vault_1, observation_state=observation,
+        tick_array_accounts=cpi_order, amount_raw=100, minimum_output_raw=180,
+        sqrt_price_limit_x64=1, is_base_input=True, stack_height=2,
+        source_commit=RAYDIUM_CLMM_SOURCE_COMMIT,
+    )
+    session = FakeSession(accounts, slot=slot)
+    adapter = SolanaRpcSimulationAdapter(
+        endpoint="https://rpc.example.test", provider_id="rpc-primary",
+        cluster="mainnet-beta", expected_genesis_hash="genesis",
+        allowed_hosts=("rpc.example.test",), session=session, clock_ms=lambda: 1000,
+    )
+    return order, cpi, pool_evidence, pool_check, vaults, simulation, adapter, session, bitmap
+
+
+def fetch(values=None):
+    order, cpi, pool_evidence, pool_check, vaults, simulation, adapter, *_ = values or fixture()
+    return fetch_raydium_clmm_cpi_tick_array_snapshot(
+        order, cpi=cpi, pool_evidence=pool_evidence, pool_check=pool_check,
+        vault_snapshot=vaults, simulation=simulation, rpc_adapter=adapter,
+    )
+
+
+def test_fetches_all_cpi_tick_arrays_in_exact_order_and_bitmap_extension():
+    values = fixture()
+    result = fetch(values)
+    assert result.execution_ready is False
+    assert result.cpi_account_order == values[1].tick_array_accounts
+    assert tuple(item.start_tick_index for item in result.tick_arrays) == (0, -600)
+    assert result.bitmap_extension_address == values[8]
+    assert result.bitmap_extension_sha256 is not None
+    assert len(result.bitmap_extension_sha256) == 64
+    request = next(call for call in values[7].calls if call["method"] == "getMultipleAccounts")
+    assert request["params"][1]["minContextSlot"] == 502
+
+
+def test_fetches_all_tick_arrays_when_no_bitmap_extension_is_required():
+    values = fixture(include_bitmap=False)
+    result = fetch(values)
+    assert result.bitmap_extension_address is None
+    assert len(result.tick_arrays) == 2
+
+
+def test_rejects_nonmonotonic_cpi_tick_array_order():
+    values = fixture(reverse=True, include_bitmap=False)
+    with pytest.raises(RaydiumClmmCpiTickArrayError, match="strictly ordered"):
+        fetch(values)
+
+
+def test_rejects_wrong_bitmap_pool_and_stale_account_snapshot():
+    values = fixture(bad_bitmap_pool=True)
+    with pytest.raises(RaydiumClmmCpiTickArrayError, match="different pool"):
+        fetch(values)
+    values = fixture(slot=501)
+    with pytest.raises(Exception, match="older than the required simulation slot"):
+        fetch(values)
+
+
+def test_rejects_wrong_bitmap_owner_length_and_discriminator():
+    values = fixture()
+    with pytest.raises(RaydiumClmmCpiTickArrayError, match="owner"):
+        validate_raydium_clmm_tick_array_bitmap_extension(
+            address=values[8], owner=str(Pubkey.new_unique()), lamports=1,
+            executable=False, data=bytes(TICK_ARRAY_BITMAP_EXTENSION_DATA_LENGTH),
+            expected_pool_address=values[3].pool.pool_address,
+        )
+    with pytest.raises(RaydiumClmmCpiTickArrayError, match="discriminator"):
+        validate_raydium_clmm_tick_array_bitmap_extension(
+            address=values[8], owner=RAYDIUM_CLMM_PROGRAM_ID, lamports=1,
+            executable=False, data=bytes(TICK_ARRAY_BITMAP_EXTENSION_DATA_LENGTH),
+            expected_pool_address=values[3].pool.pool_address,
+        )
