@@ -4,10 +4,12 @@ from dataclasses import replace
 import pytest
 from solders.pubkey import Pubkey
 
+from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
 from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolState,
     RaydiumClmmRewardInfo,
 )
+from veltrix.raydium_clmm_swap_loop_engine import execute_raydium_swap_loop
 from veltrix.raydium_clmm_swap_boundary import (
     RaydiumSwapBoundaryError,
     apply_raydium_swap_boundary,
@@ -157,3 +159,78 @@ def test_boundary_rejects_tick_that_does_not_match_prepared_target():
     wrong_tick = replace(tick, tick_index=tick.tick_index + 10)
     with pytest.raises(RaydiumSwapBoundaryError, match="differs from"):
         transition(prepared, array, wrong_tick)
+
+
+
+def test_outer_loop_crosses_multiple_ticks_in_one_array_with_authenticated_session():
+    p, array, tick10, _ = setup()
+    tick20 = replace(tick10, tick_index=20)
+    ticks = list(array.ticks)
+    ticks[2] = tick20
+    array = replace(array, ticks=tuple(ticks), initialized_tick_count=2)
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True,
+        pool_address=p.pool_address,
+        zero_for_one=False,
+        current_array_start_index=0,
+        first_initialized_array_start_index=0,
+        last_cpi_array_start_index=0,
+        expected_initialized_array_starts=(0,),
+        supplied_initialized_array_starts=(0,),
+        supplied_array_starts=(0,),
+        bitmap_extension_sha256=None,
+        bounded_interval_complete=True,
+    )
+
+    result = execute_raydium_swap_loop(
+        p, (array,), traversal,
+        amount_specified=100_000,
+        trade_fee_rate=3000,
+        zero_for_one=False,
+        is_base_input=True,
+        block_timestamp=100,
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(20),
+        protocol_fee_rate=0,
+        fund_fee_rate=0,
+        recent_epoch=2,
+    )
+
+    assert result.stop_reason == "price_limit_reached"
+    assert result.step_count == 2
+    assert result.boundary_count == 2
+    assert result.state.tick == 20
+    assert result.state.fee_state.liquidity == 10_200
+    final_array = result.mutation_session.tick_arrays[0]
+    assert final_array.initialized_tick_count == 2
+    assert final_array.ticks[1].fee_growth_outside_0_x64 != tick10.fee_growth_outside_0_x64
+    assert final_array.ticks[2].fee_growth_outside_0_x64 != tick20.fee_growth_outside_0_x64
+
+
+def test_outer_loop_fails_closed_when_verified_arrays_cannot_reach_price_limit():
+    p, array, _, _ = setup()
+    traversal = RaydiumClmmBitmapTraversalResult(
+        passed=True,
+        pool_address=p.pool_address,
+        zero_for_one=False,
+        current_array_start_index=0,
+        first_initialized_array_start_index=0,
+        last_cpi_array_start_index=0,
+        expected_initialized_array_starts=(0,),
+        supplied_initialized_array_starts=(0,),
+        supplied_array_starts=(0,),
+        bitmap_extension_sha256=None,
+        bounded_interval_complete=True,
+    )
+    with pytest.raises(ValueError, match="no next initialized tick array"):
+        execute_raydium_swap_loop(
+            p, (array,), traversal,
+            amount_specified=100_000,
+            trade_fee_rate=3000,
+            zero_for_one=False,
+            is_base_input=True,
+            block_timestamp=100,
+            sqrt_price_limit_x64=get_sqrt_price_at_tick(20),
+            protocol_fee_rate=0,
+            fund_fee_rate=0,
+            recent_epoch=2,
+        )

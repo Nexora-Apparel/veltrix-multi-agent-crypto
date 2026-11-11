@@ -28,6 +28,8 @@ from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
     RaydiumTickArrayMutationResult,
     apply_raydium_tick_array_mutation,
+    RaydiumTickArrayMutationSession,
+    apply_raydium_tick_array_mutation_session,
 )
 from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTick,
@@ -52,6 +54,7 @@ class RaydiumSwapBoundaryResult:
     limit_order_unfilled_before: int
     limit_order_unfilled_after: int
     crossed_liquidity: bool
+    mutation_session: RaydiumTickArrayMutationSession | None = None
 
 
 def _fee_on_token0(state: RaydiumSwapLoopState) -> bool:
@@ -74,6 +77,8 @@ def apply_raydium_swap_boundary(
     protocol_fee_rate: int,
     fund_fee_rate: int,
     bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
+    mutation_session: RaydiumTickArrayMutationSession | None = None,
+    tick_array_index: int | None = None,
 ) -> RaydiumSwapBoundaryResult:
     """Apply AMM amounts, FIFO matching, conditional tick crossing and mutation.
 
@@ -171,14 +176,37 @@ def apply_raydium_swap_boundary(
         liquidity_next = crossing.liquidity_after
 
     # update_tick_state is applied after the crossing decision in the pinned source.
-    mutation = apply_raydium_tick_array_mutation(
-        applied.pool,
-        tick_array,
-        tick_index=final_tick.tick_index,
-        updated_tick=final_tick,
-        recent_epoch=recent_epoch,
-        bitmap_extension=bitmap_extension,
-    )
+    if mutation_session is None:
+        if tick_array_index is not None:
+            raise RaydiumSwapBoundaryError("tick-array index requires an authenticated mutation session")
+        mutation = apply_raydium_tick_array_mutation(
+            applied.pool,
+            tick_array,
+            tick_index=final_tick.tick_index,
+            updated_tick=final_tick,
+            recent_epoch=recent_epoch,
+            bitmap_extension=bitmap_extension,
+        )
+        next_session = None
+    else:
+        if isinstance(tick_array_index, bool) or not isinstance(tick_array_index, int):
+            raise RaydiumSwapBoundaryError("authenticated mutation session requires a tick-array index")
+        if not 0 <= tick_array_index < len(mutation_session.tick_arrays):
+            raise RaydiumSwapBoundaryError("tick-array index is outside the authenticated mutation session")
+        if mutation_session.tick_arrays[tick_array_index] != tick_array:
+            raise RaydiumSwapBoundaryError("boundary tick array differs from the authenticated working set")
+        next_session, mutation = apply_raydium_tick_array_mutation_session(
+            mutation_session,
+            array_index=tick_array_index,
+            tick_index=final_tick.tick_index,
+            updated_tick=final_tick,
+            recent_epoch=recent_epoch,
+        )
+    if applied.fee_state.amount_specified_remaining != 0 and unfilled_after != unfilled_before:
+        if unfilled_after != 0:
+            raise RaydiumSwapBoundaryError(
+                "source swap loop requires all boundary limit orders to be consumed when swap amount remains"
+            )
 
     tick_after = (
         state.tick_next - 1
@@ -204,4 +232,5 @@ def apply_raydium_swap_boundary(
         limit_order_unfilled_before=unfilled_before,
         limit_order_unfilled_after=unfilled_after,
         crossed_liquidity=crossed_liquidity,
+        mutation_session=next_session,
     )
