@@ -8,6 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from veltrix.raydium_clmm_bitmap_traversal import RaydiumClmmBitmapTraversalResult
+from veltrix.raydium_clmm_bitmap_cursor import (
+    RaydiumBitmapCursorError,
+    first_raydium_tick_array_start_index,
+    next_initialized_raydium_tick_array_start_index,
+)
 from veltrix.raydium_clmm_dynamic_fee import (
     RaydiumDynamicFeeSwapState,
     initialize_dynamic_fee_swap_state,
@@ -35,6 +40,7 @@ from veltrix.raydium_clmm_tick_cursor import (
     select_next_initialized_tick_from_live_bitmap,
 )
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
+from veltrix.raydium_clmm_tick_arrays import raydium_current_tick_array_start
 from veltrix.raydium_clmm_rewards import apply_raydium_pool_reward_update
 from veltrix.raydium_clmm_vaults import apply_raydium_clmm_vault_balance_delta
 
@@ -52,6 +58,76 @@ class RaydiumClmmSwapReplayResult:
     boundary_crossings: int
     amount_specified_remaining: int
     execution_ready: bool = False
+
+
+def _verify_initial_bitmap_traversal(
+    pool,
+    traversal: RaydiumClmmBitmapTraversalResult,
+    *,
+    tick_array_starts: tuple[int, ...],
+    bitmap_extension,
+) -> None:
+    """Recompute the proof's ordered initialized-array sequence from committed bits."""
+    if traversal.pool_address != pool.pool_address:
+        raise RaydiumSwapReplayError("initial bitmap traversal proof belongs to a different pool")
+    if not isinstance(traversal.zero_for_one, bool):
+        raise RaydiumSwapReplayError("initial bitmap traversal direction is malformed")
+    if not traversal.bounded_interval_complete:
+        raise RaydiumSwapReplayError("initial bitmap traversal interval is incomplete")
+    current = raydium_current_tick_array_start(
+        pool.tick_current, pool.tick_spacing
+    )
+    if current != traversal.current_array_start_index:
+        raise RaydiumSwapReplayError("bitmap traversal current-array anchor differs from PoolState.tick_current")
+    try:
+        _, first = first_raydium_tick_array_start_index(
+            pool,
+            zero_for_one=traversal.zero_for_one,
+            bitmap_extension=bitmap_extension,
+        )
+        if first != traversal.first_initialized_array_start_index:
+            raise RaydiumSwapReplayError("bitmap traversal first initialized array is not source-derived")
+        expected = [first]
+        cursor = first
+        last = traversal.last_cpi_array_start_index
+        if raydium_current_tick_array_start(last, pool.tick_spacing) != last:
+            raise RaydiumSwapReplayError("last CPI array start is not canonically aligned")
+        while cursor != last:
+            next_start = next_initialized_raydium_tick_array_start_index(
+                pool,
+                last_tick_array_start_index=cursor,
+                zero_for_one=traversal.zero_for_one,
+                bitmap_extension=bitmap_extension,
+            )
+            if next_start is None:
+                raise RaydiumSwapReplayError("bitmap traversal ends before the last CPI array")
+            if traversal.zero_for_one and next_start < last:
+                raise RaydiumSwapReplayError("bitmap traversal overshoots the last CPI array")
+            if not traversal.zero_for_one and next_start > last:
+                raise RaydiumSwapReplayError("bitmap traversal overshoots the last CPI array")
+            if next_start in expected:
+                raise RaydiumSwapReplayError("bitmap traversal contains a cycle")
+            expected.append(next_start)
+            cursor = next_start
+            if len(expected) > len(tick_array_starts):
+                raise RaydiumSwapReplayError("bitmap traversal exceeds the supplied tick-array account set")
+    except RaydiumBitmapCursorError as exc:
+        raise RaydiumSwapReplayError(f"initial bitmap traversal could not be recomputed: {exc}") from exc
+
+    expected_tuple = tuple(expected)
+    if (
+        expected_tuple != traversal.expected_initialized_array_starts
+        or expected_tuple != traversal.supplied_initialized_array_starts
+        or expected_tuple != traversal.supplied_array_starts
+        or set(expected_tuple) != set(tick_array_starts)
+        or len(expected_tuple) != len(tick_array_starts)
+    ):
+        raise RaydiumSwapReplayError("initial bitmap proof does not match the exact committed CPI array sequence")
+    expected_extension_hash = (
+        bitmap_extension.data_sha256 if bitmap_extension is not None else None
+    )
+    if traversal.bitmap_extension_sha256 != expected_extension_hash:
+        raise RaydiumSwapReplayError("bitmap traversal proof extension commitment is stale")
 
 
 def _fee_on_token0(fee_on: int, zero_for_one: bool) -> bool:
@@ -91,22 +167,15 @@ def replay_raydium_clmm_swap(
         raise RaydiumSwapReplayError("validated Raydium replay account bundle is required")
     if not isinstance(traversal, RaydiumClmmBitmapTraversalResult) or traversal.passed is not True:
         raise RaydiumSwapReplayError("passed initial bitmap traversal proof is required")
-    if traversal.pool_address != bundle.pool.pool_address:
-        raise RaydiumSwapReplayError("initial bitmap traversal proof belongs to a different pool")
     if traversal.zero_for_one is not zero_for_one:
         raise RaydiumSwapReplayError("initial bitmap traversal direction differs from the requested swap")
-    if not traversal.bounded_interval_complete:
-        raise RaydiumSwapReplayError("initial bitmap traversal interval is incomplete")
     starts = tuple(item.start_tick_index for item in bundle.tick_arrays)
-    if (
-        set(starts) != set(traversal.supplied_array_starts)
-        or len(starts) != len(traversal.supplied_array_starts)
-        or traversal.expected_initialized_array_starts
-        != traversal.supplied_initialized_array_starts
-        or traversal.expected_initialized_array_starts
-        != traversal.supplied_array_starts
-    ):
-        raise RaydiumSwapReplayError("account bundle does not match the exact initial CPI tick-array set")
+    _verify_initial_bitmap_traversal(
+        bundle.pool,
+        traversal,
+        tick_array_starts=starts,
+        bitmap_extension=bundle.bitmap_extension,
+    )
     if not isinstance(zero_for_one, bool) or not isinstance(is_base_input, bool):
         raise RaydiumSwapReplayError("swap direction and exactness flags must be boolean")
     if isinstance(amount_specified, bool) or not isinstance(amount_specified, int) or not 0 < amount_specified < (1 << 64):
