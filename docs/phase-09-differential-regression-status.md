@@ -58,3 +58,29 @@ The regression PRs form a draft dependency chain: **#86 → #87 → #88 → #89*
 - No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast, or live trading was introduced by this work.
 - Value/risk gates and live execution remain locked.
 - CI success is software regression evidence only. It is not certification, on-chain parity, or authorization to enable execution.
+
+
+## Serialization and settlement progress (2026-11-11)
+
+The following draft PRs extend the test-only reconciliation into byte-preserving account serializers and immutable balance transitions. CI counts are full Python suites; all listed runs skipped the live Solana smoke steps.
+
+| PR | Added capability | Passed | Skipped | CI |
+|---|---|---:|---:|---|
+| [#90](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/90) | Swap-loop source-order specification and blocker record | 1,363 | 5 | Passed |
+| [#91](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/91) | TickArrayState and bitmap-extension serializers; post-mutation hashes | 1,364 | 5 | Passed |
+| [#92](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/92) | Lossless PoolState serializer; bitmap and post-swap hash commits | 1,367 | 5 | Passed |
+| [#93](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/93) | ObservationState serializer and mutation hash commits | 1,369 | 5 | Passed |
+| [#94](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/94) | Classic SPL vault serializer and direction-aware pool-vault settlement | 1,376 | 5 | Passed |
+
+The serialization work preserves source account images and opaque bytes where the Python state model does not explicitly represent them. Encoders validate their output through the canonical decoders where applicable. Vault settlement is bound to PoolState token-0/token-1 mint and vault identities and follows the pinned `exact_internal` transfer direction.
+
+## Current release blockers after PR #94
+
+1. **Executable swap-loop orchestrator:** the source-order specification exists, but the Python components are not yet composed into one deterministic, atomic replay of the full pinned `swap_internal` loop.
+2. **Independent Rust/Python parity:** compatibility regressions compare historical Python behavior with canonical Python transitions. No executable differential harness against the pinned Rust program has passed.
+3. **User token-account and transfer reconciliation:** pool vault deltas are modeled; user token account bytes, CPI transfer effects, actual before/after balance reloads, and exact-in/exact-out wrapper constraints are not yet replayed end-to-end.
+4. **Complete account post-state:** PoolState, TickArrayState, bitmap-extension, ObservationState, and classic SPL pool vaults have serializers. Exact replay still needs atomic coordination of all post-state accounts and reconciliation of every token delta/fee destination.
+5. **Live Solana validation:** discovery, market-data, finalized-account, and transaction replay smoke checks remain skipped. No on-chain behavior is certified.
+6. **Host isolation and independent review:** supported Linux process/filesystem/mount isolation and independent source review remain unverified.
+
+All PRs #86–#94 remain draft/unmerged. Do not merge a partial dependency chain or enable live execution based on green Python CI. Signing, wallet access, submission, broadcast, and real-money execution remain disabled.
