@@ -46,7 +46,7 @@ jobs:
             reference/raydium-clmm/programs/amm/tests/phase09_differential.rs
           sed -i '/^\[dev-dependencies\]/a serde_json = "1"' \
             reference/raydium-clmm/programs/amm/Cargo.toml
-          python scripts/export_raydium_differential_vectors.py \
+          PYTHONPATH=. python scripts/export_raydium_differential_vectors.py \
             --output reference/raydium-clmm/programs/amm/tests/phase09_python_vectors.json
 
       - name: Set up Rust
