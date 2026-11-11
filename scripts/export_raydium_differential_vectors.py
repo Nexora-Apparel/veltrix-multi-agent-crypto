@@ -19,6 +19,7 @@ from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
 from veltrix.raydium_clmm_dynamic_fee import RaydiumDynamicFeeSwapState
 from veltrix.raydium_clmm_swap_inner_iteration import RaydiumClmmSwapInnerIterationResult
 from veltrix.raydium_clmm_pool_post_swap_finalization import finalize_raydium_pool_after_swap
+from veltrix.raydium_clmm_tick_array_mutation import _flip_bitmap
 from veltrix.raydium_clmm_limit_orders import RaydiumLimitOrderMatch
 from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
 from veltrix.raydium_clmm_tick_math import Q64
@@ -455,6 +456,42 @@ def pool_finalization_vectors() -> list[dict]:
             })
     return cases
 
+
+def tick_array_bitmap_vectors() -> list[dict]:
+    cases = []
+    for start_index in (-307200, -600, 0, 600, 306600):
+        pool = RaydiumClmmPoolState(
+            pool_address=str(Pubkey.new_unique()),
+            bump=1,
+            amm_config=str(Pubkey.new_unique()),
+            pool_creator=str(Pubkey.new_unique()),
+            token_mint_0=str(Pubkey.new_unique()),
+            token_mint_1=str(Pubkey.new_unique()),
+            token_vault_0=str(Pubkey.new_unique()),
+            token_vault_1=str(Pubkey.new_unique()),
+            observation_key=str(Pubkey.new_unique()),
+            mint_decimals_0=6,
+            mint_decimals_1=6,
+            tick_spacing=10,
+            liquidity=1000,
+            sqrt_price_x64=Q64,
+            tick_current=0,
+            status=0,
+            fee_on=0,
+            seed_index=0,
+            account_data_sha256="a" * 64,
+            tick_array_bitmap=(0,) * 16,
+        )
+        updated_pool, extension = _flip_bitmap(pool, None, start_index)
+        if extension is not None:
+            raise AssertionError("default bitmap vector unexpectedly used an extension")
+        cases.append({
+            "tick_spacing": 10,
+            "start_index": start_index,
+            "expected_bitmap": list(updated_pool.tick_array_bitmap),
+        })
+    return cases
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -497,6 +534,7 @@ def build_vectors() -> dict:
         "limit_orders": limit_order_vectors(),
         "tick_crossing": tick_crossing_vectors(),
         "pool_finalization": pool_finalization_vectors(),
+        "tick_array_bitmap": tick_array_bitmap_vectors(),
     }
 
 
