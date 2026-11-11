@@ -59,7 +59,8 @@
   const TRADE = "https://transaction-v1-devnet.raydium.io";
   const SOL = "So11111111111111111111111111111111111111112";
   const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-  const MAX_LAMPORTS = 5000000;
+  const TEST_LAMPORTS = 1000000;
+  const MAX_LAMPORTS = TEST_LAMPORTS;
   const RESERVE_LAMPORTS = 50000000;
   const MAX_IMPACT = 2;
   const ALLOWED = new Set([
@@ -129,9 +130,32 @@
     if (!body || typeof body !== "object") throw new Error("Provider returned malformed JSON");
     return body;
   }
+  function bytesEqual(a, b) {
+    if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array) || a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    return diff === 0;
+  }
+  function snapshotUnsignedTransaction(tx) {
+    const bytes = tx.serialize();
+    if (!(bytes instanceof Uint8Array) || bytes.length < 1) throw new Error("Could not serialize the unsigned transaction.");
+    const roundTrip = solanaWeb3.VersionedTransaction.deserialize(bytes);
+    if (!bytesEqual(roundTrip.serialize(), bytes)) throw new Error("Transaction serialization is not stable.");
+    if (roundTrip.signatures.length !== 1 || roundTrip.signatures.some(sig => sig.some(byte => byte !== 0))) {
+      throw new Error("Expected exactly one empty wallet signature slot before Phantom approval.");
+    }
+    return new Uint8Array(bytes);
+  }
+  function assertExactReviewedBytes(tx, reviewedBytes) {
+    const currentBytes = tx.serialize();
+    if (!bytesEqual(currentBytes, reviewedBytes)) throw new Error("Transaction bytes changed after review. Signing blocked.");
+    const reparsed = solanaWeb3.VersionedTransaction.deserialize(reviewedBytes);
+    if (!bytesEqual(reparsed.serialize(), reviewedBytes)) throw new Error("Reviewed transaction bytes failed round-trip verification.");
+    return reparsed;
+  }
   function inspectTransaction(tx) {
     // Fail closed until the full ALT-aware instruction-intent verifier is installed.
-    // Program allowlists and signer checks alone do not establish transaction intent.
+    // Byte binding is not a substitute for semantic verification.
     throw new Error("Transaction intent verification is incomplete. Phantom signing is disabled.");
     const message = tx.message;
     const keys = message.staticAccountKeys;
@@ -145,9 +169,11 @@
     if (!wallet) throw new Error("Connect Phantom first.");
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
     const amount = Number($("amount").value);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > 0.005) throw new Error("Enter an amount greater than zero and no more than 0.005 SOL.");
+    if (!Number.isFinite(amount) || Math.round(amount * 1e9) !== TEST_LAMPORTS) {
+      throw new Error("This isolated test is fixed at exactly 0.001 SOL (1,000,000 lamports).");
+    }
     const lamports = Math.floor(amount * 1e9);
-    if (lamports <= 0 || lamports > MAX_LAMPORTS) throw new Error("Input amount exceeds the hard lamport cap.");
+    if (lamports !== TEST_LAMPORTS || lamports > MAX_LAMPORTS) throw new Error("Input amount differs from the authorized one-time test amount.");
     const balance = await refreshBalance();
     const tokenBalanceBefore = await tokenBalanceRaw();
     if (balance < lamports + RESERVE_LAMPORTS) throw new Error("Insufficient Devnet SOL after preserving the 0.05 SOL reserve.");
@@ -163,12 +189,15 @@
       method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify({computeUnitPriceMicroLamports:"50000",swapResponse:quote,txVersion:"V0",wallet:wallet.toBase58(),wrapSol:true,unwrapSol:false})
     });
-    if (built.success !== true || !Array.isArray(built.data) || !built.data.length || built.data.length > 3) throw new Error("Raydium transaction build failed.");
-    const txs = [], programSet = new Set(); let totalFee = 0;
+    if (built.success !== true || !Array.isArray(built.data) || built.data.length !== 1) {
+      throw new Error("The authorized route must build exactly one transaction; multi-transaction bundles are rejected.");
+    }
+    const txs = [], reviewedBytes = [], programSet = new Set(); let totalFee = 0;
     for (const item of built.data) {
       if (!item || typeof item.transaction !== "string") throw new Error("Malformed unsigned transaction bundle.");
       const bytes = Uint8Array.from(atob(item.transaction), c => c.charCodeAt(0));
       const tx = solanaWeb3.VersionedTransaction.deserialize(bytes);
+      const snapshot = snapshotUnsignedTransaction(tx);
       inspectTransaction(tx);
       const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
       if (simulation.value.err) throw new Error("Devnet simulation rejected transaction: " + JSON.stringify(simulation.value.err));
@@ -176,8 +205,10 @@
       if (fee.value !== null) totalFee += fee.value;
       tx.message.compiledInstructions.forEach(ix => programSet.add(tx.message.staticAccountKeys[ix.programIdIndex].toBase58()));
       txs.push(tx);
+      reviewedBytes.push(snapshot);
     }
-    prepared = {txs, quote:q, impact, lamports, totalFee, programs:[...programSet], tokenBalanceBefore:tokenBalanceBefore.toString()};
+    prepared = {txs, reviewedBytes, quote:q, impact, lamports, totalFee, programs:[...programSet],
+      tokenBalanceBefore:tokenBalanceBefore.toString(), preparedAt:Date.now(), walletAddress:wallet.toBase58()};
     $("inputValue").textContent = fmtRaw(lamports,9) + " SOL";
     $("outputValue").textContent = fmtRaw(q.outputAmount,6) + " USDC";
     $("minimumValue").textContent = fmtRaw(q.otherAmountThreshold,6) + " USDC";
@@ -196,6 +227,15 @@
   }
   async function execute() {
     if (!prepared || !provider || !wallet) throw new Error("No reviewed transaction is ready.");
+    if (Date.now() - prepared.preparedAt > 60000) {
+      invalidatePrepared("Review expired after 60 seconds. Request a fresh quote and transaction.");
+      throw new Error("Reviewed transaction expired.");
+    }
+    if (prepared.walletAddress !== wallet.toBase58() || prepared.txs.length !== 1 ||
+        prepared.reviewedBytes.length !== 1) {
+      invalidatePrepared("Wallet or transaction bundle changed. Request a fresh quote.");
+      throw new Error("Reviewed wallet/bundle binding mismatch.");
+    }
     if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
       invalidatePrepared("Phantom account changed. Reconnect and request a fresh quote.");
       throw new Error("Connected Phantom account no longer matches the reviewed fee payer.");
@@ -205,11 +245,13 @@
     const freshBalance = await refreshBalance();
     if (freshBalance < prepared.lamports + RESERVE_LAMPORTS) throw new Error("Wallet balance changed; quote invalidated.");
     const confirmed = [];
-    for (const tx of prepared.txs) {
+    for (let i = 0; i < prepared.txs.length; i++) {
+      const tx = assertExactReviewedBytes(prepared.txs[i], prepared.reviewedBytes[i]);
       inspectTransaction(tx);
       const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
       if (simulation.value.err) throw new Error("Pre-sign simulation failed; Phantom approval blocked: " + JSON.stringify(simulation.value.err));
-      const result = await provider.signAndSendTransaction(tx, {preflightCommitment:"confirmed",maxRetries:3});
+      const finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i]);
+      const result = await provider.signAndSendTransaction(finalTx, {preflightCommitment:"confirmed",maxRetries:3});
       const signature = typeof result === "string" ? result : result.signature;
       if (!signature) throw new Error("Phantom did not return a transaction signature.");
       const confirmation = await connection.confirmTransaction(signature, "confirmed");
