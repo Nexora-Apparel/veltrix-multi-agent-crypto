@@ -203,7 +203,7 @@ def select_next_initialized_tick_from_bitmap_sequence(
         raise RaydiumTickCursorError("passed bitmap traversal proof is required")
     if traversal.pool_address != bundle.pool.pool_address:
         raise RaydiumTickCursorError("bitmap traversal proof belongs to a different pool")
-    if traversal.zero_for_one not in (True, False):
+    if not isinstance(traversal.zero_for_one, bool):
         raise RaydiumTickCursorError("bitmap traversal direction is invalid")
     if not traversal.bounded_interval_complete:
         raise RaydiumTickCursorError("bitmap traversal interval is not complete")
