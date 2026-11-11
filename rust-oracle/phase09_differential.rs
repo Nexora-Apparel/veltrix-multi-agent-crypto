@@ -346,14 +346,26 @@ fn python_tick_crossing_fee_reward_and_liquidity_vectors_match_pinned_raydium_ru
         };
 
         let reward_vectors = case["rewards"].as_array().unwrap();
-        let mut rewards: [RewardInfo; 3] = std::array::from_fn(|_| RewardInfo::default());
-        for index in 0..3 {
-            let reward = &reward_vectors[index];
-            if reward["initialized"].as_bool().unwrap() {
-                rewards[index].token_mint = Pubkey::new_unique();
-            }
-            rewards[index].reward_growth_global_x64 = parse_u128(&reward["reward_growth_global_x64"]);
-        }
+        let reward0 = &reward_vectors[0];
+        let reward1 = &reward_vectors[1];
+        let reward2 = &reward_vectors[2];
+        let rewards: [RewardInfo; 3] = [
+            RewardInfo {
+                token_mint: if reward0["initialized"].as_bool().unwrap() { Pubkey::new_unique() } else { Pubkey::default() },
+                reward_growth_global_x64: parse_u128(&reward0["reward_growth_global_x64"]),
+                ..RewardInfo::default()
+            },
+            RewardInfo {
+                token_mint: if reward1["initialized"].as_bool().unwrap() { Pubkey::new_unique() } else { Pubkey::default() },
+                reward_growth_global_x64: parse_u128(&reward1["reward_growth_global_x64"]),
+                ..RewardInfo::default()
+            },
+            RewardInfo {
+                token_mint: if reward2["initialized"].as_bool().unwrap() { Pubkey::new_unique() } else { Pubkey::default() },
+                reward_growth_global_x64: parse_u128(&reward2["reward_growth_global_x64"]),
+                ..RewardInfo::default()
+            },
+        ];
 
         let liquidity_net = tick.cross(
             parse_u128(&case["fee_growth_global_0_x64"]),
