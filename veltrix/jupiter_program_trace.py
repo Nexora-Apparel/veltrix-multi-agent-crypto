@@ -15,6 +15,12 @@ from typing import Any
 import requests
 from solders.pubkey import Pubkey
 
+from veltrix.compute_budget import (
+    ComputeBudgetError,
+    ComputeBudgetPolicy,
+    ComputeBudgetResult,
+    validate_compute_budget_instructions,
+)
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
@@ -189,6 +195,7 @@ class JupiterRouteProgramGateResult:
     top_level_program_ids: tuple[str, ...]
     inner_program_ids: tuple[str, ...]
     registry_sha256: str
+    compute_budget: ComputeBudgetResult
 
 
 def evaluate_jupiter_route_programs(
@@ -216,6 +223,15 @@ def evaluate_jupiter_route_programs(
         raise JupiterProgramTraceError("Jupiter route program policy is required")
     if isinstance(now_epoch_ms, bool) or not isinstance(now_epoch_ms, int) or now_epoch_ms <= 0:
         raise JupiterProgramTraceError("now_epoch_ms must be a positive integer")
+
+    try:
+        compute_budget = validate_compute_budget_instructions(
+            order.message_bytes,
+            validation=validation,
+            policy=ComputeBudgetPolicy(),
+        )
+    except ComputeBudgetError as exc:
+        raise JupiterProgramTraceError(f"Compute Budget validation failed: {exc}") from exc
 
     digest = hashlib.sha256(order.message_bytes).hexdigest()
     if (
@@ -302,4 +318,5 @@ def evaluate_jupiter_route_programs(
         top_level_program_ids=top_level,
         inner_program_ids=inner,
         registry_sha256=registry.sha256,
+        compute_budget=compute_budget,
     )

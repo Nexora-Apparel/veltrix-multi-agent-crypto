@@ -1,10 +1,16 @@
-"""Adversarial tests for Jupiter route labels against simulated CPI program IDs."""
+"""Adversarial tests for Jupiter route trace and integrated Compute Budget policy."""
 import dataclasses
 import hashlib
 import json
+import struct
+
 import pytest
+from solders.hash import Hash
+from solders.instruction import AccountMeta, Instruction
+from solders.message import MessageV0, to_bytes_versioned
 from solders.pubkey import Pubkey
 
+from veltrix.compute_budget import COMPUTE_BUDGET_PROGRAM_ID
 from veltrix.jupiter_order import JupiterOrderTransaction, JupiterRouteStep
 from veltrix.jupiter_program_trace import (
     JupiterProgramRegistrySnapshot,
@@ -12,21 +18,61 @@ from veltrix.jupiter_program_trace import (
     JupiterRouteProgramPolicy,
     evaluate_jupiter_route_programs,
 )
-from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult, SimulatedTokenBalance
+from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
 
-def fixture():
-    taker = str(Pubkey.new_unique())
-    jupiter_program = str(Pubkey.new_unique())
-    dex_program = str(Pubkey.new_unique())
-    message = b"exact-order-message"
-    digest = hashlib.sha256(message).hexdigest()
+def compute_limit(value):
+    return Instruction(
+        Pubkey.from_string(COMPUTE_BUDGET_PROGRAM_ID),
+        bytes([2]) + struct.pack("<I", value),
+        [],
+    )
+
+
+def compute_price(value):
+    return Instruction(
+        Pubkey.from_string(COMPUTE_BUDGET_PROGRAM_ID),
+        bytes([3]) + struct.pack("<Q", value),
+        [],
+    )
+
+
+def fixture(*, compute_instructions=(), extra_top_level_program_ids=(), jupiter_instruction_count=1):
+    taker_key = Pubkey.new_unique()
+    jupiter_key = Pubkey.new_unique()
+    dex_key = Pubkey.new_unique()
+    input_mint = str(Pubkey.new_unique())
+    output_mint = str(Pubkey.new_unique())
+    blockhash = Hash.new_unique()
+    jupiter_instruction = Instruction(
+        jupiter_key,
+        b"jupiter-route",
+        [AccountMeta(dex_key, False, False)],
+    )
+    instructions = [jupiter_instruction for _ in range(jupiter_instruction_count)]
+    instructions.extend(
+        Instruction(Pubkey.from_string(program_id), b"unexpected-top-level", [])
+        for program_id in extra_top_level_program_ids
+    )
+    instructions.extend(compute_instructions)
+    message = MessageV0.try_compile(taker_key, instructions, [], blockhash)
+    message_bytes = to_bytes_versioned(message)
+    digest = hashlib.sha256(message_bytes).hexdigest()
+    account_keys = tuple(str(key) for key in message.account_keys)
+    program_ids = tuple(
+        account_keys[int(instruction.program_id_index)]
+        for instruction in message.instructions
+    )
+    taker = str(taker_key)
+    jupiter_program = str(jupiter_key)
+    dex_program = str(dex_key)
+
     route = JupiterRouteStep(
-        amm_key="amm-pool",
+        amm_key=str(Pubkey.new_unique()),
         label="Raydium CLMM",
-        input_mint="input-mint",
-        output_mint="output-mint",
+        input_mint=input_mint,
+        output_mint=output_mint,
         input_amount_raw=1000,
         output_amount_raw=2000,
         percent=100.0,
@@ -39,8 +85,8 @@ def fixture():
         observed_at_epoch_ms=1_000_000,
         taker=taker,
         fee_payer=taker,
-        input_mint="input-mint",
-        output_mint="output-mint",
+        input_mint=input_mint,
+        output_mint=output_mint,
         input_amount_raw=1000,
         output_amount_raw=2000,
         minimum_output_amount_raw=1950,
@@ -49,8 +95,8 @@ def fixture():
         router="metis",
         transaction_version=0,
         last_valid_block_height=950,
-        recent_blockhash="blockhash-1",
-        message_bytes=message,
+        recent_blockhash=str(blockhash),
+        message_bytes=message_bytes,
         serialized_transaction_bytes=b"serialized-transaction",
         route_plan=(route,),
         signature_fee_lamports=5000,
@@ -59,16 +105,16 @@ def fixture():
     )
     validation = TransactionValidationResult(
         message_sha256=digest,
-        message_size=len(message),
+        message_size=len(message_bytes),
         fee_payer=taker,
         required_signers=(taker,),
-        program_ids=(jupiter_program,),
-        instruction_count=1,
-        account_keys=(taker, jupiter_program, dex_program),
+        program_ids=program_ids,
+        instruction_count=len(message.instructions),
+        account_keys=account_keys,
     )
     simulation = SimulationEvidence(
         message_sha256=digest,
-        recent_blockhash="blockhash-1",
+        recent_blockhash=str(blockhash),
         cluster="mainnet-beta",
         genesis_hash="genesis",
         provider_id="rpc-primary",
@@ -81,7 +127,7 @@ def fixture():
         units_consumed=100_000,
         fee_lamports=5000,
         token_balances=(),
-        top_level_program_ids=(jupiter_program,),
+        top_level_program_ids=program_ids,
         inner_program_ids=(dex_program,),
         inner_instruction_count=1,
     )
@@ -129,6 +175,34 @@ def evaluate(values=None):
     )
 
 
+def test_accepts_order_route_when_simulated_cpi_trace_matches_registry():
+    result = evaluate()
+    assert result.passed is True
+    assert result.route_labels == ("Raydium CLMM",)
+    assert len(result.dex_program_ids) == 1
+    assert result.compute_budget.instruction_count == 0
+    assert result.compute_budget.effective_compute_unit_limit == 200_000
+
+
+def test_route_gate_returns_decoded_compute_budget_values():
+    values = fixture(compute_instructions=(compute_limit(250_000), compute_price(1_000)))
+    result = evaluate(values)
+    assert result.compute_budget.compute_unit_limit == 250_000
+    assert result.compute_budget.compute_unit_price_micro_lamports == 1_000
+    assert result.compute_budget.estimated_priority_fee_lamports == 250
+
+
+def test_route_gate_rejects_compute_budget_over_policy():
+    values = fixture(compute_instructions=(compute_limit(300_001),))
+    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
+        evaluate(values)
+
+
+def test_route_gate_rejects_duplicate_compute_budget_instructions():
+    values = fixture(compute_instructions=(compute_price(1), compute_price(2)))
+    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
+        evaluate(values)
+
 
 def test_program_trace_policy_rejects_routers_without_semantic_decoders():
     _, _, _, _, _, policy = fixture()
@@ -138,32 +212,21 @@ def test_program_trace_policy_rejects_routers_without_semantic_decoders():
             dataclasses.replace(policy, allowed_routers=(router,))
 
 
-def test_accepts_order_route_when_simulated_cpi_trace_matches_jupiter_registry():
-    result = evaluate()
-    assert result.passed is True
-    assert result.route_labels == ("Raydium CLMM",)
-    assert len(result.dex_program_ids) == 1
-
-
-def test_rejects_top_level_system_or_token_program_instructions():
+def test_rejects_top_level_system_token_or_associated_token_instructions():
     for extra_program in (
         "11111111111111111111111111111111",
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
         "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
     ):
-        order, validation, simulation, gate, registry, policy = fixture()
-        programs = validation.program_ids + (extra_program,)
-        validation = dataclasses.replace(validation, program_ids=programs)
-        simulation = dataclasses.replace(simulation, top_level_program_ids=programs)
         with pytest.raises(JupiterProgramTraceError, match="top-level message invokes"):
-            evaluate((order, validation, simulation, gate, registry, policy))
+            evaluate(fixture(extra_top_level_program_ids=(extra_program,)))
 
 
 def test_rejects_system_and_associated_token_programs_in_inner_cpi_trace():
     for extra_program in (
         "11111111111111111111111111111111",
         "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
-        "ComputeBudget111111111111111111111111111111",
+        COMPUTE_BUDGET_PROGRAM_ID,
     ):
         order, validation, simulation, gate, registry, policy = fixture()
         simulation = dataclasses.replace(
@@ -176,12 +239,8 @@ def test_rejects_system_and_associated_token_programs_in_inner_cpi_trace():
 
 
 def test_requires_exactly_one_jupiter_aggregator_instruction():
-    order, validation, simulation, gate, registry, policy = fixture()
-    programs = validation.program_ids + validation.program_ids
-    validation = dataclasses.replace(validation, program_ids=programs)
-    simulation = dataclasses.replace(simulation, top_level_program_ids=programs)
     with pytest.raises(JupiterProgramTraceError, match="exactly one approved Jupiter"):
-        evaluate((order, validation, simulation, gate, registry, policy))
+        evaluate(fixture(jupiter_instruction_count=2))
 
 
 def test_rejects_system_program_in_standard_allowlist_configuration():
@@ -209,21 +268,30 @@ def test_rejects_unknown_inner_cpi_program():
 
 def test_rejects_route_label_not_present_in_registry():
     order, validation, simulation, gate, registry, policy = fixture()
+    pairs = ((validation.program_ids[0], "Jupiter V6"),)
     registry = JupiterProgramRegistrySnapshot(
         observed_at_epoch_ms=1_000_000,
-        program_labels=((validation.program_ids[0], "Jupiter V6"),),
+        program_labels=pairs,
         sha256=hashlib.sha256(
-            json.dumps(((validation.program_ids[0], "Jupiter V6"),), separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+            json.dumps(pairs, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
         ).hexdigest(),
     )
     with pytest.raises(JupiterProgramTraceError, match="no locally pinned program ID"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
-def test_rejects_missing_jupiter_aggregator_program():
+def test_rejects_missing_approved_jupiter_aggregator_program():
     order, validation, simulation, gate, registry, policy = fixture()
-    validation = dataclasses.replace(validation, program_ids=("unknown-program",))
-    simulation = dataclasses.replace(simulation, top_level_program_ids=("unknown-program",))
+    alternate = str(Pubkey.new_unique())
+    pairs = tuple(sorted(registry.program_labels + ((alternate, "Jupiter V6"),)))
+    registry = JupiterProgramRegistrySnapshot(
+        observed_at_epoch_ms=1_000_000,
+        program_labels=pairs,
+        sha256=hashlib.sha256(
+            json.dumps(pairs, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        ).hexdigest(),
+    )
+    policy = dataclasses.replace(policy, allowed_jupiter_program_ids=(alternate,))
     with pytest.raises(JupiterProgramTraceError, match="exactly one approved Jupiter"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
@@ -262,10 +330,10 @@ def test_rejects_nonmatching_fee_payer_or_blockhash():
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
-def test_rejects_inner_program_missing_from_validated_accounts():
+def test_rejects_resolved_account_key_evidence_mismatch():
     order, validation, simulation, gate, registry, policy = fixture()
-    validation = dataclasses.replace(validation, account_keys=(validation.fee_payer, validation.program_ids[0]))
-    with pytest.raises(JupiterProgramTraceError, match="absent from validated account keys"):
+    validation = dataclasses.replace(validation, account_keys=validation.account_keys[:-1])
+    with pytest.raises(JupiterProgramTraceError, match="Compute Budget validation failed"):
         evaluate((order, validation, simulation, gate, registry, policy))
 
 
