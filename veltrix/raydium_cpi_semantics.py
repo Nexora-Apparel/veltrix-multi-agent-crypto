@@ -14,6 +14,7 @@ from solders.pubkey import Pubkey
 from veltrix.jupiter_order import JupiterOrderTransaction
 from veltrix.jupiter_program_trace import JupiterRouteProgramGateResult
 from veltrix.jupiter_route_semantics import JupiterRouteSemanticResult
+from veltrix.jupiter_swap_effects import derive_associated_token_address
 from veltrix.simulation_gate import SimulationEvidence, SimulationGateResult
 from veltrix.transaction_validator import TransactionValidationResult
 
@@ -235,8 +236,8 @@ def evaluate_raydium_clmm_cpis(
         amounts.append(decoded.amount_raw)
         thresholds.append(decoded.other_amount_threshold_raw)
 
-    expected_input_ata = __import__("veltrix.jupiter_swap_effects", fromlist=["derive_associated_token_address"]).derive_associated_token_address(order.taker, order.input_mint)
-    expected_output_ata = __import__("veltrix.jupiter_swap_effects", fromlist=["derive_associated_token_address"]).derive_associated_token_address(order.taker, order.output_mint)
+    expected_input_ata = derive_associated_token_address(order.taker, order.input_mint)
+    expected_output_ata = derive_associated_token_address(order.taker, order.output_mint)
     output_indexes = tuple(index for index, mint in route_semantics.token_index_mints if mint == order.output_mint)
     if len(output_indexes) != 1:
         raise RaydiumCpiSemanticError("decoded Jupiter route does not identify exactly one final output token index")
