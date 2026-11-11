@@ -289,8 +289,9 @@ def test_swap_vault_settlement_applies_directional_deltas_and_rehashes_accounts(
     snapshot = fetch(values)
     vault_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
     vault_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    pool_state = values[1][0].pool
     updated_0, updated_1 = apply_raydium_clmm_swap_vault_settlement(
-        vault_0, vault_1,
+        pool_state, vault_0, vault_1,
         amount_0=100,
         amount_1=200,
         zero_for_one=zero_for_one,
@@ -324,9 +325,30 @@ def test_swap_vault_settlement_is_atomic_when_output_vault_would_underflow():
     before = (vault_0.amount_raw, vault_1.amount_raw)
     with pytest.raises(RaydiumClmmVaultError, match="underflows or overflows"):
         apply_raydium_clmm_swap_vault_settlement(
-            vault_0, vault_1,
+            values[1][0].pool, vault_0, vault_1,
             amount_0=10,
             amount_1=vault_1.amount_raw + 1,
             zero_for_one=True,
         )
     assert (vault_0.amount_raw, vault_1.amount_raw) == before
+
+
+def test_swap_vault_settlement_rejects_zero_amounts_and_wrong_pool_identity():
+    values = fixture()
+    snapshot = fetch(values)
+    vault_0 = next(vault for vault in snapshot.vaults if vault.mint == values[8])
+    vault_1 = next(vault for vault in snapshot.vaults if vault.mint == values[9])
+    pool_state = values[1][0].pool
+    with pytest.raises(RaydiumClmmVaultError, match="positive u64"):
+        apply_raydium_clmm_swap_vault_settlement(
+            pool_state, vault_0, vault_1,
+            amount_0=0, amount_1=1, zero_for_one=True,
+        )
+    wrong_pool = dataclasses.replace(
+        pool_state, token_vault_0=str(Pubkey.new_unique())
+    )
+    with pytest.raises(RaydiumClmmVaultError, match="do not match PoolState"):
+        apply_raydium_clmm_swap_vault_settlement(
+            wrong_pool, vault_0, vault_1,
+            amount_0=1, amount_1=1, zero_for_one=True,
+        )
