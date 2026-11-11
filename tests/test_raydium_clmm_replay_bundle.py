@@ -259,3 +259,21 @@ def test_bitmap_extension_must_be_bound_to_the_same_pool_and_committed_bytes():
             pool, tick_arrays=(tick_array,), observation=observation,
             vaults=vaults, bitmap_extension=wrong,
         )
+
+
+def test_rejects_tick_array_count_that_disagrees_with_default_pool_bitmap():
+    pool, tick_array, observation, vaults = fixture()
+    words = list(pool.tick_array_bitmap)
+    words[8] |= 1  # start tick 0 maps to bit 512 in the default bitmap
+    changed_pool = replace(pool, tick_array_bitmap=tuple(words))
+    pool_bytes = encode_raydium_clmm_pool_state(changed_pool)
+    changed_pool = replace(
+        changed_pool,
+        account_data=pool_bytes,
+        account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
+    )
+    with pytest.raises(RaydiumReplayBundleError, match="bitmap bit"):
+        build_raydium_clmm_replay_account_bundle(
+            changed_pool, tick_arrays=(tick_array,),
+            observation=observation, vaults=vaults,
+        )
