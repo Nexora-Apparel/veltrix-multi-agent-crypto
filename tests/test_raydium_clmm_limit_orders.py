@@ -6,6 +6,7 @@ from veltrix.raydium_clmm_limit_orders import (
     FEE_RATE_DENOMINATOR,
     Q64,
     U64_MAX,
+    U128_MAX,
     RaydiumLimitOrderError,
     get_price_from_sqrt_price,
     limit_order_input_with_price,
@@ -47,10 +48,10 @@ def match(state, *, amount, zfo=True, base_input=True, fee_rate=0, fee_on_input=
 
 
 def test_price_from_sqrt_price_uses_source_floor_and_ceiling():
-    # sqrt price 1.5 in Q64.64; squared price is 2.25.
-    sqrt_price = (3 * Q64) // 2
-    assert get_price_from_sqrt_price(sqrt_price, round_up=False) == (9 * Q64 // 4)
-    assert get_price_from_sqrt_price(sqrt_price, round_up=True) == (9 * Q64 // 4)
+    # (Q64 + 1)^2 / Q64 has a non-zero remainder.
+    sqrt_price = Q64 + 1
+    assert get_price_from_sqrt_price(sqrt_price, round_up=False) == Q64 + 2
+    assert get_price_from_sqrt_price(sqrt_price, round_up=True) == Q64 + 3
 
 
 @pytest.mark.parametrize("zfo", [True, False])
@@ -212,3 +213,26 @@ def test_rejects_invalid_unfilled_ratio_and_zero_sqrt_price():
 def test_rejects_amounts_that_overflow_u64():
     with pytest.raises(RaydiumLimitOrderError, match="overflows"):
         match(tick(orders_amount=U64_MAX, part_filled_orders_remaining=1), amount=1)
+
+
+def test_price_helpers_use_directional_reciprocal_price():
+    price = 2 * Q64
+    assert limit_order_output_with_price(10, price, zero_for_one=True) == 20
+    assert limit_order_output_with_price(10, price, zero_for_one=False) == 5
+    assert limit_order_input_with_price(20, price, zero_for_one=True) == 40
+    assert limit_order_input_with_price(5, price, zero_for_one=False) == 10
+
+
+def test_rejects_nonempty_order_state_marked_uninitialized():
+    with pytest.raises(RaydiumLimitOrderError, match="must be initialized"):
+        match(
+            tick(initialized=False),
+            amount=1,
+        )
+
+
+def test_rejects_limit_order_output_over_u128():
+    with pytest.raises(RaydiumLimitOrderError, match="exceeds u128"):
+        limit_order_output_with_price(
+            U64_MAX, U128_MAX, zero_for_one=True
+        )
