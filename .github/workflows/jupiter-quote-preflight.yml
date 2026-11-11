@@ -1,0 +1,38 @@
+name: Jupiter 0.005 SOL quote-only preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quote-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Request read-only Jupiter quote
+        env:
+          JUPITER_API_KEY: ${{ secrets.JUPITER_API_KEY }}
+        run: |
+          mkdir -p artifacts
+          python -m veltrix.jupiter_quote_preflight --amount-raw 5000000 --output artifacts/jupiter-quote-preflight.json
+      - name: Upload quote evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupiter-quote-preflight
+          path: artifacts/jupiter-quote-preflight.json
+          if-no-files-found: warn
+          retention-days: 30
