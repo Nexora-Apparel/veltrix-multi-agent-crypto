@@ -92,6 +92,7 @@ def evaluate_raydium_clmm_cpi_pool_binding(
     if (
         pool.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT
         or cpi.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT
+        or aux_snapshot.source_commit != RAYDIUM_CLMM_SOURCE_COMMIT
     ):
         raise RaydiumClmmPoolBindingError("Raydium decoder source revision is not the pinned revision")
     if (
