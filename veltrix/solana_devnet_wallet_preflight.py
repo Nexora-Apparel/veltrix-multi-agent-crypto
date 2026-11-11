@@ -15,7 +15,7 @@ import requests
 from solders.pubkey import Pubkey
 
 DEVNET_RPC_URL = "https://api.devnet.solana.com"
-DEVNET_GENESIS_HASH = "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC"
+DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 DEFAULT_WALLET = "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
 
 
