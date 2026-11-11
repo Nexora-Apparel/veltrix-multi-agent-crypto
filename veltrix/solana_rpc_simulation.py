@@ -365,11 +365,12 @@ class SolanaRpcSimulationAdapter:
         if lookup_context_slot is not None and pre_slot != lookup_context_slot:
             raise SolanaRpcAdapterError("lookup table and token-account snapshots were not observed at the same context slot")
         pre_accounts = pre_result.get("value")
-        if not isinstance(pre_accounts, list) or len(pre_accounts) != len(addresses):
+        if not isinstance(pre_accounts, list) or len(pre_accounts) != len(tracked_addresses):
             raise SolanaRpcAdapterError("getMultipleAccounts returned an incomplete account list")
+        pre_info_by_address = dict(zip(tracked_addresses, pre_accounts))
         pre_balances = {
-            address: self._token_balance(info, address)
-            for address, info in zip(addresses, pre_accounts)
+            address: self._token_balance(pre_info_by_address[address], address)
+            for address in addresses
         }
 
         try:
@@ -398,7 +399,7 @@ class SolanaRpcSimulationAdapter:
                 "sigVerify": False,
                 "replaceRecentBlockhash": False,
                 "minContextSlot": pre_slot,
-                "accounts": {"encoding": "base64", "addresses": addresses},
+                "accounts": {"encoding": "base64", "addresses": tracked_addresses},
                 "innerInstructions": True,
             }],
         )
