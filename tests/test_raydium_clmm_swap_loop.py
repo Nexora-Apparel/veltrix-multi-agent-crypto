@@ -1,4 +1,6 @@
 """Source-vector tests for Raydium swap-loop tick selection."""
+from dataclasses import replace
+
 import pytest
 from solders.pubkey import Pubkey
 
@@ -105,15 +107,24 @@ def test_empty_current_array_advances_to_next_bitmap_selected_array():
 def test_rejects_cpi_order_that_differs_from_bitmap_proof():
     arrays = (array(0, 1, {5}), array(60, 1, {4}))
     proof = traversal([0, 60], False)
-    bad_proof = RaydiumClmmBitmapTraversalResult(
-        **{**proof.__dict__, "supplied_array_starts": (60, 0)}
-    )
+    bad_proof = replace(proof, supplied_array_starts=(60, 0))
     with pytest.raises(RaydiumSwapLoopSelectionError, match="CPI account order"):
         select_next_initialized_tick(
             tick_arrays=arrays, traversal=bad_proof,
             current_tick=5, current_tick_array_index=0, tick_spacing=1,
             zero_for_one=False, first_tick_array_contains_pool_tick=True,
         )
+
+
+def test_bitmap_selected_arrays_may_skip_empty_array_intervals():
+    arrays = (array(0, 1, set()), array(180, 1, {4}))
+    result = select_next_initialized_tick(
+        tick_arrays=arrays, traversal=traversal([0, 180], False),
+        current_tick=10, current_tick_array_index=0, tick_spacing=1,
+        zero_for_one=False, first_tick_array_contains_pool_tick=True,
+    )
+    assert result.tick.tick_index == 184
+    assert result.tick_array_index == 1
 
 
 def test_rejects_missing_next_tick_array_instead_of_guessing():
