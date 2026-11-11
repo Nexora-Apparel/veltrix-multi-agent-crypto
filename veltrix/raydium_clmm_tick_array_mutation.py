@@ -203,6 +203,7 @@ def apply_raydium_tick_array_mutation(
     *,
     tick_index: int,
     updated_tick: RaydiumClmmTick,
+    recent_epoch: int,
     bitmap_extension: RaydiumClmmTickArrayBitmapExtension | None = None,
 ) -> RaydiumTickArrayMutationResult:
     """Replace one TickState, adjust checked initialized count, and flip bitmap only on 0<->1."""
@@ -232,6 +233,7 @@ def apply_raydium_tick_array_mutation(
             for row in rows:
                 for word in row:
                     _integer(word, 0, U64_MAX, "bitmap-extension word")
+    _integer(recent_epoch, 0, U64_MAX, "recent_epoch")
     _integer(tick_index, RAYDIUM_MIN_TICK, RAYDIUM_MAX_TICK, "tick_index")
     _ticks_per_array(pool.tick_spacing)
     canonical_start = raydium_current_tick_array_start(tick_index, pool.tick_spacing)
@@ -288,7 +290,7 @@ def apply_raydium_tick_array_mutation(
     ticks = list(tick_array.ticks)
     ticks[offset] = updated_tick
     next_array = replace(
-        tick_array, initialized_tick_count=count, ticks=tuple(ticks), data_sha256=""
+        tick_array, initialized_tick_count=count, ticks=tuple(ticks), recent_epoch=recent_epoch, data_sha256=""
     )
     # A mutated in-memory state has no account-byte commitment until serialized.
     return RaydiumTickArrayMutationResult(
