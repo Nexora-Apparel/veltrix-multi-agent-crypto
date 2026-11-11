@@ -85,10 +85,6 @@ def decode_raydium_clmm_observation_state(
         raise RaydiumClmmObservationError("observation or pool public key is invalid") from exc
     if address != expected:
         raise RaydiumClmmObservationError("observation account address differs from PoolState.observation_key")
-    canonical, _ = derive_raydium_clmm_observation_address(pool_id)
-    if address != canonical:
-        raise RaydiumClmmObservationError("observation account is not the canonical pool-derived PDA")
-
     data = account.data_bytes
     if (
         not isinstance(data, bytes)
@@ -108,6 +104,9 @@ def decode_raydium_clmm_observation_state(
     observed_pool = str(Pubkey.from_bytes(data[19:51]))
     if observed_pool != pool_id:
         raise RaydiumClmmObservationError("ObservationState belongs to a different pool")
+    canonical, _ = derive_raydium_clmm_observation_address(observed_pool)
+    if address != canonical:
+        raise RaydiumClmmObservationError("observation account is not the canonical pool-derived PDA")
     if observation_index >= RAYDIUM_OBSERVATION_COUNT:
         raise RaydiumClmmObservationError("ObservationState ring index is outside the 100-entry buffer")
 
