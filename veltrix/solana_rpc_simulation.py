@@ -235,7 +235,10 @@ class SolanaRpcSimulationAdapter:
 
         genesis_hash = self._rpc("getGenesisHash", [])
         if genesis_hash != self.expected_genesis_hash:
-            raise SolanaRpcAdapterError("RPC genesis hash differs from the configured cluster")
+            raise SolanaRpcAdapterError(
+                f"RPC genesis hash mismatch: received {genesis_hash!r}; "
+                f"expected {self.expected_genesis_hash!r} for {self.cluster}"
+            )
         result = self._rpc(
             "getMultipleAccounts",
             [
