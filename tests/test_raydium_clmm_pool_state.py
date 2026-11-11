@@ -375,7 +375,7 @@ def test_rejects_invalid_dynamic_fee_configuration(kwargs):
 
 def test_rejects_nonzero_reserved_dynamic_fee_padding():
     raw, evidence, _, _, _, pool_address, *_ = fixture()
-    changed = _with_dynamic_fee(raw, padding=b"\\x01" + bytes(45))
+    changed = _with_dynamic_fee(raw, padding=bytes([1]) + bytes(45))
     changed_evidence = dataclasses.replace(
         evidence, data_bytes=changed, data_length=len(changed),
         data_sha256=hashlib.sha256(changed).hexdigest(),
