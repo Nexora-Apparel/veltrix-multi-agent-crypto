@@ -226,6 +226,12 @@ def replay_raydium_clmm_swap(
     is_fee_on_input = fee_on_token0 == zero_for_one
     current_tick = pool.tick_current
     current_sqrt_price_x64 = pool.sqrt_price_x64
+    if (
+        isinstance(sqrt_price_limit_x64, bool)
+        or not isinstance(sqrt_price_limit_x64, int)
+        or not 0 < sqrt_price_limit_x64 < (1 << 128)
+    ):
+        raise RaydiumSwapReplayError("sqrt price limit must be a positive u128")
     sqrt_price_limit_min = get_sqrt_price_at_tick(RAYDIUM_MIN_TICK)
     sqrt_price_limit_max = get_sqrt_price_at_tick(RAYDIUM_MAX_TICK)
     if not sqrt_price_limit_min < sqrt_price_limit_x64 < sqrt_price_limit_max:
