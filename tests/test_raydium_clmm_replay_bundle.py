@@ -40,6 +40,7 @@ from veltrix.raydium_clmm_vaults import (
 from veltrix.raydium_clmm_tick_cursor import (
     select_next_initialized_tick_from_bitmap_sequence,
     select_next_initialized_tick_from_live_bitmap,
+    RaydiumTickCursorError,
 )
 from veltrix.raydium_clmm_replay_bundle import (
     RaydiumReplayBundleError,
@@ -484,7 +485,7 @@ def test_live_bitmap_cursor_fails_closed_when_initialized_array_account_is_missi
         account_data=raw_pool,
         account_data_sha256=hashlib.sha256(raw_pool).hexdigest(),
     )
-    with pytest.raises(Exception, match="required initialized TickArrayState account is missing"):
+    with pytest.raises(RaydiumTickCursorError, match="required initialized TickArrayState account is missing"):
         select_next_initialized_tick_from_live_bitmap(
             updated_pool,
             tick_arrays=(base_array,),
