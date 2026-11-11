@@ -15,11 +15,9 @@ from veltrix.dex_pool_evidence import DexPoolAccountEvidence
 from veltrix.raydium_clmm_pool_state import RAYDIUM_CLMM_PROGRAM_ID
 from veltrix.raydium_clmm_observation import (
     RAYDIUM_OBSERVATION_COUNT,
-    RAYDIUM_OBSERVATION_DISCRIMINATOR,
+    RAYDIUM_OBSERVATION_STATE_DISCRIMINATOR,
     RAYDIUM_OBSERVATION_RECORD_LENGTH,
     RAYDIUM_OBSERVATION_STATE_LENGTH,
-    RaydiumClmmObservation,
-    RaydiumClmmObservationState,
     apply_raydium_observation_update,
     decode_raydium_clmm_observation_state,
     derive_raydium_clmm_observation_address,
@@ -83,7 +81,7 @@ def account_fixture(*, initialized, index, last_timestamp, last_cumulative):
     pool = str(Pubkey.new_unique())
     address, _ = derive_raydium_clmm_observation_address(pool)
     data = bytearray(RAYDIUM_OBSERVATION_STATE_LENGTH)
-    data[:8] = RAYDIUM_OBSERVATION_DISCRIMINATOR
+    data[:8] = RAYDIUM_OBSERVATION_STATE_DISCRIMINATOR
     data[8] = int(initialized)
     data[9:17] = (123).to_bytes(8, "little")
     data[17:19] = index.to_bytes(2, "little")
