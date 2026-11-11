@@ -74,7 +74,7 @@ def test_rejects_amm_config_tick_spacing_mismatch():
     {"fund_fee": 1_000_001},
     {"protocol_fee": 700_000, "fund_fee": 400_000},
     {"padding_u32": 1},
-    {"padding": b"\\x01" + bytes(23)},
+    {"padding": bytes([1]) + bytes(23)},
     {"wrong_bump": True},
 ])
 def test_rejects_invalid_amm_config_fee_or_reserved_state(kwargs):
