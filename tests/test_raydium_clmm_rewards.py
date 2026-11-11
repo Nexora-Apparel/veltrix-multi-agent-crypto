@@ -1,10 +1,16 @@
 """Golden and adversarial tests for pinned Raydium reward emissions."""
 from dataclasses import replace
+import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
 
-from veltrix.raydium_clmm_pool_state import RaydiumClmmRewardInfo
+from veltrix.raydium_clmm_pool_state import (
+    RaydiumClmmRewardInfo,
+    decode_raydium_clmm_pool_state,
+    encode_raydium_clmm_pool_state,
+)
+from veltrix.raydium_clmm_rewards import apply_raydium_pool_reward_update
 from veltrix.raydium_clmm_rewards import (
     REWARD_ENDED,
     REWARD_INITIALIZED,
@@ -135,3 +141,20 @@ def test_reward_state_transitions_from_initialized_to_opening_and_ended():
     assert opening.reward_state == REWARD_OPENING
     assert ended.reward_state == REWARD_ENDED
     assert REWARD_UNINITIALIZED == 0
+
+
+def test_pool_reward_update_rehashes_exact_serialized_pool_state():
+    from tests.test_raydium_clmm_pool_state import fixture as pool_fixture
+    _, evidence, _, _, _, pool_address, *_ = pool_fixture()
+    pool = decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool_address
+    )
+    pool = replace(
+        pool,
+        reward_infos=(reward(), RaydiumClmmRewardInfo(), RaydiumClmmRewardInfo()),
+    )
+    updated = apply_raydium_pool_reward_update(pool, curr_timestamp=110)
+    encoded = encode_raydium_clmm_pool_state(updated)
+    assert updated.reward_infos[0].reward_total_emitted == 20
+    assert updated.account_data == encoded
+    assert updated.account_data_sha256 == hashlib.sha256(encoded).hexdigest()
