@@ -156,6 +156,12 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("simulation evidence and gate result refer to different RPC responses")
     if simulation.context_slot != simulation_gate.context_slot:
         raise RaydiumClmmCpiError("simulation evidence and gate result context slots differ")
+    if (
+        tuple(program_gate.top_level_program_ids) != tuple(validation.program_ids)
+        or tuple(simulation.top_level_program_ids) != tuple(validation.program_ids)
+        or tuple(program_gate.inner_program_ids) != tuple(simulation.inner_program_ids)
+    ):
+        raise RaydiumClmmCpiError("program trace evidence differs from the validated transaction or simulation")
     if simulation.simulation_error is not None:
         raise RaydiumClmmCpiError("simulation reported an execution error")
     if swap_effects.simulation_context_slot != simulation.context_slot:
@@ -214,12 +220,16 @@ def evaluate_raydium_clmm_cpi(
         raise RaydiumClmmCpiError("Raydium CLMM CPI payer differs from the Jupiter taker")
     if input_account != expected_input or output_account != expected_output:
         raise RaydiumClmmCpiError("single-hop Raydium CLMM user token accounts differ from the taker's input/output ATAs")
+    if swap_effects.input_token_account != expected_input or swap_effects.output_token_account != expected_output:
+        raise RaydiumClmmCpiError("quote-to-balance gate token accounts differ from the Raydium CPI user accounts")
+    if swap_effects.input_delta_raw != -order.input_amount_raw or swap_effects.output_delta_raw != order.output_amount_raw:
+        raise RaydiumClmmCpiError("quote-to-balance effects differ from the exact Jupiter order amounts")
     if token_program != CLASSIC_TOKEN_PROGRAM_ID:
         raise RaydiumClmmCpiError("Raydium CLMM CPI does not use the classic SPL Token program")
     if input_vault == output_vault or input_account == output_account:
         raise RaydiumClmmCpiError("Raydium CLMM CPI input/output token accounts or vaults unexpectedly alias")
-    if len({amm_config, pool_state, input_vault, output_vault, observation, tick_array}) != 6:
-        raise RaydiumClmmCpiError("Raydium CLMM pool, vault, config, observation or tick-array accounts unexpectedly alias")
+    if len(set(accounts[:10])) != 10:
+        raise RaydiumClmmCpiError("Raydium CLMM fixed account positions unexpectedly alias")
 
     decoded = decode_raydium_clmm_swap(cpi.data)
     quoted_step = order.route_plan[0]
