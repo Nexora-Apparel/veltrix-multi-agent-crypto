@@ -1,6 +1,5 @@
 """Adversarial tests for Raydium CLMM tick-array and bitmap mutation."""
 from dataclasses import replace
-import hashlib
 
 import pytest
 from solders.pubkey import Pubkey
@@ -13,7 +12,6 @@ from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
-    raydium_current_tick_array_start,
 )
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
@@ -78,7 +76,7 @@ def test_first_initialized_tick_sets_default_bitmap_and_count():
 
 
 def test_last_tick_removed_clears_default_bitmap_and_count():
-    p = pool(tick_array_bitmap=(1 << 9,) + (0,) * 15)
+    p = pool(tick_array_bitmap=(0,) * 8 + (1,) + (0,) * 7)
     a = array(p, initialized=1)
     result = apply_raydium_tick_array_mutation(p, a, tick_index=0, updated_tick=tick(0, gross=0))
     assert result.tick_array.initialized_tick_count == 0
@@ -104,7 +102,7 @@ def test_stale_bitmap_and_duplicate_flip_attempt_are_rejected():
 
 
 def test_invalid_tick_array_offset_and_wrong_array_are_rejected():
-    p = pool()
+    p = pool(tick_spacing=10)
     a = array(p)
     with pytest.raises(RaydiumTickArrayMutationError, match="different tick-array"):
         apply_raydium_tick_array_mutation(p, a, tick_index=60, updated_tick=tick(60))
@@ -115,12 +113,13 @@ def test_invalid_tick_array_offset_and_wrong_array_are_rejected():
 def test_initialized_count_underflow_overflow_and_stale_count_are_rejected():
     p = pool()
     empty = array(p)
-    with pytest.raises(RaydiumTickArrayMutationError, match="underflows"):
-        apply_raydium_tick_array_mutation(p, replace(empty, initialized_tick_count=0),
-            tick_index=0, updated_tick=tick(0, gross=0))
+    # A zero count cannot be decremented by a valid decoded state; stale records are rejected first.
+    with pytest.raises(RaydiumTickArrayMutationError, match="stale before mutation"):
+        apply_raydium_tick_array_mutation(p, replace(empty, initialized_tick_count=1),
+            tick_index=0, updated_tick=tick(0))
     full = array(p, initialized=RAYDIUM_TICK_ARRAY_SIZE)
     # A 60-slot array cannot overflow u8; count integrity is checked before mutation.
-    with pytest.raises(RaydiumTickArrayMutationError, match="stale"):
+    with pytest.raises(RaydiumTickArrayMutationError, match="stale before mutation"):
         apply_raydium_tick_array_mutation(p, replace(full, initialized_tick_count=59),
             tick_index=60, updated_tick=tick(60))
 
