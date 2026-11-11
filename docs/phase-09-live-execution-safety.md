@@ -491,3 +491,17 @@ Implemented in `veltrix/raydium_clmm_simulation_state.py`.
 - Adds an explicit `capture_all_non_program_accounts` mode to the RPC simulation adapter. It deterministically captures all validated transaction account keys except tracked token accounts and invoked program IDs, while enforcing the 100-account limit. Explicit observed-account lists and automatic capture cannot be mixed.
 
 **Proof boundary:** this binds the actual simulated pre-state to the decoded Raydium evidence and preserves the actual simulated post-state bytes. It does not yet decode the post-state PoolState/vault/tick-array changes, reproduce the pinned Raydium swap loop, identify exactly which ticks were crossed, or reconcile the resulting pool/vault state against the quoted input/output. Those remain the next replay stage. No signing, submission, broadcast, or live execution is enabled.
+
+### 09.32 — Integer-exact Raydium tick and Q64.64 sqrt-price math
+
+Implemented in `veltrix/raydium_clmm_tick_math.py`, pinned to Raydium source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
+
+- Ports all 19 exact U128 low-limb multiplier constants from `libraries/tick_math.rs`; every multiply is performed with Python integer precision and the same right-shift truncation as the upstream U256 intermediate.
+- Preserves the upstream positive-tick reciprocal operation using `(2^128 - 1) // ratio`.
+- Implements the exact supported tick range `[-443636, 443636]` and source-defined minimum/maximum Q64.64 sqrt-price bounds.
+- Implements the inverse contract—greatest tick with `sqrt_price_at_tick(tick) <= input`—using monotonic integer binary search. It avoids floating-point logarithms while preserving the documented result.
+- Adds hardcoded source-derived boundary/interior vectors, round-trip/floor-boundary tests, randomized monotonicity tests, and strict invalid-type/range rejection.
+
+**Proof boundary:** this is only the tick/sqrt-price primitive. It does not yet implement amount deltas, next-sqrt-price rounding, exact-input/output swap steps, fee-on-input/output calculations, dynamic fees, tick crossing, limit-order matching, rewards, observations or vault settlement. Those must be ported and tested as separate source-matched components before any end-to-end replay can be claimed.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
