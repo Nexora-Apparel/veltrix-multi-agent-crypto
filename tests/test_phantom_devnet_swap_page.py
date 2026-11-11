@@ -245,3 +245,10 @@ def test_fresh_direct_cpmm_transaction_is_audited_in_browser_harness():
     assert harness.exists()
     assert "inspectDirectCpmmTransaction(tx" in harness.read_text(encoding="utf-8")
     assert "node tests/phantom_direct_cpmm_live_audit.mjs" in workflow.read_text(encoding="utf-8")
+
+
+
+def test_browser_alt_evidence_uses_deserialized_state_address_count():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "addresses:state.addresses.length" in source
+    assert "addresses:addresses.length" not in source
