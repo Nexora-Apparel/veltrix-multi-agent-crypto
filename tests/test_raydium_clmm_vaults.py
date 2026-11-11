@@ -13,6 +13,8 @@ from veltrix.raydium_clmm_vaults import (
     CLASSIC_SPL_TOKEN_PROGRAM_ID,
     RaydiumClmmVaultError,
     derive_raydium_clmm_vault_address,
+    encode_raydium_clmm_vault_token_account,
+    apply_raydium_clmm_vault_balance_delta,
     fetch_raydium_clmm_vault_snapshot,
 )
 from veltrix.simulation_gate import SimulationEvidence
@@ -262,3 +264,32 @@ def test_rejects_pool_evidence_from_another_simulation():
             simulation=simulation,
             rpc_adapter=adapter,
         )
+
+
+def test_vault_balance_delta_serializes_exact_u64_amount_and_preserves_other_bytes():
+    snapshot = fetch()
+    vault = snapshot.vaults[0]
+    original = vault.account_data
+    assert len(original) == 165
+    updated = apply_raydium_clmm_vault_balance_delta(
+        vault, delta_raw=-123
+    )
+    assert updated.amount_raw == vault.amount_raw - 123
+    assert int.from_bytes(updated.account_data[64:72], "little") == updated.amount_raw
+    assert updated.account_data[:64] == original[:64]
+    assert updated.account_data[72:] == original[72:]
+    assert updated.data_sha256 == hashlib.sha256(updated.account_data).hexdigest()
+    assert encode_raydium_clmm_vault_token_account(updated) == updated.account_data
+
+    credited = apply_raydium_clmm_vault_balance_delta(
+        updated, delta_raw=500
+    )
+    assert credited.amount_raw == updated.amount_raw + 500
+    assert int.from_bytes(credited.account_data[64:72], "little") == credited.amount_raw
+
+
+@pytest.mark.parametrize("delta", [-1_000_001, 1 << 64, True])
+def test_vault_balance_delta_rejects_underflow_overflow_and_boolean(delta):
+    vault = fetch().vaults[0]
+    with pytest.raises(RaydiumClmmVaultError, match="delta|u64"):
+        apply_raydium_clmm_vault_balance_delta(vault, delta_raw=delta)
