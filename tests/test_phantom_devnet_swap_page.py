@@ -273,4 +273,4 @@ def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert 'throw new Error("Phantom signing is disabled.' in source
     assert '$("execute").disabled = true' in source
-    assert 'textContent="Phantom signing disabled"' not in source
+    assert '$("execute").textContent="Phantom signing disabled"' in source
