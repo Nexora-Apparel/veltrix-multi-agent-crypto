@@ -33,6 +33,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTickArray,
     RaydiumClmmTickArraySnapshot,
     RaydiumClmmTickArrayBitmapExtension,
+    RaydiumClmmTick,
     derive_raydium_clmm_tick_array_address,
 )
 from veltrix.simulation_gate import SimulationEvidence
@@ -97,7 +98,12 @@ def fixture():
     )
     tick_array = RaydiumClmmTickArray(
         address=tick, pool_address=pool, start_tick_index=0, tick_spacing=10,
-        initialized_tick_count=1, recent_epoch=1, ticks=(), data_sha256="c" * 64,
+        initialized_tick_count=1, recent_epoch=1,
+        ticks=(RaydiumClmmTick(
+            tick_index=0, liquidity_net=0, liquidity_gross=1,
+            orders_amount=0, part_filled_orders_remaining=0, initialized=True,
+        ),),
+        data_sha256="c" * 64,
     )
     tick_snapshot = RaydiumClmmTickArraySnapshot(
         digest, "sim-1", 500, "rpc-primary", "mainnet-beta", "genesis", 503,
