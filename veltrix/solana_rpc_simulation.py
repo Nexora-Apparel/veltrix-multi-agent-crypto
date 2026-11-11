@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+import hashlib
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -597,7 +598,6 @@ class SolanaRpcSimulationAdapter:
             post_account = _parse_rpc_account_info(address, post_info)
             if pre_info.owner != post_account.owner or pre_info.executable != post_account.executable:
                 raise SolanaRpcAdapterError("simulated observed account owner or executable status changed")
-            import hashlib
             account_states.append(SimulatedAccountState(
                 address=address,
                 pre_owner=pre_info.owner,
