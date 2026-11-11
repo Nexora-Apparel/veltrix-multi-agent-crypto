@@ -236,6 +236,20 @@
     if (body.error || !("result" in body)) fail("canonical Devnet RPC " + method + " failed");
     return body.result;
   }
+  function validateLookupSelection(lookup, state, slot) {
+    if (state.deactivationSlot !== U64_MAX) fail("ALT is deactivated/deactivating");
+    if (state.lastExtendedSlot > BigInt(slot)) fail("ALT extension slot is in the future");
+    const addresses = state.addresses;
+    const indexes = [...lookup.writableIndexes, ...lookup.readonlyIndexes];
+    if (!indexes.length || indexes.some(i => !Number.isInteger(i) || i < 0 || i >= addresses.length)) fail("ALT index out of range");
+    if (state.lastExtendedSlot === BigInt(slot) && indexes.some(i => i >= state.lastExtendedSlotStartIndex)) {
+      fail("ALT address was extended in the current slot");
+    }
+    return {
+      writable:lookup.writableIndexes.map(i=>addresses[i]),
+      readonly:lookup.readonlyIndexes.map(i=>addresses[i])
+    };
+  }
   async function resolveV0Accounts(message) {
     const genesis = await rpcCall("getGenesisHash", []);
     if (genesis !== GENESIS) fail("RPC genesis hash is not canonical Devnet");
@@ -251,15 +265,9 @@
       if (!info || info.owner !== ALT_PROGRAM || info.executable !== false) fail("ALT missing or has wrong owner/executable flag");
       const data = accountDataBytes(info, "ALT");
       const state = solanaWeb3.AddressLookupTableAccount.deserialize(data);
-      if (state.deactivationSlot !== U64_MAX) fail("ALT is deactivated/deactivating");
-      if (state.lastExtendedSlot > BigInt(slot)) fail("ALT extension slot is in the future");
-      const addresses = state.addresses;
-      const indexes = [...lookup.writableIndexes, ...lookup.readonlyIndexes];
-      if (!indexes.length || indexes.some(i => i >= addresses.length)) fail("ALT index out of range");
-      if (state.lastExtendedSlot === BigInt(slot) &&
-          indexes.some(i => i >= state.lastExtendedSlotStartIndex)) fail("ALT address was extended in the current slot");
-      for (const i of lookup.writableIndexes) writableLoaded.push(addresses[i]);
-      for (const i of lookup.readonlyIndexes) readonlyLoaded.push(addresses[i]);
+      const selected = validateLookupSelection(lookup,state,slot);
+      writableLoaded.push(...selected.writable);
+      readonlyLoaded.push(...selected.readonly);
       lookupEvidence.push({address:tableKey,owner:info.owner,slot,addresses:addresses.length,
         writableIndexes:[...lookup.writableIndexes],readonlyIndexes:[...lookup.readonlyIndexes]});
     }
@@ -601,6 +609,14 @@
     prepared = null; $("execute").disabled = true;
     await refreshBalance();
     status("Confirmed Devnet transaction(s):\n" + confirmed.join("\n") + "\nVerified USDC increase: " + fmtRaw(tokenDelta,6) + " USDC. This did not touch Mainnet.","good");
+  }
+  if (window.__VELTRIX_TEST__ === true) {
+    window.__VELTRIX_TEST_HOOKS__ = {
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,
+      setWalletForTest:value=>{wallet=value;},
+      constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
+        ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
+    };
   }
   if (window.phantom && window.phantom.solana) {
     window.phantom.solana.on("accountChanged", publicKey => {
