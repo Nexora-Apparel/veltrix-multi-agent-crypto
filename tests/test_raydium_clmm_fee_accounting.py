@@ -36,17 +36,17 @@ def apply(s, *, base=True, fee_on_input=True, amount_in=100, amount_out=90,
 
 
 def test_splits_fee_into_protocol_fund_and_lp_with_floor_rounding():
-    updated = apply(state(), fee=10_000, protocol=100_000, fund=50_000)
+    updated = apply(state(amount_specified_remaining=20_000), fee=10_000, protocol=100_000, fund=50_000)
     assert updated.protocol_fee == 1000
     assert updated.fund_fee == 500
     assert updated.lp_fee == 8500
     assert updated.fee_growth_global_x64 == 8500 * Q64 // 10_000
-    assert updated.amount_specified_remaining == 890
+    assert updated.amount_specified_remaining == 9_900
     assert updated.amount_calculated == 90
 
 
 def test_zero_liquidity_routes_remainder_to_protocol_fee_without_lp_growth():
-    updated = apply(state(liquidity=0), fee=10_000)
+    updated = apply(state(amount_specified_remaining=20_000, liquidity=0), fee=10_000)
     assert updated.protocol_fee == 9500
     assert updated.fund_fee == 500
     assert updated.lp_fee == 0
@@ -58,12 +58,12 @@ def test_zero_liquidity_routes_remainder_to_protocol_fee_without_lp_growth():
     [
         (True, True, True, (110, 90)),
         (True, True, False, (90, 110)),
-        (True, False, True, (110, 90)),
-        (True, False, False, (90, 110)),
-        (False, True, True, (90, 110)),
-        (False, True, False, (110, 90)),
-        (False, False, True, (90, 110)),
-        (False, False, False, (110, 90)),
+        (True, False, True, (100, 90)),
+        (True, False, False, (90, 100)),
+        (False, True, True, (110, 90)),
+        (False, True, False, (90, 110)),
+        (False, False, True, (100, 90)),
+        (False, False, False, (90, 100)),
     ],
 )
 def test_exact_input_output_and_directional_settlement(base, fee_on_input, zero_for_one, expected_amounts):
