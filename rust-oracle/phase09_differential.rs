@@ -2,7 +2,7 @@
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo};
+use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, TickState};
 use serde_json::Value;
 
 const PYTHON_VECTORS: &str = include_str!("phase09_python_vectors.json");
@@ -247,6 +247,62 @@ fn python_dynamic_total_fee_rates_match_pinned_raydium_swap_state() {
             actual,
             case["expected_total_fee_rate"].as_u64().unwrap() as u32,
             "total fee-rate mismatch for {name}"
+        );
+    }
+}
+
+
+#[test]
+fn python_fifo_limit_order_vectors_match_pinned_raydium_tick_state() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["limit_orders"].as_array().expect("FIFO limit-order cases");
+    assert_eq!(cases.len(), 6);
+
+    for case in cases {
+        let name = case["name"].as_str().expect("case name");
+        let mut tick = TickState {
+            tick: 0,
+            liquidity_net: 0,
+            liquidity_gross: 0,
+            fee_growth_outside_0_x64: 0,
+            fee_growth_outside_1_x64: 0,
+            reward_growths_outside_x64: [0u128; 3],
+            order_phase: case["order_phase"].as_u64().unwrap(),
+            orders_amount: case["orders_amount"].as_u64().unwrap(),
+            part_filled_orders_remaining: case["part_filled_orders_remaining"].as_u64().unwrap(),
+            unfilled_ratio_x64: parse_u128(&case["unfilled_ratio_x64"]),
+            padding: [0u32; 3],
+        };
+        let result = tick
+            .match_limit_order_with_sqrt_price(
+                case["swap_amount"].as_u64().unwrap(),
+                case["zero_for_one"].as_bool().unwrap(),
+                case["is_base_input"].as_bool().unwrap(),
+                case["fee_rate"].as_u64().unwrap() as u32,
+                case["is_fee_on_input"].as_bool().unwrap(),
+                1u128 << 64,
+            )
+            .unwrap_or_else(|error| panic!("Rust FIFO match failed for {name}: {error:?}"));
+        let expected = &case["expected"];
+        assert_eq!(result.amount_in, parse_u64(&expected["amount_in"]), "amount_in mismatch for {name}");
+        assert_eq!(result.amount_out, parse_u64(&expected["amount_out"]), "amount_out mismatch for {name}");
+        assert_eq!(result.amm_fee_amount, parse_u64(&expected["amm_fee_amount"]), "fee mismatch for {name}");
+        assert_eq!(tick.orders_amount, parse_u64(&expected["orders_amount"]), "orders_amount mismatch for {name}");
+        assert_eq!(
+            tick.part_filled_orders_remaining,
+            parse_u64(&expected["part_filled_orders_remaining"]),
+            "part-filled cohort mismatch for {name}"
+        );
+        assert_eq!(tick.order_phase, parse_u64(&expected["order_phase"]), "FIFO phase mismatch for {name}");
+        assert_eq!(
+            tick.unfilled_ratio_x64,
+            parse_u128(&expected["unfilled_ratio_x64"]),
+            "unfilled ratio mismatch for {name}"
+        );
+        assert_eq!(
+            tick.is_initialized(),
+            expected["initialized"].as_bool().unwrap(),
+            "initialized state mismatch for {name}"
         );
     }
 }
