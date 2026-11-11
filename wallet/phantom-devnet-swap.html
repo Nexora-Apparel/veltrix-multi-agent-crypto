@@ -365,7 +365,9 @@
     const [authority,bump] = solanaWeb3.PublicKey.findProgramAddressSync([POOL_AUTH_SEED],new solanaWeb3.PublicKey(CPMM));
     if (authority.toBase58() !== policy.authority || bump !== pd[328]) fail("CPMM authority PDA/bump mismatch");
     const config = snapshot.get(policy.config), observation = snapshot.get(policy.observation);
-    if (!config || config.owner !== CPMM || b58encode(accountDataBytes(config,"AMM config").slice(0,8)) !== "daf42168cbcb2b6f") fail("AMM config identity mismatch");
+    if (!config || config.owner !== CPMM || b58encode(accountDataBytes(config,"AMM config").slice(0,8)) !== "daf42168cbcb2b6f") {
+      fail("AMM config identity mismatch: "+JSON.stringify({address:policy.config,present:!!config,owner:config?.owner,discriminator:config?b58encode(accountDataBytes(config,"AMM config").slice(0,8)):null}));
+    }
     if (!observation || observation.owner !== CPMM) fail("observation account owner mismatch");
     const vault0 = snapshot.get(readKey(72,104)), vault1 = snapshot.get(readKey(104,136));
     const vaultMint0 = readKey(168,200), vaultMint1 = readKey(200,232);
