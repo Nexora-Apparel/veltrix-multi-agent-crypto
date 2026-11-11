@@ -71,6 +71,15 @@ def _integer(value: int, minimum: int, maximum: int, field: str) -> None:
         raise RaydiumTickArrayMutationError(f"{field} is outside its integer domain")
 
 
+def _sha256(value: str, field: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise RaydiumTickArrayMutationError(f"{field} must be a verified SHA-256 commitment")
+
+
 def _ticks_per_array(tick_spacing: int) -> int:
     _integer(tick_spacing, 1, 0xFFFF, "tick_spacing")
     return RAYDIUM_TICK_ARRAY_SIZE * tick_spacing
@@ -214,6 +223,8 @@ def apply_raydium_tick_array_mutation(
         raise RaydiumTickArrayMutationError("replacement TickState is required")
     if tick_array.pool_address != pool.pool_address or tick_array.tick_spacing != pool.tick_spacing:
         raise RaydiumTickArrayMutationError("tick array does not belong to the supplied pool")
+    _sha256(pool.account_data_sha256, "PoolState account hash")
+    _sha256(tick_array.data_sha256, "TickArrayState account hash")
     if len(tick_array.ticks) != RAYDIUM_TICK_ARRAY_SIZE:
         raise RaydiumTickArrayMutationError("tick array must contain exactly 60 TickState records")
     if len(pool.tick_array_bitmap) != 16:
@@ -242,6 +253,7 @@ def apply_raydium_tick_array_mutation(
             or bitmap_extension.address != derive_raydium_tick_array_bitmap_extension_address(pool.pool_address)
         ):
             raise RaydiumTickArrayMutationError("bitmap extension does not belong to the supplied pool")
+        _sha256(bitmap_extension.data_sha256, "bitmap-extension account hash")
         for rows in (bitmap_extension.positive_bitmaps, bitmap_extension.negative_bitmaps):
             if len(rows) != EXTENSION_BITMAPS or any(len(row) != 8 for row in rows):
                 raise RaydiumTickArrayMutationError("bitmap extension must contain 14 arrays of eight u64 words")
