@@ -32,7 +32,7 @@
   <section class="panel">
     <label for="amount">Swap amount (SOL)</label>
     <input id="amount" inputmode="decimal" value="0.001" autocomplete="off">
-    <div class="tiny">Hard cap: 0.005 SOL. A 0.05 SOL reserve is retained. Price impact must be 2% or less.</div>
+    <div class="tiny">Fixed one-time test amount: 0.001 SOL. A 0.05 SOL reserve is retained. Price impact must be 2% or less.</div>
     <button id="quote" class="secondary" disabled>Get fresh quote</button>
   </section>
   <section class="panel hidden" id="review">
@@ -332,11 +332,8 @@
     const pool = snapshot.get(POOL);
     if (!pool || pool.owner !== CPMM || pool.executable !== false) fail("pool owner/executable mismatch");
     const pd = accountDataBytes(pool,"CPMM pool");
-    if (pd.length < 330 || b58encode(pd.slice(0,8)) !== "2f6b0f2f5f1d0000") {
-      // The account discriminator is checked below against the pinned SHA-derived bytes.
-      const expectedPoolDisc = Uint8Array.from([247,237,227,245,215,195,222,70]);
-      if (pd.length < 330 || !equalBytes(pd.slice(0,8),expectedPoolDisc)) fail("pool state discriminator/layout mismatch");
-    }
+    const expectedPoolDisc = Uint8Array.from([247,237,227,245,215,195,222,70]);
+    if (pd.length < 330 || !equalBytes(pd.slice(0,8),expectedPoolDisc)) fail("pool state discriminator/layout mismatch");
     const readKey = (start,end) => b58encode(pd.slice(start,end));
     if (readKey(8,40) !== policy.config || readKey(72,104) !== policy.vaultIn && readKey(72,104) !== policy.vaultOut ||
         readKey(104,136) !== policy.vaultIn && readKey(104,136) !== policy.vaultOut ||
@@ -391,9 +388,7 @@
       if (index !== 1) return item;
       const dataCopy = new Uint8Array(item.data);
       dataCopy.set(Uint8Array.from(Array.from({length:8},(_,i)=>Number(((actualOutput+1n) >> BigInt(i*8)) & 255n))),9);
-      return new solanaWeb3.MessageCompiledInstruction({
-        programIdIndex:item.programIdIndex,accountKeyIndexes:item.accountKeyIndexes,data:dataCopy
-      });
+      return {programIdIndex:item.programIdIndex,accountKeyIndexes:item.accountKeyIndexes,data:dataCopy};
     });
     const mutatedMessage = new solanaWeb3.MessageV0(tx.message.header,tx.message.staticAccountKeys,
       tx.message.recentBlockhash,mutatedInstructions,tx.message.addressTableLookups);
