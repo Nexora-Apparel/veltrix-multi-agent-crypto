@@ -125,7 +125,9 @@ def test_outstanding_fifo_orders_prevent_liquidity_crossing_and_set_tick_side():
     assert result.crossed_liquidity is False
     assert result.state.fee_state.liquidity == 10_000
     assert result.state.tick == tick.tick_index - 1
-    assert result.mutation.tick_array.ticks[1].orders_amount > 0
+    updated_tick = result.mutation.tick_array.ticks[1]
+    assert updated_tick.orders_amount == 0
+    assert updated_tick.part_filled_orders_remaining > 0
 
 
 def test_exhausting_fifo_orders_allows_liquidity_crossing_in_same_boundary():
