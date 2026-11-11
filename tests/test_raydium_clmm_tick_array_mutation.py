@@ -268,6 +268,39 @@ def test_bitmap_extension_rejects_bad_discriminator_and_wrong_pool():
         )
 
 
+
+@pytest.mark.parametrize("side,array_offset", [
+    *[("positive", index) for index in range(14)],
+    *[("negative", index) for index in range(14)],
+])
+def test_all_extension_bitmap_groups_use_source_indexing(side, array_offset):
+    p = pool(tick_spacing=1)
+    ticks_per_array = RAYDIUM_TICK_ARRAY_SIZE
+    bitmap_span = ticks_per_array * 512
+    if side == "positive":
+        start = (array_offset + 1) * bitmap_span
+        expected_bit = 0
+    else:
+        start = -((array_offset + 1) * bitmap_span + ticks_per_array)
+        expected_bit = 511
+    a = array(p, start=start)
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=derive_raydium_tick_array_bitmap_extension_address(p.pool_address),
+        pool_address=p.pool_address,
+        positive_bitmaps=((0,) * 8,) * 14,
+        negative_bitmaps=((0,) * 8,) * 14,
+        data_sha256="e" * 64,
+    )
+    result = apply_raydium_tick_array_mutation(
+        p, a, recent_epoch=2, tick_index=start,
+        updated_tick=tick(start), bitmap_extension=extension,
+    )
+    rows = result.bitmap_extension.positive_bitmaps if side == "positive" else result.bitmap_extension.negative_bitmaps
+    assert rows[array_offset][expected_bit // 64] == 1 << (expected_bit % 64)
+    other = result.bitmap_extension.negative_bitmaps if side == "positive" else result.bitmap_extension.positive_bitmaps
+    assert not any(any(word for word in row) for row in other)
+
+
 def test_negative_extension_boundary_uses_source_asymmetric_bitmap_bit():
     p = pool(tick_spacing=1)
     start = -(60 * 513)
