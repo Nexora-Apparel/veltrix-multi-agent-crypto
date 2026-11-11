@@ -85,6 +85,47 @@ class SimulatedInnerInstruction:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulationAccountSnapshot:
+    """Same-context pre-state and simulated post-state for one resolved account."""
+
+    address: str
+    pre_exists: bool
+    pre_owner: str | None
+    pre_executable: bool | None
+    pre_lamports: int
+    pre_data: bytes
+    post_exists: bool
+    post_owner: str | None
+    post_executable: bool | None
+    post_lamports: int
+    post_data: bytes
+
+    def __post_init__(self) -> None:
+        _nonempty(self.address, "account snapshot address")
+        for field in ("pre_exists", "post_exists"):
+            if not isinstance(getattr(self, field), bool):
+                raise SimulationGateError(f"{field} must be a boolean")
+        for exists_field, owner_field, executable_field, lamports_field, data_field in (
+            ("pre_exists", "pre_owner", "pre_executable", "pre_lamports", "pre_data"),
+            ("post_exists", "post_owner", "post_executable", "post_lamports", "post_data"),
+        ):
+            exists = getattr(self, exists_field)
+            owner = getattr(self, owner_field)
+            executable = getattr(self, executable_field)
+            lamports = getattr(self, lamports_field)
+            data = getattr(self, data_field)
+            if exists:
+                _nonempty(owner, owner_field)
+                if not isinstance(executable, bool):
+                    raise SimulationGateError(f"{executable_field} must be a boolean for an existing account")
+            elif owner is not None or executable is not None or lamports != 0 or data != b"":
+                raise SimulationGateError(f"missing {exists_field.removesuffix('_exists')} account must have empty state")
+            _nonnegative_int(lamports, lamports_field)
+            if not isinstance(data, bytes) or len(data) > 65_536:
+                raise SimulationGateError(f"{data_field} must be immutable bytes no longer than 65536 bytes")
+
+
+@dataclass(frozen=True, slots=True)
 class SimulationEvidence:
     message_sha256: str
     recent_blockhash: str
@@ -104,6 +145,7 @@ class SimulationEvidence:
     inner_program_ids: tuple[str, ...] = ()
     inner_instruction_count: int = 0
     inner_instructions: tuple[SimulatedInnerInstruction, ...] = ()
+    account_snapshots: tuple[SimulationAccountSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
         for field in (
@@ -140,6 +182,13 @@ class SimulationEvidence:
                 raise SimulationGateError("detailed inner instruction count differs from the program trace")
             if tuple(item.program_id for item in self.inner_instructions) != self.inner_program_ids:
                 raise SimulationGateError("detailed inner instruction program IDs differ from the program trace")
+        if not isinstance(self.account_snapshots, tuple) or any(
+            not isinstance(item, SimulationAccountSnapshot) for item in self.account_snapshots
+        ):
+            raise SimulationGateError("account_snapshots must be an immutable tuple of validated account snapshots")
+        snapshot_addresses = tuple(item.address for item in self.account_snapshots)
+        if len(snapshot_addresses) != len(set(snapshot_addresses)):
+            raise SimulationGateError("simulation account snapshots contain duplicate addresses")
         keys = [(item.token_account, item.mint, item.owner) for item in self.token_balances]
         if len(keys) != len(set(keys)):
             raise SimulationGateError("simulation contains duplicate token-account balance records")

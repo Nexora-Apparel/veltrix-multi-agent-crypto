@@ -73,13 +73,15 @@ class FakeSession:
             assert params[1]["sigVerify"] is False
             assert params[1]["replaceRecentBlockhash"] is False
             assert params[1]["encoding"] == "base64"
-            assert params[1]["accounts"]["addresses"] == self.fixture["addresses"]
+            requested_accounts = params[1]["accounts"]["addresses"]
+            expected_requested = self.fixture.get("expected_simulation_addresses", self.fixture["addresses"])
+            assert requested_accounts == expected_requested
             result = {
                 "context": {"slot": self.fixture["slot"]},
                 "value": {
                     "err": None,
                     "unitsConsumed": 120_000,
-                    "accounts": self.fixture["post_accounts"],
+                    "accounts": [self.fixture["post_accounts"][self.fixture["addresses"].index(address)] if address in self.fixture["addresses"] else self.fixture.get("extra_post_accounts", {}).get(address, {"owner": "11111111111111111111111111111111", "lamports": 1, "executable": False, "data": ["", "base64"], "rentEpoch": 0, "space": 0}) for address in requested_accounts],
                     "innerInstructions": self.fixture.get("inner_instructions", []),
                 },
             }
@@ -99,7 +101,7 @@ class FakeSession:
             else:
                 result = {
                     "context": {"slot": self.fixture["slot"]},
-                    "value": self.fixture["pre_accounts"],
+                    "value": [self.fixture["pre_accounts"][self.fixture["addresses"].index(address)] if address in self.fixture["addresses"] else self.fixture.get("extra_pre_accounts", {}).get(address, {"owner": "11111111111111111111111111111111", "lamports": 1, "executable": False, "data": ["", "base64"], "rentEpoch": 0, "space": 0}) for address in requested],
                 }
         elif method == "getFeeForMessage":
             result = {"context": {"slot": self.fixture["slot"]}, "value": 5_000}
@@ -572,3 +574,74 @@ def test_rejects_mismatched_detailed_cpi_trace_in_simulation_evidence():
     from veltrix.simulation_gate import SimulationEvidence, SimulationGateError
     with pytest.raises(SimulationGateError, match="program IDs differ"):
         SimulationEvidence(message_sha256="a" * 64, recent_blockhash="blockhash", cluster="mainnet-beta", genesis_hash="genesis", provider_id="rpc", response_id="response", observed_at_epoch_ms=1, context_slot=1, current_block_height=1, last_valid_block_height=2, simulation_error=None, units_consumed=1, fee_lamports=1, token_balances=(), inner_program_ids=("program-a",), inner_instruction_count=1, inner_instructions=(SimulatedInnerInstruction(0, "program-b", (), bytes([1]), 1),))
+
+
+def test_captures_same_slot_pre_and_post_state_for_all_resolved_message_accounts():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    resolved_keys = tuple(str(key) for key in message.account_keys)
+    tracked = tuple(dict.fromkeys([item.token_account for item in expected] + list(resolved_keys)))
+    data["expected_simulation_addresses"] = list(tracked)
+    result = adapter(FakeSession(data)).simulate(
+        raw,
+        intent=intent,
+        transaction_policy=tx_policy,
+        expected_token_deltas=expected,
+        minimum_context_slot=490,
+        last_valid_block_height=950,
+        capture_account_snapshots=True,
+    )
+    snapshots = {item.address: item for item in result.evidence.account_snapshots}
+    assert set(snapshots) == set(tracked)
+    assert result.evidence.context_slot == data["slot"]
+    for address in tracked:
+        assert snapshots[address].pre_exists is True
+        assert snapshots[address].post_exists is True
+        assert snapshots[address].pre_owner == snapshots[address].post_owner
+        assert snapshots[address].pre_executable == snapshots[address].post_executable
+    assert all(snapshots[item.token_account].pre_data for item in expected)
+    assert all(snapshots[item.token_account].post_data for item in expected)
+
+
+def test_account_snapshot_capture_rejects_oversized_non_executable_account_data():
+    raw, intent, tx_policy, expected, data = fixture()
+    message = from_bytes_versioned(raw)
+    extra_address = next(
+        str(key) for key in message.account_keys
+        if str(key) not in {item.token_account for item in expected}
+    )
+    tracked = tuple(dict.fromkeys([item.token_account for item in expected] + [str(key) for key in message.account_keys]))
+    data["expected_simulation_addresses"] = list(tracked)
+    oversized = base64.b64encode(bytes(65_537)).decode("ascii")
+    data["extra_pre_accounts"] = {
+        extra_address: {
+            "owner": "11111111111111111111111111111111",
+            "lamports": 1,
+            "executable": False,
+            "data": [oversized, "base64"],
+        }
+    }
+    with pytest.raises(SolanaRpcAdapterError, match="exceeds the data size limit"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            capture_account_snapshots=True,
+        )
+
+
+def test_account_snapshot_capture_requires_explicit_boolean():
+    raw, intent, tx_policy, expected, data = fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="must be a boolean"):
+        adapter(FakeSession(data)).simulate(
+            raw,
+            intent=intent,
+            transaction_policy=tx_policy,
+            expected_token_deltas=expected,
+            minimum_context_slot=490,
+            last_valid_block_height=950,
+            capture_account_snapshots=1,
+        )
