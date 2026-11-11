@@ -346,7 +346,7 @@ def _extension_with_bitmaps(extension, *, positive=None, negative=None):
     digest = hashlib.sha256(raw).hexdigest()
     return dataclasses.replace(
         extension, positive_bitmaps=positive, negative_bitmaps=negative,
-        data_sha256=digest,
+        data_sha256=digest, data_bytes=raw,
     )
 
 
