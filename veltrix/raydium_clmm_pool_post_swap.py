@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 
 from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmDynamicFeeInfo,
     RaydiumClmmPoolState,
+    encode_raydium_clmm_pool_state,
 )
 
 U64_MAX = (1 << 64) - 1
@@ -106,7 +108,7 @@ def apply_raydium_pool_after_swap(
             volatility_accumulator=dynamic_fee_info.volatility_accumulator,
         )
 
-    return replace(
+    next_pool = replace(
         pool,
         tick_current=tick_current,
         sqrt_price_x64=sqrt_price_x64,
@@ -119,6 +121,14 @@ def apply_raydium_pool_after_swap(
         fund_fees_token_1=fund1,
         dynamic_fee_info=next_dynamic,
     )
+    if next_pool.account_data:
+        encoded = encode_raydium_clmm_pool_state(next_pool)
+        next_pool = replace(
+            next_pool,
+            account_data=encoded,
+            account_data_sha256=hashlib.sha256(encoded).hexdigest(),
+        )
+    return next_pool
 
 
 U32_MAX = (1 << 32) - 1
