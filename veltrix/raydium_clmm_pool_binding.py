@@ -18,7 +18,11 @@ from veltrix.raydium_clmm_pool_state import (
 )
 from veltrix.raydium_clmm_vaults import RaydiumClmmVaultSnapshot
 from veltrix.jupiter_swap_effects import CLASSIC_TOKEN_PROGRAM_ID
-from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTickArraySnapshot
+from veltrix.raydium_clmm_tick_arrays import (
+    RaydiumClmmTickArraySnapshot,
+    derive_raydium_clmm_tick_array_address,
+    raydium_current_tick_array_start,
+)
 from veltrix.simulation_gate import SimulationEvidence
 
 
@@ -110,6 +114,9 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         or pool_account.data_sha256 != pool.account_data_sha256
         or hashlib.sha256(pool_account.data_bytes).hexdigest() != pool.account_data_sha256
         or pool_account.data_length != len(pool_account.data_bytes)
+        or pool_account.executable is not False
+        or pool_account.lamports <= 0
+        or pool_account.dex_label != "Raydium CLMM"
     ):
         raise RaydiumClmmPoolBindingError("decoded PoolState hash or owner does not match fetched pool evidence")
 
@@ -157,6 +164,14 @@ def evaluate_raydium_clmm_cpi_pool_binding(
         raise RaydiumClmmPoolBindingError("tick-array snapshot contains an array for a different pool")
     if any(item.tick_spacing != pool.tick_spacing for item in tick_array_snapshot.tick_arrays):
         raise RaydiumClmmPoolBindingError("tick-array spacing differs from the decoded PoolState")
+    expected_current_start = raydium_current_tick_array_start(pool.tick_current, pool.tick_spacing)
+    for item in tick_array_snapshot.tick_arrays:
+        if item.start_tick_index != expected_current_start:
+            raise RaydiumClmmPoolBindingError("tick-array start index is not the pool's current tick array")
+        if derive_raydium_clmm_tick_array_address(
+            pool_address=pool.pool_address, start_tick_index=item.start_tick_index
+        ) != item.address:
+            raise RaydiumClmmPoolBindingError("tick-array address does not match the canonical pool PDA")
 
     if (
         pool_evidence.provider_id != simulation.provider_id
