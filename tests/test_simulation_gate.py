@@ -216,7 +216,7 @@ def test_rejects_invalid_balance_values():
 
 
 
-def test_simulation_evidence_rejects_incomplete_full_inner_instruction_records():
+def test_simulation_evidence_validates_full_inner_instruction_records_when_supplied():
     _, _, _, evidence, _ = valid_fixture()
     program = str(Pubkey.new_unique())
     account = str(Pubkey.new_unique())
@@ -228,12 +228,20 @@ def test_simulation_evidence_rejects_incomplete_full_inner_instruction_records()
         data=b"\\x01",
         stack_height=2,
     )
+    # Program-ID-only evidence remains backward-compatible for older consumers.
+    legacy = dataclasses.replace(
+        evidence,
+        inner_program_ids=(program,),
+        inner_instruction_count=1,
+        inner_instructions=(),
+    )
+    assert legacy.inner_instruction_count == 1
     with pytest.raises(SimulationGateError, match="count differs"):
         dataclasses.replace(
             evidence,
-            inner_program_ids=(program,),
-            inner_instruction_count=1,
-            inner_instructions=(),
+            inner_program_ids=(program, program),
+            inner_instruction_count=2,
+            inner_instructions=(record,),
         )
     with pytest.raises(SimulationGateError, match="program IDs differ"):
         dataclasses.replace(
