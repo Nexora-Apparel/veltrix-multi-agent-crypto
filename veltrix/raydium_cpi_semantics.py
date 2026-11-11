@@ -88,8 +88,7 @@ def decode_raydium_swap_v2(data: bytes) -> DecodedRaydiumSwapV2:
         raise RaydiumCpiSemanticError("Raydium swap_v2 data must be exactly 41 bytes")
     if data[:8] != RAYDIUM_SWAP_V2_DISCRIMINATOR:
         raise RaydiumCpiSemanticError("Raydium CPI is not the pinned swap_v2 instruction")
-    amount, threshold, sqrt_limit = struct.unpack("<QQQ", data[8:32])
-    # The final 16 bytes are u128 sqrt_price_limit_x64, not u64.
+    amount, threshold = struct.unpack("<QQ", data[8:24])
     sqrt_limit = int.from_bytes(data[24:40], "little")
     is_base_input = data[40]
     if amount <= 0 or threshold <= 0:
@@ -156,6 +155,12 @@ def evaluate_raydium_clmm_cpis(
         raise RaydiumCpiSemanticError("simulation context slots differ")
     if tuple(item.program_id for item in simulation.inner_instructions) != simulation.inner_program_ids:
         raise RaydiumCpiSemanticError("detailed inner CPI evidence is missing or inconsistent")
+    if tuple(program_gate.inner_program_ids) != simulation.inner_program_ids:
+        raise RaydiumCpiSemanticError("Jupiter program trace differs from the detailed simulation CPI evidence")
+    if tuple(program_gate.route_labels) != tuple(dict.fromkeys(step.label for step in order.route_plan)):
+        raise RaydiumCpiSemanticError("Jupiter program trace labels differ from the quote route plan")
+    if not set(policy.allowed_program_ids).intersection(program_gate.dex_program_ids):
+        raise RaydiumCpiSemanticError("Raydium program is not present in the approved DEX program trace")
     if len(simulation.inner_instructions) != simulation.inner_instruction_count or not simulation.inner_instructions:
         raise RaydiumCpiSemanticError("complete detailed inner CPI instruction evidence is required")
     if route_semantics.instruction_index < 0:
@@ -185,8 +190,8 @@ def evaluate_raydium_clmm_cpis(
             raise RaydiumCpiSemanticError("Raydium CPI program ID is not locally pinned")
         if inner.stack_height != 2:
             raise RaydiumCpiSemanticError("Raydium CPI must be a direct depth-2 child of the Jupiter route instruction")
-        if len(inner.account_keys) < RAYDIUM_SWAP_V2_FIXED_ACCOUNT_COUNT:
-            raise RaydiumCpiSemanticError("Raydium swap_v2 CPI is missing required fixed accounts")
+        if len(inner.account_keys) <= RAYDIUM_SWAP_V2_FIXED_ACCOUNT_COUNT:
+            raise RaydiumCpiSemanticError("Raydium swap_v2 CPI is missing required tick-array remaining accounts")
         if len(inner.account_keys) > RAYDIUM_SWAP_V2_FIXED_ACCOUNT_COUNT + policy.max_remaining_accounts:
             raise RaydiumCpiSemanticError("Raydium swap_v2 CPI has too many remaining accounts")
         accounts = tuple(_canonical_account(value, f"Raydium CPI account {position}") for position, value in enumerate(inner.account_keys))
@@ -211,6 +216,8 @@ def evaluate_raydium_clmm_cpis(
             raise RaydiumCpiSemanticError("Raydium exact-input amount differs from the quoted route step")
         if decoded.other_amount_threshold_raw > step.output_amount_raw:
             raise RaydiumCpiSemanticError("Raydium minimum output threshold exceeds the quoted route-step output")
+        if inner.program_id not in program_gate.dex_program_ids:
+            raise RaydiumCpiSemanticError("Raydium CPI program is absent from the approved DEX program trace")
         if accounts[2] in seen_pools:
             raise RaydiumCpiSemanticError("duplicate Raydium pool state appears in the same route")
         seen_pools.add(accounts[2])
