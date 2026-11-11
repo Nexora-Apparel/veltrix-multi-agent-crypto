@@ -47,6 +47,7 @@ def fixture(
     route_percent=100.0,
     route_bps=10_000,
     mutate_account=None,
+    mutate_privilege=None,
     trailing_amm=True,
     extra_jupiter_instruction=False,
     extra_data=b"",
@@ -113,6 +114,10 @@ def fixture(
         ])
     if mutate_account is not None:
         accounts[mutate_account] = AccountMeta(Pubkey.new_unique(), False, True)
+    if mutate_privilege is not None:
+        position, signer, writable = mutate_privilege
+        prior = accounts[position]
+        accounts[position] = AccountMeta(prior.pubkey, signer, writable)
 
     route_data = (
         discriminator
@@ -271,6 +276,13 @@ def test_rejects_quoted_route_mint_graph_mismatch():
 def test_rejects_missing_amm_key_from_remaining_accounts():
     with pytest.raises(JupiterV6RouteError, match="AMM keys are absent"):
         inspect(fixture(trailing_amm=False))
+
+
+def test_rejects_fixed_account_privilege_mismatch():
+    with pytest.raises(JupiterV6RouteError, match="fixed account privilege mismatch"):
+        inspect(fixture(mutate_privilege=(2, False, False)))
+    with pytest.raises(JupiterV6RouteError, match="fixed account privilege mismatch"):
+        inspect(fixture(shared=True, mutate_privilege=(4, False, False)))
 
 
 def test_rejects_fixed_account_role_mismatch():
