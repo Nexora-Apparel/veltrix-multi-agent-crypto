@@ -327,7 +327,7 @@ The pool-evidence function now requires the original `SimulationEvidence`, verif
 
 Implemented in `veltrix/raydium_clmm_pool_state.py`, pinned to Raydium's upstream `raydium-clmm` source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`.
 
-- Decodes the exact 1,576-byte Anchor `PoolState` account and checks the `account:PoolState` discriminator.
+- Decodes the exact 1,544-byte Anchor `PoolState` account and checks the `account:PoolState` discriminator.
 - Parses the packed header fields for config, creator, ordered token mints, vaults, observation key, decimals, tick spacing, liquidity, Q64.64 square-root price, current tick, swap status, fee mode, seed index and bump.
 - Re-derives the canonical pool PDA from `pool`, config, sorted mint pair, optional seed-index seed and bump; the derived address must equal the quoted AMM key.
 - Requires the pool account's locally pinned Raydium CLMM owner, evidence hash, canonical mint ordering, distinct vaults, positive liquidity/price/tick spacing, protocol tick bounds, enabled swap status and known fee mode.
@@ -444,4 +444,4 @@ Remaining limitation: strict order and account identity do not yet prove that no
 
 #### Pinned PoolState allocation-size correction
 
-A source-layout audit corrected the full PoolState account allocation from the earlier 1,576-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
+A source-layout audit corrected the full PoolState account allocation from the earlier 1,544-byte assumption to **1,544 bytes**, matching the sum of the exact packed fields and the upstream `PoolState::LEN` expression at commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`. The 397-byte semantic header offsets are unchanged. The fixture now asserts the exact 1,544-byte allocation so a synthetic oversized account cannot mask a decoder/layout mismatch.
