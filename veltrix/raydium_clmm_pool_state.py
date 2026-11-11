@@ -315,6 +315,8 @@ def decode_raydium_clmm_pool_state(
         raise RaydiumClmmPoolStateError("Raydium pool vault identities are invalid")
     if observation in {mint_0, mint_1, vault_0, vault_1}:
         raise RaydiumClmmPoolStateError("Raydium observation account aliases a mint or vault")
+    if fee_on not in (0, 1, 2):
+        raise RaydiumClmmPoolStateError("Raydium pool fee_on mode is invalid")
     if tick_spacing <= 0:
         raise RaydiumClmmPoolStateError("Raydium pool tick spacing must be positive")
     if liquidity <= 0 or sqrt_price_x64 <= 0:
