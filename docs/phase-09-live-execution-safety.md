@@ -662,3 +662,21 @@ Implemented in `veltrix/raydium_clmm_pool_state.py` and `veltrix/raydium_clmm_po
 **Proof boundary:** this is the final PoolState mutation primitive, not the complete transaction replay. It does not settle token vault balances, update tick-array bitmaps/counts, apply all tick-array mutations, or prove that the values supplied came from an exact source-ordered swap loop.
 
 No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
+
+
+### 09.42 — Tick-array mutation and bitmap consistency
+
+Implemented in `veltrix/raydium_clmm_tick_array_mutation.py`, pinned to Raydium CLMM source commit `6d7a0f82d2f293c553c69aaf943377367c6c4cc6` and the upstream `states/tick_array.rs`, `states/pool.rs`, and `states/tickarray_bitmap_extension.rs` transitions.
+
+- Adds immutable TickState replacement at the canonical tick-array offset, with pool identity, tick-spacing, slot-index, integer-domain, liquidity and reserved-padding validation.
+- Reconciles the decoded initialized-tick count against all 60 records before mutation; applies checked u8 increment/decrement semantics and rejects stale or inconsistent counts.
+- Requires the caller's explicit Solana epoch and persists it to `recent_epoch`, matching `TickArrayState::update_tick_state`; invalidates the prior account-data hash whenever the PoolState bitmap, TickArrayState, or bitmap extension is mutated.
+- Enforces the pinned `TickState` widths (u128 liquidity gross/fee/reward growth, u64 order counters/phase, u32 padding), validates all 60 slot identities and the 16-word PoolState bitmap, and preserves the original source account commitments only for unchanged states. Mutations require valid SHA-256 commitments for every source account and clear commitments for changed in-memory state until exact serialization is available.
+- Changes the PoolState default 1024-bit bitmap only when the array transitions between empty and non-empty; validates the prior bit against the prior initialized count to prevent duplicate/stale flips.
+- Adds owner/discriminator/length/pool/PDA-verified decoding for the 1832-byte TickArrayBitmapExtension account.
+- Ports the positive/negative 14-by-512 extension bitmap indexing and bit-flip transitions, including the asymmetric negative-boundary mapping.
+- Adds adversarial tests for first/last initialized tick transitions, unchanged array occupancy, stale bitmap state, duplicate flip attempts, invalid offsets, extension account identity/layout and extension bit selection.
+
+**Proof boundary:** this phase supplies a deterministic per-array mutation primitive and bitmap transition. It does not yet prove exact transaction-level swap-loop ordering, all tick arrays consumed by a swap, serialized post-state account bytes, or quote-to-vault reconciliation. Those remain mandatory before any execution-readiness claim.
+
+No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast or live execution is introduced.
