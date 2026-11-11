@@ -87,3 +87,67 @@ Include fixtures for:
 ## Release gate
 
 The Phantom page must continue to throw from `inspectTransaction` until all checks above are implemented and tested against the exact serialized transaction bytes. A successful quote, simulation, CI run, or Phantom connection is not authorization to sign and is not evidence of an executed swap.
+
+
+## Live transaction fixture findings (2026-11-11)
+
+The unsigned transaction captured by CI run
+[43070594409](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43070594409)
+was decoded as a Solana v0 message. It contains one required signature (the wallet fee payer),
+16 static account keys, five top-level instructions, and one address lookup table. The lookup
+table contributes one writable key and one read-only key. The live simulation logs identify:
+
+- router program: `DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd`;
+- CPMM Devnet program invoked by CPI: `DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb`;
+- pool: `5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo`;
+- input: `1,000,000` lamports;
+- minimum output: `3,396` raw Devnet USDC units;
+- observed CPMM CPI log: `Instruction: SwapBaseInput`.
+
+The two router instructions in this fixture are:
+1. instruction tag `5`, nine bytes total, followed by little-endian u64 `1,000,000`;
+   simulation logs identify this as `process_create_sync_native`;
+2. instruction tag `0`, followed by little-endian u64 input `1,000,000` and
+   little-endian u64 minimum output `3,396`. The SDK route builder serializes this as
+   `u8(insId) + u64(amountIn) + u64(amountOut)` for a CPMM route.
+
+The matching router account order in the pinned SDK implementation is:
+- fixed prefix: classic SPL Token program, Token-2022 program, Associated Token program,
+  System Program, wallet signer, source token account, destination token account;
+- per CPMM pool: CPMM program ID, output token account, input mint, output mint,
+  CPMM authority, AMM config, pool state, input vault, output vault, observation state.
+
+The authoritative Raydium SDK source used for this layout is
+`raydium-io/raydium-sdk-V2` commit
+`1cf5bb129dbbb1c76dab67819c3d478349c8ed25`,
+file `src/raydium/tradeV2/instrument.ts`, function
+`swapBaseInAutoAccount`. This is SDK evidence for instruction construction, not a substitute
+for deployed-program verification. The exact Devnet router deployment and its executable
+semantics still require independent confirmation.
+
+The CPMM instruction schema is mirrored in
+`raydium-io/raydium-idl` commit
+`e7e0c96fe77bcf6a020b84a44c47a722aac8e359`,
+file `raydium_cpmm/raydium_cp_swap.json`. Its `swap_base_input` discriminator bytes are
+`[143,190,90,218,196,30,51,222]`; the deployed Devnet program ID is the Devnet ID listed
+above, not the mainnet `address` field in that IDL.
+
+## Remaining verification requirements specific to the captured fixture
+
+- Resolve lookup table `EFhMuDw1PKEuckuFRW9PavNfTH4LKP5uKHgyXDmWpFCq` from canonical Devnet RPC.
+  Confirm owner is the Address Lookup Table program, deserialize it, validate its lifecycle
+  metadata and index bounds, and reconstruct the complete key list and effective privileges.
+- Decode and validate the first router instruction's complete account list and the
+  `process_create_sync_native` semantics. It must create/fund only the wallet's wrapped-SOL
+  account with exactly 1,000,000 lamports.
+- Decode the route instruction using the pinned SDK layout and match every account position
+  against the resolved ALT-expanded key list and live account state.
+- Verify the CPMM pool state, both vault accounts, both vault mint identities, authority PDA,
+  config and observation account using Devnet account data and the pinned CPMM schema.
+- Inspect transaction metadata with inner instructions enabled and require exactly the expected
+  CPMM CPI plus only the necessary ATA/token/system setup/cleanup CPIs. Simulation logs alone
+  are diagnostic evidence, not a cryptographic proof of the final execution path.
+- Verify the close-token-account CPI returns rent only to the connected wallet and closes only
+  the temporary wrapped-SOL account created by the first router instruction.
+- Keep the signer guard active until these checks and mutation tests are implemented against
+  the captured bytes and a newly built transaction.
