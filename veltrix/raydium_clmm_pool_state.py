@@ -511,7 +511,24 @@ def encode_raydium_clmm_pool_state(pool: RaydiumClmmPoolState) -> bytes:
     data[cursor:cursor + 46] = dynamic.padding
     if len(data) != RAYDIUM_POOL_STATE_LENGTH:
         raise RaydiumClmmPoolStateError("serialized PoolState length differs from the pinned layout")
-    return bytes(data)
+    encoded = bytes(data)
+    evidence = DexPoolAccountEvidence(
+        amm_key=pool.pool_address,
+        dex_label="Raydium CLMM",
+        expected_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        owner_program_id=RAYDIUM_CLMM_PROGRAM_ID,
+        lamports=1,
+        executable=False,
+        data_length=len(encoded),
+        data_sha256=hashlib.sha256(encoded).hexdigest(),
+        data_bytes=encoded,
+    )
+    # Reuse the canonical decoder as a fail-closed post-serialization invariant
+    # check for PDA, enum, reward, dynamic-fee, and fixed-layout constraints.
+    decode_raydium_clmm_pool_state(
+        evidence, expected_pool_address=pool.pool_address
+    )
+    return encoded
 
 
 def validate_raydium_clmm_pool_for_route(
