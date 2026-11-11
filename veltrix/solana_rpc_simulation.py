@@ -454,11 +454,13 @@ class SolanaRpcSimulationAdapter:
                     stack_height=stack_height,
                 ))
         post_accounts = value.get("accounts")
-        if not isinstance(post_accounts, list) or len(post_accounts) != len(addresses):
-            raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state token accounts")
+        if not isinstance(post_accounts, list) or len(post_accounts) != len(tracked_addresses):
+            raise SolanaRpcAdapterError("simulateTransaction omitted requested post-state account snapshots")
+        post_info_by_address = dict(zip(tracked_addresses, post_accounts))
 
         token_balances = []
-        for address, post_info in zip(addresses, post_accounts):
+        for address in addresses:
+            post_info = post_info_by_address[address]
             pre_program, pre_mint, pre_owner, pre_amount = pre_balances[address]
             post_program, post_mint, post_owner, post_amount = self._token_balance(post_info, address)
             if (pre_program, pre_mint, pre_owner) != (post_program, post_mint, post_owner):
@@ -472,6 +474,28 @@ class SolanaRpcSimulationAdapter:
                 token_program_id=pre_program,
             ))
 
+        account_snapshots = []
+        total_snapshot_bytes = 0
+        if capture_account_snapshots:
+            for address in tracked_addresses:
+                pre_state = self._account_snapshot_fields(pre_info_by_address[address], address)
+                post_state = self._account_snapshot_fields(post_info_by_address[address], address)
+                total_snapshot_bytes += len(pre_state[4]) + len(post_state[4])
+                if total_snapshot_bytes > MAX_TOTAL_ACCOUNT_SNAPSHOT_BYTES:
+                    raise SolanaRpcAdapterError("combined account snapshot data exceeds the total size limit")
+                account_snapshots.append(SimulationAccountSnapshot(
+                    address=address,
+                    pre_exists=pre_state[0],
+                    pre_owner=pre_state[1],
+                    pre_executable=pre_state[2],
+                    pre_lamports=pre_state[3],
+                    pre_data=pre_state[4],
+                    post_exists=post_state[0],
+                    post_owner=post_state[1],
+                    post_executable=post_state[2],
+                    post_lamports=post_state[3],
+                    post_data=post_state[4],
+                ))
         fee_result = self._rpc(
             "getFeeForMessage",
             [message_b64, {"commitment": "confirmed", "minContextSlot": simulation_slot}],
@@ -509,5 +533,6 @@ class SolanaRpcSimulationAdapter:
             inner_program_ids=tuple(inner_program_ids),
             inner_instruction_count=len(inner_program_ids),
             inner_instructions=tuple(inner_instructions),
+            account_snapshots=tuple(account_snapshots),
         )
         return RpcSimulationResult(validation=validation, evidence=evidence)
