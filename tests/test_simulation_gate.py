@@ -320,3 +320,26 @@ def test_simulation_evidence_rejects_raw_state_duplicate_of_token_account():
     )
     with pytest.raises(SimulationGateError, match="must not duplicate tracked token"):
         dataclasses.replace(evidence, account_states=(state,))
+
+
+def test_simulation_gate_binds_raw_account_state_to_validated_message_keys():
+    intent, validation, _, evidence, _ = valid_fixture()
+    raw = b"observed account pre/post"
+    state = SimulatedAccountState(
+        address="observed-account",
+        pre_owner="owner-program",
+        post_owner="owner-program",
+        pre_lamports=1,
+        post_lamports=1,
+        pre_executable=False,
+        post_executable=False,
+        pre_data=raw,
+        post_data=raw,
+        pre_data_sha256=__import__("hashlib").sha256(raw).hexdigest(),
+        post_data_sha256=__import__("hashlib").sha256(raw).hexdigest(),
+    )
+    evidence = dataclasses.replace(evidence, account_states=(state,))
+    validated = dataclasses.replace(validation, account_keys=("observed-account",))
+    assert evaluate(evidence, intent=intent, validation=validated).approved is True
+    with pytest.raises(SimulationGateError, match="outside the validated transaction"):
+        evaluate(evidence, intent=intent, validation=validation)
