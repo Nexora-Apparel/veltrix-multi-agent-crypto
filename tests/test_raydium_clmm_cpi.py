@@ -87,7 +87,7 @@ def fixture():
         serialized_transaction_bytes=b"unsigned",
         route_plan=(
             JupiterRouteStep(
-                amm_key="raydium-pool",
+                amm_key=pool,
                 label="Raydium CLMM",
                 input_mint=input_mint,
                 output_mint=output_mint,
@@ -338,3 +338,24 @@ def test_policy_rejects_noncanonical_or_nonpinned_program_id():
         RaydiumClmmCpiPolicy(program_id="not-a-pubkey")
     with pytest.raises(RaydiumClmmCpiError, match="only the source-pinned"):
         RaydiumClmmCpiPolicy(program_id=str(Pubkey.new_unique()))
+
+
+def test_rejects_cpi_pool_different_from_quoted_amm_key():
+    values = list(fixture())
+    values[0] = dataclasses.replace(
+        values[0],
+        route_plan=(dataclasses.replace(values[0].route_plan[0], amm_key=str(Pubkey.new_unique())),),
+    )
+    with pytest.raises(RaydiumClmmCpiError, match="quoted AMM pool key"):
+        evaluate(tuple(values))
+
+
+def test_rejects_duplicate_remaining_tick_array_account():
+    values = list(fixture())
+    simulation = values[2]
+    accounts = list(simulation.inner_instructions[0].account_keys)
+    accounts.append(accounts[9])
+    cpi = dataclasses.replace(simulation.inner_instructions[0], account_keys=tuple(accounts))
+    values[2] = dataclasses.replace(simulation, inner_instructions=(cpi,))
+    with pytest.raises(RaydiumClmmCpiError, match="unexpectedly alias"):
+        evaluate(tuple(values))
