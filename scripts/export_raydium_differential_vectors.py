@@ -10,6 +10,7 @@ from veltrix.raydium_clmm_dynamic_fee import (
     tick_spacing_index_from_tick,
     update_dynamic_fee_reference,
     update_volatility_accumulator,
+    compute_total_fee_rate,
 )
 from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
@@ -159,10 +160,53 @@ def dynamic_fee_vectors() -> dict:
         {"tick": tick, "tick_spacing": spacing, "expected": tick_spacing_index_from_tick(tick, spacing)}
         for tick, spacing in ((-101, 10), (-100, 10), (-1, 10), (1, 10), (101, 10), (123, 1))
     ]
+    fee_rate_cases = []
+    for name, volatility in (
+        ("zero_volatility", 0),
+        ("low_volatility", 100),
+        ("medium_volatility", 10000),
+        ("high_volatility", 100000),
+    ):
+        info = make_dynamic_info()
+        info = RaydiumClmmDynamicFeeInfo(
+            filter_period=info.filter_period,
+            decay_period=info.decay_period,
+            reduction_factor=info.reduction_factor,
+            dynamic_fee_control=info.dynamic_fee_control,
+            max_volatility_accumulator=info.max_volatility_accumulator,
+            tick_spacing_index_reference=info.tick_spacing_index_reference,
+            volatility_reference=info.volatility_reference,
+            volatility_accumulator=volatility,
+            last_update_timestamp=info.last_update_timestamp,
+            padding=info.padding,
+        )
+        fee_rate_cases.append({
+            "name": name,
+            "base_fee_rate": 3000,
+            "tick_spacing": 10,
+            "info": {
+                "filter_period": info.filter_period,
+                "decay_period": info.decay_period,
+                "reduction_factor": info.reduction_factor,
+                "dynamic_fee_control": info.dynamic_fee_control,
+                "max_volatility_accumulator": info.max_volatility_accumulator,
+                "tick_spacing_index_reference": info.tick_spacing_index_reference,
+                "volatility_reference": info.volatility_reference,
+                "volatility_accumulator": info.volatility_accumulator,
+                "last_update_timestamp": info.last_update_timestamp,
+            },
+            "expected_total_fee_rate": compute_total_fee_rate(
+                base_fee_rate=3000,
+                info=info,
+                tick_spacing=10,
+            ),
+        })
+
     return {
         "reference_updates": reference_cases,
         "volatility_updates": accumulator_cases,
         "tick_spacing_indexes": spacing_cases,
+        "total_fee_rates": fee_rate_cases,
     }
 
 def build_vectors() -> dict:
