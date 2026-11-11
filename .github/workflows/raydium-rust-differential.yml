@@ -1,0 +1,73 @@
+name: Raydium Rust differential oracle
+
+on:
+  pull_request:
+    paths:
+      - "veltrix/raydium_clmm_tick_math.py"
+      - "veltrix/raydium_clmm_swap_step_math.py"
+      - "scripts/export_raydium_differential_vectors.py"
+      - "rust-oracle/**"
+      - ".github/workflows/raydium-rust-differential.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  differential:
+    name: Pinned upstream Rust math parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Veltrix
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Export Python reference vectors
+        run: |
+          python scripts/export_raydium_differential_vectors.py \
+            --output reference/raydium-clmm/programs/amm/tests/phase09_python_vectors.json
+
+      - name: Checkout pinned Raydium source
+        uses: actions/checkout@v4
+        with:
+          repository: raydium-io/raydium-clmm
+          ref: 6d7a0f82d2f293c553c69aaf943377367c6c4cc6
+          path: reference/raydium-clmm
+
+      - name: Prepare Rust differential test
+        run: |
+          mkdir -p reference/raydium-clmm/programs/amm/tests
+          cp rust-oracle/phase09_differential.rs \
+            reference/raydium-clmm/programs/amm/tests/phase09_differential.rs
+          sed -i '/^\[dev-dependencies\]/a serde_json = "1"' \
+            reference/raydium-clmm/programs/amm/Cargo.toml
+          python scripts/export_raydium_differential_vectors.py \
+            --output reference/raydium-clmm/programs/amm/tests/phase09_python_vectors.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          work-dir: reference/raydium-clmm
+
+      - name: Run pinned Rust differential oracle
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+        run: |
+          cargo test \
+            --manifest-path reference/raydium-clmm/Cargo.toml \
+            -p raydium-clmm \
+            --features client \
+            --test phase09_differential
