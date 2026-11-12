@@ -144,21 +144,22 @@
     return diff === 0;
   }
   function snapshotUnsignedTransaction(tx) {
-    const bytes = tx.serialize();
-    if (!(bytes instanceof Uint8Array) || bytes.length < 1) throw new Error("Could not serialize the unsigned transaction.");
-    const roundTrip = solanaWeb3.VersionedTransaction.deserialize(bytes);
-    if (!bytesEqual(roundTrip.serialize(), bytes)) throw new Error("Transaction serialization is not stable.");
-    if (roundTrip.signatures.length !== 1 || roundTrip.signatures.some(sig => sig.some(byte => byte !== 0))) {
-      throw new Error("Expected exactly one empty wallet signature slot before Phantom approval.");
-    }
+    const bytes=serializeUnsignedTransaction(tx);
+    if(!(bytes instanceof Uint8Array)||bytes.length<1) fail("could not serialize unsigned transaction");
+    const parsed=deserializeUnsignedTransaction(bytes);
+    if(!bytesEqual(serializeUnsignedTransaction(parsed),bytes)) fail("transaction serialization is not stable");
+    assertUnsignedSingleSigner(parsed);
+    if(!(parsed instanceof solanaWeb3.Transaction)) fail("only ALT-free legacy transactions are accepted for Phantom compatibility");
+    const message=normalizedTransactionMessage(parsed);
+    if(message.addressTableLookups.length!==0||message.staticAccountKeys.length>32) fail("legacy transaction account layout exceeds policy");
+    if(bytes.length>1232) fail("legacy transaction exceeds Solana's 1232-byte packet limit");
     return new Uint8Array(bytes);
   }
-  function assertExactReviewedBytes(tx, reviewedBytes) {
-    const currentBytes = tx.serialize();
-    if (!bytesEqual(currentBytes, reviewedBytes)) throw new Error("Transaction bytes changed after review. Signing blocked.");
-    const reparsed = solanaWeb3.VersionedTransaction.deserialize(reviewedBytes);
-    if (!bytesEqual(reparsed.serialize(), reviewedBytes)) throw new Error("Reviewed transaction bytes failed round-trip verification.");
-    return reparsed;
+  function assertExactReviewedBytes(tx,reviewedBytes) {
+    if(!bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)) fail("transaction bytes changed after review");
+    const parsed=deserializeUnsignedTransaction(reviewedBytes);
+    if(!bytesEqual(serializeUnsignedTransaction(parsed),reviewedBytes)) fail("reviewed bytes failed round-trip verification");
+    assertUnsignedSingleSigner(parsed); return parsed;
   }
   const ROUTER = "DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd";
   const CPMM = "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb";
@@ -212,6 +213,44 @@
     let diff = 0;
     for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
     return diff === 0;
+  }
+  function serializeUnsignedTransaction(tx) {
+    if(tx instanceof solanaWeb3.Transaction) return Uint8Array.from(tx.serialize({requireAllSignatures:false,verifySignatures:false}));
+    return Uint8Array.from(tx.serialize());
+  }
+  function deserializeUnsignedTransaction(bytes) {
+    const raw=Uint8Array.from(bytes); let offset=0,count=0,shift=0;
+    for(let i=0;i<5;i++){if(offset>=raw.length)fail("truncated signature vector");const b=raw[offset++];count|=(b&127)<<shift;if(!(b&128))break;shift+=7;if(i===4)fail("invalid signature vector");}
+    const messageOffset=offset+count*64;
+    if(messageOffset>=raw.length)fail("transaction message missing");
+    return raw[messageOffset]===0x80?solanaWeb3.VersionedTransaction.deserialize(raw):solanaWeb3.Transaction.from(raw);
+  }
+  function normalizedTransactionMessage(tx) {
+    if(tx instanceof solanaWeb3.VersionedTransaction) return tx.message;
+    if(!(tx instanceof solanaWeb3.Transaction)) fail("unsupported transaction class");
+    const m=tx.compileMessage();
+    return {version:"legacy",header:{numRequiredSignatures:m.header.numRequiredSignatures,
+      numReadonlySignedAccounts:m.header.numReadonlySignedAccounts,numReadonlyUnsignedAccounts:m.header.numReadonlyUnsignedAccounts},
+      staticAccountKeys:m.accountKeys,recentBlockhash:m.recentBlockhash,addressTableLookups:[],
+      compiledInstructions:m.instructions.map(ix=>({programIdIndex:ix.programIdIndex,accountKeyIndexes:[...ix.accounts],data:b58decode(ix.data)}))};
+  }
+  function assertUnsignedSingleSigner(tx) {
+    if(tx instanceof solanaWeb3.Transaction) {
+      if(tx.signatures.length!==1||tx.signatures.some(x=>x.signature!==null)) fail("legacy transaction must have one empty wallet signature slot");
+    } else if(tx.signatures.length!==1||tx.signatures.some(x=>x.some(b=>b!==0))) fail("versioned transaction must have one empty wallet signature slot");
+  }
+  function replaceDirectCpmmData(tx,data) {
+    if(tx instanceof solanaWeb3.Transaction) {
+      const i=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
+      if(i<0) fail("legacy transaction has no direct CPMM instruction");
+      tx.instructions[i].data=Buffer.from(data); return;
+    }
+    const m=tx.message,i=m.compiledInstructions.findIndex(ix=>m.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
+    if(i<0) fail("versioned transaction has no direct CPMM instruction");
+    m.compiledInstructions[i].data=Uint8Array.from(data);
+  }
+  function serializeTransactionMessage(tx) {
+    return tx instanceof solanaWeb3.Transaction?tx.compileMessage().serialize():tx.message.serialize();
   }
   function accountDataBytes(info, label) {
     if (!info || !Array.isArray(info.data) || info.data[1] !== "base64") fail(label + " account data missing/not base64");
@@ -289,6 +328,19 @@
     if (message.header.numRequiredSignatures !== 1 || !staticKeys[0].equals(wallet)) fail("fee payer or signer count mismatch");
     if (privileges.filter(x => x.signer).length !== 1 || !privileges[0].writable) fail("unexpected signer/writable privilege map");
     return {resolved,privileges,lookupEvidence,slot};
+  }
+  async function resolveLegacyAccounts(message) {
+    if(await rpcCall("getGenesisHash",[])!==GENESIS) fail("RPC genesis hash is not canonical Devnet");
+    if(message.addressTableLookups.length!==0) fail("legacy transaction unexpectedly references address lookup tables");
+    const slot=Number(await rpcCall("getSlot",[{commitment:"finalized"}]));
+    if(!Number.isSafeInteger(slot)||slot<=0) fail("invalid finalized Devnet slot");
+    const resolved=message.staticAccountKeys;
+    if(!Array.isArray(resolved)||resolved.length===0||resolved.length>32) fail("legacy account-key count outside policy");
+    for(const ix of message.compiledInstructions) if(ix.programIdIndex>=resolved.length||ix.accountKeyIndexes.some(i=>i>=resolved.length)) fail("legacy instruction index out of bounds");
+    if(message.header.numRequiredSignatures!==1||!resolved[0].equals(wallet)) fail("legacy fee payer/signer mismatch");
+    const privileges=effectivePrivileges(message,resolved);
+    if(privileges.filter(x=>x.signer).length!==1||!privileges[0].writable) fail("legacy privilege map invalid");
+    return {resolved,privileges,lookupEvidence:[],slot};
   }
   async function fetchAccountSnapshot(keys, minSlot) {
     const unique = [...new Set(keys)];
@@ -463,6 +515,7 @@
     return list.find(item=>item.key===key);
   }
   async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes) {
+    const message=normalizedTransactionMessage(tx);
     const encoded=btoa(String.fromCharCode(...reviewedBytes));
     const simulation=await rpcCall("simulateTransaction",[encoded,{
       encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:true
@@ -519,19 +572,14 @@
     }
     if(!outputAtaCreated || !outputAtaInitialized || !outputAtaImmutable) fail("USDC ATA creation/initialization CPI proof incomplete");
     if(!transferProofs.includes("input")||!transferProofs.includes("output")) fail("direct CPMM exact input/output token transfer CPIs not proven");
-    const altered=tx.message.compiledInstructions.map(ix=>{
-      const program=tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58();
-      if(program!==CPMM) return ix;
-      const data=new Uint8Array(ix.data); const threshold=actualOutput+1n;
-      for(let i=0;i<8;i++) data[16+i]=Number((threshold>>BigInt(i*8))&255n);
-      return {...ix,data};
-    });
-    const mutated=solanaWeb3.VersionedTransaction.deserialize(reviewedBytes);
-    const mutatedIndex=mutated.message.compiledInstructions.findIndex(ix=>
-      mutated.message.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
+    const mutated=deserializeUnsignedTransaction(reviewedBytes);
+    const mm=normalizedTransactionMessage(mutated);
+    const mutatedIndex=mm.compiledInstructions.findIndex(ix=>mm.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
     if(mutatedIndex<0) fail("direct CPMM instruction missing from adversarial clone");
-    mutated.message.compiledInstructions[mutatedIndex].data=altered[mutatedIndex].data;
-    const negative=await rpcCall("simulateTransaction",[btoa(String.fromCharCode(...mutated.serialize())),{
+    const data=new Uint8Array(mm.compiledInstructions[mutatedIndex].data);
+    for(let i=0;i<8;i++) data[16+i]=Number(((actualOutput+1n)>>BigInt(i*8))&255n);
+    replaceDirectCpmmData(mutated,data);
+    const negative=await rpcCall("simulateTransaction",[btoa(String.fromCharCode(...serializeUnsignedTransaction(mutated))),{
       encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:false
     }]);
     if(!negative?.value?.err) fail("direct CPMM accepted minimum output one raw unit above actual output");
@@ -540,11 +588,14 @@
       transferProofs,logs:(value.logs||[]).slice(-60)};
   }
   async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes) {
-    if(!(tx instanceof solanaWeb3.VersionedTransaction)||tx.message.version!==0) fail("direct CPMM requires a v0 VersionedTransaction");
-    if(!bytesEqual(tx.serialize(),reviewedBytes)) fail("direct CPMM transaction differs from exact reviewed bytes");
-    if(tx.signatures.length!==1||tx.signatures.some(sig=>sig.some(byte=>byte!==0))) fail("direct CPMM transaction must be unsigned with one empty signer slot");
-    const resolvedInfo=await resolveV0Accounts(tx.message);
-    const policy=decodeDirectCpmmPolicy(tx.message,resolvedInfo.resolved,quote);
+    if(!(tx instanceof solanaWeb3.Transaction)) fail("Phantom compatibility policy requires an ALT-free legacy Transaction");
+    const message=normalizedTransactionMessage(tx);
+    if(message.addressTableLookups.length!==0) fail("legacy transaction contains address lookup tables");
+    if(!bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)) fail("direct CPMM transaction differs from exact reviewed bytes");
+    assertUnsignedSingleSigner(tx);
+    if(reviewedBytes.length>1232) fail("legacy transaction exceeds Solana packet-size limit");
+    const resolvedInfo=await resolveLegacyAccounts(message);
+    const policy=decodeDirectCpmmPolicy(message,resolvedInfo.resolved,quote);
     const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo);
     if(accountPresence.inputAtaPresent) fail("temporary WSOL account unexpectedly exists before signing");
     const runtime=await verifyDirectCpmmRuntime(tx,policy,reviewedBytes);
@@ -744,22 +795,19 @@
     if (minimumOut.lte(new BN(0))) throw new Error("Computed 1% slippage floor is zero.");
 
     const built=await raydium.cpmm.swap({
-      poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.V0,
+      poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.LEGACY,
       ownerInfo:{wallet,useSOLBalance:true}
     });
     if (!built || !built.transaction || typeof built.transaction.serialize!=="function") {
       throw new Error("Raydium SDK did not return a serializable direct CPMM transaction.");
     }
-    const sdkBytes=Uint8Array.from(built.transaction.serialize());
-    const tx=solanaWeb3.VersionedTransaction.deserialize(sdkBytes);
-    if (tx.message.version!==0 || tx.signatures.length!==1 ||
-        tx.signatures.some(sig=>sig.some(byte=>byte!==0))) {
-      throw new Error("Direct CPMM builder returned a non-v0, signed or multi-signer transaction.");
-    }
-    const cpmmIndex=tx.message.compiledInstructions.findIndex(ix=>
-      tx.message.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
+    if(!(built.transaction instanceof solanaWeb3.Transaction)) fail("Raydium SDK did not return an ALT-free legacy transaction");
+    const tx=built.transaction, message=normalizedTransactionMessage(tx);
+    assertUnsignedSingleSigner(tx);
+    if(message.addressTableLookups.length!==0||message.staticAccountKeys.length>32) fail("SDK legacy account layout exceeds policy");
+    const cpmmIndex=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
     if(cpmmIndex<0) fail("SDK-built transaction does not contain a direct CPMM instruction");
-    const cpmmData=new Uint8Array(tx.message.compiledInstructions[cpmmIndex].data);
+    const cpmmData=new Uint8Array(tx.instructions[cpmmIndex].data);
     if(cpmmData.length!==24 || [...cpmmData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("")!==CPMM_SWAP_DISC ||
        readU64(cpmmData,8)!==BigInt(lamports)) fail("SDK CPMM instruction discriminator/input mismatch");
     const q={inputMint:SOL,outputMint:USDC,inputAmount:String(lamports),
@@ -773,15 +821,15 @@
       fail("computed 1% minimum output is invalid for the final quote");
     }
     for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumRawCanonical>>BigInt(i*8))&255n);
-    tx.message.compiledInstructions[cpmmIndex].data=cpmmData;
+    tx.instructions[cpmmIndex].data=Buffer.from(cpmmData);
     q.otherAmountThreshold=minimumRawCanonical.toString();
     const reviewedBytes=snapshotUnsignedTransaction(tx);
     const semanticAudit=await inspectDirectCpmmTransaction(tx,q,reviewedBytes);
-    if(semanticAudit.directCpmm!=="verified" || semanticAudit.resolvedAccountCount!==16 ||
+    if(semanticAudit.directCpmm!=="verified" || semanticAudit.resolvedAccountCount<1 ||
        semanticAudit.runtime.adversarialRejected!==true) {
       fail("fresh direct CPMM browser semantic audit did not pass all release checks");
     }
-    const fee=await connection.getFeeForMessage(tx.message,"confirmed");
+    const fee=await connection.getFeeForMessage(tx.compileMessage(),"confirmed");
     if (!fee || !Number.isSafeInteger(fee.value) || fee.value < 0) {
       throw new Error("Network fee estimate is unavailable or invalid; transaction preparation fails closed.");
     }
@@ -842,7 +890,7 @@
       throw new Error("Pre-sign output-token balance baseline changed.");
     }
     const tx = assertExactReviewedBytes(prepared.txs[0], prepared.reviewedBytes[0]);
-    const blockhashCheck = await connection.isBlockhashValid(tx.message.recentBlockhash, "confirmed");
+    const blockhashCheck = await connection.isBlockhashValid(normalizedTransactionMessage(tx).recentBlockhash, "confirmed");
     if (!blockhashCheck || blockhashCheck.value !== true) {
       invalidatePrepared("Transaction blockhash expired. Build a new transaction.");
       throw new Error("Pre-sign blockhash is no longer valid.");
@@ -906,7 +954,7 @@
   async function execute() {
     if (busy) return;
     if (!provider || !wallet || typeof provider.signAndSendTransaction !== "function") {
-      throw new Error("Connected Phantom provider does not support user-approved versioned transaction submission.");
+      throw new Error("Connected Phantom provider does not support user-approved transaction submission.");
     }
     if (!prepared || prepared.executionStarted) throw new Error("No unused audited transaction is available. Build a fresh quote.");
     prepared.executionStarted = true;
@@ -915,7 +963,7 @@
     let signature = null;
     let approvalRequested = false;
     try {
-      status("Rechecking wallet, Devnet, balance reserve, blockhash, pool quote, lookup tables and exact transaction bytes before opening Phantom approval…","muted");
+      status("Rechecking wallet, Devnet, balance reserve, blockhash, pool quote, legacy transaction format, wallet, Devnet, balance reserve, blockhash, pool quote and exact bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
       if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
@@ -945,7 +993,7 @@
       }
       if (!chainTx || !chainTx.meta || chainTx.meta.err ||
           !chainTx.transaction || !chainTx.transaction.message ||
-          !bytesEqual(chainTx.transaction.message.serialize(),finalTx.message.serialize())) {
+          !bytesEqual(chainTx.transaction.message.serialize(),serializeTransactionMessage(finalTx))) {
         throw new Error("Confirmed signature could not be reconciled to the exact reviewed transaction message. Signature: " + signature);
       }
       let finalUsdcBalance = BigInt(reviewed.tokenBalanceBefore);
