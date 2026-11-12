@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { Raydium, TxVersion, CurveCalculator, FeeOn } from "@raydium-io/raydium-sdk-v2";
 import BN from "bn.js";
 
@@ -102,10 +102,11 @@ async function main() {
   if(!negative.value.err) fail("CPMM accepted a minimum output one raw unit above the observed output");
   const message=tx.compileMessage();
   const keys=message.accountKeys.map(k=>k.toBase58());
-  const ixSummary=message.instructions.map(ix=>({
-    programId:keys[ix.programIdIndex],
-    accountIndexes:[...ix.accounts],
-    dataBase58:Buffer.from(ix.data,"base58").toString("base64")
+  const ixSummary=tx.instructions.map(ix=>({
+    programId:ix.programId.toBase58(),
+    programIdIndex:keys.indexOf(ix.programId.toBase58()),
+    accountIndexes:ix.keys.map(meta=>keys.indexOf(meta.pubkey.toBase58())),
+    dataBase64:Buffer.from(ix.data).toString("base64")
   }));
   if (!ixSummary.some(ix=>ix.programId==="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb")) fail("built transaction has no direct CPMM instruction");
   if (ixSummary.some(ix=>ix.programId==="DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd")) fail("router instruction found in direct pool build");
