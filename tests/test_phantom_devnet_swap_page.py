@@ -347,7 +347,9 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "txVersion:TxVersion.LEGACY" in builder
     assert "tx.serialize({requireAllSignatures:false,verifySignatures:false})" in builder
     assert "built.transaction.setSigners(owner)" in builder
+    assert "connection.getLatestBlockhash(\"confirmed\")" in builder
     assert "built.transaction.setSigners(wallet)" in page
+    assert "connection.getLatestBlockhash(\"confirmed\")" in page
     assert "1232-byte packet limit" in builder
     assert 'transaction_version:"legacy"' in builder
     assert "address_lookup_tables:[]" in builder
