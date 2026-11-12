@@ -346,6 +346,8 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     harness = (root / "tests" / "phantom_direct_cpmm_live_audit.mjs").read_text(encoding="utf-8")
     assert "txVersion:TxVersion.LEGACY" in builder
     assert "tx.serialize({requireAllSignatures:false,verifySignatures:false})" in builder
+    assert "built.transaction.setSigners(owner)" in builder
+    assert "built.transaction.setSigners(wallet)" in page
     assert "1232-byte packet limit" in builder
     assert 'transaction_version:"legacy"' in builder
     assert "address_lookup_tables:[]" in builder
