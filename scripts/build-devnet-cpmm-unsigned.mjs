@@ -76,6 +76,9 @@ async function main() {
       typeof built.transaction.compileMessage !== "function" || typeof built.transaction.setSigners !== "function") {
     fail("SDK did not return a serializable legacy transaction");
   }
+  const freshBlockhash=await connection.getLatestBlockhash("confirmed");
+  built.transaction.feePayer=owner;
+  built.transaction.recentBlockhash=freshBlockhash.blockhash;
   const sdkMessage=built.transaction.compileMessage();
   if(sdkMessage.header.numRequiredSignatures!==1 || !sdkMessage.accountKeys[0].equals(owner)) {
     fail("SDK transaction requires an unexpected signer or fee payer");
