@@ -29,11 +29,10 @@ def test_phantom_signing_is_disabled_in_the_verification_build():
     source = PAGE.read_text(encoding="utf-8")
     assert '<button id="execute" disabled>Phantom signing disabled</button>' in source
     assert "Phantom signing disabled · Solana Devnet only" in source
-    assert "Phantom signing and transaction submission are disabled for this verification build." in source
+    assert "Phantom signing and transaction submission are disabled in this verification build." in source
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert 'throw new Error("Phantom signing is disabled.' in execute
-    assert "provider.signAndSendTransaction(finalTx" in execute
-    assert execute.index("Phantom signing is disabled") < execute.index("provider.signAndSendTransaction(finalTx")
+    assert 'throw new Error("Phantom signing and transaction submission are disabled in this verification build.")' in execute
+    assert "provider.signAndSendTransaction" not in execute
     assert "window.confirm(" not in source
     assert "await provider.connect()" in source
 
@@ -44,8 +43,8 @@ def test_unsigned_transactions_are_checked_and_simulated_before_signing():
     assert "simulateTransaction(tx" in source
     assert "fee payer" in source.lower()
     assert "canonical Devnet" in source
-    assert "tokenBalanceAfter - BigInt(prepared.tokenBalanceBefore)" in source
-    assert "Verified USDC increase" in source
+    assert "tokenBalanceAfter - BigInt(prepared.tokenBalanceBefore)" not in source
+    assert "Verified USDC increase" not in source
 
 
 def test_no_automatic_execution_on_page_load():
@@ -148,7 +147,7 @@ def test_browser_semantic_audit_runs_before_review_and_before_signing():
     assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert "await inspectDirectCpmmTransaction(tx, prepared.quote, prepared.reviewedBytes[i])" in source
     assert "Transaction intent rejected:" in source
-    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "provider.signAndSendTransaction(finalTx" not in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
 
 
@@ -304,8 +303,9 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert execute.index("Phantom signing is disabled") < execute.index("await finalPreSignFreshnessGate()")
-    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert "Phantom signing and transaction submission are disabled" in execute
+    assert "await finalPreSignFreshnessGate()" not in execute
+    assert "provider.signAndSendTransaction" not in execute
 
 
 
@@ -314,3 +314,14 @@ def test_missing_or_invalid_network_fee_estimate_fails_closed():
     assert "if (!fee || !Number.isSafeInteger(fee.value) || fee.value < 0)" in source
     assert "Network fee estimate is unavailable or invalid; transaction preparation fails closed." in source
     assert "const totalFee=fee.value;" in source
+
+
+def test_quote_review_displays_exact_raw_output_and_slippage_floor():
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'id="outputRawValue"' in source
+    assert 'id="minimumRawValue"' in source
+    assert 'id="slippageValue"' in source
+    assert "function fmtFixedRaw(raw, decimals)" in source
+    assert "minimumRaw!==expectedFloor" in source
+    assert 'textContent=fmtFixedRaw(quotedRaw,6)+" USDC"' in source
+    assert 'textContent=fmtFixedRaw(minimumRaw,6)+" USDC"' in source
