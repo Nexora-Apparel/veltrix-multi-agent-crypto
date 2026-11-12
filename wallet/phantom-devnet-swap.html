@@ -22,7 +22,7 @@
 </head>
 <body>
   <h1>VELTRIX · Devnet swap test</h1>
-  <div class="muted">Phantom signing disabled · Solana Devnet only · SOL → Devnet USDC</div>
+  <div class="muted">User-approved Phantom signing · Solana Devnet only · SOL → Devnet USDC</div>
   <section class="panel">
     <div class="row"><span>Network</span><strong>Solana Devnet</strong></div>
     <div class="row"><span>Connected wallet</span><span class="value" id="wallet">Not connected</span></div>
@@ -47,8 +47,8 @@
     <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
     <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
     <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
-    <p class="muted warning">This page only builds and audits an unsigned Devnet transaction. Phantom signing and submission are disabled.</p>
-    <button id="execute" disabled>Phantom signing disabled</button>
+    <p class="muted warning">The next button opens Phantom approval for this exact 0.001 SOL Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount or minimum output differs from your review.</p>
+    <button id="execute" disabled>Review and approve in Phantom</button>
   </section>
   <section class="panel"><div id="status" class="muted">Connect Phantom from the Phantom in-app browser. This page never asks for a recovery phrase, seed phrase or private key.</div></section>
   <div class="tiny">This is an explicit, one-swap Devnet test interface. It does not enable mainnet or automated trading.</div>
@@ -101,7 +101,7 @@
     busy = value;
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
-    $("execute").disabled = true;
+    $("execute").disabled = value || !prepared || !!prepared.executionStarted;
     $("amount").disabled = value;
   }
   function getProvider() {
@@ -804,9 +804,9 @@
     $("poolsValue").textContent="1 direct CPMM pool";
     $("feeValue").textContent=totalFee?(totalFee/1e9).toFixed(6)+" SOL (network fee estimate)":"Unavailable";
     $("review").classList.remove("hidden");
-    $("execute").disabled=true;
-    $("execute").textContent="Phantom signing disabled";
-    status("Fresh single-pool CPMM transaction built. Canonical Devnet ALT, accounts, privileges, pool state, token transfers and one-unit-higher slippage rejection all passed. Phantom signing remains disabled.","good");
+    $("execute").disabled=false;
+    $("execute").textContent="Review and approve in Phantom";
+    status("Fresh single-pool CPMM transaction built and independently audited. Select the approval button to open Phantom. No transaction has been signed or sent yet.","good");
   }
   function invalidatePrepared(reason) {
     prepared = null;
@@ -835,6 +835,11 @@
     if (BigInt(currentBalance) < requiredBalance) {
       invalidatePrepared("Balance no longer covers input, network fee and 0.05 SOL reserve.");
       throw new Error("Pre-sign balance/reserve check failed.");
+    }
+    const currentUsdcBalance = await tokenBalanceRaw();
+    if (currentUsdcBalance !== BigInt(prepared.tokenBalanceBefore)) {
+      invalidatePrepared("Devnet USDC balance changed after review. Build a fresh transaction.");
+      throw new Error("Pre-sign output-token balance baseline changed.");
     }
     const tx = assertExactReviewedBytes(prepared.txs[0], prepared.reviewedBytes[0]);
     const blockhashCheck = await connection.isBlockhashValid(tx.message.recentBlockhash, "confirmed");
@@ -894,7 +899,75 @@
     return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
   }
   async function execute() {
-    throw new Error("Phantom signing and transaction submission are disabled in this verification build.");
+    if (busy) return;
+    if (!provider || !wallet || typeof provider.signAndSendTransaction !== "function") {
+      throw new Error("Connected Phantom provider does not support user-approved versioned transaction submission.");
+    }
+    if (!prepared || prepared.executionStarted) throw new Error("No unused audited transaction is available. Build a fresh quote.");
+    prepared.executionStarted = true;
+    setBusy(true);
+    const reviewed = prepared;
+    let signature = null;
+    try {
+      status("Rechecking wallet, Devnet, balance reserve, blockhash, pool quote, lookup tables and exact transaction bytes before opening Phantom approval…","muted");
+      await finalPreSignFreshnessGate();
+      const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
+      if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
+        throw new Error("Phantom wallet changed before approval.");
+      }
+      status("Final audit passed. Phantom is opening its transaction approval screen. Review the transaction there before approving.","warning");
+      const approval = await provider.signAndSendTransaction(finalTx, {
+        preflightCommitment:"confirmed",maxRetries:3
+      });
+      signature = approval && typeof approval.signature === "string" ? approval.signature : approval;
+      if (typeof signature !== "string" || b58decode(signature).length !== 64) {
+        throw new Error("Phantom returned an invalid transaction signature. Check wallet activity before retrying.");
+      }
+      status("Phantom approved and submitted the Devnet transaction. Waiting for confirmation… Signature: " + signature,"warning");
+      const confirmation = await connection.confirmTransaction(signature,"confirmed");
+      if (!confirmation || !confirmation.value || confirmation.value.err) {
+        throw new Error("Devnet transaction did not confirm successfully. Signature: " + signature);
+      }
+      let chainTx = null;
+      for (let i=0;i<8;i++) {
+        chainTx = await connection.getTransaction(signature,{
+          commitment:"confirmed",maxSupportedTransactionVersion:0
+        });
+        if (chainTx) break;
+        await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+      if (!chainTx || !chainTx.meta || chainTx.meta.err ||
+          !chainTx.transaction || !chainTx.transaction.message ||
+          !bytesEqual(chainTx.transaction.message.serialize(),finalTx.message.serialize())) {
+        throw new Error("Confirmed signature could not be reconciled to the exact reviewed transaction message. Signature: " + signature);
+      }
+      let finalUsdcBalance = BigInt(reviewed.tokenBalanceBefore);
+      for (let i=0;i<15;i++) {
+        finalUsdcBalance = await tokenBalanceRaw();
+        if (finalUsdcBalance - BigInt(reviewed.tokenBalanceBefore) >= BigInt(reviewed.quote.otherAmountThreshold)) break;
+        await new Promise(resolve=>setTimeout(resolve,2000));
+      }
+      const received = finalUsdcBalance - BigInt(reviewed.tokenBalanceBefore);
+      if (received < BigInt(reviewed.quote.otherAmountThreshold)) {
+        throw new Error("Transaction confirmed, but the observed Devnet USDC balance increase is below the reviewed minimum. Signature: " + signature);
+      }
+      prepared = null;
+      $("review").classList.add("hidden");
+      await refreshBalance();
+      status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
+        fmtFixedRaw(received,6) + " USDC. The exact reviewed message was found on-chain. One-time test complete.","good");
+    } catch (error) {
+      if (signature) {
+        status((error.message || String(error)) + "\nA transaction signature exists. Do not retry; inspect this signature in a Devnet explorer first: " + signature,"warning");
+      } else {
+        reviewed.executionStarted = false;
+        status(error.message || String(error),"warning");
+      }
+      throw error;
+    } finally {
+      setBusy(false);
+      if (prepared && prepared.executionStarted) $("execute").disabled = true;
+    }
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
@@ -929,8 +1002,8 @@
   $("quote").addEventListener("click", async () => {
     setBusy(true); try { await prepareQuote(); } catch(e) { prepared=null; $("execute").disabled=true; status(e.message || String(e),"warning"); } finally { setBusy(false); }
   });
-  $("execute").addEventListener("click", () => {
-    status("Phantom signing and transaction submission are disabled for this verification build.","warning");
+  $("execute").addEventListener("click", async () => {
+    try { await execute(); } catch(e) { status(e.message || String(e),"warning"); }
   });
   if (window.solana && window.solana.isPhantom) $("connect").textContent = "Connect Phantom";
 })();
