@@ -247,7 +247,7 @@ def test_browser_direct_cpmm_verifier_checks_pool_accounts_and_runtime_slippage(
     source = PAGE.read_text(encoding="utf-8")
     assert "function decodeDirectCpmmPolicy(message, resolved, quote)" in source
     assert "async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes)" in source
-    assert "async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes)" in source
+    assert "async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence)" in source
     assert "temporary WSOL System CreateAccountWithSeed shape mismatch" in source
     assert "direct CPMM exact input/output token transfer CPIs not proven" in source
     assert "direct CPMM accepted minimum output one raw unit above actual output" in source
@@ -369,3 +369,25 @@ def test_wallet_capability_adapter_requires_legacy_before_quote_and_approval():
     assert "walletCapabilities=detectWalletCapabilities(provider)" in source
     assert "No transaction will be built." in source
     assert "required legacy transaction format; signing is blocked" in source
+
+
+
+def test_direct_cpmm_ata_rent_is_state_aware_and_disclosed_before_approval():
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'connection.getMinimumBalanceForRentExemption(165,"confirmed")' in source
+    assert "validateOutputAtaCpiEvidence(accountPresence,persistentAtaRentLamports" in source
+    assert "existing USDC ATA must not incur rent or be recreated/initialized" in source
+    assert "new USDC ATA must have exactly one creation/size/immutable-owner/initialization CPI funded with exact live rent" in source
+    assert 'id="usdcAccountStatusValue"' in source
+    assert 'id="ataRentValue"' in source
+    assert 'id="netDebitValue"' in source
+    assert "BigInt(prepared.persistentAtaRentLamports || 0)" in source
+    assert "BigInt(prepared.totalDebitLamports)+BigInt(RESERVE_LAMPORTS)" in source
+
+
+def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo)" in source
+    assert "verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence)" in source
+    assert "outputAtaPresent:ataEvidence.outputAtaPresent" in source
+    assert "persistentAtaRentLamports:ataEvidence.persistentAtaRentLamports" in source

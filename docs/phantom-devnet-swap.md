@@ -12,6 +12,11 @@ This static page is a wallet-owner-controlled, one-time Solana Devnet swap test.
 - Input is fixed at exactly 0.001 SOL (1,000,000 lamports).
 - The page retains a 0.05 SOL balance reserve.
 - Price impact is calculated from live pool reserves and must not exceed 2%.
+- The browser checks whether the destination Devnet USDC associated token account already exists and validates its owner, mint and state.
+- If the USDC account is absent, the browser obtains the live 165-byte Tokenkeg rent exemption from Devnet RPC and requires the inner System createAccount CPI to fund exactly that amount, followed by the expected token-account initialization CPIs.
+- If the USDC account already exists, the verifier requires zero ATA creation/initialization CPIs and zero additional ATA rent.
+- The review displays account presence, one-time persistent USDC ATA rent, network fee and estimated net SOL debit. The temporary wrapped-SOL account is closed in the same transaction and its rent is returned; USDC ATA rent remains locked until that account is closed.
+- The balance reserve check includes swap input + persistent USDC ATA rent + network fee while preserving at least 0.05 SOL.
 - The CPMM instruction minimum output is derived from the final quoted raw output using integer floor arithmetic at 1% slippage and is checked against the exact reviewed transaction bytes.
 
 ## Browser semantic audit
@@ -34,7 +39,8 @@ The page exposes one explicit user-triggered Phantom approval action after the b
 
 - Requires the prepared review to be no older than 15 seconds.
 - Rebinds the connected Phantom public key and canonical Devnet genesis.
-- Rechecks the current SOL balance against input, estimated network fee and the 0.05 SOL reserve.
+- Rechecks the current SOL balance against swap input, persistent USDC ATA rent, estimated network fee and the 0.05 SOL reserve.
+- Rechecks output USDC ATA presence and exact live rent; if either differs from the reviewed state, the prepared transaction is invalidated and must be rebuilt.
 - Rechecks that the wallet's Devnet USDC balance has not changed since quote preparation.
 - Verifies the transaction's original recent blockhash is still valid.
 - Re-reads the pinned CPMM pool and recomputes output, minimum output and price impact. Any quote drift invalidates the prepared transaction.
@@ -59,7 +65,7 @@ If any freshness condition changes, the page rejects the old transaction and req
 1. Open the HTTPS preview inside Phantom on Android.
 2. Connect the intended Devnet wallet and verify the canonical Devnet network.
 3. Request a fresh quote for exactly 0.001 SOL.
-4. Inspect pair, input, quoted output, automatically calculated minimum output, 1% slippage, price impact and fee.
+4. Inspect pair, input, quoted output, automatically calculated minimum output, 1% slippage, price impact, network fee, USDC account presence, one-time ATA rent and estimated net SOL debit. Confirm the temporary WSOL rent is returned and the USDC ATA rent remains locked if a new account is created.
 5. Select the approval action only if the displayed transaction matches the intended test.
 6. Review the transaction in Phantom. Reject it if any wallet, amount, mint, pool or fee detail is unexpected.
 7. If approved, wait for the page to report confirmed signature and verified USDC balance increase.

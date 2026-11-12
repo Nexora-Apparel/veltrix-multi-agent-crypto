@@ -47,7 +47,11 @@
     <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
     <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
     <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
-    <p class="muted warning">The next button opens Phantom approval for this exact 0.001 SOL Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount or minimum output differs from your review.</p>
+    <div class="row"><span>USDC token account</span><span class="value" id="usdcAccountStatusValue">—</span></div>
+    <div class="row"><span>USDC account rent (one-time)</span><span class="value" id="ataRentValue">—</span></div>
+    <div class="row"><span>Estimated net SOL debit</span><strong class="value" id="netDebitValue">—</strong></div>
+    <p class="muted tiny">The temporary wrapped-SOL account is closed in this transaction and its rent reserve is returned. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
+    <p class="muted warning">The next button opens Phantom approval for this exact 0.001 SOL Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
     <button id="execute" disabled>Review and approve in Phantom</button>
   </section>
   <section class="panel"><div id="status" class="muted">Connect Phantom from the Phantom in-app browser. This page never asks for a recovery phrase, seed phrase or private key.</div></section>
@@ -524,8 +528,34 @@
     const list=effectivePrivileges(message,resolved);
     return list.find(item=>item.key===key);
   }
-  async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes) {
+  function validateOutputAtaCpiEvidence(accountPresence,persistentAtaRentLamports,evidence) {
+    if(!accountPresence || typeof accountPresence.outputAtaPresent!=="boolean") {
+      fail("USDC ATA presence evidence is missing");
+    }
+    const rent=BigInt(String(persistentAtaRentLamports));
+    const counts=[evidence.createAccountCount,evidence.sizeQueryCount,
+      evidence.immutableOwnerCount,evidence.initializeAccountCount];
+    if(counts.some(value=>!Number.isInteger(value)||value<0)) fail("USDC ATA CPI evidence counters are invalid");
+    if(accountPresence.outputAtaPresent) {
+      if(rent!==0n || counts.some(value=>value!==0)) {
+        fail("existing USDC ATA must not incur rent or be recreated/initialized");
+      }
+      return {outputAtaPresent:true,persistentAtaRentLamports:"0"};
+    }
+    const createdLamports=evidence.createAccountLamports==null?null:BigInt(String(evidence.createAccountLamports));
+    if(rent<=0n || counts.some(value=>value!==1) || createdLamports!==rent) {
+      fail("new USDC ATA must have exactly one creation/size/immutable-owner/initialization CPI funded with exact live rent");
+    }
+    return {outputAtaPresent:false,persistentAtaRentLamports:rent.toString()};
+  }
+  async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence) {
     const message=normalizedTransactionMessage(tx);
+    const persistentAtaRentLamports=accountPresence.outputAtaPresent
+      ? 0 : await connection.getMinimumBalanceForRentExemption(165,"confirmed");
+    if(!Number.isSafeInteger(persistentAtaRentLamports) || persistentAtaRentLamports<0 ||
+       (!accountPresence.outputAtaPresent && persistentAtaRentLamports<=0)) {
+      fail("live Devnet USDC ATA rent-exemption amount is unavailable or invalid");
+    }
     const encoded=btoa(String.fromCharCode(...reviewedBytes));
     const simulation=await rpcCall("simulateTransaction",[encoded,{
       encoding:"base64",commitment:"confirmed",sigVerify:false,replaceRecentBlockhash:true,innerInstructions:true
@@ -543,7 +573,9 @@
     for(const group of value.innerInstructions) for(const ix of group.instructions||[]) inner.push(ix);
     const allowed=new Set([TOKEN,TOKEN_2022,SYSTEM,ATA_PROGRAM]);
     const transferProofs=[];
-    let outputAtaCreated=false, outputAtaInitialized=false, outputAtaImmutable=false;
+    let outputAtaCreateCount=0, outputAtaSizeCount=0;
+    let outputAtaImmutableCount=0, outputAtaInitializeCount=0;
+    let outputAtaCreateLamports=null;
     for(const ix of inner){
       const program=ix.programId || (Number.isInteger(ix.programIdIndex)?policy.keys[ix.programIdIndex]:null);
       if(!program || !allowed.has(program)) fail("unexpected direct CPMM inner CPI program: "+String(program));
@@ -552,21 +584,23 @@
       if(program===SYSTEM){
         if(type!=="createAccount" || info.source!==wallet.toBase58() ||
            info.newAccount!==policy.outputAta || info.owner!==TOKEN || Number(info.space)!==165 ||
-           !Number.isFinite(Number(info.lamports)) || Number(info.lamports)<=0 || Number(info.lamports)>5000000) {
+           !Number.isSafeInteger(Number(info.lamports)) || Number(info.lamports)<=0) {
           fail("ATA rent-funded System createAccount semantics mismatch");
         }
-        outputAtaCreated=true;
+        outputAtaCreateCount++;
+        outputAtaCreateLamports=String(info.lamports);
       } else if(program===TOKEN || program===TOKEN_2022){
         if(type==="getAccountDataSize"){
           if(info.mint!==USDC || program!==TOKEN) fail("ATA size query mint/program mismatch");
+          outputAtaSizeCount++;
         } else if(type==="initializeImmutableOwner"){
           if(info.account!==policy.outputAta || program!==TOKEN) fail("immutable-owner target mismatch");
-          outputAtaImmutable=true;
+          outputAtaImmutableCount++;
         } else if(type==="initializeAccount3"){
           if(info.account!==policy.outputAta || info.mint!==USDC || info.owner!==wallet.toBase58() || program!==TOKEN) {
             fail("USDC ATA initialization owner/mint/program mismatch");
           }
-          outputAtaInitialized=true;
+          outputAtaInitializeCount++;
         } else if(type==="transferChecked"){
           const source=info.source, destination=info.destination, mint=info.mint;
           const authority=info.authority, amount=BigInt(String(info.tokenAmount?.amount));
@@ -580,7 +614,11 @@
         fail("unexpected nested direct CPMM program CPI: "+program);
       }
     }
-    if(!outputAtaCreated || !outputAtaInitialized || !outputAtaImmutable) fail("USDC ATA creation/initialization CPI proof incomplete");
+    const ataEvidence=validateOutputAtaCpiEvidence(accountPresence,persistentAtaRentLamports,{
+      createAccountCount:outputAtaCreateCount,sizeQueryCount:outputAtaSizeCount,
+      immutableOwnerCount:outputAtaImmutableCount,initializeAccountCount:outputAtaInitializeCount,
+      createAccountLamports:outputAtaCreateLamports
+    });
     if(!transferProofs.includes("input")||!transferProofs.includes("output")) fail("direct CPMM exact input/output token transfer CPIs not proven");
     const mutated=deserializeUnsignedTransaction(reviewedBytes);
     const mm=normalizedTransactionMessage(mutated);
@@ -595,7 +633,9 @@
     if(!negative?.value?.err) fail("direct CPMM accepted minimum output one raw unit above actual output");
     return {actualOutput:actualOutput.toString(),minimumOutput:policy.minOut.toString(),
       adversarialMinimum:(actualOutput+1n).toString(),adversarialRejected:true,innerCpiCount:inner.length,
-      transferProofs,logs:(value.logs||[]).slice(-60)};
+      transferProofs,outputAtaPresent:ataEvidence.outputAtaPresent,
+      persistentAtaRentLamports:ataEvidence.persistentAtaRentLamports,
+      logs:(value.logs||[]).slice(-60)};
   }
   async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes) {
     if(!(tx instanceof solanaWeb3.Transaction)) fail("Phantom compatibility policy requires an ALT-free legacy Transaction");
@@ -608,7 +648,7 @@
     const policy=decodeDirectCpmmPolicy(message,resolvedInfo.resolved,quote);
     const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo);
     if(accountPresence.inputAtaPresent) fail("temporary WSOL account unexpectedly exists before signing");
-    const runtime=await verifyDirectCpmmRuntime(tx,policy,reviewedBytes);
+    const runtime=await verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence);
     return {programs:policy.programs,lookupTables:resolvedInfo.lookupEvidence,slot:resolvedInfo.slot,
       resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
       directCpmm:"verified",runtime};
@@ -861,7 +901,16 @@
       throw new Error("Network fee estimate is unavailable or invalid; transaction preparation fails closed.");
     }
     const totalFee=fee.value;
+    const persistentAtaRentLamports=BigInt(semanticAudit.runtime.persistentAtaRentLamports);
+    const totalDebitLamports=BigInt(lamports)+persistentAtaRentLamports+BigInt(totalFee);
+    const auditedBalance=await refreshBalance();
+    if(BigInt(auditedBalance)<totalDebitLamports+BigInt(RESERVE_LAMPORTS)) {
+      throw new Error("Insufficient Devnet SOL for swap input, persistent USDC account rent, network fee and the 0.05 SOL reserve.");
+    }
     prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
+      outputAtaPresent:semanticAudit.runtime.outputAtaPresent,
+      persistentAtaRentLamports:persistentAtaRentLamports.toString(),
+      totalDebitLamports:totalDebitLamports.toString(),
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
       preparedAt:Date.now(),walletAddress:wallet.toBase58(),semanticAudit};
     $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
@@ -877,7 +926,12 @@
     $("slippageValue").textContent="100 bps (1.00%)";
     $("impactValue").textContent=impact.toFixed(3)+"%";
     $("poolsValue").textContent="1 direct CPMM pool";
-    $("feeValue").textContent=totalFee?(totalFee/1e9).toFixed(6)+" SOL (network fee estimate)":"Unavailable";
+    $("feeValue").textContent=(totalFee/1e9).toFixed(6)+" SOL (network fee estimate)";
+    $("usdcAccountStatusValue").textContent=prepared.outputAtaPresent?"Already exists":"Will be created";
+    $("ataRentValue").textContent=persistentAtaRentLamports===0n
+      ? "0 SOL (already exists)"
+      : fmtFixedRaw(persistentAtaRentLamports,9)+" SOL (one-time; remains locked)";
+    $("netDebitValue").textContent=fmtFixedRaw(totalDebitLamports,9)+" SOL";
     $("review").classList.remove("hidden");
     $("execute").disabled=false;
     $("execute").textContent="Review and approve in Phantom";
@@ -906,7 +960,8 @@
       throw new Error("Pre-sign cluster identity mismatch.");
     }
     const currentBalance = await refreshBalance();
-    const requiredBalance = BigInt(prepared.lamports) + BigInt(RESERVE_LAMPORTS) + BigInt(prepared.totalFee || 0);
+    const requiredBalance = BigInt(prepared.lamports) + BigInt(prepared.persistentAtaRentLamports || 0) +
+      BigInt(prepared.totalFee || 0) + BigInt(RESERVE_LAMPORTS);
     if (BigInt(currentBalance) < requiredBalance) {
       invalidatePrepared("Balance no longer covers input, network fee and 0.05 SOL reserve.");
       throw new Error("Pre-sign balance/reserve check failed.");
@@ -974,6 +1029,16 @@
     if (audit.directCpmm !== "verified" || audit.runtime.adversarialRejected !== true) {
       invalidatePrepared("Final semantic audit failed. Signing remains blocked.");
       throw new Error("Final pre-sign semantic audit failed.");
+    }
+    if(audit.runtime.outputAtaPresent!==prepared.outputAtaPresent ||
+       BigInt(audit.runtime.persistentAtaRentLamports)!==BigInt(prepared.persistentAtaRentLamports)) {
+      invalidatePrepared("USDC token-account state or rent changed after review. Build and audit a fresh transaction.");
+      throw new Error("Pre-sign USDC ATA presence/rent changed.");
+    }
+    const latestBalance=await refreshBalance();
+    if(BigInt(latestBalance)<BigInt(prepared.totalDebitLamports)+BigInt(RESERVE_LAMPORTS)) {
+      invalidatePrepared("Balance no longer covers the reviewed total debit and 0.05 SOL reserve.");
+      throw new Error("Pre-sign total-debit reserve check failed.");
     }
     assertExactReviewedBytes(tx,prepared.reviewedBytes[0]);
     return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
@@ -1059,7 +1124,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,inspectDirectCpmmTransaction,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
