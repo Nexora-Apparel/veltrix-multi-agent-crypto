@@ -10,13 +10,13 @@ This static page is a wallet-owner-controlled, one-time Solana Devnet swap test.
 - The wallet compatibility adapter checks the provider's advertised transaction versions when available, requires legacy support before quote construction and rechecks before approval. When Phantom does not expose a version list, it uses Phantom's documented legacy `Transaction` provider API. It never silently falls back to v0.
 - The only supported pair is WSOL to the official Devnet USDC mint.
 - Input is fixed at exactly 0.001 SOL (1,000,000 lamports).
-- The page retains a 0.05 SOL balance reserve.
+- No artificial SOL reserve or pre-funded wallet requirement is imposed. If the wallet is short, the page automatically requests the exact Devnet faucet top-up needed for temporary WSOL funding, persistent USDC ATA rent and the network fee, plus a small 0.01 SOL cushion. The faucet request is allowed only after canonical Devnet genesis verification.
 - Price impact is calculated from live pool reserves and must not exceed 2%.
 - The browser checks whether the destination Devnet USDC associated token account already exists and validates its owner, mint and state.
 - If the USDC account is absent, the browser obtains the live 165-byte Tokenkeg rent exemption from Devnet RPC and requires the inner System createAccount CPI to fund exactly that amount, followed by the expected token-account initialization CPIs.
 - If the USDC account already exists, the verifier requires zero ATA creation/initialization CPIs and zero additional ATA rent.
 - The review displays account presence, one-time persistent USDC ATA rent, network fee and estimated net SOL debit. The temporary wrapped-SOL account is closed in the same transaction and its rent is returned; USDC ATA rent remains locked until that account is closed.
-- The net-debit estimate is swap input + persistent USDC ATA rent + network fee. Separately, the minimum-balance gate accounts for the peak temporary WSOL account funding (including its rent float before refund) + persistent USDC ATA rent + network fee + the 0.05 SOL reserve.
+- The net-debit estimate is swap input + persistent USDC ATA rent + network fee. The automatic faucet target accounts for peak temporary WSOL account funding (including its rent float before refund) + persistent USDC ATA rent + network fee; no additional reserve is required.
 - The CPMM instruction minimum output is derived from the final quoted raw output using integer floor arithmetic at 1% slippage and is checked against the exact reviewed transaction bytes.
 
 ## Browser semantic audit
@@ -39,7 +39,7 @@ The page exposes one explicit user-triggered Phantom approval action after the b
 
 - Requires the prepared review to be no older than 15 seconds.
 - Rebinds the connected Phantom public key and canonical Devnet genesis.
-- Rechecks the current SOL balance against peak temporary WSOL funding, persistent USDC ATA rent, estimated network fee and the 0.05 SOL reserve.
+- Rechecks the current SOL balance against peak temporary WSOL funding, persistent USDC ATA rent and estimated network fee. If funds changed after review, it invalidates the prepared transaction and requires a fresh quote/faucet top-up.
 - Rechecks output USDC ATA presence and exact live rent; if either differs from the reviewed state, the prepared transaction is invalidated and must be rebuilt.
 - Rechecks that the wallet's Devnet USDC balance has not changed since quote preparation.
 - Verifies the transaction's original recent blockhash is still valid.
