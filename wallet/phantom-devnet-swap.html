@@ -767,7 +767,10 @@
       fail("fresh direct CPMM browser semantic audit did not pass all release checks");
     }
     const fee=await connection.getFeeForMessage(tx.message,"confirmed");
-    const totalFee=fee.value===null?0:fee.value;
+    if (!fee || !Number.isSafeInteger(fee.value) || fee.value < 0) {
+      throw new Error("Network fee estimate is unavailable or invalid; transaction preparation fails closed.");
+    }
+    const totalFee=fee.value;
     prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
       preparedAt:Date.now(),walletAddress:wallet.toBase58(),semanticAudit};
