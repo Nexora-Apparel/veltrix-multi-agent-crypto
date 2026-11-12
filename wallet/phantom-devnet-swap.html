@@ -801,8 +801,13 @@
     if (!built || !built.transaction || typeof built.transaction.serialize!=="function") {
       throw new Error("Raydium SDK did not return a serializable direct CPMM transaction.");
     }
-    if(!(built.transaction instanceof solanaWeb3.Transaction)) fail("Raydium SDK did not return an ALT-free legacy transaction");
-    const tx=built.transaction, message=normalizedTransactionMessage(tx);
+    if(!built.transaction || typeof built.transaction.serialize!=="function") fail("Raydium SDK did not return a serializable transaction");
+    let tx;
+    try {
+      const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
+      tx=solanaWeb3.Transaction.from(sdkBytes);
+    } catch { fail("Raydium SDK did not return an ALT-free legacy transaction"); }
+    const message=normalizedTransactionMessage(tx);
     assertUnsignedSingleSigner(tx);
     if(message.addressTableLookups.length!==0||message.staticAccountKeys.length>32) fail("SDK legacy account layout exceeds policy");
     const cpmmIndex=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
