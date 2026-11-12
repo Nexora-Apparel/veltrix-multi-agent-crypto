@@ -27,9 +27,9 @@ Before displaying the review summary, the page independently:
 
 CI builds a fresh transaction through the pinned SDK and invokes this browser-side verifier against those exact serialized bytes and current canonical Devnet account state. The evidence artifact includes the transaction hash, ALT state, privilege map, actual output, and adversarial rejection result.
 
-## Final pre-sign freshness gate (implemented; not enabled)
+## Final pre-sign freshness gate and user approval
 
-A separate fail-closed gate is now present immediately behind the unconditional signing-disabled guard. If a future release review ever authorizes evaluating the approval path, it will:
+The page now exposes one explicit user-triggered Phantom approval action after the browser audit. It does not sign or submit on page load, on quote creation, or without the wallet owner's Phantom approval. The approval path:
 
 - Require the prepared review to be no older than 15 seconds.
 - Rebind the connected Phantom public key and canonical Devnet genesis.
