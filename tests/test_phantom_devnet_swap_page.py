@@ -287,3 +287,22 @@ def test_devnet_ci_uses_fresh_direct_cpmm_audit_without_stale_router_fixture():
     assert "python -m veltrix.solana_devnet_transaction_audit" not in workflow
     assert "python -m veltrix.solana_devnet_swap_preflight" not in workflow
     assert "try_ephemeral_swap" not in workflow
+
+
+def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_quote_and_exact_bytes():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "async function finalPreSignFreshnessGate()" in source
+    gate = source[source.index("async function finalPreSignFreshnessGate()"):source.index("async function execute()")]
+    assert "Date.now() - prepared.preparedAt > 15000" in gate
+    assert "provider.publicKey.equals(wallet)" in gate
+    assert "connection.getGenesisHash()" in gate
+    assert "RESERVE_LAMPORTS" in gate
+    assert "connection.isBlockhashValid(tx.message.recentBlockhash" in gate
+    assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
+    assert "freshResult.outputAmount.toString() !== prepared.quote.outputAmount" in gate
+    assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" in gate
+    assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
+    assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
+    execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
+    assert execute.index("Phantom signing is disabled") < execute.index("await finalPreSignFreshnessGate()")
+    assert "provider.signAndSendTransaction(finalTx" in execute
