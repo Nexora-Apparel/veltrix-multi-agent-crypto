@@ -908,6 +908,7 @@
     setBusy(true);
     const reviewed = prepared;
     let signature = null;
+    let approvalRequested = false;
     try {
       status("Rechecking wallet, Devnet, balance reserve, blockhash, pool quote, lookup tables and exact transaction bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
@@ -916,6 +917,7 @@
         throw new Error("Phantom wallet changed before approval.");
       }
       status("Final audit passed. Phantom is opening its transaction approval screen. Review the transaction there before approving.","warning");
+      approvalRequested = true;
       const approval = await provider.signAndSendTransaction(finalTx, {
         preflightCommitment:"confirmed",maxRetries:3
       });
@@ -957,8 +959,12 @@
       status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
         fmtFixedRaw(received,6) + " USDC. The exact reviewed message was found on-chain. One-time test complete.","good");
     } catch (error) {
-      if (signature) {
-        status((error.message || String(error)) + "\nA transaction signature exists. Do not retry; inspect this signature in a Devnet explorer first: " + signature,"warning");
+      if (error && error.code === 4001) {
+        reviewed.executionStarted = false;
+        status("Phantom approval was rejected. No transaction was sent.","warning");
+      } else if (signature || approvalRequested) {
+        status((error.message || String(error)) + "\nThe approval/submission outcome may be uncertain. Do not retry; inspect Phantom activity and the Devnet signature" +
+          (signature ? ": " + signature : " before building another transaction."),"warning");
       } else {
         reviewed.executionStarted = false;
         status(error.message || String(error),"warning");
