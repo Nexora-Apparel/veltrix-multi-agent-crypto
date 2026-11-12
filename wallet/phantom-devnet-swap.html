@@ -811,7 +811,16 @@
     if (!built || !built.transaction || typeof built.transaction.serialize!=="function") {
       throw new Error("Raydium SDK did not return a serializable direct CPMM transaction.");
     }
-    if(!built.transaction || typeof built.transaction.serialize!=="function") fail("Raydium SDK did not return a serializable transaction");
+    if(!built.transaction || typeof built.transaction.serialize!=="function" ||
+       typeof built.transaction.compileMessage!=="function" || typeof built.transaction.setSigners!=="function") {
+      fail("Raydium SDK did not return a serializable legacy transaction");
+    }
+    const sdkMessage=built.transaction.compileMessage();
+    if(sdkMessage.header.numRequiredSignatures!==1 || !sdkMessage.accountKeys[0].equals(wallet)) {
+      fail("SDK transaction requires an unexpected signer or fee payer");
+    }
+    if(built.transaction.signatures.some(item=>item.signature!==null)) fail("SDK unexpectedly returned a signed transaction");
+    built.transaction.setSigners(wallet);
     let tx;
     try {
       const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
