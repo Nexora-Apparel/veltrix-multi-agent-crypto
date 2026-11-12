@@ -72,8 +72,11 @@ async function main() {
     poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.LEGACY,
     ownerInfo:{wallet:new PublicKey(WALLET),useSOLBalance:true}
   });
-  let tx = built.transaction;
-  if (!(tx instanceof Transaction)) fail("SDK did not return a legacy transaction; ALT-free compatibility is mandatory");
+  if (!built.transaction || typeof built.transaction.serialize !== "function") fail("SDK did not return a serializable transaction");
+  const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
+  let tx;
+  try { tx=Transaction.from(sdkBytes); }
+  catch { fail("SDK did not return a legacy transaction; ALT-free compatibility is mandatory"); }
   if (tx.signatures.length !== 1 || tx.signatures.some(item=>item.signature !== null)) fail("SDK transaction is not unsigned with one empty wallet signature");
   if (tx.addressTableLookups?.length) fail("legacy transaction unexpectedly contains address lookup tables");
   const minimumOut = swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
