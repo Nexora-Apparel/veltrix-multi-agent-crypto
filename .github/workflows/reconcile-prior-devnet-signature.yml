@@ -1,0 +1,26 @@
+name: Read-only prior Devnet signature reconciliation
+
+on:
+  push:
+    branches: [work/devnet-phantom-legacy-compat]
+  pull_request:
+    paths:
+      - 'scripts/reconcile-prior-devnet-signature.mjs'
+      - '.github/workflows/reconcile-prior-devnet-signature.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Query canonical Devnet transaction and USDC balance delta
+        run: node scripts/reconcile-prior-devnet-signature.mjs
