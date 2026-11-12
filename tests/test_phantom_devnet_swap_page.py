@@ -82,14 +82,14 @@ def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
     assert "reviewedBytes" in source
     assert "bytesEqual(currentBytes, reviewedBytes)" in source
     assert "roundTrip.serialize(), bytes" in source
-    assert "finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i])" in source
+    assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in source
 
 
 def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
     source = PAGE.read_text(encoding="utf-8")
     assert "prepared.txs.length !== 1" in source
     assert "prepared.reviewedBytes.length !== 1" in source
-    assert "Date.now() - prepared.preparedAt > 60000" in source
+    assert "Date.now() - prepared.preparedAt > 15000" in source
     assert "prepared.walletAddress !== wallet.toBase58()" in source
 
 
