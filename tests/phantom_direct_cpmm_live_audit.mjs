@@ -49,6 +49,19 @@ vm.runInNewContext(script,context);
 const hooks=window.__VELTRIX_TEST_HOOKS__;
 assert.ok(hooks,"browser verifier test hooks unavailable");
 hooks.setWalletForTest(new PublicKey(artifact.wallet));
+const normalized=hooks.normalizedTransactionMessage(tx);
+const directPolicy=hooks.decodeDirectCpmmPolicy(normalized,normalized.staticAccountKeys,{
+  otherAmountThreshold:artifact.minimum_output_raw
+});
+assert.equal(directPolicy.createsOutputAta,false);
+assert.equal(directPolicy.inputAta.toBase58(),artifact.static_account_keys[5]);
+assert.equal(directPolicy.outputAta.toBase58(),artifact.static_account_keys[6]);
+assert.equal(hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:true}),true);
+assert.throws(()=>hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:false}),
+  /missing USDC ATA requires the five-instruction path/);
+assert.throws(()=>hooks.validateDirectCpmmAtaShape({...directPolicy,createsOutputAta:true},{outputAtaPresent:true}),
+  /existing USDC ATA must use the four-instruction path/);
+assert.equal(hooks.validateDirectCpmmAtaShape({...directPolicy,createsOutputAta:true},{outputAtaPresent:false}),true);
 const parsedUsdcAccounts = {
   value:[{
     account:{
