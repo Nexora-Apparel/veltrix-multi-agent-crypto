@@ -310,7 +310,7 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "connection.isBlockhashValid(tx.message.recentBlockhash" in gate
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
-    assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" in gate
+    assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" not in gate
     assert "fresh output=" in gate
     assert "freshImpact > MAX_IMPACT" in gate
     assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
