@@ -1,0 +1,13 @@
+{
+  "name": "veltrix-devnet-cpmm-builder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "devnet:cpmm:build": "node scripts/build-devnet-cpmm-unsigned.mjs"
+  },
+  "dependencies": {
+    "@raydium-io/raydium-sdk-v2": "0.2.64-alpha",
+    "@solana/web3.js": "1.98.4",
+    "bn.js": "5.2.2"
+  }
+}

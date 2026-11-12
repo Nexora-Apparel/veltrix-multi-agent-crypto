@@ -16,26 +16,31 @@ def test_phantom_page_is_devnet_only_and_has_no_secret_input():
 
 def test_swap_limits_and_impact_gate_are_present():
     source = PAGE.read_text(encoding="utf-8")
-    assert "MAX_LAMPORTS = 5000000" in source
+    assert "TEST_LAMPORTS = 1000000" in source
+    assert "MAX_LAMPORTS = TEST_LAMPORTS" in source
+    assert "lamports !== TEST_LAMPORTS" in source
     assert "lamports > MAX_LAMPORTS" in source
     assert "RESERVE_LAMPORTS = 50000000" in source
     assert "MAX_IMPACT = 2" in source
-    assert "impact > MAX_IMPACT" in source
+    assert "impact>MAX_IMPACT" in source
 
 
-def test_phantom_signing_requires_explicit_user_click_and_confirmation():
+def test_phantom_signing_is_disabled_in_the_verification_build():
     source = PAGE.read_text(encoding="utf-8")
-    assert 'id="execute"' in source
-    assert 'addEventListener("click"' in source
-    assert "window.confirm(" in source
-    assert "provider.signAndSendTransaction(tx" in source
+    assert '<button id="execute" disabled>Phantom signing disabled</button>' in source
+    assert "Phantom signing disabled · Solana Devnet only" in source
+    assert "Phantom signing and transaction submission are disabled for this verification build." in source
+    execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
+    assert 'throw new Error("Phantom signing is disabled.' in execute
+    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert execute.index("Phantom signing is disabled") < execute.index("provider.signAndSendTransaction(finalTx")
+    assert "window.confirm(" not in source
     assert "await provider.connect()" in source
 
 
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "numRequiredSignatures !== 1" in source
-    assert "ALLOWED.has(id)" in source
     assert "simulateTransaction(tx" in source
     assert "fee payer" in source.lower()
     assert "canonical Devnet" in source
@@ -63,10 +68,249 @@ def test_quote_and_signing_are_invalidated_on_account_or_amount_change():
 
 def test_missing_negative_or_excessive_price_impact_fails_closed():
     source = PAGE.read_text(encoding="utf-8")
-    assert "impact < 0 || impact > MAX_IMPACT" in source
-    assert "Price impact is missing, invalid or above" in source
+    assert "impact<0 || impact>MAX_IMPACT" in source
+    assert "Direct CPMM price impact exceeds the 2% safety ceiling." in source
 
 
 def test_amount_is_locked_during_quote_and_signing_operations():
     source = PAGE.read_text(encoding="utf-8")
     assert '$("amount").disabled = value' in source
+
+
+
+def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "snapshotUnsignedTransaction(tx)" in source
+    assert "assertExactReviewedBytes(" in source
+    assert "reviewedBytes" in source
+    assert "bytesEqual(currentBytes, reviewedBytes)" in source
+    assert "roundTrip.serialize(), bytes" in source
+    assert "finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i])" in source
+
+
+def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "prepared.txs.length !== 1" in source
+    assert "prepared.reviewedBytes.length !== 1" in source
+    assert "Date.now() - prepared.preparedAt > 60000" in source
+    assert "prepared.walletAddress !== wallet.toBase58()" in source
+
+
+def test_browser_semantic_verifier_has_no_signing_bypass():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "async function inspectTransaction(tx, quote, reviewedBytes)" in source
+    assert "async function resolveV0Accounts(message)" in source
+    assert "async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence)" in source
+    assert "Transaction intent rejected:" in source
+
+
+
+def test_browser_v0_decoder_resolves_canonical_devnet_alt_and_privileges():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "AddressLookupTableAccount.deserialize(data)" in source
+    assert "AddressLookupTab1e1111111111111111111111111" in source
+    assert "getGenesisHash" in source
+    assert 'commitment:"finalized"' in source
+    assert "lastExtendedSlot" in source
+    assert "lastExtendedSlotStartIndex" in source
+    assert "lookup.writableIndexes" in source
+    assert "lookup.readonlyIndexes" in source
+    assert "effectivePrivileges(message, resolved)" in source
+    assert "compiled instruction index out of bounds" in source
+
+
+def test_browser_router_policy_checks_full_setup_route_cleanup_and_compute_budget():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeRouterPolicy(message, resolved, quote)" in source
+    assert "ROUTER_ACCOUNT_COUNT = 17" in source
+    assert "expectedSetup" in source
+    assert "expectedRoute" in source
+    assert "expectedCleanup" in source
+    assert "compute-unit price invalid" in source
+    assert "compute-unit limit outside policy" in source
+    assert "readU64(route.data,1) !== BigInt(TEST_LAMPORTS)" in source
+
+
+def test_browser_cpmm_policy_checks_live_pool_and_inner_swap_cpi():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeTokenAccount(" in source
+    assert "function verifyPoolAndAccounts(" in source
+    assert "findProgramAddressSync([POOL_AUTH_SEED]" in source
+    assert "async function verifyCpmmCpi(tx, policy, reviewedBytes, accountPresence)" in source
+    assert "CPMM_SWAP_DISC" in source
+    assert "innerInstructions:true" in source
+    assert "expected exactly one CPMM CPI" in source
+    assert "outerMinimumEnforced:true" in source
+
+
+def test_browser_semantic_audit_runs_before_review_and_before_signing():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
+    assert "await inspectDirectCpmmTransaction(tx, prepared.quote, prepared.reviewedBytes[i])" in source
+    assert "Transaction intent rejected:" in source
+    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "inspectTransaction(tx, quote, reviewedBytes)" in source
+
+
+
+def test_browser_inner_cpi_policy_rejects_unexpected_effects():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "const allowedPrograms = new Set([CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM])" in source
+    assert "unexpected inner CPI program" in source
+    assert "System transfer is not exact wrapped-SOL funding" in source
+    assert "SPL transfer authority mismatch" in source
+    assert "CloseAccount recipient/authority mismatch" in source
+    assert "unexpected SPL transfer source/destination/amount" in source
+    assert "outerMinimumEnforced:true" in source
+
+
+def test_pool_vault_direction_is_bound_to_mint_order():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "expectedVaultIn" in source
+    assert "expectedVaultOut" in source
+    assert "router vault direction does not match WSOL-to-USDC pool mint order" in source
+
+
+
+def test_quote_is_locked_to_the_exactly_audited_single_hop_pool():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in source
+    assert "poolInfo.id !== POOL || poolInfo.programId !== CPMM" in source
+    assert "raydium.cpmm.swap(" in source
+    assert "minimumOut=swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000))" in source
+    assert "const TRADE =" not in source
+
+
+def test_browser_verifier_checks_pool_token_programs_and_all_privileges():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "const requiredPrivileges = [" in source
+    assert "effective signer/writable privilege mismatch" in source
+    assert "pool vault token-program owner does not match pool state" in source
+    assert "pool mint account owner does not match pool token-program declarations" in source
+
+
+
+def test_adversarial_node_harness_is_wired_into_ci():
+    workflow = PAGE.parents[1] / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml"
+    harness = PAGE.parents[1] / "tests" / "phantom_verifier_adversarial.mjs"
+    assert harness.exists()
+    assert "node tests/phantom_verifier_adversarial.mjs" in workflow.read_text(encoding="utf-8")
+    assert "window.__VELTRIX_TEST__ === true" in PAGE.read_text(encoding="utf-8")
+
+
+
+def test_cpmm_and_token_account_decoders_are_exposed_only_to_guarded_tests():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeCpmmSwapData(data, expectedMinimum=0n)" in source
+    assert "function decodeTokenAccount(" in source
+    assert "decodeCpmmSwapData,decodeTokenAccount" in source
+    harness = PAGE.parents[1] / "tests" / "phantom_verifier_adversarial.mjs"
+    harness_source = harness.read_text(encoding="utf-8")
+    assert "wrong CPMM discriminator" in harness_source
+    assert "altered CPMM input" in harness_source
+    assert "wrong token mint" in harness_source
+    assert "wrong token owner" in harness_source
+
+
+
+def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
+    root = PAGE.parents[1]
+    source = (root / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
+    package = (root / "package.json").read_text(encoding="utf-8")
+    workflow = (root / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml").read_text(encoding="utf-8")
+    assert '"@raydium-io/raydium-sdk-v2": "0.2.64-alpha"' in package
+    assert 'const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo"' in source
+    assert 'const INPUT = 1_000_000' in source
+    assert 'cluster:"devnet"' in source
+    assert "getPoolInfoFromRpc(POOL)" in source
+    assert "raydium.cpmm.swap(" in source
+    assert "sigVerify:false" in source
+    assert 'evidence_type:"veltrix_direct_devnet_cpmm_unsigned_transaction"' in source
+    assert "signed:false,submitted:false,broadcast:false" in source
+    assert "tx.signatures.some(sig=>sig.some(byte=>byte!==0))" in source
+    assert "tx.sign(" not in source
+    assert "sendRawTransaction" not in source
+    assert "devnet:cpmm:build" in workflow
+
+
+
+def test_browser_direct_cpmm_verifier_checks_pool_accounts_and_runtime_slippage():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function decodeDirectCpmmPolicy(message, resolved, quote)" in source
+    assert "async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes)" in source
+    assert "async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes)" in source
+    assert "temporary WSOL System CreateAccountWithSeed shape mismatch" in source
+    assert "direct CPMM exact input/output token transfer CPIs not proven" in source
+    assert "direct CPMM accepted minimum output one raw unit above actual output" in source
+    assert "inspectDirectCpmmTransaction" in source
+
+
+def test_fresh_direct_cpmm_transaction_is_audited_in_browser_harness():
+    root = PAGE.parents[1]
+    harness = root / "tests" / "phantom_direct_cpmm_live_audit.mjs"
+    workflow = root / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml"
+    assert harness.exists()
+    assert "inspectDirectCpmmTransaction(tx" in harness.read_text(encoding="utf-8")
+    assert "node tests/phantom_direct_cpmm_live_audit.mjs" in workflow.read_text(encoding="utf-8")
+
+
+
+def test_browser_alt_evidence_uses_deserialized_state_address_count():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "addresses:state.addresses.length" in source
+    assert "addresses:addresses.length" not in source
+
+
+
+def test_amm_config_discriminator_is_compared_as_raw_bytes():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "expectedConfigDisc = Uint8Array.from([218,244,33,104,203,203,43,111])" in source
+    assert "equalBytes(configData.slice(0,8),expectedConfigDisc)" in source
+    assert 'b58encode(accountDataBytes(config,"AMM config").slice(0,8)) !== "daf42168cbcb2b6f"' not in source
+
+
+
+def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
+    assert "getPoolInfoFromRpc(POOL)" in source
+    assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
+    assert 'throw new Error("Phantom signing is disabled.' in source
+    assert '$("execute").disabled = true' in source
+    assert '$("execute").textContent="Phantom signing disabled"' in source
+
+
+
+def test_devnet_ci_uses_fresh_direct_cpmm_audit_without_stale_router_fixture():
+    workflow = (PAGE.parents[1] / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml").read_text(encoding="utf-8")
+    assert "node tests/phantom_direct_cpmm_live_audit.mjs" in workflow
+    assert "python -m veltrix.solana_devnet_transaction_audit" not in workflow
+    assert "python -m veltrix.solana_devnet_swap_preflight" not in workflow
+    assert "try_ephemeral_swap" not in workflow
+
+
+def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_quote_and_exact_bytes():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "async function finalPreSignFreshnessGate()" in source
+    gate = source[source.index("async function finalPreSignFreshnessGate()"):source.index("async function execute()")]
+    assert "Date.now() - prepared.preparedAt > 15000" in gate
+    assert "provider.publicKey.equals(wallet)" in gate
+    assert "connection.getGenesisHash()" in gate
+    assert "RESERVE_LAMPORTS" in gate
+    assert "connection.isBlockhashValid(tx.message.recentBlockhash" in gate
+    assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
+    assert "freshResult.outputAmount.toString() !== prepared.quote.outputAmount" in gate
+    assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" in gate
+    assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
+    assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
+    execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
+    assert execute.index("Phantom signing is disabled") < execute.index("await finalPreSignFreshnessGate()")
+    assert "provider.signAndSendTransaction(finalTx" in execute
+
+
+
+def test_missing_or_invalid_network_fee_estimate_fails_closed():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "if (!fee || !Number.isSafeInteger(fee.value) || fee.value < 0)" in source
+    assert "Network fee estimate is unavailable or invalid; transaction preparation fails closed." in source
+    assert "const totalFee=fee.value;" in source

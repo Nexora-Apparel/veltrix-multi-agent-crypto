@@ -56,6 +56,7 @@ class DevnetSwapEvidence:
     route_pool_ids: list[str]
     verified_pool_program_owners: dict[str, str]
     unsigned_transaction_count: int
+    unsigned_transactions_base64: list[str]
     simulation_err: Any
     simulation_logs: list[str]
     rpc_endpoint: str
@@ -201,6 +202,7 @@ class RaydiumDevnetSwapPreflight:
         if len(txs) > 3:
             raise DevnetSwapPreflightError("Unexpected transaction bundle size; refusing simulation")
         logs: list[str] = []
+        unsigned_transactions_base64: list[str] = []
         simulation_err: Any = None
         for item in txs:
             encoded = item.get("transaction") if isinstance(item, dict) else None
@@ -210,6 +212,10 @@ class RaydiumDevnetSwapPreflight:
                 raw = base64.b64decode(encoded, validate=True)
             except Exception as exc:
                 raise DevnetSwapPreflightError("Unsigned transaction is not valid base64") from exc
+            # Retain the exact unsigned bytes so a separate semantic verifier can
+            # inspect the same message that the wallet will later be asked to sign.
+            # These contain no signatures or private-key material.
+            unsigned_transactions_base64.append(base64.b64encode(raw).decode("ascii"))
             sim = self._rpc(
                 "simulateTransaction",
                 [base64.b64encode(raw).decode("ascii"), {
@@ -243,6 +249,7 @@ class RaydiumDevnetSwapPreflight:
             route_pool_ids=pool_ids,
             verified_pool_program_owners=verified_owners,
             unsigned_transaction_count=len(txs),
+            unsigned_transactions_base64=unsigned_transactions_base64,
             simulation_err=simulation_err,
             simulation_logs=logs[-80:],
             rpc_endpoint=DEVNET_RPC_URL,

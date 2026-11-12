@@ -114,6 +114,7 @@ def test_full_quote_build_and_simulation_path_is_unsigned():
     assert evidence.quote_received and evidence.unsigned_transaction_built
     assert evidence.simulation_attempted and evidence.simulation_succeeded
     assert evidence.route_pool_ids == [pool_id]
+    assert evidence.unsigned_transactions_base64 == [tx_b64]
     assert evidence.transaction_signed is False
     assert evidence.transaction_submitted is False
     assert evidence.transaction_broadcast is False
