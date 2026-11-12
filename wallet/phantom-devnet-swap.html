@@ -243,7 +243,7 @@
     if(tx instanceof solanaWeb3.Transaction) {
       const i=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
       if(i<0) fail("legacy transaction has no direct CPMM instruction");
-      tx.instructions[i].data=Buffer.from(data); return;
+      tx.instructions[i].data=Uint8Array.from(data); return;
     }
     const m=tx.message,i=m.compiledInstructions.findIndex(ix=>m.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
     if(i<0) fail("versioned transaction has no direct CPMM instruction");
@@ -963,7 +963,7 @@
     let signature = null;
     let approvalRequested = false;
     try {
-      status("Rechecking wallet, Devnet, balance reserve, blockhash, pool quote, legacy transaction format, wallet, Devnet, balance reserve, blockhash, pool quote and exact bytes before opening Phantom approval…","muted");
+      status("Rechecking wallet, Devnet, reserve, blockhash, pool quote, legacy transaction format and exact bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
       if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
