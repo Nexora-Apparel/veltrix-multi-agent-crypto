@@ -762,12 +762,19 @@
     const cpmmData=new Uint8Array(tx.message.compiledInstructions[cpmmIndex].data);
     if(cpmmData.length!==24 || [...cpmmData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("")!==CPMM_SWAP_DISC ||
        readU64(cpmmData,8)!==BigInt(lamports)) fail("SDK CPMM instruction discriminator/input mismatch");
-    for(let i=0;i<8;i++) cpmmData[16+i]=Number((BigInt(minimumOut.toString())>>BigInt(i*8))&255n);
-    tx.message.compiledInstructions[cpmmIndex].data=cpmmData;
-
     const q={inputMint:SOL,outputMint:USDC,inputAmount:String(lamports),
-      outputAmount:swapResult.outputAmount.toString(),otherAmountThreshold:minimumOut.toString(),
+      outputAmount:swapResult.outputAmount.toString(),otherAmountThreshold:"0",
       priceImpactPct:impact,routePlan:[{poolId:POOL}]};
+    // Canonicalize the transaction minimum from the final quoted raw output.
+    // Never trust an SDK-provided threshold or a separately retained value.
+    const quotedRawCanonical=BigInt(q.outputAmount);
+    const minimumRawCanonical=quotedRawCanonical*9900n/10000n;
+    if(minimumRawCanonical<=0n || minimumRawCanonical>quotedRawCanonical) {
+      fail("computed 1% minimum output is invalid for the final quote");
+    }
+    for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumRawCanonical>>BigInt(i*8))&255n);
+    tx.message.compiledInstructions[cpmmIndex].data=cpmmData;
+    q.otherAmountThreshold=minimumRawCanonical.toString();
     const reviewedBytes=snapshotUnsignedTransaction(tx);
     const semanticAudit=await inspectDirectCpmmTransaction(tx,q,reviewedBytes);
     if(semanticAudit.directCpmm!=="verified" || semanticAudit.resolvedAccountCount!==16 ||
