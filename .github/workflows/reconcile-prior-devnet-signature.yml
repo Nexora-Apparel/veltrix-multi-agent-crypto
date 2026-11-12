@@ -1,6 +1,7 @@
 name: Read-only prior Devnet signature reconciliation
 
 on:
+  workflow_dispatch:
   push:
     branches: [work/devnet-phantom-legacy-compat]
   pull_request:
