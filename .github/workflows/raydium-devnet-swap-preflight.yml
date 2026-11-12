@@ -2,7 +2,7 @@ name: Raydium Devnet swap preflight
 
 on:
   push:
-    branches: [work/devnet-raydium-swap-preflight]
+    branches: [work/devnet-raydium-swap-preflight, work/devnet-phantom-legacy-compat]
   pull_request:
     paths:
       - 'wallet/phantom-devnet-swap.html'
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Build and simulate a direct single-pool CPMM v0 transaction
+      - name: Build and simulate an ALT-free legacy single-pool CPMM transaction
         run: |
           npm install --no-audit --no-fund
           mkdir -p artifacts
