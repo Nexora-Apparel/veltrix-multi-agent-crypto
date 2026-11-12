@@ -788,8 +788,88 @@
     $("execute").disabled = true;
     if (reason) status(reason, "warning");
   }
+  async function finalPreSignFreshnessGate() {
+    if (!prepared || !provider || !wallet) throw new Error("No prepared transaction or connected Phantom wallet.");
+    if (Date.now() - prepared.preparedAt > 15000) {
+      invalidatePrepared("Final review expired after 15 seconds. Build a new transaction.");
+      throw new Error("Pre-sign freshness window expired.");
+    }
+    if (prepared.walletAddress !== wallet.toBase58() ||
+        !provider.publicKey || !provider.publicKey.equals(wallet) ||
+        prepared.txs.length !== 1 || prepared.reviewedBytes.length !== 1) {
+      invalidatePrepared("Wallet or transaction binding changed. Build a new transaction.");
+      throw new Error("Pre-sign wallet/transaction binding mismatch.");
+    }
+    if (await connection.getGenesisHash() !== GENESIS) {
+      invalidatePrepared("Canonical Devnet identity check failed.");
+      throw new Error("Pre-sign cluster identity mismatch.");
+    }
+    const currentBalance = await refreshBalance();
+    const requiredBalance = BigInt(prepared.lamports) + BigInt(RESERVE_LAMPORTS) + BigInt(prepared.totalFee || 0);
+    if (BigInt(currentBalance) < requiredBalance) {
+      invalidatePrepared("Balance no longer covers input, network fee and 0.05 SOL reserve.");
+      throw new Error("Pre-sign balance/reserve check failed.");
+    }
+    const tx = assertExactReviewedBytes(prepared.txs[0], prepared.reviewedBytes[0]);
+    const blockhashCheck = await connection.isBlockhashValid(tx.message.recentBlockhash, "confirmed");
+    if (!blockhashCheck || blockhashCheck.value !== true) {
+      invalidatePrepared("Transaction blockhash expired. Build a new transaction.");
+      throw new Error("Pre-sign blockhash is no longer valid.");
+    }
+
+    // Recompute the quote from a new RPC-backed pool read. Any reserve/fee drift
+    // invalidates this transaction; the user must build and audit a replacement.
+    const {sdk,BN} = await loadDirectCpmmSdk();
+    const {Raydium,CurveCalculator,FeeOn} = sdk;
+    const raydium = await Raydium.load({
+      owner:wallet,connection,cluster:"devnet",disableFeatureCheck:true,disableLoadToken:true,
+      blockhashCommitment:"finalized",
+      urlConfigs:{
+        BASE_HOST:"https://api-v3-devnet.raydium.io",
+        OWNER_BASE_HOST:"https://owner-v1-devnet.raydium.io",
+        SWAP_HOST:"https://transaction-v1-devnet.raydium.io",
+        CPMM_LOCK:"https://dynamic-ipfs-devnet.raydium.io/lock/cpmm/position"
+      }
+    });
+    const freshPool = await raydium.cpmm.getPoolInfoFromRpc(POOL);
+    const {poolInfo,rpcData}=freshPool;
+    if (poolInfo.id !== POOL || poolInfo.programId !== CPMM) throw new Error("Fresh pool identity/program mismatch.");
+    const mintA=poolInfo.mintA.address, mintB=poolInfo.mintB.address;
+    if (![mintA,mintB].includes(SOL) || ![mintA,mintB].includes(USDC)) throw new Error("Fresh pool mint pair changed.");
+    const baseIn=mintA===SOL;
+    const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
+    const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
+    const inputAmount=new BN(String(prepared.lamports));
+    const freshResult=CurveCalculator.swapBaseInput(
+      inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
+      rpcData.configInfo.creatorFeeRate,rpcData.configInfo.protocolFeeRate,rpcData.configInfo.fundFeeRate,
+      rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB
+    );
+    if (!freshResult.outputAmount || freshResult.outputAmount.lte(new BN(0))) throw new Error("Fresh CPMM quote is invalid.");
+    const freshSpot=inputAmount.mul(reserveOut).div(reserveIn);
+    const freshImpact=Number(freshSpot.sub(freshResult.outputAmount).toString())/Number(freshSpot.toString())*100;
+    const freshMinimum=freshResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
+    if (!Number.isFinite(freshImpact) || freshImpact < 0 || freshImpact > MAX_IMPACT ||
+        freshResult.outputAmount.toString() !== prepared.quote.outputAmount ||
+        freshMinimum.toString() !== prepared.quote.otherAmountThreshold ||
+        Math.abs(freshImpact - prepared.impact) > 0.000001) {
+      invalidatePrepared("Pool reserves, fees, quote or price impact changed. Build a fresh transaction.");
+      throw new Error("Pre-sign quote freshness check failed.");
+    }
+
+    // Re-resolve finalized ALTs, reconstruct privileges, re-read pool/token
+    // accounts, simulate the exact bytes, and repeat the one-unit-higher rejection.
+    const audit = await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0]);
+    if (audit.directCpmm !== "verified" || audit.runtime.adversarialRejected !== true) {
+      invalidatePrepared("Final semantic audit failed. Signing remains blocked.");
+      throw new Error("Final pre-sign semantic audit failed.");
+    }
+    assertExactReviewedBytes(tx,prepared.reviewedBytes[0]);
+    return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
+  }
   async function execute() {
     throw new Error("Phantom signing is disabled. The fresh browser audit passed, but the signing release gate has not been authorized.");
+    await finalPreSignFreshnessGate();
     if (!prepared || !provider || !wallet) throw new Error("No reviewed transaction is ready.");
     if (Date.now() - prepared.preparedAt > 60000) {
       invalidatePrepared("Review expired after 60 seconds. Request a fresh quote and transaction.");
