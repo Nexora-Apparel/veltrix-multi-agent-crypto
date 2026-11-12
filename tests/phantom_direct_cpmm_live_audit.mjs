@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { PublicKey, Transaction } from "@solana/web3.js";
 
 const html=fs.readFileSync(new URL("../wallet/phantom-devnet-swap.html",import.meta.url),"utf8");
 const script=html.split("<script>",2)[1].split("</script>",1)[0];
@@ -10,17 +10,20 @@ const artifact=JSON.parse(fs.readFileSync(artifactPath,"utf8"));
 assert.equal(artifact.status,"simulation_succeeded");
 assert.equal(artifact.cluster,"devnet");
 assert.equal(artifact.pool,"5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo");
-assert.equal(artifact.transaction_version,0);
+assert.equal(artifact.transaction_version,"legacy");
+assert.equal(artifact.address_lookup_tables.length,0);
+assert.ok(artifact.serialized_size_bytes<=1232);
 assert.equal(artifact.transaction_count,1);
 assert.equal(artifact.signed,false);
 assert.equal(artifact.submitted,false);
 assert.equal(artifact.broadcast,false);
 
 const bytes=Uint8Array.from(Buffer.from(artifact.unsigned_transaction_base64,"base64"));
-const tx=VersionedTransaction.deserialize(bytes);
-assert.equal(tx.version,0);
+const tx=Transaction.from(bytes);
 assert.equal(tx.signatures.length,1);
-assert.ok(tx.signatures.every(sig=>sig.every(byte=>byte===0)));
+assert.ok(tx.signatures.every(item=>item.signature===null));
+assert.ok(tx.compileMessage().accountKeys.length<=32);
+assert.equal(tx.instructions.length,5);
 
 const nodes=new Map();
 function node(id){
@@ -45,7 +48,8 @@ const audit=await hooks.inspectDirectCpmmTransaction(tx,{
   otherAmountThreshold:artifact.minimum_output_raw
 },bytes);
 assert.equal(audit.directCpmm,"verified");
-assert.equal(audit.resolvedAccountCount,16);
+assert.ok(audit.resolvedAccountCount<=32);
+assert.equal(audit.lookupTables.length,0);
 assert.equal(audit.runtime.adversarialRejected,true);
 assert.equal(audit.runtime.actualOutput,artifact.actual_output_raw);
 const output={evidence_type:"veltrix_browser_direct_cpmm_live_audit",status:"passed",
