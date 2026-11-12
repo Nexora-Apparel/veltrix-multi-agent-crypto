@@ -306,7 +306,7 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "Date.now() - prepared.preparedAt > 15000" in gate
     assert "provider.publicKey.equals(wallet)" in gate
     assert "connection.getGenesisHash()" in gate
-    assert "RESERVE_LAMPORTS" in gate
+    assert "BigInt(prepared.requiredBalanceLamports)" in gate
     assert "connection.isBlockhashValid(normalizedTransactionMessage(tx).recentBlockhash" in gate
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
@@ -381,7 +381,7 @@ def test_direct_cpmm_ata_rent_is_state_aware_and_disclosed_before_approval():
     assert 'id="usdcAccountStatusValue"' in source
     assert 'id="ataRentValue"' in source
     assert 'id="netDebitValue"' in source
-    assert "BigInt(prepared.persistentAtaRentLamports || 0)" in source
+    assert "BigInt(prepared.requiredBalanceLamports)" in source
     assert "BigInt(prepared.totalDebitLamports)+BigInt(RESERVE_LAMPORTS)" in source
 
 

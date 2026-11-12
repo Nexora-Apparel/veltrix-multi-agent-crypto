@@ -65,7 +65,7 @@ If any freshness condition changes, the page rejects the old transaction and req
 1. Open the HTTPS preview inside Phantom on Android.
 2. Connect the intended Devnet wallet and verify the canonical Devnet network.
 3. Request a fresh quote for exactly 0.001 SOL.
-4. Inspect pair, input, quoted output, automatically calculated minimum output, 1% slippage, price impact, network fee, USDC account presence, one-time ATA rent and estimated net SOL debit. Confirm the temporary WSOL rent is returned and the USDC ATA rent remains locked if a new account is created.
+4. Inspect pair, input, quoted output, automatically calculated minimum output, 1% slippage, price impact, network fee, USDC account presence, one-time ATA rent, estimated net SOL debit, temporary WSOL funding and minimum SOL balance including reserve. Confirm the temporary WSOL rent is returned and the USDC ATA rent remains locked if a new account is created.
 5. Select the approval action only if the displayed transaction matches the intended test.
 6. Review the transaction in Phantom. Reject it if any wallet, amount, mint, pool or fee detail is unexpected.
 7. If approved, wait for the page to report confirmed signature and verified USDC balance increase.
