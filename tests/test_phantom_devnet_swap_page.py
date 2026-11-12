@@ -337,3 +337,21 @@ def test_quote_review_displays_exact_raw_output_and_slippage_floor():
     assert "minimumRaw!==expectedFloor" in source
     assert 'textContent=fmtFixedRaw(quotedRaw,6)+" USDC"' in source
     assert 'textContent=fmtFixedRaw(minimumRaw,6)+" USDC"' in source
+
+
+def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without_alt():
+    root = PAGE.parents[1]
+    builder = (root / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
+    page = PAGE.read_text(encoding="utf-8")
+    harness = (root / "tests" / "phantom_direct_cpmm_live_audit.mjs").read_text(encoding="utf-8")
+    assert "txVersion:TxVersion.LEGACY" in builder
+    assert "tx.serialize({requireAllSignatures:false,verifySignatures:false})" in builder
+    assert "1232-byte packet limit" in builder
+    assert 'transaction_version:"legacy"' in builder
+    assert "address_lookup_tables:[]" in builder
+    assert "TxVersion.LEGACY" in page
+    assert "resolveLegacyAccounts(message)" in page
+    assert "only ALT-free legacy transactions are accepted" in page
+    assert "legacy transaction contains address lookup tables" in page
+    assert "Transaction.from(bytes)" in harness
+    assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
