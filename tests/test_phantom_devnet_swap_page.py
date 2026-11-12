@@ -25,16 +25,29 @@ def test_swap_limits_and_impact_gate_are_present():
     assert "impact>MAX_IMPACT" in source
 
 
-def test_phantom_signing_is_disabled_in_the_verification_build():
+def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate():
     source = PAGE.read_text(encoding="utf-8")
-    assert '<button id="execute" disabled>Phantom signing disabled</button>' in source
-    assert "Phantom signing disabled · Solana Devnet only" in source
-    assert "Phantom signing and transaction submission are disabled in this verification build." in source
+    assert '<button id="execute" disabled>Review and approve in Phantom</button>' in source
+    assert "User-approved Phantom signing · Solana Devnet only" in source
+    assert "Nothing is sent unless you approve it in Phantom." in source
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert 'throw new Error("Phantom signing and transaction submission are disabled in this verification build.")' in execute
-    assert "provider.signAndSendTransaction" not in execute
+    assert "await finalPreSignFreshnessGate()" in execute
+    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert "provider.publicKey.equals(wallet)" in execute
+    assert "confirmTransaction(signature" in execute
+    assert "getTransaction(signature" in execute
+    assert "exact reviewed transaction message" in execute
+    assert "tokenBalanceRaw()" in execute
     assert "window.confirm(" not in source
     assert "await provider.connect()" in source
+
+
+def test_phantom_submission_is_one_shot_and_never_automatically_retried():
+    source = PAGE.read_text(encoding="utf-8")
+    execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
+    assert "prepared.executionStarted" in execute
+    assert "Do not retry" in execute
+    assert "received < BigInt(reviewed.quote.otherAmountThreshold)" in execute
 
 
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
@@ -144,7 +157,7 @@ def test_browser_semantic_audit_runs_before_review_and_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert "Transaction intent rejected:" in source
-    assert "provider.signAndSendTransaction(finalTx" not in source
+    assert "provider.signAndSendTransaction(finalTx" in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
 
 
@@ -272,8 +285,8 @@ def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert 'throw new Error("Phantom signing and transaction submission are disabled in this verification build.")' in source
-    assert '$("execute").disabled = true' in source
-    assert '$("execute").textContent="Phantom signing disabled"' in source
+    assert '$("execute").disabled=false' in source
+    assert '$("execute").textContent="Review and approve in Phantom"' in source
 
 
 
@@ -301,8 +314,8 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
     assert "Phantom signing and transaction submission are disabled" in execute
-    assert "await finalPreSignFreshnessGate()" not in execute
-    assert "provider.signAndSendTransaction" not in execute
+    assert "await finalPreSignFreshnessGate()" in execute
+    assert "provider.signAndSendTransaction(finalTx" in execute
 
 
 
