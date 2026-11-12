@@ -885,12 +885,7 @@
     } catch (error) {
       throw new Error("Devnet faucet request failed: " + (error && error.message ? error.message : String(error)));
     }
-    const latest = await connection.getLatestBlockhash("confirmed");
-    const confirmation = await connection.confirmTransaction({
-      signature,
-      blockhash: latest.blockhash,
-      lastValidBlockHeight: latest.lastValidBlockHeight
-    }, "confirmed");
+    const confirmation = await connection.confirmTransaction(signature, "confirmed");
     if (!confirmation || !confirmation.value || confirmation.value.err) {
       throw new Error("Devnet faucet airdrop did not confirm. Faucet signature: " + signature);
     }
@@ -910,7 +905,7 @@
     }
     const lamports = Math.floor(amount * 1e9);
     if (lamports !== TEST_LAMPORTS) throw new Error("This one-time Devnet test uses exactly 0.001 SOL.");
-    const balance = await refreshBalance();
+    await refreshBalance();
     const tokenBalanceBefore = await tokenBalanceRaw();
 
     const {sdk,BN} = await loadDirectCpmmSdk();
