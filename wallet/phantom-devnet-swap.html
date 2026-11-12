@@ -40,7 +40,10 @@
     <div class="row"><span>Pair</span><span class="value">SOL → Devnet USDC</span></div>
     <div class="row"><span>Input</span><span class="value" id="inputValue">—</span></div>
     <div class="row"><span>Quoted output</span><span class="value" id="outputValue">—</span></div>
+    <div class="row"><span>Quoted output (raw units)</span><span class="value" id="outputRawValue">—</span></div>
     <div class="row"><span>Minimum output</span><span class="value" id="minimumValue">—</span></div>
+    <div class="row"><span>Minimum output (raw units)</span><span class="value" id="minimumRawValue">—</span></div>
+    <div class="row"><span>Slippage floor</span><span class="value" id="slippageValue">—</span></div>
     <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
     <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
     <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
@@ -88,6 +91,11 @@
     const scale = 10n ** BigInt(decimals);
     const whole = n / scale, fraction = (n % scale).toString().padStart(decimals,"0").replace(/0+$/,"");
     return fraction ? whole + "." + fraction : String(whole);
+  }
+  function fmtFixedRaw(raw, decimals) {
+    const n = BigInt(String(raw));
+    const scale = 10n ** BigInt(decimals);
+    return (n / scale).toString() + "." + (n % scale).toString().padStart(decimals,"0");
   }
   function setBusy(value) {
     busy = value;
@@ -775,8 +783,16 @@
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
       preparedAt:Date.now(),walletAddress:wallet.toBase58(),semanticAudit};
     $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
-    $("outputValue").textContent=fmtRaw(q.outputAmount,6)+" USDC";
-    $("minimumValue").textContent=fmtRaw(q.otherAmountThreshold,6)+" USDC";
+    const quotedRaw=BigInt(q.outputAmount);
+    const minimumRaw=BigInt(q.otherAmountThreshold);
+    if(minimumRaw<=0n || minimumRaw>quotedRaw) fail("minimum output must be positive and cannot exceed the quoted output");
+    const expectedFloor=quotedRaw*9900n/10000n;
+    if(minimumRaw!==expectedFloor) fail("minimum output does not match the exact 1% slippage floor");
+    $("outputValue").textContent=fmtFixedRaw(quotedRaw,6)+" USDC";
+    $("outputRawValue").textContent=quotedRaw.toString()+" raw units";
+    $("minimumValue").textContent=fmtFixedRaw(minimumRaw,6)+" USDC";
+    $("minimumRawValue").textContent=minimumRaw.toString()+" raw units";
+    $("slippageValue").textContent="100 bps (1.00%)";
     $("impactValue").textContent=impact.toFixed(3)+"%";
     $("poolsValue").textContent="1 direct CPMM pool";
     $("feeValue").textContent=totalFee?(totalFee/1e9).toFixed(6)+" SOL (network fee estimate)":"Unavailable";
@@ -871,46 +887,7 @@
     return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
   }
   async function execute() {
-    throw new Error("Phantom signing is disabled. The fresh browser audit passed, but the signing release gate has not been authorized.");
-    await finalPreSignFreshnessGate();
-    if (!prepared || !provider || !wallet) throw new Error("No reviewed transaction is ready.");
-    if (Date.now() - prepared.preparedAt > 60000) {
-      invalidatePrepared("Review expired after 60 seconds. Request a fresh quote and transaction.");
-      throw new Error("Reviewed transaction expired.");
-    }
-    if (prepared.walletAddress !== wallet.toBase58() || prepared.txs.length !== 1 ||
-        prepared.reviewedBytes.length !== 1) {
-      invalidatePrepared("Wallet or transaction bundle changed. Request a fresh quote.");
-      throw new Error("Reviewed wallet/bundle binding mismatch.");
-    }
-    if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
-      invalidatePrepared("Phantom account changed. Reconnect and request a fresh quote.");
-      throw new Error("Connected Phantom account no longer matches the reviewed fee payer.");
-    }
-    const current = await connection.getGenesisHash();
-    if (current !== GENESIS) throw new Error("Devnet identity changed. Signing blocked.");
-    const freshBalance = await refreshBalance();
-    if (freshBalance < prepared.lamports + RESERVE_LAMPORTS) throw new Error("Wallet balance changed; quote invalidated.");
-    const confirmed = [];
-    for (let i = 0; i < prepared.txs.length; i++) {
-      const tx = assertExactReviewedBytes(prepared.txs[i], prepared.reviewedBytes[i]);
-      await inspectDirectCpmmTransaction(tx, prepared.quote, prepared.reviewedBytes[i]);
-      const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
-      if (simulation.value.err) throw new Error("Pre-sign simulation failed; Phantom approval blocked: " + JSON.stringify(simulation.value.err));
-      const finalTx = assertExactReviewedBytes(tx, prepared.reviewedBytes[i]);
-      const result = await provider.signAndSendTransaction(finalTx, {preflightCommitment:"confirmed",maxRetries:3});
-      const signature = typeof result === "string" ? result : result.signature;
-      if (!signature) throw new Error("Phantom did not return a transaction signature.");
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      if (confirmation.value.err) throw new Error("Devnet transaction failed: " + JSON.stringify(confirmation.value.err));
-      confirmed.push(signature);
-    }
-    const tokenBalanceAfter = await tokenBalanceRaw();
-    const tokenDelta = tokenBalanceAfter - BigInt(prepared.tokenBalanceBefore);
-    if (tokenDelta <= 0n) throw new Error("Transactions confirmed, but no positive Devnet USDC balance increase was verified. Signatures: " + confirmed.join(", "));
-    prepared = null; $("execute").disabled = true;
-    await refreshBalance();
-    status("Confirmed Devnet transaction(s):\n" + confirmed.join("\n") + "\nVerified USDC increase: " + fmtRaw(tokenDelta,6) + " USDC. This did not touch Mainnet.","good");
+    throw new Error("Phantom signing and transaction submission are disabled in this verification build.");
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
