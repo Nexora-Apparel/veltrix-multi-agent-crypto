@@ -13,6 +13,26 @@ const INPUT = 1_000_000;
 const OUT = process.env.OUTPUT || "artifacts/devnet-cpmm-unsigned.json";
 const fail = message => { throw new Error("Devnet CPMM acquisition rejected: " + message); };
 
+async function simulateLegacy(serialized, innerInstructions) {
+  const response = await fetch(RPC, {
+    method:"POST",
+    headers:{"content-type":"application/json"},
+    body:JSON.stringify({
+      jsonrpc:"2.0",id:1,method:"simulateTransaction",
+      params:[Buffer.from(serialized).toString("base64"),{
+        encoding:"base64",commitment:"confirmed",sigVerify:false,
+        replaceRecentBlockhash:true,innerInstructions:!!innerInstructions
+      }]
+    })
+  });
+  if(!response.ok) fail("canonical Devnet simulation HTTP "+response.status);
+  const payload=await response.json();
+  if(payload.error || !payload.result || !payload.result.value) {
+    fail("canonical Devnet legacy simulation RPC failed: "+JSON.stringify(payload.error||{}));
+  }
+  return payload.result;
+}
+
 async function main() {
   if (process.env.CLUSTER && process.env.CLUSTER !== "devnet") fail("cluster override is not permitted");
   const connection = new Connection(RPC, "confirmed");
@@ -78,7 +98,7 @@ async function main() {
   const roundTrip=Transaction.from(serialized);
   if (Buffer.compare(Buffer.from(serialized),Buffer.from(roundTrip.serialize({requireAllSignatures:false,verifySignatures:false})))!==0) fail("legacy serialization round-trip mismatch");
   if(roundTrip.addressTableLookups?.length) fail("legacy round-trip unexpectedly contains address lookup tables");
-  const sim=await connection.simulateTransaction(tx,[],{sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed",innerInstructions:true});
+  const sim=await simulateLegacy(serialized,true);
   if (sim.value.err) fail("unsigned direct-CPMM simulation failed: "+JSON.stringify(sim.value.err));
   const eventLine=(sim.value.logs||[]).find(line=>line.startsWith("Program data: "));
   if (!eventLine) fail("CPMM swap event missing from successful simulation");
@@ -97,8 +117,8 @@ async function main() {
   const adversarialData=Buffer.from(adversarialTx.instructions[adversarialIndex].data);
   adversarialData.set(adversarialMinimum.toArrayLike(Buffer,"le",8),16);
   adversarialTx.instructions[adversarialIndex].data=adversarialData;
-  const negative=await connection.simulateTransaction(adversarialTx,[],{sigVerify:false,replaceRecentBlockhash:true,
-    commitment:"confirmed",innerInstructions:false});
+  const negativeBytes=adversarialTx.serialize({requireAllSignatures:false,verifySignatures:false});
+  const negative=await simulateLegacy(negativeBytes,false);
   if(!negative.value.err) fail("CPMM accepted a minimum output one raw unit above the observed output");
   const message=tx.compileMessage();
   const keys=message.accountKeys.map(k=>k.toBase58());
