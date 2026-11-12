@@ -355,3 +355,13 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "legacy transaction contains address lookup tables" in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
+
+
+def test_wallet_capability_adapter_requires_legacy_before_quote_and_approval():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function detectWalletCapabilities(p)" in source
+    assert 'advertised.has("legacy")' in source
+    assert 'advertised.includes("legacy")' in source
+    assert "walletCapabilities=detectWalletCapabilities(provider)" in source
+    assert "No transaction will be built." in source
+    assert "required legacy transaction format; signing is blocked" in source
