@@ -6,7 +6,8 @@ This static page is a wallet-owner-controlled, one-time Solana Devnet swap test.
 
 - The browser dynamically loads the pinned `@raydium-io/raydium-sdk-v2@0.2.64-alpha` package.
 - It resolves the exact Devnet CPMM pool `5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo` through canonical Devnet RPC.
-- It builds one direct CPMM v0 transaction. The auto-routing Trade API is not used for transaction acquisition.
+- It builds one direct CPMM legacy (non-versioned) transaction. Address Lookup Tables are prohibited on this Phantom compatibility path; the auto-routing Trade API is not used for transaction acquisition.
+- The wallet compatibility adapter uses the legacy transaction format and rejects a provider that explicitly advertises no legacy support. It never silently falls back to v0.
 - The only supported pair is WSOL to the official Devnet USDC mint.
 - Input is fixed at exactly 0.001 SOL (1,000,000 lamports).
 - The page retains a 0.05 SOL balance reserve.
@@ -18,14 +19,14 @@ This static page is a wallet-owner-controlled, one-time Solana Devnet swap test.
 Before displaying the review summary, the page independently:
 
 1. Checks the canonical Devnet genesis hash.
-2. Resolves the transaction's v0 address lookup table from finalized Devnet state, checks ALT ownership/lifecycle/index bounds, and reconstructs all loaded account keys.
+2. Requires a legacy message with zero address-table lookups, reconstructs every static account key, and rejects any v0/ALT transaction on this path.
 3. Reconstructs effective signer and writable privileges.
 4. Checks the exact five-instruction direct-CPMM setup/swap/cleanup shape, temporary WSOL account creation/initialization/close semantics, and USDC ATA creation semantics.
 5. Reads the live CPMM pool/config/vault/mint/observation/authority accounts and checks their owners, identities and token pairings.
 6. Simulates the exact unsigned transaction, inspects parsed inner CPIs, and proves the exact 1,000,000-lamport input transfer and actual USDC output transfer.
 7. Simulates an adversarial clone with minimum output set one raw unit above the observed output; the CPMM program must reject it.
 
-CI builds a fresh transaction through the pinned SDK and invokes this browser-side verifier against those exact serialized bytes and current canonical Devnet account state. Evidence includes the transaction hash, ALT state, privilege map, actual output, and adversarial rejection result.
+CI builds a fresh legacy transaction through the pinned SDK, enforces the 1232-byte packet limit, and invokes this browser-side verifier against those exact serialized bytes and current canonical Devnet account state. Evidence includes transaction size, static account/privilege map, zero ALT count, actual output, and adversarial rejection result.
 
 ## User approval and final freshness gate
 
@@ -46,7 +47,7 @@ If any freshness condition changes, the page rejects the old transaction and req
 
 - Phantom's `signAndSendTransaction` is called only after the final freshness gate passes and only from the user's explicit button click.
 - The wallet owner must inspect and approve the transaction in Phantom. The page cannot approve on the user's behalf.
-- The page waits for Devnet confirmation, retrieves the confirmed v0 transaction, and compares its message bytes with the reviewed message.
+- The page waits for Devnet confirmation, retrieves the confirmed legacy transaction, and compares its message bytes with the reviewed message.
 - The page then checks the wallet's Devnet USDC balance increase against the reviewed minimum output.
 - A signature or successful simulation alone is not reported as a successful swap.
 - If Phantom explicitly rejects approval, the action may be retried only while the prepared review remains fresh. If the submission result is ambiguous or a signature exists, the action is locked against retries until wallet activity is inspected.
