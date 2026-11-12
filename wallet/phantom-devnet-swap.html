@@ -826,7 +826,7 @@
       fail("computed 1% minimum output is invalid for the final quote");
     }
     for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumRawCanonical>>BigInt(i*8))&255n);
-    tx.instructions[cpmmIndex].data=Buffer.from(cpmmData);
+    tx.instructions[cpmmIndex].data=Uint8Array.from(cpmmData);
     q.otherAmountThreshold=minimumRawCanonical.toString();
     const reviewedBytes=snapshotUnsignedTransaction(tx);
     const semanticAudit=await inspectDirectCpmmTransaction(tx,q,reviewedBytes);
