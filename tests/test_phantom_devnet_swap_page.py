@@ -14,15 +14,25 @@ def test_phantom_page_is_devnet_only_and_has_no_secret_input():
     assert 'type="password"' not in source.lower()
 
 
-def test_swap_limits_and_impact_gate_are_present():
+def test_devnet_test_amount_and_market_impact_gate_are_present_without_wallet_reserve():
     source = PAGE.read_text(encoding="utf-8")
     assert "TEST_LAMPORTS = 1000000" in source
-    assert "MAX_LAMPORTS = TEST_LAMPORTS" in source
     assert "lamports !== TEST_LAMPORTS" in source
-    assert "lamports > MAX_LAMPORTS" in source
-    assert "RESERVE_LAMPORTS = 50000000" in source
+    assert "MAX_LAMPORTS" not in source
+    assert "RESERVE_LAMPORTS" not in source
+    assert "0.05 SOL reserve" not in source
     assert "MAX_IMPACT = 2" in source
     assert "impact>MAX_IMPACT" in source
+
+
+def test_zero_balance_is_funded_automatically_from_devnet_faucet():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "async function ensureDevnetFunds(requiredBalanceLamports)" in source
+    assert "connection.requestAirdrop(wallet, Number(topUp))" in source
+    assert "connection.confirmTransaction(signature, \"confirmed\")" in source
+    assert "await ensureDevnetFunds(requiredBalanceLamports)" in source
+    assert "canonical Devnet identity check failed" in source
+    assert "Devnet faucet confirmed, but the wallet balance is still below" in source
 
 
 def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate():
@@ -394,11 +404,13 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
 
 
 
-def test_balance_gate_covers_temporary_wsol_funding_peak_not_only_net_debit():
-    source = PAGE.read_text(encoding="utf-8")
+def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reserve():
+    source = PAGE.read_text(encoding="utf-8").read_text(encoding="utf-8")
     assert "temporaryWsolFundingLamports:rentFunding" in source
     assert "const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports)" in source
-    assert "const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+" in source
+    assert "const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+BigInt(totalFee)" in source
+    assert "await ensureDevnetFunds(requiredBalanceLamports)" in source
     assert "BigInt(prepared.requiredBalanceLamports)" in source
+    assert "0.05 SOL reserve" not in source
     assert 'id="temporaryFundingValue"' in source
     assert 'id="requiredBalanceValue"' in source
