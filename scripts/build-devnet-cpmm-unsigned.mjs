@@ -72,7 +72,16 @@ async function main() {
     poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.LEGACY,
     ownerInfo:{wallet:new PublicKey(WALLET),useSOLBalance:true}
   });
-  if (!built.transaction || typeof built.transaction.serialize !== "function") fail("SDK did not return a serializable transaction");
+  if (!built.transaction || typeof built.transaction.serialize !== "function" ||
+      typeof built.transaction.compileMessage !== "function" || typeof built.transaction.setSigners !== "function") {
+    fail("SDK did not return a serializable legacy transaction");
+  }
+  const sdkMessage=built.transaction.compileMessage();
+  if(sdkMessage.header.numRequiredSignatures!==1 || !sdkMessage.accountKeys[0].equals(owner)) {
+    fail("SDK transaction requires an unexpected signer or fee payer");
+  }
+  if(built.transaction.signatures.some(item=>item.signature!==null)) fail("SDK unexpectedly returned a signed transaction");
+  built.transaction.setSigners(owner);
   const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
   let tx;
   try { tx=Transaction.from(sdkBytes); }
