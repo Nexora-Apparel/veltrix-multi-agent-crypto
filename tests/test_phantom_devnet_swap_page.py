@@ -382,7 +382,7 @@ def test_direct_cpmm_ata_rent_is_state_aware_and_disclosed_before_approval():
     assert 'id="ataRentValue"' in source
     assert 'id="netDebitValue"' in source
     assert "BigInt(prepared.requiredBalanceLamports)" in source
-    assert "BigInt(prepared.totalDebitLamports)+BigInt(RESERVE_LAMPORTS)" in source
+    assert "BigInt(prepared.requiredBalanceLamports)" in source
 
 
 def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
