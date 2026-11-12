@@ -236,7 +236,7 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert "sigVerify:false" in source
     assert 'evidence_type:"veltrix_direct_devnet_cpmm_unsigned_transaction"' in source
     assert "signed:false,submitted:false,broadcast:false" in source
-    assert "tx.signatures.some(sig=>sig.some(byte=>byte!==0))" in source
+    assert "tx.signatures.some(item=>item.signature !== null)" in source
     assert "tx.sign(" not in source
     assert "sendRawTransaction" not in source
     assert "devnet:cpmm:build" in workflow
