@@ -880,12 +880,19 @@
     const freshSpot=inputAmount.mul(reserveOut).div(reserveIn);
     const freshImpact=Number(freshSpot.sub(freshResult.outputAmount).toString())/Number(freshSpot.toString())*100;
     const freshMinimum=freshResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
+    const reviewedMinimum = BigInt(prepared.quote.otherAmountThreshold);
+    const freshOutputRaw = BigInt(freshResult.outputAmount.toString());
+    // The reviewed quote is a reference price, not an equality constraint.
+    // CPMM reserves can move between review and approval. The transaction's
+    // encoded 1% minimum is the actual execution bound: permit market movement
+    // only while a fresh quote still clears that exact on-chain minimum.
     if (!Number.isFinite(freshImpact) || freshImpact < 0 || freshImpact > MAX_IMPACT ||
-        freshResult.outputAmount.toString() !== prepared.quote.outputAmount ||
-        freshMinimum.toString() !== prepared.quote.otherAmountThreshold ||
-        Math.abs(freshImpact - prepared.impact) > 0.000001) {
-      invalidatePrepared("Pool reserves, fees, quote or price impact changed. Build a fresh transaction.");
-      throw new Error("Pre-sign quote freshness check failed.");
+        freshOutputRaw < reviewedMinimum ||
+        freshMinimum.toString() !== prepared.quote.otherAmountThreshold) {
+      invalidatePrepared("Fresh pool quote no longer clears the reviewed 1% minimum or the 2% impact ceiling. Build a fresh transaction.");
+      throw new Error("Pre-sign quote freshness check failed: fresh output=" + freshOutputRaw.toString() +
+        ", reviewed minimum=" + reviewedMinimum.toString() +
+        ", fresh impact=" + freshImpact.toFixed(6) + "%.");
     }
 
     // Re-resolve finalized ALTs, reconstruct privileges, re-read pool/token
