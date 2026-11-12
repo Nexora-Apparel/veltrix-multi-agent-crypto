@@ -306,3 +306,11 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
     assert execute.index("Phantom signing is disabled") < execute.index("await finalPreSignFreshnessGate()")
     assert "provider.signAndSendTransaction(finalTx" in execute
+
+
+
+def test_missing_or_invalid_network_fee_estimate_fails_closed():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "if (!fee || !Number.isSafeInteger(fee.value) || fee.value < 0)" in source
+    assert "Network fee estimate is unavailable or invalid; transaction preparation fails closed." in source
+    assert "const totalFee=fee.value;" in source
