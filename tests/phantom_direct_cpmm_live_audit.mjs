@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 
 const html=fs.readFileSync(new URL("../wallet/phantom-devnet-swap.html",import.meta.url),"utf8");
 const script=html.split("<script>",2)[1].split("</script>",1)[0];
@@ -62,6 +62,31 @@ assert.throws(()=>hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresen
 assert.throws(()=>hooks.validateDirectCpmmAtaShape({...directPolicy,createsOutputAta:true},{outputAtaPresent:true}),
   /existing USDC ATA must use the four-instruction path/);
 assert.equal(hooks.validateDirectCpmmAtaShape({...directPolicy,createsOutputAta:true},{outputAtaPresent:false}),true);
+
+// Exercise the five-instruction absent-ATA variant through the actual policy decoder,
+// not only the branch selector. The ATA instruction must be idempotent and target
+// exactly this wallet's canonical Devnet USDC associated token account.
+const withAtaTx=Transaction.from(bytes);
+withAtaTx.instructions.splice(2,0,new TransactionInstruction({
+  programId:new PublicKey(hooks.constants.ATA_PROGRAM),
+  keys:[
+    {pubkey:new PublicKey(artifact.wallet),isSigner:true,isWritable:true},
+    {pubkey:new PublicKey(artifact.static_account_keys[6]),isSigner:false,isWritable:true},
+    {pubkey:new PublicKey(artifact.wallet),isSigner:false,isWritable:false},
+    {pubkey:new PublicKey(hooks.constants.USDC),isSigner:false,isWritable:false},
+    {pubkey:new PublicKey(hooks.constants.SYSTEM),isSigner:false,isWritable:false},
+    {pubkey:new PublicKey(hooks.constants.TOKEN),isSigner:false,isWritable:false}
+  ],
+  data:Buffer.from([1])
+}));
+const withAtaMessage=hooks.normalizedTransactionMessage(withAtaTx);
+const createAtaPolicy=hooks.decodeDirectCpmmPolicy(withAtaMessage,withAtaMessage.staticAccountKeys,{
+  otherAmountThreshold:artifact.minimum_output_raw
+});
+assert.equal(createAtaPolicy.createsOutputAta,true);
+assert.equal(hooks.validateDirectCpmmAtaShape(createAtaPolicy,{outputAtaPresent:false}),true);
+assert.throws(()=>hooks.validateDirectCpmmAtaShape(createAtaPolicy,{outputAtaPresent:true}),
+  /existing USDC ATA must use the four-instruction path/);
 const parsedUsdcAccounts = {
   value:[{
     account:{
