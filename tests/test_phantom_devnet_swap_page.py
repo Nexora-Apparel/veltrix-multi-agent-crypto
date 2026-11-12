@@ -93,7 +93,7 @@ def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
     assert "snapshotUnsignedTransaction(tx)" in source
     assert "assertExactReviewedBytes(" in source
     assert "reviewedBytes" in source
-    assert "bytesEqual(currentBytes, reviewedBytes)" in source
+    assert "bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)" in source
     assert "roundTrip.serialize(), bytes" in source
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in source
 
@@ -307,7 +307,7 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "provider.publicKey.equals(wallet)" in gate
     assert "connection.getGenesisHash()" in gate
     assert "RESERVE_LAMPORTS" in gate
-    assert "connection.isBlockhashValid(tx.message.recentBlockhash" in gate
+    assert "connection.isBlockhashValid(normalizedTransactionMessage(tx).recentBlockhash" in gate
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
     assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" not in gate
