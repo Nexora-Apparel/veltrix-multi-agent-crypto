@@ -136,9 +136,32 @@
     $("quote").disabled = false;
     status("Connected to canonical Devnet. Wallet legacy-transaction capability verified. No transaction has been signed or sent.","good");
   }
+  function sumUsdcTokenAccounts(response, ownerAddress) {
+    if (!response || !Array.isArray(response.value)) fail("USDC token-account RPC response is malformed");
+    return response.value.reduce((sum, row) => {
+      const account = row && row.account;
+      const data = account && account.data;
+      const parsed = data && data.parsed;
+      const info = parsed && parsed.info;
+      const tokenAmount = info && info.tokenAmount;
+      if (!account || account.owner !== TOKEN || !data || data.program !== "spl-token" ||
+          !parsed || parsed.type !== "account" || !info || info.mint !== USDC ||
+          info.owner !== ownerAddress || !tokenAmount || tokenAmount.decimals !== 6 ||
+          typeof tokenAmount.amount !== "string" || !/^[0-9]+$/.test(tokenAmount.amount)) {
+        fail("USDC token-account response contains an unexpected owner, mint, program or amount");
+      }
+      return sum + BigInt(tokenAmount.amount);
+    }, 0n);
+  }
   async function tokenBalanceRaw() {
-    const response = await connection.getTokenAccountsByOwner(wallet, {mint:new solanaWeb3.PublicKey(USDC)}, {commitment:"confirmed",encoding:"jsonParsed"});
-    return response.value.reduce((sum, row) => sum + BigInt(row.account.data.parsed.info.tokenAmount.amount), 0n);
+    // Use raw JSON-RPC for jsonParsed account data. web3.js getTokenAccountsByOwner
+    // expects binary Buffer account data and throws when handed jsonParsed objects.
+    const response = await rpcCall("getTokenAccountsByOwner", [
+      wallet.toBase58(),
+      {mint:USDC},
+      {commitment:"confirmed",encoding:"jsonParsed"}
+    ]);
+    return sumUsdcTokenAccounts(response, wallet.toBase58());
   }
   async function refreshBalance() {
     if (!wallet) return;
@@ -158,6 +181,23 @@
     let diff = 0;
     for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
     return diff === 0;
+  }
+  function assertConfirmedTransactionMatchesReviewedMessage(chainTx, reviewedMessageBytes, signature) {
+    if (!chainTx || !chainTx.meta || chainTx.meta.err) {
+      throw new Error("Confirmed signature has no successful transaction metadata.");
+    }
+    const transaction = chainTx.transaction;
+    if (!transaction || !transaction.message || typeof transaction.message.serialize !== "function") {
+      throw new Error("Confirmed signature was returned, but RPC did not provide a serializable transaction message.");
+    }
+    if (Array.isArray(transaction.signatures) && !transaction.signatures.includes(signature)) {
+      throw new Error("RPC transaction signature list does not contain the returned Phantom signature.");
+    }
+    const confirmedMessageBytes = Uint8Array.from(transaction.message.serialize());
+    if (!bytesEqual(confirmedMessageBytes, reviewedMessageBytes)) {
+      throw new Error("Confirmed transaction message differs from the immutable reviewed message. Do not retry; inspect the signature and wallet activity.");
+    }
+    return true;
   }
   function snapshotUnsignedTransaction(tx) {
     const bytes=serializeUnsignedTransaction(tx);
@@ -1070,6 +1110,9 @@
       status("Rechecking wallet, Devnet, reserve, blockhash, pool quote, legacy transaction format and exact bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
+      // Snapshot the exact message before handing the mutable Transaction object to Phantom.
+      // Wallet adapters may mutate their in-memory transaction after signing/submission.
+      const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
       if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
         throw new Error("Phantom wallet changed before approval.");
       }
@@ -1095,10 +1138,10 @@
         if (chainTx) break;
         await new Promise(resolve=>setTimeout(resolve,1500));
       }
-      if (!chainTx || !chainTx.meta || chainTx.meta.err ||
-          !chainTx.transaction || !chainTx.transaction.message ||
-          !bytesEqual(chainTx.transaction.message.serialize(),serializeTransactionMessage(finalTx))) {
-        throw new Error("Confirmed signature could not be reconciled to the exact reviewed transaction message. Signature: " + signature);
+      try {
+        assertConfirmedTransactionMatchesReviewedMessage(chainTx,reviewedMessageBytes,signature);
+      } catch (reconciliationError) {
+        throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
       }
       let finalUsdcBalance = BigInt(reviewed.tokenBalanceBefore);
       for (let i=0;i<15;i++) {
@@ -1134,7 +1177,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}

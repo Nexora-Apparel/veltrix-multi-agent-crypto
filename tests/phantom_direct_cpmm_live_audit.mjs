@@ -43,6 +43,34 @@ vm.runInNewContext(script,context);
 const hooks=window.__VELTRIX_TEST_HOOKS__;
 assert.ok(hooks,"browser verifier test hooks unavailable");
 hooks.setWalletForTest(new PublicKey(artifact.wallet));
+const parsedUsdcAccounts = {
+  value:[{
+    account:{
+      owner:hooks.constants.TOKEN,
+      data:{program:"spl-token",parsed:{type:"account",info:{
+        mint:hooks.constants.USDC,owner:artifact.wallet,
+        tokenAmount:{amount:"2460",decimals:6}
+      }}}
+    }
+  }]
+};
+assert.equal(hooks.sumUsdcTokenAccounts(parsedUsdcAccounts,artifact.wallet),2460n);
+assert.throws(()=>hooks.sumUsdcTokenAccounts({value:[{account:{data:{parsed:{info:{tokenAmount:{amount:"1"}}}}}}]},artifact.wallet),
+  /unexpected owner, mint, program or amount/);
+const reviewedMessage = Uint8Array.from([1,2,3,4]);
+const matchingConfirmedTx = {
+  meta:{err:null},
+  transaction:{
+    signatures:["test-signature"],
+    message:{serialize:()=>Uint8Array.from(reviewedMessage)}
+  }
+};
+assert.equal(hooks.assertConfirmedTransactionMatchesReviewedMessage(matchingConfirmedTx,reviewedMessage,"test-signature"),true);
+assert.throws(()=>hooks.assertConfirmedTransactionMatchesReviewedMessage({
+  meta:{err:null},transaction:{signatures:["test-signature"],message:{serialize:()=>Uint8Array.from([1,2,3,5])}}
+},reviewedMessage,"test-signature"),/differs from the immutable reviewed message/);
+assert.throws(()=>hooks.assertConfirmedTransactionMatchesReviewedMessage(matchingConfirmedTx,reviewedMessage,"other-signature"),
+  /does not contain the returned Phantom signature/);
 const noAtaCpis={createAccountCount:0,sizeQueryCount:0,immutableOwnerCount:0,initializeAccountCount:0,createAccountLamports:null};
 const existingAtaRent=hooks.validateOutputAtaCpiEvidence({outputAtaPresent:true},0n,noAtaCpis);
 assert.equal(existingAtaRent.outputAtaPresent,true);
