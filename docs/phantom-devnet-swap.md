@@ -7,7 +7,7 @@ This static page is a wallet-owner-controlled, one-time Solana Devnet swap test.
 - The browser dynamically loads the pinned `@raydium-io/raydium-sdk-v2@0.2.64-alpha` package.
 - It resolves the exact Devnet CPMM pool `5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo` through canonical Devnet RPC.
 - It builds one direct CPMM legacy (non-versioned) transaction. Address Lookup Tables are prohibited on this Phantom compatibility path; the auto-routing Trade API is not used for transaction acquisition.
-- The wallet compatibility adapter uses the legacy transaction format and rejects a provider that explicitly advertises no legacy support. It never silently falls back to v0.
+- The wallet compatibility adapter checks the provider's advertised transaction versions when available, requires legacy support before quote construction and rechecks before approval. When Phantom does not expose a version list, it uses Phantom's documented legacy `Transaction` provider API. It never silently falls back to v0.
 - The only supported pair is WSOL to the official Devnet USDC mint.
 - Input is fixed at exactly 0.001 SOL (1,000,000 lamports).
 - The page retains a 0.05 SOL balance reserve.
