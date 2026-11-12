@@ -54,8 +54,8 @@ const directPolicy=hooks.decodeDirectCpmmPolicy(normalized,normalized.staticAcco
   otherAmountThreshold:artifact.minimum_output_raw
 });
 assert.equal(directPolicy.createsOutputAta,false);
-assert.equal(directPolicy.inputAta.toBase58(),artifact.static_account_keys[5]);
-assert.equal(directPolicy.outputAta.toBase58(),artifact.static_account_keys[6]);
+assert.equal(directPolicy.inputAta,artifact.static_account_keys[5]);
+assert.equal(directPolicy.outputAta,artifact.static_account_keys[6]);
 assert.equal(hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:true}),true);
 assert.throws(()=>hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:false}),
   /missing USDC ATA requires the five-instruction path/);
