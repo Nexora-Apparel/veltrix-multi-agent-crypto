@@ -271,7 +271,7 @@ def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
     assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
-    assert 'throw new Error("Phantom signing is disabled.' in source
+    assert 'throw new Error("Phantom signing and transaction submission are disabled in this verification build.")' in source
     assert '$("execute").disabled = true' in source
     assert '$("execute").textContent="Phantom signing disabled"' in source
 
