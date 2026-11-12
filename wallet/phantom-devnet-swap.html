@@ -80,7 +80,7 @@
   ]);
   const $ = id => document.getElementById(id);
   const connection = new solanaWeb3.Connection(RPC, "confirmed");
-  let provider = null, wallet = null, prepared = null, busy = false, directSdkPromise = null;
+  let provider = null, wallet = null, prepared = null, busy = false, directSdkPromise = null, walletCapabilities = null;
 
   function status(message, kind) {
     $("status").textContent = message;
@@ -109,16 +109,26 @@
     if (!p || !p.isPhantom) throw new Error("Open this page inside Phantom's in-app browser.");
     return p;
   }
+  function detectWalletCapabilities(p) {
+    if(!p || typeof p.signAndSendTransaction!=="function") return {legacy:false,reason:"signAndSendTransaction unavailable"};
+    const advertised=p.supportedTransactionVersions;
+    if(advertised instanceof Set) return {legacy:advertised.has("legacy"),source:"provider-advertised"};
+    if(Array.isArray(advertised)) return {legacy:advertised.includes("legacy"),source:"provider-advertised"};
+    if(advertised==null) return {legacy:true,source:"documented Phantom legacy Transaction API"};
+    return {legacy:false,reason:"unrecognized transaction-version capability declaration"};
+  }
   async function connect() {
     provider = getProvider();
     const result = await provider.connect();
     wallet = result.publicKey;
+    walletCapabilities=detectWalletCapabilities(provider);
+    if(!walletCapabilities.legacy) throw new Error("Connected wallet does not expose the required legacy transaction capability. No transaction will be built.");
     const genesis = await connection.getGenesisHash();
     if (genesis !== GENESIS) throw new Error("RPC is not canonical Solana Devnet. Signing disabled.");
     $("wallet").textContent = wallet.toBase58();
     await refreshBalance();
     $("quote").disabled = false;
-    status("Connected to canonical Devnet. No transaction has been signed or sent.","good");
+    status("Connected to canonical Devnet. Wallet legacy-transaction capability verified. No transaction has been signed or sent.","good");
   }
   async function tokenBalanceRaw() {
     const response = await connection.getTokenAccountsByOwner(wallet, {mint:new solanaWeb3.PublicKey(USDC)}, {commitment:"confirmed",encoding:"jsonParsed"});
@@ -961,6 +971,8 @@
     if (!provider || !wallet || typeof provider.signAndSendTransaction !== "function") {
       throw new Error("Connected Phantom provider does not support user-approved transaction submission.");
     }
+    walletCapabilities=detectWalletCapabilities(provider);
+    if(!walletCapabilities.legacy) throw new Error("Connected Phantom provider does not support the required legacy transaction format; signing is blocked.");
     if (!prepared || prepared.executionStarted) throw new Error("No unused audited transaction is available. Build a fresh quote.");
     prepared.executionStarted = true;
     setBusy(true);
