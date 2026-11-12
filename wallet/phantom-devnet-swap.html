@@ -787,7 +787,7 @@
     const minimumRaw=BigInt(q.otherAmountThreshold);
     if(minimumRaw<=0n || minimumRaw>quotedRaw) fail("minimum output must be positive and cannot exceed the quoted output");
     const expectedFloor=quotedRaw*9900n/10000n;
-    if(minimumRaw!==expectedFloor) fail("minimum output does not match the exact 1% slippage floor");
+    if(minimumRaw!==expectedFloor) fail("minimum output does not match the exact 1% slippage floor (quoted_raw="+quotedRaw.toString()+", minimum_raw="+minimumRaw.toString()+", expected_minimum_raw="+expectedFloor.toString()+").");
     $("outputValue").textContent=fmtFixedRaw(quotedRaw,6)+" USDC";
     $("outputRawValue").textContent=quotedRaw.toString()+" raw units";
     $("minimumValue").textContent=fmtFixedRaw(minimumRaw,6)+" USDC";
