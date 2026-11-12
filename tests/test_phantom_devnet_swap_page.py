@@ -94,7 +94,7 @@ def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
     assert "assertExactReviewedBytes(" in source
     assert "reviewedBytes" in source
     assert "bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)" in source
-    assert "roundTrip.serialize(), bytes" in source
+    assert "serializeUnsignedTransaction(parsed),bytes" in source
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in source
 
 
