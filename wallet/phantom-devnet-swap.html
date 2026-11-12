@@ -956,7 +956,7 @@
         ", fresh impact=" + freshImpact.toFixed(6) + "%.");
     }
 
-    // Re-resolve finalized ALTs, reconstruct privileges, re-read pool/token
+    // Revalidate the legacy static account list and privileges, re-read pool/token
     // accounts, simulate the exact bytes, and repeat the one-unit-higher rejection.
     const audit = await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0]);
     if (audit.directCpmm !== "verified" || audit.runtime.adversarialRejected !== true) {
