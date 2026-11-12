@@ -1141,7 +1141,8 @@
       try {
         assertConfirmedTransactionMatchesReviewedMessage(chainTx,reviewedMessageBytes,signature);
       } catch (reconciliationError) {
-        throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
+        throw new Error("Confirmed transaction could not be reconciled to the exact reviewed transaction message. " +
+          (reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
       }
       let finalUsdcBalance = BigInt(reviewed.tokenBalanceBefore);
       for (let i=0;i<15;i++) {
