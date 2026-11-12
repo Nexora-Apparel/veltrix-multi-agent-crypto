@@ -32,7 +32,7 @@
   <section class="panel">
     <label for="amount">Swap amount (SOL)</label>
     <input id="amount" inputmode="decimal" value="0.001" autocomplete="off">
-    <div class="tiny">Fixed one-time test amount: 0.001 SOL. A 0.05 SOL reserve is retained. Price impact must be 2% or less.</div>
+    <div class="tiny">One-time Devnet test amount: 0.001 SOL. If the wallet is short, the page requests test SOL from the Devnet faucet automatically. Price impact must be 2% or less.</div>
     <button id="quote" class="secondary" disabled>Get fresh quote</button>
   </section>
   <section class="panel hidden" id="review">
@@ -51,7 +51,7 @@
     <div class="row"><span>USDC account rent (one-time)</span><span class="value" id="ataRentValue">—</span></div>
     <div class="row"><span>Estimated net SOL debit</span><strong class="value" id="netDebitValue">—</strong></div>
     <div class="row"><span>Temporary WSOL funding (returned rent included)</span><span class="value" id="temporaryFundingValue">—</span></div>
-    <div class="row"><span>Minimum SOL balance incl. reserve</span><strong class="value" id="requiredBalanceValue">—</strong></div>
+    <div class="row"><span>Devnet SOL required (faucet top-up)</span><strong class="value" id="requiredBalanceValue">—</strong></div>
     <p class="muted tiny">The temporary wrapped-SOL account must be funded before it is closed, so its full temporary funding amount must be available during execution. Its rent reserve is returned in the same transaction. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
     <p class="muted warning">The next button opens Phantom approval for this exact 0.001 SOL Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
     <button id="execute" disabled>Review and approve in Phantom</button>
@@ -68,8 +68,6 @@
     const SOL = "So11111111111111111111111111111111111111112";
   const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
   const TEST_LAMPORTS = 1000000;
-  const MAX_LAMPORTS = TEST_LAMPORTS;
-  const RESERVE_LAMPORTS = 50000000;
   const MAX_IMPACT = 2;
   const ALLOWED = new Set([
     "DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd",
@@ -867,6 +865,42 @@
     }
     return directSdkPromise;
   }
+  async function ensureDevnetFunds(requiredBalanceLamports) {
+    if (await connection.getGenesisHash() !== GENESIS) {
+      throw new Error("Devnet faucet is disabled because the canonical Devnet identity check failed.");
+    }
+    const current = BigInt(await refreshBalance());
+    if (current >= requiredBalanceLamports) return current;
+    // Devnet test SOL only: request the exact deficit plus a small fee cushion.
+    // This never requests funds on mainnet and does not sign with the user's wallet.
+    const cushion = 10000000n;
+    const topUp = requiredBalanceLamports - current + cushion;
+    if (topUp > 1000000000n) {
+      throw new Error("Required Devnet faucet top-up exceeds the one-request limit. Reduce the test amount.");
+    }
+    status("Requesting Devnet test SOL from the public faucet…", "muted");
+    let signature;
+    try {
+      signature = await connection.requestAirdrop(wallet, Number(topUp));
+    } catch (error) {
+      throw new Error("Devnet faucet request failed: " + (error && error.message ? error.message : String(error)));
+    }
+    const latest = await connection.getLatestBlockhash("confirmed");
+    const confirmation = await connection.confirmTransaction({
+      signature,
+      blockhash: latest.blockhash,
+      lastValidBlockHeight: latest.lastValidBlockHeight
+    }, "confirmed");
+    if (!confirmation || !confirmation.value || confirmation.value.err) {
+      throw new Error("Devnet faucet airdrop did not confirm. Faucet signature: " + signature);
+    }
+    const funded = BigInt(await refreshBalance());
+    if (funded < requiredBalanceLamports) {
+      throw new Error("Devnet faucet confirmed, but the wallet balance is still below the exact transaction funding amount. Faucet signature: " + signature);
+    }
+    status("Devnet faucet funded the wallet. Continuing transaction preparation…", "good");
+    return funded;
+  }
   async function prepareQuote() {
     if (!wallet) throw new Error("Connect Phantom first.");
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
@@ -875,10 +909,9 @@
       throw new Error("This isolated test is fixed at exactly 0.001 SOL (1,000,000 lamports).");
     }
     const lamports = Math.floor(amount * 1e9);
-    if (lamports !== TEST_LAMPORTS || lamports > MAX_LAMPORTS) throw new Error("Input amount differs from the authorized one-time test amount.");
+    if (lamports !== TEST_LAMPORTS) throw new Error("This one-time Devnet test uses exactly 0.001 SOL.");
     const balance = await refreshBalance();
     const tokenBalanceBefore = await tokenBalanceRaw();
-    if (balance < lamports + RESERVE_LAMPORTS) throw new Error("Insufficient Devnet SOL after preserving the 0.05 SOL reserve.");
 
     const {sdk,BN} = await loadDirectCpmmSdk();
     const {Raydium,TxVersion,CurveCalculator,FeeOn} = sdk;
@@ -973,12 +1006,8 @@
     const persistentAtaRentLamports=BigInt(semanticAudit.runtime.persistentAtaRentLamports);
     const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports);
     const totalDebitLamports=BigInt(lamports)+persistentAtaRentLamports+BigInt(totalFee);
-    const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+
-      BigInt(totalFee)+BigInt(RESERVE_LAMPORTS);
-    const auditedBalance=await refreshBalance();
-    if(BigInt(auditedBalance)<requiredBalanceLamports) {
-      throw new Error("Insufficient Devnet SOL for temporary WSOL funding, persistent USDC account rent, network fee and the 0.05 SOL reserve.");
-    }
+    const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+BigInt(totalFee);
+    await ensureDevnetFunds(requiredBalanceLamports);
     prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
       outputAtaPresent:semanticAudit.runtime.outputAtaPresent,
       persistentAtaRentLamports:persistentAtaRentLamports.toString(),
@@ -1007,7 +1036,7 @@
       : fmtFixedRaw(persistentAtaRentLamports,9)+" SOL (one-time; remains locked)";
     $("netDebitValue").textContent=fmtFixedRaw(totalDebitLamports,9)+" SOL";
     $("temporaryFundingValue").textContent=fmtFixedRaw(temporaryWsolFundingLamports,9)+" SOL (rent returned when account closes)";
-    $("requiredBalanceValue").textContent=fmtFixedRaw(requiredBalanceLamports,9)+" SOL";
+    $("requiredBalanceValue").textContent=fmtFixedRaw(requiredBalanceLamports,9)+" SOL (available after faucet top-up)";
     $("review").classList.remove("hidden");
     $("execute").disabled=false;
     $("execute").textContent="Review and approve in Phantom";
@@ -1038,8 +1067,8 @@
     const currentBalance = await refreshBalance();
     const requiredBalance = BigInt(prepared.requiredBalanceLamports);
     if (BigInt(currentBalance) < requiredBalance) {
-      invalidatePrepared("Balance no longer covers input, network fee and 0.05 SOL reserve.");
-      throw new Error("Pre-sign balance/reserve check failed.");
+      invalidatePrepared("Devnet SOL is below the transaction funding amount. Request a fresh quote to top up from the faucet.");
+      throw new Error("Pre-sign Devnet funding check failed.");
     }
     const currentUsdcBalance = await tokenBalanceRaw();
     if (currentUsdcBalance !== BigInt(prepared.tokenBalanceBefore)) {
@@ -1112,8 +1141,8 @@
     }
     const latestBalance=await refreshBalance();
     if(BigInt(latestBalance)<BigInt(prepared.requiredBalanceLamports)) {
-      invalidatePrepared("Balance no longer covers the reviewed total debit and 0.05 SOL reserve.");
-      throw new Error("Pre-sign total-debit reserve check failed.");
+      invalidatePrepared("Devnet SOL is below the exact reviewed transaction funding amount.");
+      throw new Error("Pre-sign transaction funding check failed.");
     }
     assertExactReviewedBytes(tx,prepared.reviewedBytes[0]);
     return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
@@ -1132,7 +1161,7 @@
     let signature = null;
     let approvalRequested = false;
     try {
-      status("Rechecking wallet, Devnet, reserve, blockhash, pool quote, legacy transaction format and exact bytes before opening Phantom approval…","muted");
+      status("Rechecking wallet, Devnet funding, blockhash, pool quote, legacy transaction format and exact bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
       // Snapshot the exact message before handing the mutable Transaction object to Phantom.
