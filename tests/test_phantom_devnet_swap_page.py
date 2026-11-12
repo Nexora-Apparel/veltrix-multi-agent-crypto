@@ -405,7 +405,7 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
 
 
 def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reserve():
-    source = PAGE.read_text(encoding="utf-8").read_text(encoding="utf-8")
+    source = PAGE.read_text(encoding="utf-8")
     assert "temporaryWsolFundingLamports:rentFunding" in source
     assert "const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports)" in source
     assert "const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+BigInt(totalFee)" in source
