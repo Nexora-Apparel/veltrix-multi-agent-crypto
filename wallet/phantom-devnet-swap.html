@@ -504,13 +504,25 @@
   function decodeDirectCpmmPolicy(message, resolved, quote) {
     const keys=resolved.map(k=>k.toBase58());
     const instructions=message.compiledInstructions;
-    if (instructions.length !== 5) fail("direct CPMM transaction must contain exactly five top-level instructions");
+    // Raydium SDK emits an ATA-create instruction only when the destination
+    // USDC ATA is absent. Existing ATA: 4 instructions. Missing ATA: 5.
+    const createsOutputAta=instructions.length===5;
+    if(instructions.length!==4 && instructions.length!==5) {
+      fail("direct CPMM transaction must contain four instructions (existing USDC ATA) or five (ATA creation)");
+    }
     const programs=instructions.map(ix=>keys[ix.programIdIndex]);
-    const expected=[SYSTEM,TOKEN,ATA_PROGRAM,CPMM,TOKEN];
-    if (programs.join("|")!==expected.join("|")) fail("direct CPMM top-level program sequence mismatch: "+JSON.stringify({programs,expected,equal:programs.map((value,index)=>value===expected[index])}));
+    const expected=createsOutputAta
+      ? [SYSTEM,TOKEN,ATA_PROGRAM,CPMM,TOKEN]
+      : [SYSTEM,TOKEN,CPMM,TOKEN];
+    if(programs.join("|")!==expected.join("|")) {
+      fail("direct CPMM top-level program sequence mismatch: "+JSON.stringify({programs,expected}));
+    }
     const accounts=ix=>ix.accountKeyIndexes.map(i=>keys[i]);
-    const [create,initialize,createOutput,swap,close]=instructions;
-    const createAccounts=accounts(create), initAccounts=accounts(initialize), ataAccounts=accounts(createOutput);
+    const create=instructions[0], initialize=instructions[1];
+    const createOutput=createsOutputAta?instructions[2]:null;
+    const swap=instructions[createsOutputAta?3:2], close=instructions[createsOutputAta?4:3];
+    const createAccounts=accounts(create), initAccounts=accounts(initialize);
+    const ataAccounts=createOutput?accounts(createOutput):[];
     const swapAccounts=accounts(swap), closeAccounts=accounts(close);
     if (createAccounts.length!==2 || createAccounts[0]!==wallet.toBase58() || createAccounts[1]!==swapAccounts[4]) {
       fail("temporary WSOL account creation payer/recipient mismatch");
@@ -530,8 +542,8 @@
         initAccounts.join("|")!==[swapAccounts[4],SOL,wallet.toBase58(),"SysvarRent111111111111111111111111111111111"].join("|")) {
       fail("temporary WSOL InitializeAccount instruction mismatch");
     }
-    if (createOutput.data.length!==1 || createOutput.data[0]!==1 ||
-        ataAccounts.join("|")!==[wallet.toBase58(),swapAccounts[5],wallet.toBase58(),USDC,SYSTEM,TOKEN].join("|")) {
+    if(createOutput && (createOutput.data.length!==1 || createOutput.data[0]!==1 ||
+        ataAccounts.join("|")!==[wallet.toBase58(),swapAccounts[5],wallet.toBase58(),USDC,SYSTEM,TOKEN].join("|"))) {
       fail("Devnet USDC associated-token-account creation mismatch");
     }
     const decoded=decodeCpmmSwapData(swap.data,BigInt(String(quote.otherAmountThreshold)));
@@ -563,9 +575,21 @@
       keys:[...new Set([...keys,ROUTER,CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET])],
       programs,authority,config,pool,inputAta,outputAta,vaultIn,vaultOut,observation,
       inputMint,outputMint,inputTokenProgram,outputTokenProgram,
-      temporaryInput:true,temporaryWsolFundingLamports:rentFunding,
+      temporaryInput:true,createsOutputAta,temporaryWsolFundingLamports:rentFunding,
       amountIn:decoded.amountIn,minOut:decoded.minimumAmountOut
     };
+  }
+  function validateDirectCpmmAtaShape(policy,accountPresence) {
+    if(!accountPresence || typeof accountPresence.outputAtaPresent!=="boolean") {
+      fail("live USDC ATA presence evidence is missing");
+    }
+    if(accountPresence.outputAtaPresent && policy.createsOutputAta) {
+      fail("existing USDC ATA must use the four-instruction path without ATA recreation");
+    }
+    if(!accountPresence.outputAtaPresent && !policy.createsOutputAta) {
+      fail("missing USDC ATA requires the five-instruction path with exact ATA creation");
+    }
+    return true;
   }
   function resolvedInfoPrivilege(message,resolved,key) {
     const list=effectivePrivileges(message,resolved);
@@ -691,6 +715,7 @@
     const policy=decodeDirectCpmmPolicy(message,resolvedInfo.resolved,quote);
     const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo);
     if(accountPresence.inputAtaPresent) fail("temporary WSOL account unexpectedly exists before signing");
+    validateDirectCpmmAtaShape(policy,accountPresence);
     const runtime=await verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence);
     return {programs:policy.programs,lookupTables:resolvedInfo.lookupEvidence,slot:resolvedInfo.slot,
       resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
@@ -1178,7 +1203,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
