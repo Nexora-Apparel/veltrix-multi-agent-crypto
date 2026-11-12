@@ -50,7 +50,9 @@
     <div class="row"><span>USDC token account</span><span class="value" id="usdcAccountStatusValue">—</span></div>
     <div class="row"><span>USDC account rent (one-time)</span><span class="value" id="ataRentValue">—</span></div>
     <div class="row"><span>Estimated net SOL debit</span><strong class="value" id="netDebitValue">—</strong></div>
-    <p class="muted tiny">The temporary wrapped-SOL account is closed in this transaction and its rent reserve is returned. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
+    <div class="row"><span>Temporary WSOL funding (returned rent included)</span><span class="value" id="temporaryFundingValue">—</span></div>
+    <div class="row"><span>Minimum SOL balance incl. reserve</span><strong class="value" id="requiredBalanceValue">—</strong></div>
+    <p class="muted tiny">The temporary wrapped-SOL account must be funded before it is closed, so its full temporary funding amount must be available during execution. Its rent reserve is returned in the same transaction. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
     <p class="muted warning">The next button opens Phantom approval for this exact 0.001 SOL Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
     <button id="execute" disabled>Review and approve in Phantom</button>
   </section>
@@ -521,7 +523,8 @@
       keys:[...new Set([...keys,ROUTER,CPMM,TOKEN,TOKEN_2022,ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET])],
       programs,authority,config,pool,inputAta,outputAta,vaultIn,vaultOut,observation,
       inputMint,outputMint,inputTokenProgram,outputTokenProgram,
-      temporaryInput:true,amountIn:decoded.amountIn,minOut:decoded.minimumAmountOut
+      temporaryInput:true,temporaryWsolFundingLamports:rentFunding,
+      amountIn:decoded.amountIn,minOut:decoded.minimumAmountOut
     };
   }
   function resolvedInfoPrivilege(message,resolved,key) {
@@ -651,6 +654,7 @@
     const runtime=await verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence);
     return {programs:policy.programs,lookupTables:resolvedInfo.lookupEvidence,slot:resolvedInfo.slot,
       resolvedAccountCount:resolvedInfo.resolved.length,privileges:resolvedInfo.privileges,
+      temporaryWsolFundingLamports:policy.temporaryWsolFundingLamports.toString(),
       directCpmm:"verified",runtime};
   }
   function decodeCpmmSwapData(data, expectedMinimum=0n) {
@@ -902,15 +906,20 @@
     }
     const totalFee=fee.value;
     const persistentAtaRentLamports=BigInt(semanticAudit.runtime.persistentAtaRentLamports);
+    const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports);
     const totalDebitLamports=BigInt(lamports)+persistentAtaRentLamports+BigInt(totalFee);
+    const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+
+      BigInt(totalFee)+BigInt(RESERVE_LAMPORTS);
     const auditedBalance=await refreshBalance();
-    if(BigInt(auditedBalance)<totalDebitLamports+BigInt(RESERVE_LAMPORTS)) {
-      throw new Error("Insufficient Devnet SOL for swap input, persistent USDC account rent, network fee and the 0.05 SOL reserve.");
+    if(BigInt(auditedBalance)<requiredBalanceLamports) {
+      throw new Error("Insufficient Devnet SOL for temporary WSOL funding, persistent USDC account rent, network fee and the 0.05 SOL reserve.");
     }
     prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
       outputAtaPresent:semanticAudit.runtime.outputAtaPresent,
       persistentAtaRentLamports:persistentAtaRentLamports.toString(),
+      temporaryWsolFundingLamports:temporaryWsolFundingLamports.toString(),
       totalDebitLamports:totalDebitLamports.toString(),
+      requiredBalanceLamports:requiredBalanceLamports.toString(),
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
       preparedAt:Date.now(),walletAddress:wallet.toBase58(),semanticAudit};
     $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
@@ -932,6 +941,8 @@
       ? "0 SOL (already exists)"
       : fmtFixedRaw(persistentAtaRentLamports,9)+" SOL (one-time; remains locked)";
     $("netDebitValue").textContent=fmtFixedRaw(totalDebitLamports,9)+" SOL";
+    $("temporaryFundingValue").textContent=fmtFixedRaw(temporaryWsolFundingLamports,9)+" SOL (rent returned when account closes)";
+    $("requiredBalanceValue").textContent=fmtFixedRaw(requiredBalanceLamports,9)+" SOL";
     $("review").classList.remove("hidden");
     $("execute").disabled=false;
     $("execute").textContent="Review and approve in Phantom";
@@ -960,8 +971,7 @@
       throw new Error("Pre-sign cluster identity mismatch.");
     }
     const currentBalance = await refreshBalance();
-    const requiredBalance = BigInt(prepared.lamports) + BigInt(prepared.persistentAtaRentLamports || 0) +
-      BigInt(prepared.totalFee || 0) + BigInt(RESERVE_LAMPORTS);
+    const requiredBalance = BigInt(prepared.requiredBalanceLamports);
     if (BigInt(currentBalance) < requiredBalance) {
       invalidatePrepared("Balance no longer covers input, network fee and 0.05 SOL reserve.");
       throw new Error("Pre-sign balance/reserve check failed.");
@@ -1036,7 +1046,7 @@
       throw new Error("Pre-sign USDC ATA presence/rent changed.");
     }
     const latestBalance=await refreshBalance();
-    if(BigInt(latestBalance)<BigInt(prepared.totalDebitLamports)+BigInt(RESERVE_LAMPORTS)) {
+    if(BigInt(latestBalance)<BigInt(prepared.requiredBalanceLamports)) {
       invalidatePrepared("Balance no longer covers the reviewed total debit and 0.05 SOL reserve.");
       throw new Error("Pre-sign total-debit reserve check failed.");
     }

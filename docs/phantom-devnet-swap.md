@@ -16,7 +16,7 @@ This static page is a wallet-owner-controlled, one-time Solana Devnet swap test.
 - If the USDC account is absent, the browser obtains the live 165-byte Tokenkeg rent exemption from Devnet RPC and requires the inner System createAccount CPI to fund exactly that amount, followed by the expected token-account initialization CPIs.
 - If the USDC account already exists, the verifier requires zero ATA creation/initialization CPIs and zero additional ATA rent.
 - The review displays account presence, one-time persistent USDC ATA rent, network fee and estimated net SOL debit. The temporary wrapped-SOL account is closed in the same transaction and its rent is returned; USDC ATA rent remains locked until that account is closed.
-- The balance reserve check includes swap input + persistent USDC ATA rent + network fee while preserving at least 0.05 SOL.
+- The net-debit estimate is swap input + persistent USDC ATA rent + network fee. Separately, the minimum-balance gate accounts for the peak temporary WSOL account funding (including its rent float before refund) + persistent USDC ATA rent + network fee + the 0.05 SOL reserve.
 - The CPMM instruction minimum output is derived from the final quoted raw output using integer floor arithmetic at 1% slippage and is checked against the exact reviewed transaction bytes.
 
 ## Browser semantic audit
@@ -39,7 +39,7 @@ The page exposes one explicit user-triggered Phantom approval action after the b
 
 - Requires the prepared review to be no older than 15 seconds.
 - Rebinds the connected Phantom public key and canonical Devnet genesis.
-- Rechecks the current SOL balance against swap input, persistent USDC ATA rent, estimated network fee and the 0.05 SOL reserve.
+- Rechecks the current SOL balance against peak temporary WSOL funding, persistent USDC ATA rent, estimated network fee and the 0.05 SOL reserve.
 - Rechecks output USDC ATA presence and exact live rent; if either differs from the reviewed state, the prepared transaction is invalidated and must be rebuilt.
 - Rechecks that the wallet's Devnet USDC balance has not changed since quote preparation.
 - Verifies the transaction's original recent blockhash is still valid.

@@ -64,6 +64,7 @@ const audit=await hooks.inspectDirectCpmmTransaction(tx,{
   otherAmountThreshold:artifact.minimum_output_raw
 },bytes);
 assert.equal(audit.directCpmm,"verified");
+assert.equal(audit.temporaryWsolFundingLamports,"2488440");
 assert.ok(audit.resolvedAccountCount<=32);
 assert.equal(audit.lookupTables.length,0);
 assert.equal(audit.runtime.adversarialRejected,true);
@@ -71,6 +72,9 @@ assert.equal(audit.runtime.actualOutput,artifact.actual_output_raw);
 const output={evidence_type:"veltrix_browser_direct_cpmm_live_audit",status:"passed",
   wallet:artifact.wallet,pool:artifact.pool,input_amount_lamports:artifact.input_amount_lamports,
   minimum_output_raw:artifact.minimum_output_raw,actual_output_raw:audit.runtime.actualOutput,
+  temporary_wsol_funding_lamports:audit.temporaryWsolFundingLamports,
+  output_ata_present:audit.runtime.outputAtaPresent,
+  persistent_ata_rent_lamports:audit.runtime.persistentAtaRentLamports,
   adversarial_minimum_raw:audit.runtime.adversarialMinimum,
   adversarial_rejected:audit.runtime.adversarialRejected,
   resolved_account_count:audit.resolvedAccountCount,lookup_tables:audit.lookupTables,

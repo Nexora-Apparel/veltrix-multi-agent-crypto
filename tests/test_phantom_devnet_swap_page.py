@@ -391,3 +391,14 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
     assert "verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence)" in source
     assert "outputAtaPresent:ataEvidence.outputAtaPresent" in source
     assert "persistentAtaRentLamports:ataEvidence.persistentAtaRentLamports" in source
+
+
+
+def test_balance_gate_covers_temporary_wsol_funding_peak_not_only_net_debit():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "temporaryWsolFundingLamports:rentFunding" in source
+    assert "const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports)" in source
+    assert "const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+" in source
+    assert "BigInt(prepared.requiredBalanceLamports)" in source
+    assert 'id="temporaryFundingValue"' in source
+    assert 'id="requiredBalanceValue"' in source
