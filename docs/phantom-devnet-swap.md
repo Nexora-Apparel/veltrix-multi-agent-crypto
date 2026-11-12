@@ -27,6 +27,20 @@ Before displaying the review summary, the page independently:
 
 CI builds a fresh transaction through the pinned SDK and invokes this browser-side verifier against those exact serialized bytes and current canonical Devnet account state. The evidence artifact includes the transaction hash, ALT state, privilege map, actual output, and adversarial rejection result.
 
+## Final pre-sign freshness gate (implemented; not enabled)
+
+A separate fail-closed gate is now present immediately behind the unconditional signing-disabled guard. If a future release review ever authorizes evaluating the approval path, it will:
+
+- Require the prepared review to be no older than 15 seconds.
+- Rebind the connected Phantom public key and canonical Devnet genesis.
+- Recheck the current SOL balance against input, estimated network fee and the 0.05 SOL reserve.
+- Verify the transaction's original recent blockhash is still valid.
+- Re-read the pinned CPMM pool through the pinned SDK and recompute output, minimum output and price impact. Any quote drift invalidates the prepared transaction and requires a new build.
+- Re-run the exact-byte semantic audit, finalized ALT resolution, live account checks, simulation and one-unit-higher adversarial rejection.
+- Recheck the serialized bytes after the final audit.
+
+This gate does not refresh or mutate a reviewed transaction. If any freshness condition changes, it rejects the old transaction and requires the user to build a new one. The unconditional signing guard remains first in `execute()`, so this gate is currently unreachable from the UI.
+
 ## Signing remains disabled
 
 - The review UI deliberately leaves the Phantom action disabled.
