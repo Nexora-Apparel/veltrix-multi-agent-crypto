@@ -279,12 +279,13 @@ def test_amm_config_discriminator_is_compared_as_raw_bytes():
 
 
 
-def test_browser_ui_uses_direct_cpmm_sdk_and_never_enables_phantom_signing():
+def test_browser_ui_uses_direct_cpmm_sdk_and_only_enables_user_approved_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
-    assert 'throw new Error("Phantom signing and transaction submission are disabled in this verification build.")' in source
+    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "await finalPreSignFreshnessGate()" in source
     assert '$("execute").disabled=false' in source
     assert '$("execute").textContent="Review and approve in Phantom"' in source
 
@@ -313,7 +314,6 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert "Phantom signing and transaction submission are disabled" in execute
     assert "await finalPreSignFreshnessGate()" in execute
     assert "provider.signAndSendTransaction(finalTx" in execute
 
