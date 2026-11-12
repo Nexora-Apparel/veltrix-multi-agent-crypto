@@ -23,7 +23,13 @@ const tx=Transaction.from(bytes);
 assert.equal(tx.signatures.length,1);
 assert.ok(tx.signatures.every(item=>item.signature===null));
 assert.ok(tx.compileMessage().accountKeys.length<=32);
-assert.equal(tx.instructions.length,5);
+assert.equal(tx.instructions.length,4);
+assert.deepEqual(tx.instructions.map(ix=>ix.programId.toBase58()),[
+  "11111111111111111111111111111111",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+]);
 
 const nodes=new Map();
 function node(id){
