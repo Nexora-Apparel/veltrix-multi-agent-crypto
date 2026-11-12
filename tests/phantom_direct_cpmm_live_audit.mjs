@@ -54,8 +54,10 @@ const directPolicy=hooks.decodeDirectCpmmPolicy(normalized,normalized.staticAcco
   otherAmountThreshold:artifact.minimum_output_raw
 });
 assert.equal(directPolicy.createsOutputAta,false);
-assert.equal(directPolicy.inputAta,artifact.static_account_keys[5]);
-assert.equal(directPolicy.outputAta,artifact.static_account_keys[6]);
+const swapArtifact=artifact.instructions.find(ix=>ix.programId==="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+assert.ok(swapArtifact,"unsigned artifact is missing its direct CPMM instruction");
+assert.equal(directPolicy.inputAta,artifact.static_account_keys[swapArtifact.accountIndexes[4]]);
+assert.equal(directPolicy.outputAta,artifact.static_account_keys[swapArtifact.accountIndexes[5]]);
 assert.equal(hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:true}),true);
 assert.throws(()=>hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:false}),
   /missing USDC ATA requires the five-instruction path/);
@@ -71,7 +73,7 @@ withAtaTx.instructions.splice(2,0,new TransactionInstruction({
   programId:new PublicKey(hooks.constants.ATA_PROGRAM),
   keys:[
     {pubkey:new PublicKey(artifact.wallet),isSigner:true,isWritable:true},
-    {pubkey:new PublicKey(artifact.static_account_keys[6]),isSigner:false,isWritable:true},
+    {pubkey:new PublicKey(artifact.static_account_keys[swapArtifact.accountIndexes[5]]),isSigner:false,isWritable:true},
     {pubkey:new PublicKey(artifact.wallet),isSigner:false,isWritable:false},
     {pubkey:new PublicKey(hooks.constants.USDC),isSigner:false,isWritable:false},
     {pubkey:new PublicKey(hooks.constants.SYSTEM),isSigner:false,isWritable:false},
