@@ -14,15 +14,25 @@ def test_phantom_page_is_devnet_only_and_has_no_secret_input():
     assert 'type="password"' not in source.lower()
 
 
-def test_swap_limits_and_impact_gate_are_present():
+def test_devnet_test_amount_and_market_impact_gate_are_present_without_wallet_reserve():
     source = PAGE.read_text(encoding="utf-8")
     assert "TEST_LAMPORTS = 1000000" in source
-    assert "MAX_LAMPORTS = TEST_LAMPORTS" in source
     assert "lamports !== TEST_LAMPORTS" in source
-    assert "lamports > MAX_LAMPORTS" in source
-    assert "RESERVE_LAMPORTS = 50000000" in source
+    assert "MAX_LAMPORTS" not in source
+    assert "RESERVE_LAMPORTS" not in source
+    assert "0.05 SOL reserve" not in source
     assert "MAX_IMPACT = 2" in source
     assert "impact>MAX_IMPACT" in source
+
+
+def test_zero_balance_is_funded_automatically_from_devnet_faucet():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "async function ensureDevnetFunds(requiredBalanceLamports)" in source
+    assert "connection.requestAirdrop(wallet, Number(topUp))" in source
+    assert "connection.confirmTransaction(signature, \"confirmed\")" in source
+    assert "await ensureDevnetFunds(requiredBalanceLamports)" in source
+    assert "canonical Devnet identity check failed" in source
+    assert "Devnet faucet confirmed, but the wallet balance is still below" in source
 
 
 def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate():
@@ -36,7 +46,10 @@ def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate
     assert "provider.publicKey.equals(wallet)" in execute
     assert "confirmTransaction(signature" in execute
     assert "getTransaction(signature" in execute
-    assert "exact reviewed transaction message" in execute
+    assert "reconcileConfirmedTransaction(" in execute
+    assert "CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH" in source
+    assert "firstByteDifference" in source
+    assert "reviewedMessageSha256" in source
     assert "tokenBalanceRaw()" in execute
     assert "window.confirm(" not in source
     assert "await provider.connect()" in source
@@ -48,6 +61,9 @@ def test_phantom_submission_is_one_shot_and_never_automatically_retried():
     assert "prepared.executionStarted" in execute
     assert "Do not retry" in execute
     assert "received < BigInt(reviewed.quote.otherAmountThreshold)" in execute
+    assert "FAILED_ON_CHAIN" in execute
+    assert "CONFIRMED_BUT_UNVERIFIED" in execute
+    assert "SUBMISSION_STATUS_UNKNOWN" in execute
 
 
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
@@ -93,8 +109,8 @@ def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
     assert "snapshotUnsignedTransaction(tx)" in source
     assert "assertExactReviewedBytes(" in source
     assert "reviewedBytes" in source
-    assert "bytesEqual(currentBytes, reviewedBytes)" in source
-    assert "roundTrip.serialize(), bytes" in source
+    assert "bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)" in source
+    assert "serializeUnsignedTransaction(parsed),bytes" in source
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in source
 
 
@@ -236,7 +252,7 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert "sigVerify:false" in source
     assert 'evidence_type:"veltrix_direct_devnet_cpmm_unsigned_transaction"' in source
     assert "signed:false,submitted:false,broadcast:false" in source
-    assert "tx.signatures.some(sig=>sig.some(byte=>byte!==0))" in source
+    assert "tx.signatures.some(item=>item.signature !== null)" in source
     assert "tx.sign(" not in source
     assert "sendRawTransaction" not in source
     assert "devnet:cpmm:build" in workflow
@@ -247,7 +263,7 @@ def test_browser_direct_cpmm_verifier_checks_pool_accounts_and_runtime_slippage(
     source = PAGE.read_text(encoding="utf-8")
     assert "function decodeDirectCpmmPolicy(message, resolved, quote)" in source
     assert "async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes)" in source
-    assert "async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes)" in source
+    assert "async function verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence)" in source
     assert "temporary WSOL System CreateAccountWithSeed shape mismatch" in source
     assert "direct CPMM exact input/output token transfer CPIs not proven" in source
     assert "direct CPMM accepted minimum output one raw unit above actual output" in source
@@ -306,8 +322,8 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "Date.now() - prepared.preparedAt > 15000" in gate
     assert "provider.publicKey.equals(wallet)" in gate
     assert "connection.getGenesisHash()" in gate
-    assert "RESERVE_LAMPORTS" in gate
-    assert "connection.isBlockhashValid(tx.message.recentBlockhash" in gate
+    assert "BigInt(prepared.requiredBalanceLamports)" in gate
+    assert "connection.isBlockhashValid(normalizedTransactionMessage(tx).recentBlockhash" in gate
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
     assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" not in gate
@@ -337,3 +353,70 @@ def test_quote_review_displays_exact_raw_output_and_slippage_floor():
     assert "minimumRaw!==expectedFloor" in source
     assert 'textContent=fmtFixedRaw(quotedRaw,6)+" USDC"' in source
     assert 'textContent=fmtFixedRaw(minimumRaw,6)+" USDC"' in source
+
+
+def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without_alt():
+    root = PAGE.parents[1]
+    builder = (root / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
+    page = PAGE.read_text(encoding="utf-8")
+    harness = (root / "tests" / "phantom_direct_cpmm_live_audit.mjs").read_text(encoding="utf-8")
+    assert "txVersion:TxVersion.LEGACY" in builder
+    assert "tx.serialize({requireAllSignatures:false,verifySignatures:false})" in builder
+    assert "built.transaction.setSigners(owner)" in builder
+    assert "connection.getLatestBlockhash(\"confirmed\")" in builder
+    assert "built.transaction.setSigners(wallet)" in page
+    assert "connection.getLatestBlockhash(\"confirmed\")" in page
+    assert "1232-byte packet limit" in builder
+    assert 'transaction_version:"legacy"' in builder
+    assert "address_lookup_tables:[]" in builder
+    assert "TxVersion.LEGACY" in page
+    assert "resolveLegacyAccounts(message)" in page
+    assert "only ALT-free legacy transactions are accepted" in page
+    assert "legacy transaction contains address lookup tables" in page
+    assert "Transaction.from(bytes)" in harness
+    assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
+
+
+def test_wallet_capability_adapter_requires_legacy_before_quote_and_approval():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "function detectWalletCapabilities(p)" in source
+    assert 'advertised.has("legacy")' in source
+    assert 'advertised.includes("legacy")' in source
+    assert "walletCapabilities=detectWalletCapabilities(provider)" in source
+    assert "No transaction will be built." in source
+    assert "required legacy transaction format; signing is blocked" in source
+
+
+
+def test_direct_cpmm_ata_rent_is_state_aware_and_disclosed_before_approval():
+    source = PAGE.read_text(encoding="utf-8")
+    assert 'connection.getMinimumBalanceForRentExemption(165,"confirmed")' in source
+    assert "validateOutputAtaCpiEvidence(accountPresence,persistentAtaRentLamports" in source
+    assert "existing USDC ATA must not incur rent or be recreated/initialized" in source
+    assert "new USDC ATA must have exactly one creation/size/immutable-owner/initialization CPI funded with exact live rent" in source
+    assert 'id="usdcAccountStatusValue"' in source
+    assert 'id="ataRentValue"' in source
+    assert 'id="netDebitValue"' in source
+    assert "BigInt(prepared.requiredBalanceLamports)" in source
+    assert "BigInt(prepared.requiredBalanceLamports)" in source
+
+
+def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo)" in source
+    assert "verifyDirectCpmmRuntime(tx,policy,reviewedBytes,accountPresence)" in source
+    assert "outputAtaPresent:ataEvidence.outputAtaPresent" in source
+    assert "persistentAtaRentLamports:ataEvidence.persistentAtaRentLamports" in source
+
+
+
+def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reserve():
+    source = PAGE.read_text(encoding="utf-8")
+    assert "temporaryWsolFundingLamports:rentFunding" in source
+    assert "const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports)" in source
+    assert "const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+BigInt(totalFee)" in source
+    assert "await ensureDevnetFunds(requiredBalanceLamports)" in source
+    assert "BigInt(prepared.requiredBalanceLamports)" in source
+    assert "0.05 SOL reserve" not in source
+    assert 'id="temporaryFundingValue"' in source
+    assert 'id="requiredBalanceValue"' in source
