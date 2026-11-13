@@ -17,7 +17,7 @@ This checklist is a design/review aid for a separately approved future release. 
 - [ ] Verify finalized token-risk evidence is complete, provenance-checked and explicitly approved by a separate future live-risk review. The current Stage 05 collector does not emit LIVE_RISK_APPROVED.
 - [ ] Verify market, RPC, risk and simulation timestamps are within policy freshness limits.
 - [ ] Verify simulation message hash, account-state hash, output, fee and slot match the exact unsigned transaction manifest.
-- [ ] Verify authorization is one-use, unexpired and bound to the wallet, chain, policy hash and intent ID.
+- [ ] Verify authorization is one-use, unexpired and bound to the wallet, chain, policy hash and intent ID; confirm the immutable intent also pins the exact expected transaction-manifest hash.
 
 ## Emergency stop and audit
 
