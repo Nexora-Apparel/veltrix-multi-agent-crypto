@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass, fields
 from typing import Iterable, Mapping
 
@@ -172,8 +173,8 @@ class RiskEvidence:
             checked_flags.append(RiskFlag(flag.code, flag.severity, flag.description, flag.evidence_source))
         if len({flag.code for flag in checked_flags}) != len(checked_flags):
             raise ValueError("risk evidence flag codes must be unique")
-        if not isinstance(self.evidence_hash, str) or not self.evidence_hash.strip():
-            raise ValueError("risk evidence hash is required")
+        if not isinstance(self.evidence_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", self.evidence_hash):
+            raise ValueError("risk evidence hash must be a canonical SHA-256 digest")
         if self.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and (
             self.missing_claims or self.errors
         ):
@@ -362,8 +363,8 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         raise ValueError("a Shield veto must be represented as REJECTED")
     if isinstance(checked.market_snapshot_id, bool) or not isinstance(checked.market_snapshot_id, int) or checked.market_snapshot_id <= 0:
         raise ValueError("consensus market snapshot id must be positive")
-    if not isinstance(checked.risk_evidence_hash, str) or not checked.risk_evidence_hash.strip():
-        raise ValueError("consensus risk evidence hash is required")
+    if not isinstance(checked.risk_evidence_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", checked.risk_evidence_hash):
+        raise ValueError("consensus risk evidence hash must be a canonical SHA-256 digest")
     if not isinstance(checked.paper_review_eligible, bool) or checked.paper_review_eligible != (checked.status == "CONSENSUS_APPROVED"):
         raise ValueError("paper-review eligibility must match the consensus disposition")
     if checked.execution_authorized is not False:
