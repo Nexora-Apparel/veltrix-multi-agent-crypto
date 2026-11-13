@@ -169,6 +169,7 @@ def make_authorization(intent=None, policy=None):
         wallet_public_key=intent.wallet_public_key,
         policy=policy,
         intent_id=intent.intent_id,
+        intent_hash=intent.intent_hash,
         ttl_seconds=60,
         now=NOW_MS // 1000,
     )
