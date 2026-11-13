@@ -123,7 +123,7 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
     ).evaluate(
         MarketEvidence(
             mint=MINT, snapshot_id=1, pair_address="pool",
-            price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
+            price_usd=0.001, liquidity_usd=100_000, volume_h1_usd=50_000,
             price_change_m5_pct=5.0, retrieved_at_ms=10_000_000,
             pair_created_at_ms=6_400_000, pair_count=1, quality_flags=(),
         ),
