@@ -116,7 +116,7 @@ execution. Those remain later roadmap stages.
 - [x] Provider exception text is not copied into risk reports or retry records; append-only report persistence revalidates report and flag fields.
 - [x] Full repository CI and adversarial tests pass on the exact Stage 5 PR head (812 passed, 5 skipped; compileall passed).
 - [x] Live, read-only finalized BONK mint-account smoke passed in Stage 5 PR CI; the finalized account was parsed as classic SPL Token with no active mint/freeze authority and no Token-2022 extensions.
-- [ ] Post-merge CI and report/holder reconciliation tests pass on main.
+- [x] Post-merge CI and report/holder reconciliation tests pass on main after the invariant correction (main run `43516856668`: 844 passed, 5 skipped; compileall passed).
 - [x] Review confirms only risk evidence, report persistence, provider error handling, tests, documentation and read-only PR smoke changed; no wallet signing, trade execution, Telegram activation, scheduling or production deployment was introduced.
 
 The risk runtime remains a manually invoked polling process. Production scheduling and all execution capabilities remain disabled.
