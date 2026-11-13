@@ -7,6 +7,9 @@ accepted by this module.
 from __future__ import annotations
 
 from enum import Enum
+import hashlib
+import hmac
+import json
 from pathlib import Path
 from contextlib import closing
 import re
@@ -26,6 +29,10 @@ class ExecutionDisabled(RuntimeError):
 
 class IdempotencyConflict(RuntimeError):
     """An intent ID was reused with different immutable intent scope."""
+
+
+class AuditIntegrityError(RuntimeError):
+    """The append-only audit hash chain is broken or has been altered."""
 
 
 class ExecutionState(str, Enum):
@@ -113,7 +120,9 @@ class ExecutionAuditStore:
                 policy_hash TEXT,
                 evidence_hash TEXT,
                 transaction_hash TEXT,
-                occurred_at_ms INTEGER NOT NULL
+                occurred_at_ms INTEGER NOT NULL,
+                previous_event_hash TEXT NOT NULL,
+                event_hash TEXT NOT NULL
             )
         """)
         db.execute("""
@@ -153,14 +162,33 @@ class ExecutionAuditStore:
         policy = _safe_hash(policy_hash, "policy_hash")
         evidence = _safe_hash(evidence_hash, "evidence_hash")
         tx_hash = _safe_hash(transaction_hash, "transaction_hash")
+        previous = db.execute(
+            "SELECT event_hash FROM execution_audit_events ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        previous_hash = previous["event_hash"] if previous else "0" * 64
         event_id = uuid.uuid4().hex
+        event = {
+            "event_id": event_id,
+            "intent_id": safe_intent,
+            "event_type": event_type,
+            "state": state_value,
+            "reason_code": reason,
+            "policy_hash": policy,
+            "evidence_hash": evidence,
+            "transaction_hash": tx_hash,
+            "occurred_at_ms": stamp,
+            "previous_event_hash": previous_hash,
+        }
+        event_hash = hashlib.sha256(
+            json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        ).hexdigest()
         db.execute(
             """INSERT INTO execution_audit_events
                (event_id,intent_id,event_type,state,reason_code,policy_hash,
-                evidence_hash,transaction_hash,occurred_at_ms)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+                evidence_hash,transaction_hash,occurred_at_ms,previous_event_hash,event_hash)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (event_id, safe_intent, event_type, state_value, reason, policy,
-             evidence, tx_hash, stamp),
+             evidence, tx_hash, stamp, previous_hash, event_hash),
         )
         return event_id
 
@@ -190,7 +218,26 @@ class ExecutionAuditStore:
                     "SELECT * FROM execution_audit_events WHERE intent_id=? ORDER BY id",
                     (safe_intent,),
                 ).fetchall()
-        return [dict(row) for row in rows]
+        result = [dict(row) for row in rows]
+        previous_hash = "0" * 64
+        for event in result:
+            if event["previous_event_hash"] != previous_hash:
+                raise AuditIntegrityError("execution audit hash-chain predecessor mismatch")
+            payload = {
+                key: event[key]
+                for key in (
+                    "event_id", "intent_id", "event_type", "state", "reason_code",
+                    "policy_hash", "evidence_hash", "transaction_hash",
+                    "occurred_at_ms", "previous_event_hash",
+                )
+            }
+            expected_hash = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+            ).hexdigest()
+            if not isinstance(event["event_hash"], str) or not hmac.compare_digest(expected_hash, event["event_hash"]):
+                raise AuditIntegrityError("execution audit event hash mismatch")
+            previous_hash = event["event_hash"]
+        return result
 
 
 class SubmissionCoordinator:
