@@ -127,7 +127,7 @@ Those checks belong to Phase 05. No market snapshot is a buy signal.
 - [x] DEX provider and market-smoke errors do not echo raw exception text that may contain configured endpoint credentials.
 - [x] Full repository CI and adversarial tests pass on the exact Stage 4 PR head (805 passed, 5 skipped; compileall passed).
 - [x] Live, read-only BONK market-data smoke passed in the Stage 4 PR workflow; one eligible Orca pool returned a finite USD price and no quality flags.
-- [ ] Post-merge CI and snapshot persistence/replay tests pass on main.
+- [x] Post-merge CI and snapshot persistence/replay tests pass on main (main run `43391566306` passed).
 - [x] Review confirms only market provider, snapshot normalization/storage, tests, documentation and PR smoke workflow changed; no holder/security analysis, scoring, consensus, paper trading, Telegram, scheduling, production deployment or execution was introduced.
 
 This stage produces timestamped market observations only. It does not assert token safety, executable depth, or trading suitability.
