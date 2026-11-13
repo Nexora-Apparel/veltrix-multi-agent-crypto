@@ -300,7 +300,7 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
     assert broker.snapshot()["cash"] == pytest.approx(74.75)
     with pytest.raises(ValueError):
         broker.open_position_from_consensus(
-            "decision-2", MINT, 1.0, 25, "approved",
+            "c" * 64, MINT, 1.0, 25, "approved",
             created_at_ms=NOW, paper_review_eligible=True,
             execution_authorized=False, fee_bps=float("nan"),
         )
