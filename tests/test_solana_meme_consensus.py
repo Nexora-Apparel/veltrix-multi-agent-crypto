@@ -46,7 +46,7 @@ def risk(**overrides):
         evidence_hash="risk-evidence-hash",
     )
     values.update(overrides)
-    if values["missing_claims"] or values["errors"]:
+    if (values["missing_claims"] or values["errors"]) and "risk_state" not in overrides:
         values["risk_state"] = "REQUIRES_MORE_EVIDENCE"
     return RiskEvidence(**values)
 
