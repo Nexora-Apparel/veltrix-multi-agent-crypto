@@ -320,7 +320,13 @@ class TransactionValidator:
 
         input_effects = []
         output_effects = []
+        fee_effects = []
         seen_effect_accounts = set()
+        instruction_accounts = {
+            account
+            for instruction in plan.instructions
+            for account in instruction.accounts
+        }
         for effect in plan.account_effects:
             if not isinstance(effect, AccountEffect):
                 raise ExecutionGateError("malformed_account_effect")
@@ -331,6 +337,8 @@ class TransactionValidator:
             if effect.account in seen_effect_accounts:
                 raise ExecutionGateError("duplicate_account_effect")
             seen_effect_accounts.add(effect.account)
+            if effect.account not in instruction_accounts:
+                raise ExecutionGateError("effect_account_not_in_transaction")
             _signed_integer(effect.delta_base_units, "account_delta")
             if effect.authority_before != effect.authority_after:
                 raise ExecutionGateError("account_authority_changed")
@@ -344,12 +352,26 @@ class TransactionValidator:
                 if effect.owner != intent.wallet_public_key or effect.mint != intent.output_mint:
                     raise ExecutionGateError("unexpected_output_account")
                 output_effects.append(effect.delta_base_units)
-            elif effect.role not in {"pool_state", "pool_vault", "fee_payer"}:
+            elif effect.role == "fee_payer":
+                if effect.owner != intent.wallet_public_key or effect.mint is not None:
+                    raise ExecutionGateError("unexpected_fee_payer")
+                if effect.delta_base_units >= 0:
+                    raise ExecutionGateError("fee_payer_delta_not_debit")
+                fee_effects.append(effect.delta_base_units)
+            elif effect.role in {"pool_state", "pool_vault"}:
+                if effect.owner == intent.wallet_public_key:
+                    raise ExecutionGateError("pool_account_owned_by_wallet")
+            else:
                 raise ExecutionGateError("unknown_account_effect_role")
-        if sum(input_effects) != -intent.input_base_units:
+        if len(input_effects) != 1 or sum(input_effects) != -intent.input_base_units:
             raise ExecutionGateError("wallet_input_delta_mismatch")
-        if sum(output_effects) != plan.expected_output_base_units:
+        if len(output_effects) != 1 or sum(output_effects) != plan.expected_output_base_units:
             raise ExecutionGateError("wallet_output_delta_mismatch")
+        if len(fee_effects) != 1:
+            raise ExecutionGateError("fee_payer_effect_missing_or_ambiguous")
+        fee_debit = -sum(fee_effects)
+        if fee_debit > min(intent.max_priority_fee_base_units, policy.max_priority_fee_base_units, plan.priority_fee_base_units):
+            raise ExecutionGateError("fee_payer_debit_exceeds_limit")
 
 
 def hmac_compare(first: str, second: str) -> bool:
