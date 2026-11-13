@@ -73,6 +73,7 @@ class ExecutionIntent:
     input_mint: str
     output_mint: str
     input_base_units: int
+    requested_exposure_base_units: int
     minimum_output_base_units: int
     max_slippage_bps: int
     max_priority_fee_base_units: int
@@ -87,7 +88,7 @@ class ExecutionIntent:
                 raise ExecutionGateError(f"invalid_{name}")
         if self.input_mint == self.output_mint:
             raise ExecutionGateError("identical_input_output_mints")
-        for name in ("input_base_units", "minimum_output_base_units", "expires_at_ms"):
+        for name in ("input_base_units", "requested_exposure_base_units", "minimum_output_base_units", "expires_at_ms"):
             _integer(getattr(self, name), name, minimum=1)
         _integer(self.max_slippage_bps, "max_slippage_bps")
         _integer(self.max_priority_fee_base_units, "max_priority_fee_base_units")
@@ -110,6 +111,7 @@ class ExecutionIntent:
             "input_mint": self.input_mint,
             "output_mint": self.output_mint,
             "input_base_units": self.input_base_units,
+            "requested_exposure_base_units": self.requested_exposure_base_units,
             "minimum_output_base_units": self.minimum_output_base_units,
             "max_slippage_bps": self.max_slippage_bps,
             "max_priority_fee_base_units": self.max_priority_fee_base_units,
@@ -285,9 +287,9 @@ class TransactionValidator:
         for instruction in plan.instructions:
             if not isinstance(instruction, InstructionPlan):
                 raise ExecutionGateError("malformed_instruction")
-            if instruction.program_id not in allowed_programs:
+            if not isinstance(instruction.program_id, str) or instruction.program_id not in allowed_programs:
                 raise ExecutionGateError("program_not_allowlisted")
-            if instruction.operation not in {"SWAP", "COMPUTE_BUDGET"}:
+            if not isinstance(instruction.operation, str) or instruction.operation not in {"SWAP", "COMPUTE_BUDGET"}:
                 raise ExecutionGateError("unknown_instruction")
             if instruction.operation == "SWAP":
                 swap_count += 1
@@ -295,7 +297,10 @@ class TransactionValidator:
                 raise ExecutionGateError("authority_or_delegate_change")
             if not isinstance(instruction.accounts, tuple) or not instruction.accounts:
                 raise ExecutionGateError("instruction_accounts_missing")
-            if any(account not in intent.allowed_accounts for account in instruction.accounts):
+            if any(
+                not isinstance(account, str) or not account or account not in intent.allowed_accounts
+                for account in instruction.accounts
+            ):
                 raise ExecutionGateError("unexpected_instruction_account")
             _digest(instruction.data_hash, "instruction_data_hash")
         if swap_count != 1:
@@ -307,8 +312,10 @@ class TransactionValidator:
         for effect in plan.account_effects:
             if not isinstance(effect, AccountEffect):
                 raise ExecutionGateError("malformed_account_effect")
-            if effect.account not in intent.allowed_accounts:
+            if not isinstance(effect.account, str) or not effect.account or effect.account not in intent.allowed_accounts:
                 raise ExecutionGateError("unexpected_account_mutation")
+            if not isinstance(effect.role, str):
+                raise ExecutionGateError("unknown_account_effect_role")
             if effect.account in seen_effect_accounts:
                 raise ExecutionGateError("duplicate_account_effect")
             seen_effect_accounts.add(effect.account)
@@ -349,7 +356,7 @@ class RiskGate:
     ) -> None:
         if policy.mode is not ExecutionMode.LIVE:
             raise ExecutionGateError("paper_only_policy")
-        if risk.intent_id != intent.intent_id or risk.chain != intent.chain or risk.chain != policy.chain or risk.mint != intent.input_mint:
+        if risk.intent_id != intent.intent_id or risk.chain != intent.chain or risk.chain != policy.chain or risk.mint != intent.output_mint:
             raise ExecutionGateError("risk_scope_mismatch")
         if risk.risk_state != "LIVE_RISK_APPROVED":
             raise ExecutionGateError("token_risk_not_live_approved")
@@ -385,12 +392,12 @@ class RiskGate:
             raise ExecutionGateError("trade_limit_exceeded")
         if (
             policy.max_token_exposure_base_units <= 0
-            or risk.current_token_exposure_base_units + intent.input_base_units > policy.max_token_exposure_base_units
+            or risk.current_token_exposure_base_units + intent.requested_exposure_base_units > policy.max_token_exposure_base_units
         ):
             raise ExecutionGateError("token_exposure_limit_exceeded")
         if (
             policy.max_portfolio_exposure_base_units <= 0
-            or risk.current_portfolio_exposure_base_units + intent.input_base_units > policy.max_portfolio_exposure_base_units
+            or risk.current_portfolio_exposure_base_units + intent.requested_exposure_base_units > policy.max_portfolio_exposure_base_units
         ):
             raise ExecutionGateError("portfolio_exposure_limit_exceeded")
         if risk.daily_loss_base_units > policy.max_daily_loss_base_units:
