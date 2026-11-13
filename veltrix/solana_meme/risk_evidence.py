@@ -5,7 +5,7 @@ safe, produce a buy/sell signal, or replace independent provider due diligence.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import math
 import time
 from typing import Callable
@@ -154,8 +154,9 @@ class SolanaRiskEvidenceReport:
         ):
             raise ValueError("complete holder coverage must reconcile to total supply")
         if self.mint_supply_reconciled and (
-            self.mint_supply_raw is None or self.total_supply_raw is None
-            or self.mint_supply_raw != self.total_supply_raw
+            self.mint_supply_raw is not None
+            and self.total_supply_raw is not None
+            and self.mint_supply_raw != self.total_supply_raw
         ):
             raise ValueError("mint supply reconciliation must match reported supplies")
         if any(value is not None for value in (self.top_holder_pct, self.top5_holder_pct, self.top10_holder_pct)) and (
@@ -544,7 +545,7 @@ class SolanaRiskEvidenceCollector:
                     "Top ten owners control at least 90% of supply",
                     "solana-rpc-holder-inventory",
                 )
-        elif holder_snapshot is not None:
+        elif holder_snapshot is not None and not coverage_complete:
             add_flag(
                 "holder_inventory_incomplete", "high",
                 "Holder inventory does not reconcile exactly to total supply",
