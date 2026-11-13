@@ -115,8 +115,8 @@ Dashboard and analytics are Phase 08. Live execution remains disabled in Phase
 - [x] Quality-flagged or stale market observations cannot trigger exits or mark open positions.
 - [x] Position sizing, concurrent-position limits, portfolio exposure, fees, slippage, initial stop, 2x/3x partial exits and trailing stop remain simulated and persisted.
 - [x] Shared database path and existing paper ledger are preserved; runtime enforces production, Telegram, scheduler and live-trading locks.
-- [ ] Full repository CI and adversarial paper-entry/exit tests pass on the exact Stage 7 PR head.
-- [ ] Post-merge CI and restart/reconciliation tests pass on main.
-- [ ] Review confirms no exchange client, wallet signer, real order, Telegram activation, scheduler or production deployment was introduced.
+- [x] Full repository CI and adversarial paper-entry/exit tests pass on the integrated Stage 7 main commit (run `43516856668`: 844 passed, 5 skipped; compileall passed).
+- [x] Post-merge CI and restart/reconciliation tests pass on main after the explicit broker-restart/idempotency test (run `43517966792`: 853 passed, 5 skipped; compileall passed).
+- [x] Review confirms no exchange client, wallet signer, real order, Telegram activation, scheduler or production deployment was introduced.
 
 The runtime has not been activated as a continuous worker. Simulation behavior is verified through isolated tests only; no real funds or transactions are involved.
