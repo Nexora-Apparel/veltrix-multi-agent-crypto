@@ -46,9 +46,13 @@ def validate_runtime_controls(
     import os
 
     env = os.environ if environ is None else environ
-    target = str(env.get("VELTRIX_DEPLOYMENT_TARGET", "development")).strip().lower()
+    configured_target = str(env.get("VELTRIX_DEPLOYMENT_TARGET", "")).strip().lower()
+    platform_target = str(env.get("VERCEL_ENV", "")).strip().lower()
+    target = configured_target or platform_target or "development"
     if target not in _ALLOWED_TARGETS:
         raise ValueError("VELTRIX_DEPLOYMENT_TARGET is not a supported target")
+    if platform_target == "production":
+        raise RuntimeError("Production deployment is locked until final release gates pass")
 
     controls = RuntimeControls(
         deployment_target=target,
