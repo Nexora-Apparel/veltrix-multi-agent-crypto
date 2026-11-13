@@ -277,16 +277,23 @@ def test_paper_policy_rejects_nonfinite_or_unbounded_costs():
 
 
 def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
-    broker = PaperBroker(str(tmp_path / "broker.sqlite3"), 100, 2, 50)
+    markets, _, _, broker, _, decision = build_pipeline(tmp_path, broker_balance=100)
+    market = markets.latest(MINT)
+    kwargs = {
+        "created_at_ms": decision.created_at_ms,
+        "paper_review_eligible": True,
+        "execution_authorized": False,
+        "fee_bps": 100,
+        "slippage_bps": 50,
+        "processed_at_ms": NOW,
+        "expected_market_snapshot_id": market["id"],
+        "expected_risk_evidence_hash": decision.risk_evidence_hash,
+    }
     opened = broker.open_position_from_consensus(
-        "decision-1", MINT, 1.0, 25, "approved",
-        created_at_ms=NOW, paper_review_eligible=True, execution_authorized=False,
-        fee_bps=100, slippage_bps=50, processed_at_ms=NOW,
+        decision.decision_id, MINT, market["price_usd"], 25, "approved", **kwargs
     )
     duplicate = broker.open_position_from_consensus(
-        "decision-1", MINT, 1.0, 25, "approved",
-        created_at_ms=NOW, paper_review_eligible=True, execution_authorized=False,
-        fee_bps=100, slippage_bps=50, processed_at_ms=NOW,
+        decision.decision_id, MINT, market["price_usd"], 25, "approved", **kwargs
     )
     assert opened["status"] == "OPENED"
     assert duplicate["status"] == "DUPLICATE"
@@ -297,6 +304,17 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
             created_at_ms=NOW, paper_review_eligible=True,
             execution_authorized=False, fee_bps=float("nan"),
         )
+
+
+def test_paper_broker_rejects_entry_without_atomic_evidence_references(tmp_path):
+    broker = PaperBroker(str(tmp_path / "missing-reconciliation.sqlite3"), 100, 2, 50)
+    with pytest.raises(ValueError, match="expected market snapshot ID and risk evidence hash"):
+        broker.open_position_from_consensus(
+            "a" * 64, MINT, 1.0, 25, "approved",
+            created_at_ms=NOW, paper_review_eligible=True,
+            execution_authorized=False,
+        )
+
 
 def test_newer_nonapproved_decision_prevents_execution_of_older_approval(tmp_path):
     _, _, consensus, broker, worker, approved = build_pipeline(tmp_path)
