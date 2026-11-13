@@ -1,5 +1,5 @@
 const RPC="https://api.devnet.solana.com";
-const SIGNATURE="49cRpLT3kSMFjpQbtBgkTnoNLfazDtKaiNLnYK9CDT9Dj7RUh4Jw36LWPrM1tWAxtaA5Ufd4nDzcrJbKibfJyhpv";
+const SIGNATURE="4CXZpAq9hLvRcd9xj5BQYhohBVTVYadt4q7ppBwMB3LkaAsdo7DSudgHDcwhK5W95GUJbe5kqLuzt4C6DfLgG9pL";
 const WALLET="FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U";
 const USDC="4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const GENESIS="EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
