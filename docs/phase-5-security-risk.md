@@ -114,9 +114,9 @@ execution. Those remain later roadmap stages.
 - [x] GoPlus observations remain supplemental and cannot clear missing claims for complete LP inventory, developer linkage, bundle analysis, creator provenance or sellability.
 - [x] Risk reports never emit SAFE or authorize a trade.
 - [x] Provider exception text is not copied into risk reports or retry records; append-only report persistence revalidates report and flag fields.
-- [ ] Full repository CI and adversarial tests pass on the exact Stage 5 PR head.
-- [ ] Live, read-only finalized BONK mint-account smoke passes in Stage 5 PR CI.
+- [x] Full repository CI and adversarial tests pass on the exact Stage 5 PR head (812 passed, 5 skipped; compileall passed).
+- [x] Live, read-only finalized BONK mint-account smoke passed in Stage 5 PR CI; the finalized account was parsed as classic SPL Token with no active mint/freeze authority and no Token-2022 extensions.
 - [ ] Post-merge CI and report/holder reconciliation tests pass on main.
-- [ ] Review confirms no wallet signing, trade execution, Telegram activation, scheduling or production deployment was introduced.
+- [x] Review confirms only risk evidence, report persistence, provider error handling, tests, documentation and read-only PR smoke changed; no wallet signing, trade execution, Telegram activation, scheduling or production deployment was introduced.
 
 The risk runtime remains a manually invoked polling process. Production scheduling and all execution capabilities remain disabled.
