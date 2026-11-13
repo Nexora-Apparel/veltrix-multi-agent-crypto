@@ -98,9 +98,9 @@ graceful stop.
 - [x] Primary reconnect uses bounded exponential backoff; secondary partial failures do not discard successful endpoint results.
 - [x] Invalid candidate rows are audited and skipped without falsely classifying an otherwise healthy source as a feed outage.
 - [x] PumpPortal endpoint path, query, fragment and userinfo are redacted from connection errors; raw provider exception text is not propagated.
-- [ ] Full repository CI and adversarial tests pass on the exact Stage 3 PR head.
-- [ ] Live, read-only PumpPortal handshake/subscription and DEX Screener endpoint smoke passes in the Stage 3 PR workflow.
+- [x] Full repository CI and adversarial tests pass on the exact Stage 3 PR head (795 passed, 5 skipped; compileall passed).
+- [x] Live, read-only PumpPortal handshake/subscription and DEX Screener endpoint smoke passed in the Stage 3 PR workflow; both DEX endpoints returned healthy and 51 normalized Solana candidates were observed.
 - [ ] Post-merge CI and a read-only production-equivalent worker construction test pass.
-- [ ] Review confirms no schema reset/migration, credential changes, Telegram activation, schedule, production deployment, wallet or execution capability was introduced.
+- [x] Review confirms no schema reset/migration, credential changes, Telegram activation, schedule, production deployment, wallet or execution capability was introduced.
 
 The discovery worker remains an explicitly invoked, read-only process. This stage does not enable automatic scheduling or production deployment.
