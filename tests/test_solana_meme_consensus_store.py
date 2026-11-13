@@ -110,6 +110,7 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
     from dataclasses import replace
 
     from veltrix.solana_meme.risk_evidence import RiskFlag
+from veltrix.whales import WalletBuyEvent
 
     store = ConsensusStore(tmp_path / "consensus.sqlite3")
     from veltrix.whales import WalletBuyEvent
