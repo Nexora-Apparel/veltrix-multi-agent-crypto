@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..ledger import PaperBroker
+from ..foundation import validate_runtime_controls
 from .database import shared_database_path
 from .consensus_store import ConsensusStore
 from .market_store import MarketSnapshotStore
@@ -110,6 +111,7 @@ def build_runtime(
 ) -> PaperTradingRuntime:
     if os.getenv("LIVE_TRADING", "false").strip().lower() in {"1", "true", "yes", "on"}:
         raise RuntimeError("Phase 07 refuses to start while LIVE_TRADING is enabled")
+    validate_runtime_controls()
     db_path = shared_database_path(database_path)
     balance = starting_balance if starting_balance is not None else _env_float("PAPER_BALANCE_USD", 500.0)
     positions = max_positions if max_positions is not None else _env_int("MAX_OPEN_POSITIONS", 10)
