@@ -111,7 +111,11 @@ def test_store_revalidates_forged_snapshot_before_writing(tmp_path):
 
 def test_store_rejects_snapshot_with_future_response_receipt(tmp_path):
     store = MarketSnapshotStore(tmp_path / "market.sqlite3")
-    invalid = replace(snapshot(), response_received_at_ms=2001)
-    with pytest.raises(ValueError, match="cannot be later"):
+    original = snapshot()
+    invalid = object.__new__(SolanaMarketSnapshot)
+    for field in fields(SolanaMarketSnapshot):
+        object.__setattr__(invalid, field.name, getattr(original, field.name))
+    object.__setattr__(invalid, "response_received_at_ms", 2001)
+    with pytest.raises(ValueError, match="failed canonical validation"):
         store.record(invalid)
     assert store.count(MINT) == 0
