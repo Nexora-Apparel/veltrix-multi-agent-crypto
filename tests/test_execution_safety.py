@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import sqlite3
+import re
 
 import pytest
 
@@ -563,6 +564,10 @@ def test_safety_modules_have_no_wallet_signing_or_rpc_submission_adapter():
     for relative in modules:
         source = (root / relative).read_text(encoding="utf-8").lower()
         assert not any(marker in source for marker in forbidden), relative
+        assert not re.search(
+            r"\\b(private_key|seed_phrase|mnemonic|secret_key)\\s*=",
+            source,
+        ), relative
 
 
 
