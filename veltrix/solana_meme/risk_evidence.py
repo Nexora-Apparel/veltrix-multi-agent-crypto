@@ -75,6 +75,7 @@ class SolanaRiskEvidenceReport:
     mint_supply_raw: int | None = None
     mint_decimals: int | None = None
     mint_supply_reconciled: bool = False
+    holder_decimals: int | None = None
     risk_flags: tuple[RiskFlag, ...] = ()
 
     def __post_init__(self) -> None:
@@ -153,12 +154,21 @@ class SolanaRiskEvidenceReport:
             self.total_supply_raw is None or self.observed_holder_balance_raw != self.total_supply_raw
         ):
             raise ValueError("complete holder coverage must reconcile to total supply")
-        if self.mint_supply_reconciled and (
-            self.mint_supply_raw is not None
-            and self.total_supply_raw is not None
-            and self.mint_supply_raw != self.total_supply_raw
+        if self.holder_decimals is not None and (
+            isinstance(self.holder_decimals, bool)
+            or not isinstance(self.holder_decimals, int)
+            or not 0 <= self.holder_decimals <= 38
         ):
-            raise ValueError("mint supply reconciliation must match reported supplies")
+            raise ValueError("holder_decimals must be between 0 and 38 or None")
+        if self.mint_supply_reconciled and (
+            self.mint_supply_raw is None
+            or self.total_supply_raw is None
+            or self.mint_decimals is None
+            or self.holder_decimals is None
+            or self.mint_supply_raw != self.total_supply_raw
+            or self.mint_decimals != self.holder_decimals
+        ):
+            raise ValueError("mint supply and decimals reconciliation requires matching reported evidence")
         if any(value is not None for value in (self.top_holder_pct, self.top5_holder_pct, self.top10_holder_pct)) and (
             not self.holder_coverage_complete or not self.mint_supply_reconciled
         ):
@@ -632,5 +642,6 @@ class SolanaRiskEvidenceCollector:
             mint_supply_raw=(mint_snapshot.supply_raw if mint_snapshot else None),
             mint_decimals=(mint_snapshot.decimals if mint_snapshot else None),
             mint_supply_reconciled=mint_supply_reconciled,
+            holder_decimals=(holder_snapshot.decimals if holder_snapshot else None),
             risk_flags=ordered_flags,
         )

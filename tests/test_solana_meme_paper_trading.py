@@ -109,13 +109,13 @@ def complete_risk_report(observed):
         goplus_dev_hold_pct=None,
         goplus_bundled_supply_pct=None,
         goplus_creator_hold_pct=None,
-        holder_provider=None,
-        holder_evidence_id=None,
-        holder_block_ref=None,
-        holder_count=None,
-        total_supply_raw=None,
-        observed_holder_balance_raw=None,
-        holder_coverage_complete=False,
+        holder_provider="test-holder-provider",
+        holder_evidence_id="test-holder-evidence",
+        holder_block_ref="finalized-slot:123",
+        holder_count=1,
+        total_supply_raw=1_000_000,
+        observed_holder_balance_raw=1_000_000,
+        holder_coverage_complete=True,
         top_holder_pct=None,
         top5_holder_pct=None,
         top10_holder_pct=None,
@@ -131,6 +131,7 @@ def complete_risk_report(observed):
         mint_supply_raw=1_000_000,
         mint_decimals=9,
         mint_supply_reconciled=True,
+        holder_decimals=9,
         risk_flags=(),
     )
 
@@ -414,7 +415,7 @@ def test_paper_broker_rejects_missing_or_enabled_execution_authority(tmp_path):
         )
 
 def test_broker_enforces_total_portfolio_exposure_cap_and_reports_exposure(tmp_path):
-    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    markets, _, _, broker, _, decision = build_pipeline(tmp_path, broker_balance=100)
     # Seed an existing virtual position so this test exercises the portfolio
     # cap while the new entry still passes the complete consensus gate.
     with sqlite3.connect(broker.db_path) as db:
@@ -464,13 +465,14 @@ def test_worker_blocks_entry_that_would_exceed_portfolio_exposure_policy(tmp_pat
 def test_broker_atomically_rechecks_latest_market_snapshot(tmp_path):
     markets, _, _, broker, _, decision = build_pipeline(tmp_path)
     market = markets.latest(MINT)
+    markets.record(market_snapshot(NOW + 1, price=0.0012))
     result = broker.open_position_from_consensus(
         decision.decision_id, MINT, market["price_usd"], 25, "approved",
         created_at_ms=decision.created_at_ms,
         paper_review_eligible=True, execution_authorized=False,
-        expected_market_snapshot_id=market["id"] + 1,
+        expected_market_snapshot_id=market["id"],
         expected_risk_evidence_hash=decision.risk_evidence_hash,
-        processed_at_ms=NOW,
+        processed_at_ms=NOW + 1,
     )
     assert result["status"] == "BLOCKED"
     assert "market snapshot changed" in result["reason"]
@@ -478,15 +480,16 @@ def test_broker_atomically_rechecks_latest_market_snapshot(tmp_path):
 
 
 def test_broker_atomically_rechecks_latest_risk_evidence_hash(tmp_path):
-    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    markets, risks, _, broker, _, decision = build_pipeline(tmp_path)
     market = markets.latest(MINT)
+    assert risks.record(complete_risk_report(NOW + 1))
     result = broker.open_position_from_consensus(
         decision.decision_id, MINT, market["price_usd"], 25, "approved",
         created_at_ms=decision.created_at_ms,
         paper_review_eligible=True, execution_authorized=False,
         expected_market_snapshot_id=market["id"],
-        expected_risk_evidence_hash="f" * 64,
-        processed_at_ms=NOW,
+        expected_risk_evidence_hash=decision.risk_evidence_hash,
+        processed_at_ms=NOW + 1,
     )
     assert result["status"] == "BLOCKED"
     assert "security evidence changed" in result["reason"]
@@ -579,7 +582,7 @@ def test_broker_revalidates_market_quality_inside_entry_transaction(tmp_path):
                 (MINT,),
             ).fetchone()
             db.execute(
-                "UPDATE solana_market_snapshots SET quality_flags = ? WHERE id = ?",
+                "UPDATE solana_market_snapshots SET quality_flags_json = ? WHERE id = ?",
                 (json.dumps(["liquidity_usd_missing"]), row[0]),
             )
         return original(*args, **kwargs)
