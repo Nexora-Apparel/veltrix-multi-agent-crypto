@@ -614,3 +614,38 @@ def test_paper_exits_and_status_ignore_market_snapshots_with_quality_flags(tmp_p
     assert result.exit_fills == 0
     assert broker.snapshot()["open_positions"]
     assert status["unmarked_positions"] == [MINT]
+
+
+
+def test_paper_entry_and_idempotency_survive_broker_restart(tmp_path):
+    markets, risks, consensus, broker, worker, decision = build_pipeline(tmp_path)
+
+    first = worker.run_once()
+    assert first.opened_positions == 1
+
+    restarted_broker = PaperBroker(
+        broker.db_path,
+        starting_balance=500,
+        max_positions=10,
+        max_position_usd=50,
+    )
+    assert restarted_broker.has_consensus_decision(decision.decision_id) == "OPENED"
+    restarted_worker = PaperTradingWorker(
+        consensus,
+        markets,
+        risks,
+        restarted_broker,
+        policy=worker.policy,
+        clock_ms=lambda: NOW,
+    )
+
+    second = restarted_worker.run_once()
+
+    assert second.opened_positions == 0
+    assert second.duplicate_decisions == 1
+    assert len(restarted_broker.snapshot()["open_positions"]) == 1
+    assert restarted_broker.paper_decisions(limit=1)[0]["decision_id"] == decision.decision_id
+    assert restarted_broker.paper_decisions(limit=1)[0]["execution_status"] == "OPENED"
+    costs = restarted_broker.execution_cost_totals()
+    assert costs["fees_usd"] == pytest.approx(0.25)
+    assert costs["slippage_cost_usd"] > 0

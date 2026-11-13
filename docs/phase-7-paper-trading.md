@@ -111,6 +111,7 @@ Dashboard and analytics are Phase 08. Live execution remains disabled in Phase
 - [x] The broker requires market snapshot ID and risk evidence digest; there is no unchecked direct-entry fallback.
 - [x] Within the same SQLite transaction, the broker reconstructs and validates the latest consensus payload, checks decision age/status/eligibility, rechecks market ID/price/freshness/quality flags and recomputes risk evidence identity/state/flags.
 - [x] Atomic race tests cover consensus replacement, market replacement, risk replacement and in-place payload tampering.
+- [x] Restart/reconciliation test reopens the existing broker database, verifies the consumed consensus decision and paper position remain durable, and proves a restarted worker cannot duplicate the entry.
 - [x] Quality-flagged or stale market observations cannot trigger exits or mark open positions.
 - [x] Position sizing, concurrent-position limits, portfolio exposure, fees, slippage, initial stop, 2x/3x partial exits and trailing stop remain simulated and persisted.
 - [x] Shared database path and existing paper ledger are preserved; runtime enforces production, Telegram, scheduler and live-trading locks.
