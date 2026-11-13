@@ -217,3 +217,35 @@ def test_returns_both_sides_when_both_pair_tokens_are_requested():
         (base_mint, "base"),
         (quote_mint, "quote"),
     }
+
+
+
+def test_provider_distinguishes_missing_liquidity_and_hourly_volume_from_zero():
+    mint = "So11111111111111111111111111111111111111112"
+    payload = pair(liquidity={}, volume={"m5": 10, "h1": None, "h24": 100})
+    event = DexScreenerProvider(
+        session=Session([[payload]]), clock_ms=lambda: 1_800_000_000_000,
+    ).fetch_token_pairs("solana", [mint])[0]
+
+    assert event.liquidity_usd == 0
+    assert event.volume_h1_usd == 0
+    assert event.quality_flags == (
+        "liquidity_usd_missing",
+        "volume_h1_usd_missing",
+    )
+
+
+def test_provider_transport_errors_do_not_echo_custom_endpoint_credentials():
+    secret_url = "https://user:password@dex.test/private/path?api-key=private-secret"
+    provider = DexScreenerProvider(
+        base_url=secret_url,
+        session=Session([OSError(f"failed request to {secret_url}")]),
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.fetch_token_pairs(
+            "solana", ["So11111111111111111111111111111111111111112"]
+        )
+    message = str(error.value)
+    assert "private-secret" not in message
+    assert "password" not in message
+    assert "OSError" in message
