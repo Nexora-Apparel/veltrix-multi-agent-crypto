@@ -415,7 +415,7 @@ def test_paper_broker_rejects_missing_or_enabled_execution_authority(tmp_path):
         )
 
 def test_broker_enforces_total_portfolio_exposure_cap_and_reports_exposure(tmp_path):
-    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    markets, _, _, broker, _, decision = build_pipeline(tmp_path, broker_balance=100)
     # Seed an existing virtual position so this test exercises the portfolio
     # cap while the new entry still passes the complete consensus gate.
     with sqlite3.connect(broker.db_path) as db:
