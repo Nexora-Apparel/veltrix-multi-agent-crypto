@@ -7,7 +7,6 @@ import pytest
 from veltrix.whales import WalletBuyEvent
 from veltrix.solana_meme.consensus import (
     ConsensusEngine,
-    RiskEvidence,
     MarketEvidence,
     RiskEvidence,
 )
