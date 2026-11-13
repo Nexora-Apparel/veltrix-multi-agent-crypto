@@ -136,7 +136,7 @@ See `docs/phase-09-operator-checklist.md` for the future manual safety checklist
 - [x] Submission coordinator enforces durable intent idempotency, compare-and-set transitions and terminal-state protection; SIGNED/SUBMITTED/CONFIRMED are blocked.
 - [x] Execution audit is append-only, redacted and rejects fields outside its allowlist; static scans reject key-import/signing/RPC submission adapters.
 - [x] Adversarial tests cover gate rejection, emergency-stop restart/storage failure, authorization replay, concurrent intent creation and zero fake-signer calls.
-- [ ] Full repository CI passes on the exact Stage 09 PR head.
+- [x] Full repository CI passes on exact PR head `821881af1e21e054b563db18f16735a826d3a9a3` (two successful runs; 905 passed, 5 skipped; compileall passed).
 - [ ] Post-merge CI passes on main.
 - [ ] Independent security review signs off the exact diff and threat model.
 
