@@ -254,13 +254,15 @@
     } catch { return "unavailable"; }
   }
   async function reconcileConfirmedTransaction(chainTx,reviewedTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence) {
-    if(!chainTx || !chainTx.meta || chainTx.meta.err) throw new Error("Confirmed signature has no successful transaction metadata.");
+    if(!chainTx) throw new Error("SUBMISSION_STATUS_UNKNOWN: confirmed signature transaction details are not yet available.");
+    if(!chainTx.meta) throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC transaction metadata is missing.");
+    if(chainTx.meta.err) throw new Error("FAILED_ON_CHAIN: Solana recorded an execution error: "+JSON.stringify(chainTx.meta.err));
     const transaction=chainTx.transaction;
     if(!transaction || !transaction.message || typeof transaction.message.serialize!=="function") {
-      throw new Error("Confirmed signature was returned, but RPC did not provide a serializable transaction message.");
+      throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC did not provide a serializable confirmed transaction message.");
     }
     if(!Array.isArray(transaction.signatures)||!transaction.signatures.includes(signature)) {
-      throw new Error("RPC transaction signature list does not contain the returned Phantom signature.");
+      throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC transaction signature list does not contain the returned Phantom signature.");
     }
     const confirmedBytes=Uint8Array.from(transaction.message.serialize());
     const expectedMessage=normalizedTransactionMessage(reviewedTx);
@@ -1273,8 +1275,12 @@
       }
       status("Phantom approved and submitted the Devnet transaction. Waiting for confirmation… Signature: " + signature,"warning");
       const confirmation = await connection.confirmTransaction(signature,"confirmed");
-      if (!confirmation || !confirmation.value || confirmation.value.err) {
-        throw new Error("Devnet transaction did not confirm successfully. Signature: " + signature);
+      if (!confirmation || !confirmation.value) {
+        throw new Error("SUBMISSION_STATUS_UNKNOWN: Devnet confirmation response was incomplete. Signature: " + signature);
+      }
+      if (confirmation.value.err) {
+        throw new Error("FAILED_ON_CHAIN: Solana returned an execution error: " +
+          JSON.stringify(confirmation.value.err) + ". Signature: " + signature);
       }
       let chainTx = null;
       for (let i=0;i<8;i++) {
@@ -1285,6 +1291,9 @@
         await new Promise(resolve=>setTimeout(resolve,1500));
       }
       let reconciliation;
+      if(!chainTx) {
+        throw new Error("SUBMISSION_STATUS_UNKNOWN: Devnet confirmed the signature, but transaction details were unavailable after eight RPC reads. Signature: " + signature);
+      }
       try {
         reconciliation=await reconcileConfirmedTransaction(
           chainTx,reviewed.txs[0],reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence
@@ -1300,7 +1309,7 @@
       }
       const received = finalUsdcBalance - BigInt(reviewed.tokenBalanceBefore);
       if (received < BigInt(reviewed.quote.otherAmountThreshold)) {
-        throw new Error("Transaction confirmed, but the observed Devnet USDC balance increase is below the reviewed minimum. Signature: " + signature);
+        throw new Error("CONFIRMED_BUT_UNVERIFIED: transaction finalized, but the observed Devnet USDC balance increase is below the reviewed minimum. Signature: " + signature);
       }
       prepared = null;
       $("review").classList.add("hidden");
@@ -1317,8 +1326,13 @@
       if (error && error.code === 4001) {
         reviewed.executionStarted = false;
         status("Phantom approval was rejected. No transaction was sent.","warning");
-      } else if (signature || approvalRequested) {
-        status((error.message || String(error)) + "\nThe approval/submission outcome may be uncertain. Do not retry; inspect Phantom activity and the Devnet signature" +
+      } else if ((error.message || "").includes("FAILED_ON_CHAIN")) {
+        status((error.message || String(error)) + "\\nThe transaction failed on Solana. Do not retry automatically; inspect the signature and wallet activity.","warning");
+      } else if ((error.message || "").includes("CONFIRMED_BUT_UNVERIFIED")) {
+        status((error.message || String(error)) + "\\nThe transaction is confirmed but not fully verified. Do not retry; inspect the signature and wallet activity.","warning");
+      } else if ((error.message || "").includes("SUBMISSION_STATUS_UNKNOWN") || signature || approvalRequested) {
+        status("SUBMISSION_STATUS_UNKNOWN: " + (error.message || String(error)) +
+          "\\nDo not retry; inspect Phantom activity and the Devnet signature" +
           (signature ? ": " + signature : " before building another transaction."),"warning");
       } else {
         reviewed.executionStarted = false;
