@@ -100,7 +100,7 @@ graceful stop.
 - [x] PumpPortal endpoint path, query, fragment and userinfo are redacted from connection errors; raw provider exception text is not propagated.
 - [x] Full repository CI and adversarial tests pass on the exact Stage 3 PR head (795 passed, 5 skipped; compileall passed).
 - [x] Live, read-only PumpPortal handshake/subscription and DEX Screener endpoint smoke passed in the Stage 3 PR workflow; both DEX endpoints returned healthy and 51 normalized Solana candidates were observed.
-- [x] Read-only preview worker construction and release-lock tests now cover a production-equivalent preview configuration without opening HTTP/WebSocket connections; post-merge CI remains pending.
+- [x] Read-only preview worker construction and release-lock tests cover a production-equivalent preview configuration without opening HTTP/WebSocket connections; post-merge CI passed on main run `43517620008` (852 passed, 5 skipped; compileall passed).
 - [x] Review confirms no schema reset/migration, credential changes, Telegram activation, schedule, production deployment, wallet or execution capability was introduced.
 
 The discovery worker remains an explicitly invoked, read-only process. This stage does not enable automatic scheduling or production deployment.
