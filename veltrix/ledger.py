@@ -268,7 +268,7 @@ class PaperBroker:
                         or decision_payload.get("created_at_ms") != created_at_ms
                         or decision_payload.get("market_snapshot_id") != expected_market_snapshot_id
                         or decision_payload.get("risk_evidence_hash") != expected_risk_evidence_hash
-                        or decision_payload.get("market_quality_flags") != ()
+                        or decision_payload.get("market_quality_flags") != []
                     ):
                         blocked_reason = "latest consensus decision no longer satisfies the paper-entry gate"
                     elif (
