@@ -56,6 +56,7 @@ def nonapproved_decision(decision, *, created_at_ms):
         "market_snapshot_id": changed.market_snapshot_id,
         "risk_evidence_hash": changed.risk_evidence_hash,
         "rule_version": changed.rule_version,
+        "market_quality_flags": changed.market_quality_flags,
     }
     decision_id = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
