@@ -28,6 +28,7 @@ from veltrix.execution_safety import (
     UnsignedTransactionPlan,
 )
 from veltrix.submission_coordinator import (
+    AuditIntegrityError,
     ExecutionAuditStore,
     ExecutionDisabled,
     ExecutionState as StoredExecutionState,
@@ -471,6 +472,29 @@ def test_coordinator_concurrent_duplicate_intents_are_idempotent(tmp_path):
         rows = list(executor.map(lambda _: store.create(**values), range(16)))
     assert {row["state"] for row in rows} == {"CREATED"}
     assert len(ExecutionAuditStore(store.database_path).events("intent-concurrent")) == 1
+
+
+def test_execution_audit_hash_chain_detects_offline_tampering(tmp_path):
+    store = SubmissionCoordinator(tmp_path / "tamper.sqlite3")
+    store.create(
+        intent_id="intent-tamper", chain="solana-devnet",
+        wallet_public_key=WALLET, policy_hash="a" * 64,
+        intent_hash="b" * 64, created_at_ms=NOW_MS,
+    )
+    store.fail("intent-tamper", occurred_at_ms=NOW_MS + 1, reason_code="gate_failed")
+    audit = ExecutionAuditStore(store.database_path)
+    events = audit.events("intent-tamper")
+    assert len(events) == 2
+    assert events[1]["previous_event_hash"] == events[0]["event_hash"]
+
+    with sqlite3.connect(store.database_path) as db:
+        db.execute("DROP TRIGGER execution_audit_no_update")
+        db.execute(
+            "UPDATE execution_audit_events SET reason_code='altered' WHERE id=1"
+        )
+
+    with pytest.raises(AuditIntegrityError, match="hash mismatch"):
+        audit.events("intent-tamper")
 
 
 def test_execution_audit_is_append_only_and_has_no_secret_columns(tmp_path):
