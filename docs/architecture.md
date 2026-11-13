@@ -183,4 +183,4 @@ A stage is **not complete** because its PR exists, its tests compile, a preview 
 - [x] Full CI and targeted adversarial tests pass on the Stage 1 PR head (783 passed, 5 skipped; compileall passed).
 - [x] Architecture review confirms the PR changes only the architecture document, runtime guard, settings boundary, environment example and focused tests; no data, credentials, provider integrations, schedules or deployment workflows were changed.
 
-Stage 1 acceptance criteria are met on this PR head. Merge is the remaining repository integration step.
+Stage 1 acceptance criteria are met. PR #170 was merged to `main` at `6f24591e6c1da00b37781ee754f173d8b137cddc`; the integrated main CI run `43389220506` passed. Stage 1 was completed before Stage 2 began.
