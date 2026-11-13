@@ -61,6 +61,9 @@ def test_phantom_submission_is_one_shot_and_never_automatically_retried():
     assert "prepared.executionStarted" in execute
     assert "Do not retry" in execute
     assert "received < BigInt(reviewed.quote.otherAmountThreshold)" in execute
+    assert "FAILED_ON_CHAIN" in execute
+    assert "CONFIRMED_BUT_UNVERIFIED" in execute
+    assert "SUBMISSION_STATUS_UNKNOWN" in execute
 
 
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
