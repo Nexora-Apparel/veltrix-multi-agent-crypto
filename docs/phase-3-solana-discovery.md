@@ -15,6 +15,7 @@ consensus, paper trading, or transaction execution.
 - The adapter subscribes only to the free new-token feed and never subscribes to paid trade streams. If the provider requires a key for websocket access, supply the complete endpoint through `VELTRIX_PUMPPORTAL_WS_ENDPOINT`; keep credentials out of source control.
 - One websocket connection is supervised by `LaunchStreamManager`.
 - Malformed messages, non-create events, and invalid mint strings are discarded.
+- Provider connection/subscription errors report exception classes and a redacted endpoint only; userinfo and sensitive query parameters are never copied into logs or outage records.
 
 PumpPortal documents new-token and migration subscriptions as free. Trade
 subscriptions are separately metered and are intentionally out of scope.
