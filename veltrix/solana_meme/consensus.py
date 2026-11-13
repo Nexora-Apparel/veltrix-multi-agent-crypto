@@ -204,6 +204,50 @@ class RiskEvidence:
             raise ValueError("risk errors list is malformed")
         if not isinstance(raw_flags, (list, tuple)):
             raise ValueError("risk flags list is malformed")
+
+        # Revalidate the Stage 05 reconciliation claims at every downstream
+        # consumption boundary. Historical reports written before holder
+        # decimals were persisted cannot be used to satisfy this gate.
+        reconciled = payload.get("mint_supply_reconciled", False)
+        if not isinstance(reconciled, bool):
+            raise ValueError("risk mint-supply reconciliation flag is malformed")
+        holder_decimals = payload.get("holder_decimals")
+        mint_decimals = payload.get("mint_decimals")
+        for name, value in (("holder_decimals", holder_decimals), ("mint_decimals", mint_decimals)):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 38
+            ):
+                raise ValueError(f"risk {name} is malformed")
+        mint_supply = payload.get("mint_supply_raw")
+        holder_supply = payload.get("total_supply_raw")
+        for name, value in (("mint_supply_raw", mint_supply), ("total_supply_raw", holder_supply)):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            ):
+                raise ValueError(f"risk {name} is malformed")
+        if reconciled and (
+            mint_supply is None or holder_supply is None
+            or mint_decimals is None or holder_decimals is None
+            or mint_supply != holder_supply or mint_decimals != holder_decimals
+        ):
+            raise ValueError("risk payload claims unproven mint/holder supply reconciliation")
+        holder_complete = payload.get("holder_coverage_complete", False)
+        if not isinstance(holder_complete, bool):
+            raise ValueError("risk holder-coverage flag is malformed")
+        concentrations = tuple(payload.get(name) for name in (
+            "top_holder_pct", "top5_holder_pct", "top10_holder_pct"
+        ))
+        if any(value is not None for value in concentrations) and (
+            not holder_complete or not reconciled
+        ):
+            raise ValueError("risk concentration values lack complete reconciled holder evidence")
+        for name, value in zip(("top_holder_pct", "top5_holder_pct", "top10_holder_pct"), concentrations):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) or not 0 <= float(value) <= 100
+            ):
+                raise ValueError(f"risk {name} is malformed")
+
         flags = []
         for raw in raw_flags:
             if not isinstance(raw, Mapping):
