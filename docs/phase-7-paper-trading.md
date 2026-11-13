@@ -39,9 +39,9 @@ override a newer abstention, rejection, or changed market snapshot.
 - The existing broker applies one-time 2x and 3x partial exits and a 6%
   trailing stop after the 3x milestone.
 - Entry and exit fills, fees, slippage costs and decision IDs are persisted.
-- Decision ID consumption and opening the virtual position are atomic in SQLite.
+- Decision ID consumption and opening the virtual position are atomic in SQLite. Inside that transaction the broker revalidates the persisted consensus payload, market snapshot and quality flags, and risk payload/hash/state/flags; the expected market ID and risk digest are mandatory, not optional.
 - Duplicate decisions cannot create duplicate positions.
-- Stale or invalid market prices do not trigger paper exits.
+- Stale, invalid or quality-flagged market observations do not trigger paper exits or mark open positions.
 
 The fee and slippage settings are explicit simulation assumptions, not measured
 execution costs. Phase 08 will expose these assumptions and their effect on
@@ -68,7 +68,10 @@ python -m veltrix.solana_meme.paper_runtime
 ```
 
 Keep `LIVE_TRADING=false`; the runtime refuses to start if live trading is
-enabled. When `PAPER_TRADING_ENABLED=true`, the legacy multi-chain monitor
+enabled. The shared foundation guard also refuses production, Telegram or
+scheduler-enabled environments. The paper worker is a manually started,
+explicitly opted-in development simulation only; no production worker or
+schedule is activated. When `PAPER_TRADING_ENABLED=true`, the legacy multi-chain monitor
 automatically defers Solana position exits to this worker, preventing duplicate
 exit management; it continues managing Base/BSC positions. Stop with SIGINT or
 SIGTERM. The runtime logs each cycle and stops cleanly.
@@ -99,3 +102,20 @@ The broker creates the starting account only once. Changing
 Phase 07 ends at a durable, restart-safe paper execution and performance ledger.
 Dashboard and analytics are Phase 08. Live execution remains disabled in Phase
 09 and is not enabled by this worker.
+
+
+## Stage 07 exit criteria
+
+- [x] Only the latest validated consensus decision per mint can be considered; only a Shield-approved, paper-review-eligible decision can enter.
+- [x] The worker checks decision, market and risk freshness, exact evidence identities, risk state, missing claims, errors and flags.
+- [x] The broker requires market snapshot ID and risk evidence digest; there is no unchecked direct-entry fallback.
+- [x] Within the same SQLite transaction, the broker reconstructs and validates the latest consensus payload, checks decision age/status/eligibility, rechecks market ID/price/freshness/quality flags and recomputes risk evidence identity/state/flags.
+- [x] Atomic race tests cover consensus replacement, market replacement, risk replacement and in-place payload tampering.
+- [x] Quality-flagged or stale market observations cannot trigger exits or mark open positions.
+- [x] Position sizing, concurrent-position limits, portfolio exposure, fees, slippage, initial stop, 2x/3x partial exits and trailing stop remain simulated and persisted.
+- [x] Shared database path and existing paper ledger are preserved; runtime enforces production, Telegram, scheduler and live-trading locks.
+- [ ] Full repository CI and adversarial paper-entry/exit tests pass on the exact Stage 7 PR head.
+- [ ] Post-merge CI and restart/reconciliation tests pass on main.
+- [ ] Review confirms no exchange client, wallet signer, real order, Telegram activation, scheduler or production deployment was introduced.
+
+The runtime has not been activated as a continuous worker. Simulation behavior is verified through isolated tests only; no real funds or transactions are involved.
