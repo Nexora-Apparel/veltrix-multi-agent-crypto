@@ -334,3 +334,20 @@ def test_risk_report_rejects_concentration_without_reconciled_supply():
     report = collector().collect(MINT)
     with pytest.raises(ValueError, match="require complete, mint-reconciled"):
         replace(report, mint_supply_reconciled=False)
+
+
+
+def test_mint_reconciliation_requires_both_supplies_and_matching_decimals():
+    report = collector().collect(MINT)
+    assert report.mint_supply_reconciled is True
+    assert report.mint_supply_raw == report.total_supply_raw
+    assert report.mint_decimals == report.holder_decimals
+
+    with pytest.raises(ValueError, match="matching reported evidence"):
+        replace(report, mint_supply_raw=None)
+    with pytest.raises(ValueError, match="matching reported evidence"):
+        replace(report, total_supply_raw=None)
+    with pytest.raises(ValueError, match="matching reported evidence"):
+        replace(report, holder_decimals=report.holder_decimals + 1)
+    with pytest.raises(ValueError, match="matching reported evidence"):
+        replace(report, mint_decimals=None)
