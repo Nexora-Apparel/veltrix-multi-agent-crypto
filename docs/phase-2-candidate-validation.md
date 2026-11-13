@@ -1,6 +1,6 @@
 # Stage 2 — Solana Candidate Validation
 
-**Status:** implementation and acceptance in progress  
+**Status:** accepted and merged; post-merge CI verified  
 **Depends on:** Stage 1 architecture and runtime foundation  
 **Scope:** validate Solana candidate identity and provenance before persistence or downstream use.
 
@@ -66,7 +66,7 @@ The existing SQLite database path, `solana_launch_candidates` table, event/outag
 - [x] Persistence revalidates rather than trusting object type.
 - [x] Primary and secondary ingestion audit invalid candidates without dropping valid peers.
 - [x] Full repository CI and targeted adversarial tests pass on the exact PR head (792 passed, 5 skipped; compileall passed).
-- [ ] Post-merge CI passes on the integrated main commit.
+- [x] Post-merge CI passes on the integrated main commit (main run `43389785573` passed).
 - [x] Review confirms no discovery expansion, market/risk logic, database migration, credentials or release activation was introduced.
 
 Stage 2 remains open until post-merge CI is independently verified.
