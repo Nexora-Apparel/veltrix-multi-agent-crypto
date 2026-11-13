@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..providers.dexscreener import DexScreenerProvider
+from ..foundation import validate_runtime_controls
 from .database import shared_database_path
 from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .launch_stream import LaunchStore
@@ -85,6 +86,7 @@ def build_runtime(
     provider: Any | None = None,
     clock_ms: Any | None = None,
 ) -> TokenIntelligenceRuntime:
+    validate_runtime_controls()
     db_path = shared_database_path(database_path)
     if refresh_interval_ms is not None and (
         isinstance(refresh_interval_ms, bool) or not isinstance(refresh_interval_ms, int)
