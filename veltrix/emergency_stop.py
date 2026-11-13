@@ -37,6 +37,24 @@ class SQLiteEmergencyStop:
                     changed_at_ms INTEGER NOT NULL
                 )
             """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS execution_emergency_stop_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    active INTEGER NOT NULL CHECK(active IN (0,1)),
+                    reason_code TEXT NOT NULL,
+                    changed_at_ms INTEGER NOT NULL
+                )
+            """)
+            db.execute("""
+                CREATE TRIGGER IF NOT EXISTS emergency_stop_events_no_update
+                BEFORE UPDATE ON execution_emergency_stop_events
+                BEGIN SELECT RAISE(ABORT, 'emergency stop audit is append-only'); END
+            """)
+            db.execute("""
+                CREATE TRIGGER IF NOT EXISTS emergency_stop_events_no_delete
+                BEFORE DELETE ON execution_emergency_stop_events
+                BEGIN SELECT RAISE(ABORT, 'emergency stop audit is append-only'); END
+            """)
             db.execute(
                 """INSERT OR IGNORE INTO execution_emergency_stop
                    (singleton_id,active,reason_code,changed_at_ms)
@@ -79,6 +97,11 @@ class SQLiteEmergencyStop:
             if cursor.rowcount != 1:
                 db.execute("ROLLBACK")
                 raise EmergencyStopError("emergency-stop state row is missing")
+            db.execute(
+                """INSERT INTO execution_emergency_stop_events(active,reason_code,changed_at_ms)
+                   VALUES (?,?,?)""",
+                (1 if active else 0, reason, stamp),
+            )
             db.execute("COMMIT")
 
     def status(self) -> dict:
@@ -92,11 +115,29 @@ class SQLiteEmergencyStop:
             raise EmergencyStopError("emergency-stop storage is unavailable") from exc
         if row is None or row["active"] not in (0, 1):
             raise EmergencyStopError("emergency-stop state is missing or malformed")
+        try:
+            reason = self._reason(row["reason_code"])
+            stamp = row["changed_at_ms"]
+            if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp <= 0:
+                raise ValueError("invalid timestamp")
+        except (KeyError, ValueError, TypeError):
+            raise EmergencyStopError("emergency-stop state is malformed") from None
         return {
             "active": bool(row["active"]),
-            "reason_code": row["reason_code"],
-            "changed_at_ms": row["changed_at_ms"],
+            "reason_code": reason,
+            "changed_at_ms": stamp,
         }
+
+    def events(self) -> list[dict]:
+        try:
+            with self._connect() as db:
+                rows = db.execute(
+                    """SELECT event_id,active,reason_code,changed_at_ms
+                       FROM execution_emergency_stop_events ORDER BY event_id"""
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise EmergencyStopError("emergency-stop audit is unavailable") from exc
+        return [dict(row) for row in rows]
 
     def is_active(self) -> bool:
         return self.status()["active"]
