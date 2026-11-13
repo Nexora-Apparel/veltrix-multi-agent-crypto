@@ -149,6 +149,11 @@ const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new Pub
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
 },semanticTx,reviewedMessageBytes,"test-signature","2411"),/CONFIRMED_BUT_UNVERIFIED/);
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
+  meta:{err:{InstructionError:[0,"Custom"]}},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
+},semanticTx,reviewedMessageBytes,"test-signature","2411"),/FAILED_ON_CHAIN/);
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction(null,semanticTx,reviewedMessageBytes,"test-signature","2411"),
+  /SUBMISSION_STATUS_UNKNOWN/);
 const noAtaCpis={createAccountCount:0,sizeQueryCount:0,immutableOwnerCount:0,initializeAccountCount:0,createAccountLamports:null};
 const existingAtaRent=hooks.validateOutputAtaCpiEvidence({outputAtaPresent:true},0n,noAtaCpis);
 assert.equal(existingAtaRent.outputAtaPresent,true);
