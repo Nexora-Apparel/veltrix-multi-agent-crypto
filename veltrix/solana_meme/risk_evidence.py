@@ -31,6 +31,16 @@ class RiskFlag:
     description: str
     evidence_source: str
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.code, str) or not self.code.strip():
+            raise ValueError("risk flag code is required")
+        if self.severity not in {"info", "low", "medium", "high", "critical"}:
+            raise ValueError("risk flag severity is invalid")
+        if not isinstance(self.description, str) or not self.description.strip():
+            raise ValueError("risk flag description is required")
+        if not isinstance(self.evidence_source, str) or not self.evidence_source.strip():
+            raise ValueError("risk flag evidence source is required")
+
 
 @dataclass(frozen=True)
 class SolanaRiskEvidenceReport:
