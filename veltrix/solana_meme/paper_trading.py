@@ -259,6 +259,10 @@ class PaperTradingWorker:
                 market.get("retrieved_at_ms"), now_ms, self.policy.max_market_age_ms
             ):
                 continue
+            quality = market.get("quality_flags")
+            if not isinstance(quality, list) or quality:
+                errors += 1
+                continue
             price = market.get("price_usd")
             if (
                 isinstance(price, bool)
@@ -377,6 +381,10 @@ class PaperTradingWorker:
             if market is None or not self._fresh(
                 market.get("retrieved_at_ms"), now, self.policy.max_market_age_ms
             ):
+                unmarked.append(mint)
+                continue
+            quality = market.get("quality_flags")
+            if not isinstance(quality, list) or quality:
                 unmarked.append(mint)
                 continue
             price = market.get("price_usd")
