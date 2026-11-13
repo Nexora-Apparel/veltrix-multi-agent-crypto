@@ -10,6 +10,7 @@ from enum import Enum
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 from typing import Mapping, Protocol
@@ -155,6 +156,7 @@ class OperatorAuthorization:
     chain: str
     policy_hash: str
     intent_id: str
+    intent_hash: str
     issued_at: int
     expires_at: int
     signature: str
@@ -166,6 +168,7 @@ class OperatorAuthorization:
         chain: str,
         policy_hash: str,
         intent_id: str,
+        intent_hash: str,
         issued_at: int,
         expires_at: int,
     ) -> bytes:
@@ -175,6 +178,7 @@ class OperatorAuthorization:
             "chain": chain,
             "policy_hash": policy_hash,
             "intent_id": intent_id,
+            "intent_hash": intent_hash,
             "issued_at": issued_at,
             "expires_at": expires_at,
         }
@@ -199,6 +203,7 @@ class OperatorAuthorization:
         wallet_public_key: str,
         policy: ExecutionPolicy,
         intent_id: str,
+        intent_hash: str,
         ttl_seconds: int = 60,
         now: int | None = None,
     ) -> "OperatorAuthorization":
@@ -212,6 +217,8 @@ class OperatorAuthorization:
             or not isinstance(intent_id, str)
             or not intent_id
             or intent_id.strip() != intent_id
+            or not isinstance(intent_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", intent_hash)
         ):
             raise AuthorizationError("wallet public key and intent ID must be canonical strings")
         if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 1 <= ttl_seconds <= 300:
@@ -221,12 +228,12 @@ class OperatorAuthorization:
         auth_id = secrets.token_hex(16)
         payload = cls._payload(
             auth_id, wallet_public_key, policy.chain, policy.policy_hash,
-            intent_id, issued, expires,
+            intent_id, intent_hash, issued, expires,
         )
         signature = hmac.new(signing_key, payload, hashlib.sha256).hexdigest()
         return cls(
             auth_id, wallet_public_key, policy.chain, policy.policy_hash,
-            intent_id, issued, expires, signature,
+            intent_id, intent_hash, issued, expires, signature,
         )
 
     def verify_and_consume(
@@ -236,6 +243,7 @@ class OperatorAuthorization:
         policy: ExecutionPolicy,
         wallet_public_key: str,
         intent_id: str,
+        intent_hash: str,
         consumer: AuthorizationConsumer,
         now: int | None = None,
     ) -> None:
@@ -259,6 +267,8 @@ class OperatorAuthorization:
             or not isinstance(self.chain, str)
             or not isinstance(self.wallet_public_key, str)
             or not isinstance(self.intent_id, str)
+            or not isinstance(self.intent_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.intent_hash)
         ):
             raise AuthorizationError("authorization fields are malformed")
         if (
@@ -266,11 +276,12 @@ class OperatorAuthorization:
             or self.chain != policy.chain
             or self.policy_hash != policy.policy_hash
             or self.intent_id != intent_id
+            or self.intent_hash != intent_hash
         ):
             raise AuthorizationError("authorization scope does not match request")
         payload = self._payload(
             self.authorization_id, self.wallet_public_key, self.chain,
-            self.policy_hash, self.intent_id, issued, expires,
+            self.policy_hash, self.intent_id, self.intent_hash, issued, expires,
         )
         expected = hmac.new(signing_key, payload, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, self.signature):

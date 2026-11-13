@@ -2,7 +2,7 @@
 
 ## Status
 
-DESIGN / IMPLEMENTATION IN PROGRESS. Live execution is disabled. This phase does not authorize wallet signing, swap submission, token approvals, or any real-money transaction.
+SAFETY GATES IMPLEMENTED; RELEASE BLOCKED. Live execution is disabled. This phase does not authorize wallet signing, swap submission, token approvals, or any real-money transaction.
 
 ## Objective
 
@@ -96,3 +96,48 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
 This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
+
+
+### 09.2 — deterministic pre-sign safety gates
+
+Implemented in `veltrix/execution_safety.py`.
+
+- `TransactionValidator` validates a canonical unsigned instruction/effect manifest against the exact intent, policy program allowlist, account allowlist, input/output mints and amounts, minimum output, slippage, priority fee, recent-blockhash lifetime, instruction set, authority/delegate invariants and wallet balance deltas.
+- This validator consumes a normalized manifest; it is **not** a raw serialized Solana transaction decoder. A separately reviewed raw-message decoder is still required before a signer can ever be considered.
+- `RiskGate` requires a future explicit `LIVE_RISK_APPROVED` state, zero missing claims/flags, fresh risk/market/RPC evidence and integer-base-unit exposure/daily-loss limits. The current Stage 05 evidence collector does not emit this approval state, so current production evidence cannot pass this gate.
+- `SimulationGate` binds a successful, fresh simulation to the exact intent and message hash, and checks slot, account-state hash, output and fee parity.
+- `ExecutionSafetyPipeline` orders the checks, consumes the one-use operator authorization only after transaction/risk/simulation gates pass, and records state transitions. It returns `AUTHORIZED` only as a preparation record with `live_execution_enabled=false` and reason `signing_adapter_not_implemented`.
+
+### 09.3 — persistent stop, idempotency and audit
+
+Implemented in `veltrix/emergency_stop.py` and `veltrix/submission_coordinator.py`.
+
+- Emergency stop is active by default, requires an explicit operator clear, persists across restarts and fails closed if its storage cannot be read. State changes have a separate append-only event table.
+- Intent creation is idempotent by stable intent ID and immutable intent/policy hashes. State transitions use `BEGIN IMMEDIATE` and compare-and-set semantics.
+- The coordinator permits preparation states through `AUTHORIZED` and terminal `FAILED/CANCELLED`; `SIGNED`, `SUBMITTED` and `CONFIRMED` transitions are explicitly disabled.
+- Execution audit records are append-only and limited to intent IDs, state/reason codes, timestamps and cryptographic hashes. There are no generic metadata fields that could persist a secret.
+- `SignerBoundary` is a protocol only. No concrete signer, key loader, RPC submitter, wallet adapter or real transaction path is present.
+
+### Current Stage 09 boundary
+
+The Stage 09 implementation is a safety-gate kernel, not a live trading release. Runtime environment construction still resolves to PAPER and rejects truthy or malformed `LIVE_TRADING`. The live-risk approval state is not produced by the existing risk pipeline. The raw Solana message decoder, signer adapter, submission adapter and settlement reconciliation are intentionally not implemented. Existing Phase 09 Raydium/Devnet draft branches remain isolated and unmerged.
+
+See `docs/phase-09-operator-checklist.md` for the future manual safety checklist. It does not request or require the user to expose any wallet secret.
+
+
+## Safety-kernel acceptance status
+
+- [x] Runtime policy defaults to PAPER; truthy or malformed LIVE_TRADING configuration is rejected.
+- [x] One-use authorization is bound to wallet, chain, policy hash, intent ID and short expiry, with durable atomic replay protection.
+- [x] Emergency stop is active by default, independently persisted, restart-safe, audited and fail-closed on read errors.
+- [x] Risk gate enforces evidence state, missing-claim/flag checks, freshness and integer-base-unit exposure/daily-loss limits.
+- [x] Normalized transaction manifest validator enforces program/account allowlists, exact intent-to-message-hash binding, mint/spend/output/slippage/fee limits and authority/delegate invariants.
+- [x] Simulation gate binds successful simulation to the exact manifest hash and checks freshness, slot, account-state hash, output and fee parity.
+- [x] Submission coordinator enforces durable intent idempotency, compare-and-set transitions and terminal-state protection; SIGNED/SUBMITTED/CONFIRMED are blocked.
+- [x] Execution audit is append-only, redacted and rejects fields outside its allowlist; static scans reject key-import/signing/RPC submission adapters.
+- [x] Adversarial tests cover gate rejection, emergency-stop restart/storage failure, authorization replay, concurrent intent creation and zero fake-signer calls.
+- [x] Full repository CI passes on exact PR head `821881af1e21e054b563db18f16735a826d3a9a3` (two successful runs; 905 passed, 5 skipped; compileall passed).
+- [ ] Post-merge CI passes on main.
+- [ ] Independent security review signs off the exact diff and threat model.
+
+The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Raw serialized Solana transaction decoding, a real signer, RPC submission and settlement reconciliation remain intentionally absent. Therefore Stage 09 safety controls are implemented, but live execution and final release are not complete or enabled.
