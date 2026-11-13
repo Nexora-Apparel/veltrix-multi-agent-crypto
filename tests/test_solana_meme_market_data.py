@@ -268,3 +268,18 @@ def test_default_retrieval_timestamp_is_captured_after_provider_response():
 
     snapshot = SolanaMarketData(TimedProvider(), clock_ms=clock).fetch(MINT_A)
     assert snapshot.response_received_at_ms < snapshot.retrieved_at_ms
+
+
+
+def test_missing_liquidity_is_not_classified_as_below_minimum():
+    missing = event(
+        liquidity=0,
+        quality_flags=("liquidity_usd_missing",),
+    )
+    snapshot = SolanaMarketData(
+        FakeMarketProvider([missing]),
+        minimum_liquidity_usd=1000,
+        clock_ms=lambda: 10_500,
+    ).fetch(MINT_A)
+    assert "liquidity_usd_missing" in snapshot.quality_flags
+    assert "below_configured_minimum_liquidity" not in snapshot.quality_flags
