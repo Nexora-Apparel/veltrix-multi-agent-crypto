@@ -117,6 +117,37 @@ assert.throws(()=>hooks.assertConfirmedTransactionMatchesReviewedMessage({
 },reviewedMessage,"test-signature"),/differs from the immutable reviewed message/);
 assert.throws(()=>hooks.assertConfirmedTransactionMatchesReviewedMessage(matchingConfirmedTx,reviewedMessage,"other-signature"),
   /does not contain the returned Phantom signature/);
+
+// A byte-level serialization discrepancy is diagnostic, not an automatic swap failure,
+// only when every decoded legacy-message field remains identical.
+const testWallet=new PublicKey(artifact.wallet);
+hooks.setWalletForTest(testWallet);
+const semanticTx=new Transaction({feePayer:testWallet,recentBlockhash:testWallet.toBase58()});
+const semanticData=Buffer.alloc(24);
+Buffer.from([143,190,90,218,196,30,51,222]).copy(semanticData,0);
+semanticData.writeBigUInt64LE(1000000n,8);
+semanticData.writeBigUInt64LE(2411n,16);
+semanticTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.CPMM),keys:[],data:semanticData}));
+const reviewedMessageBytes=Uint8Array.from(semanticTx.compileMessage().serialize());
+const confirmedMessageBase=semanticTx.compileMessage();
+const differentSerializedBytes=Uint8Array.from(reviewedMessageBytes);
+differentSerializedBytes[differentSerializedBytes.length-1]^=1;
+const semanticallySameMessage={
+  header:confirmedMessageBase.header,accountKeys:confirmedMessageBase.accountKeys,
+  recentBlockhash:confirmedMessageBase.recentBlockhash,instructions:confirmedMessageBase.instructions,
+  serialize:()=>differentSerializedBytes
+};
+const semanticResult=await hooks.reconcileConfirmedTransaction({
+  meta:{err:null},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
+},semanticTx,reviewedMessageBytes,"test-signature","2411");
+assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
+assert.equal(semanticResult.semanticMatch,true);
+assert.equal(semanticResult.diagnostics.firstByteDifference.offset,differentSerializedBytes.length-1);
+assert.deepEqual(semanticResult.diagnostics.semanticDifferences,[]);
+const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new PublicKey(artifact.wallet).toBase58().replace(/^./,"2")};
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
+  meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
+},semanticTx,reviewedMessageBytes,"test-signature","2411"),/CONFIRMED_BUT_UNVERIFIED/);
 const noAtaCpis={createAccountCount:0,sizeQueryCount:0,immutableOwnerCount:0,initializeAccountCount:0,createAccountLamports:null};
 const existingAtaRent=hooks.validateOutputAtaCpiEvidence({outputAtaPresent:true},0n,noAtaCpis);
 assert.equal(existingAtaRent.outputAtaPresent,true);
