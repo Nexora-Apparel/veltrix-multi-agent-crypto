@@ -82,6 +82,46 @@ class SolanaRiskEvidenceReport:
             raise ValueError("risk report mint must be canonical")
         if isinstance(self.observed_at_ms, bool) or not isinstance(self.observed_at_ms, int) or self.observed_at_ms <= 0:
             raise ValueError("risk report timestamp must be a positive integer")
+        for field in ("goplus_provider", "goplus_evidence_id", "holder_provider", "holder_evidence_id", "holder_block_ref", "mint_evidence_id", "token_program_id"):
+            value = getattr(self, field)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{field} must be a non-empty string or None")
+        if self.token_program_id is not None and self.token_program_id not in {TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID}:
+            raise ValueError("risk report token program is unsupported")
+        for field in ("mint_authority", "freeze_authority"):
+            value = getattr(self, field)
+            if value is not None and canonical_mint(value) != value:
+                raise ValueError(f"{field} must be a canonical Solana public key")
+        if self.goplus_observed_at_ms is not None and (
+            isinstance(self.goplus_observed_at_ms, bool)
+            or not isinstance(self.goplus_observed_at_ms, int)
+            or self.goplus_observed_at_ms <= 0
+        ):
+            raise ValueError("goplus_observed_at_ms must be a positive integer or None")
+        for field in ("holder_count", "mint_finalized_slot"):
+            value = getattr(self, field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{field} must be a non-negative integer or None")
+        for field in ("total_supply_raw", "mint_supply_raw"):
+            value = getattr(self, field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            ):
+                raise ValueError(f"{field} must be a positive integer or None")
+        if self.observed_holder_balance_raw is not None and (
+            isinstance(self.observed_holder_balance_raw, bool)
+            or not isinstance(self.observed_holder_balance_raw, int)
+            or self.observed_holder_balance_raw < 0
+        ):
+            raise ValueError("observed_holder_balance_raw must be a non-negative integer or None")
+        if self.mint_decimals is not None and (
+            isinstance(self.mint_decimals, bool)
+            or not isinstance(self.mint_decimals, int)
+            or not 0 <= self.mint_decimals <= 38
+        ):
+            raise ValueError("mint_decimals must be between 0 and 38 or None")
         for field in ("holder_coverage_complete", "token_2022_extension_review_complete", "mint_supply_reconciled"):
             if not isinstance(getattr(self, field), bool):
                 raise ValueError(f"{field} must be boolean")
