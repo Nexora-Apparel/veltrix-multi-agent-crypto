@@ -193,6 +193,7 @@ def test_dashboard_never_marks_quality_flagged_market_as_fresh(tmp_path):
     assert positions[0]["mark_status"] == "QUALITY_FLAGGED"
     assert positions[0]["mark_price"] == pytest.approx(1.0)
     assert positions[0]["quality_flags"] == ["liquidity_usd_missing"]
+    assert positions[0]["market_age_ms"] is not None
     assert overview["account"]["stale_or_unmarked_positions"] == 1
     assert overview["account"]["quality_flagged_positions"] == 1
     assert overview["account"]["equity_usd"] == pytest.approx(500.0)
