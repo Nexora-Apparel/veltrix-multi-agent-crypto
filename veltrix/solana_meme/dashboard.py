@@ -68,18 +68,44 @@ class PaperDashboardReader:
         for row in rows:
             position = dict(row)
             market = db.execute(
-                """SELECT price_usd,retrieved_at_ms FROM solana_market_snapshots
+                """SELECT * FROM solana_market_snapshots
                 WHERE mint=? ORDER BY retrieved_at_ms DESC,id DESC LIMIT 1""",
                 (position["token"],),
             ).fetchone()
+            flags: list[str] = []
             if market is None:
                 mark = float(position["entry_price"])
                 age = None
                 mark_status = "missing"
             else:
-                raw_mark = market["price_usd"]
-                observed = market["retrieved_at_ms"]
-                if (
+                market_values = dict(market)
+                raw_flags = market_values.get("quality_flags_json")
+                try:
+                    parsed_flags = json.loads(raw_flags)
+                except (TypeError, ValueError):
+                    parsed_flags = ["malformed_quality_flags"]
+                if not isinstance(parsed_flags, list) or any(
+                    not isinstance(flag, str) or not flag.strip() for flag in parsed_flags
+                ):
+                    parsed_flags = ["malformed_quality_flags"]
+                flags = sorted(set(flag.strip() for flag in parsed_flags))
+                raw_mark = market_values.get("price_usd")
+                observed = market_values.get("retrieved_at_ms")
+                age = now_ms - observed if (
+                    isinstance(observed, int) and not isinstance(observed, bool)
+                ) else None
+                if flags:
+                    mark = float(position["entry_price"])
+                    mark_status = "quality_flagged"
+                elif (
+                    age is None or age < 0
+                ):
+                    mark = float(position["entry_price"])
+                    mark_status = "future_or_invalid_time"
+                elif age > self.max_market_age_ms:
+                    mark = float(position["entry_price"])
+                    mark_status = "stale"
+                elif (
                     isinstance(raw_mark, bool)
                     or not isinstance(raw_mark, (int, float))
                     or not (0 < float(raw_mark) < float("inf"))
@@ -89,14 +115,10 @@ class PaperDashboardReader:
                 else:
                     mark = float(raw_mark)
                     mark_status = "fresh"
-                age = now_ms - int(observed) if isinstance(observed, int) else None
-                if age is None or age < 0:
-                    mark_status = "future_or_invalid_time"
-                elif age > self.max_market_age_ms and mark_status == "fresh":
-                    mark_status = "stale"
             position["mark_price"] = mark
             position["market_age_ms"] = age
             position["mark_status"] = mark_status
+            position["quality_flags"] = flags
             position["market_value"] = float(position["quantity"]) * mark
             position["unrealized_pnl"] = position["market_value"] - float(position["cost_basis"])
             state = db.execute(
