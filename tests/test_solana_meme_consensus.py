@@ -319,3 +319,59 @@ def test_engine_rejects_forged_risk_state():
 def test_review_ready_risk_state_cannot_hide_missing_claims():
     with pytest.raises(ValueError, match="cannot contain missing claims"):
         risk(missing_claims=("creator_wallet_provenance",), risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED")
+
+
+
+def test_legacy_reconciled_risk_payload_without_holder_decimals_is_rejected():
+    payload = {
+        "mint": MINT,
+        "observed_at_ms": NOW,
+        "risk_state": "EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+        "missing_claims": [],
+        "errors": [],
+        "risk_flags": [],
+        "mint_supply_reconciled": True,
+        "mint_supply_raw": 1_000_000,
+        "total_supply_raw": 1_000_000,
+        "mint_decimals": 9,
+        # Historical report omitted holder_decimals.
+    }
+    with pytest.raises(ValueError, match="unproven mint/holder supply reconciliation"):
+        RiskEvidence.from_store_payload(payload)
+
+
+def test_reconciled_risk_payload_requires_matching_supplies_and_decimals():
+    payload = {
+        "mint": MINT,
+        "observed_at_ms": NOW,
+        "risk_state": "EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+        "missing_claims": [],
+        "errors": [],
+        "risk_flags": [],
+        "mint_supply_reconciled": True,
+        "mint_supply_raw": 1_000_000,
+        "total_supply_raw": 1_000_000,
+        "mint_decimals": 9,
+        "holder_decimals": 9,
+    }
+    evidence = RiskEvidence.from_store_payload(payload)
+    assert evidence.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
+
+    with pytest.raises(ValueError, match="unproven mint/holder supply reconciliation"):
+        RiskEvidence.from_store_payload({**payload, "holder_decimals": 8})
+    with pytest.raises(ValueError, match="unproven mint/holder supply reconciliation"):
+        RiskEvidence.from_store_payload({**payload, "total_supply_raw": None})
+
+
+def test_risk_concentration_payload_requires_complete_reconciled_holder_evidence():
+    payload = {
+        "mint": MINT,
+        "observed_at_ms": NOW,
+        "risk_state": "EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+        "missing_claims": [],
+        "errors": [],
+        "risk_flags": [],
+        "top_holder_pct": 25.0,
+    }
+    with pytest.raises(ValueError, match="lack complete reconciled holder evidence"):
+        RiskEvidence.from_store_payload(payload)
