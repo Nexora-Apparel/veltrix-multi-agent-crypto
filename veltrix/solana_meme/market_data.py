@@ -316,7 +316,10 @@ class SolanaMarketData:
             ),
         )
         flags: list[str] = list(selected.quality_flags)
-        if float(values["liquidity"]) < self.minimum_liquidity_usd:
+        if (
+            "liquidity_usd_missing" not in flags
+            and float(values["liquidity"]) < self.minimum_liquidity_usd
+        ):
             flags.append("below_configured_minimum_liquidity")
         if float(values["liquidity"]) == 0 and "liquidity_usd_missing" not in flags:
             flags.append("zero_liquidity")
