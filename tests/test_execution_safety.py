@@ -58,9 +58,10 @@ def live_policy():
     )
 
 
-def make_intent():
+def _make_base_intent():
     return ExecutionIntent(
         intent_id="intent-0001",
+        expected_message_hash="0" * 64,
         chain="solana-devnet",
         wallet_public_key=WALLET,
         input_mint=INPUT_MINT,
@@ -76,8 +77,7 @@ def make_intent():
     )
 
 
-def make_plan(intent=None):
-    intent = intent or make_intent()
+def _make_plan_for_intent(intent):
     plan = UnsignedTransactionPlan(
         intent_id=intent.intent_id,
         chain=intent.chain,
@@ -111,6 +111,15 @@ def make_plan(intent=None):
         message_hash="0" * 64,
     )
     return replace(plan, message_hash=plan.computed_message_hash())
+
+
+def make_intent():
+    base = _make_base_intent()
+    return replace(base, expected_message_hash=_make_plan_for_intent(base).message_hash)
+
+
+def make_plan(intent=None):
+    return _make_plan_for_intent(intent or make_intent())
 
 
 def make_risk(intent=None, **overrides):
