@@ -46,7 +46,7 @@ class GoPlusTokenSafetyProvider:
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError) as exc:
-            raise ProviderError(f"GoPlus request failed: {exc}") from exc
+            raise ProviderError(f"GoPlus request failed ({type(exc).__name__})") from None
         if not isinstance(payload, dict) or str(payload.get("code")) != "1":
             raise ProviderError("GoPlus returned an unsuccessful or malformed response")
         result = payload.get("result")
