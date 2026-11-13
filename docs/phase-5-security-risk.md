@@ -110,7 +110,7 @@ execution. Those remain later roadmap stages.
 - [x] Finalized mint-account parser identifies classic SPL Token and Token-2022, authorities, supply, decimals and TLV extension inventory.
 - [x] Unknown Token-2022 extensions remain visible and force manual review rather than being silently accepted.
 - [x] Holder inventory reads both SPL token programs at one finalized context and reconciles owner balances to total supply.
-- [x] Concentration percentages are withheld unless holder coverage is complete and mint supply/decimals reconcile.
+- [x] Concentration percentages are withheld unless holder coverage is complete and mint supply/decimals reconcile; the persisted report carries both decimals and both raw supplies so the invariant is independently revalidated at persistence.
 - [x] GoPlus observations remain supplemental and cannot clear missing claims for complete LP inventory, developer linkage, bundle analysis, creator provenance or sellability.
 - [x] Risk reports never emit SAFE or authorize a trade.
 - [x] Provider exception text is not copied into risk reports or retry records; append-only report persistence revalidates report and flag fields.
@@ -120,3 +120,8 @@ execution. Those remain later roadmap stages.
 - [x] Review confirms only risk evidence, report persistence, provider error handling, tests, documentation and read-only PR smoke changed; no wallet signing, trade execution, Telegram activation, scheduling or production deployment was introduced.
 
 The risk runtime remains a manually invoked polling process. Production scheduling and all execution capabilities remain disabled.
+
+
+### Reconciliation invariant correction
+
+The persisted report now retains both the holder inventory decimals and finalized mint decimals. A report cannot claim reconciliation unless both raw supplies exist and match and both decimals exist and match. The persistence boundary reconstructs the report and rechecks these values before hashing or writing.
