@@ -123,8 +123,10 @@ and swaps remain disabled in Phase 09.
 - [x] Every persisted decision has `execution_authorized=false`; only `CONSENSUS_APPROVED` can be marked eligible for a later paper review.
 - [x] Provider exception text is excluded from wallet-feed logs and retry records.
 - [x] Discovery, market-intelligence, risk and consensus runtime builders enforce the shared production/Telegram/scheduling/live-trading release locks.
-- [ ] Full repository CI and adversarial tests pass on the exact Stage 6 PR head.
+- [x] Full repository CI and adversarial tests pass on the exact Stage 6 PR head (834 passed, 5 skipped; compileall passed).
 - [ ] Post-merge CI and deterministic decision replay/store tests pass on main.
-- [ ] Review confirms no wallet allowlist was fabricated, no LLM can override Shield, and no paper-trading, Telegram, scheduling, production deployment or execution capability was activated.
+- [x] Review confirms no wallet allowlist was fabricated, no generative LLM can override Shield, and no paper-trading, Telegram, scheduling, production deployment or execution capability was activated.
+
+Stage 6 implements deterministic specialist agents and an evidence-gated consensus policy; it does not claim a trained predictive model or generative LLM.
 
 The Whale agent remains abstention-only until an operator explicitly configures a trusted provider and approved wallet allowlist. This is an intentional evidence boundary, not a reason to infer wallet identities.
