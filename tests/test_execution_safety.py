@@ -65,6 +65,7 @@ def make_intent():
         input_mint=INPUT_MINT,
         output_mint=OUTPUT_MINT,
         input_base_units=1_000,
+        requested_exposure_base_units=1_000,
         minimum_output_base_units=900,
         max_slippage_bps=100,
         max_priority_fee_base_units=40,
@@ -116,7 +117,7 @@ def make_risk(intent=None, **overrides):
     values = {
         "intent_id": intent.intent_id,
         "chain": intent.chain,
-        "mint": intent.input_mint,
+        "mint": intent.output_mint,
         "observed_at_ms": NOW_MS,
         "market_observed_at_ms": NOW_MS,
         "rpc_observed_at_ms": NOW_MS,
