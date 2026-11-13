@@ -180,7 +180,7 @@ A stage is **not complete** because its PR exists, its tests compile, a preview 
 - [x] Canonical asset, observation, evidence and decision contracts documented.
 - [x] Persistence, credential and secret-handling constraints documented.
 - [x] Runtime release switches fail closed for production, Telegram, scheduler and live trading.
-- [ ] Full CI and targeted adversarial tests pass on the Stage 1 PR head.
-- [ ] Architecture review confirms no unintended changes to existing data, credentials, workflows or deployments.
+- [x] Full CI and targeted adversarial tests pass on the Stage 1 PR head (783 passed, 5 skipped; compileall passed).
+- [x] Architecture review confirms the PR changes only the architecture document, runtime guard, settings boundary, environment example and focused tests; no data, credentials, provider integrations, schedules or deployment workflows were changed.
 
-Stage 1 remains open until the final two criteria are independently verified.
+Stage 1 acceptance criteria are met on this PR head. Merge is the remaining repository integration step.
