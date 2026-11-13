@@ -130,6 +130,11 @@ semanticData.writeBigUInt64LE(2411n,16);
 semanticTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.CPMM),keys:[],data:semanticData}));
 const reviewedMessageBytes=Uint8Array.from(semanticTx.compileMessage().serialize());
 const confirmedMessageBase=semanticTx.compileMessage();
+// Simulate the mutable Transaction object being altered by the wallet adapter after
+// the pre-approval snapshot. Reconciliation must derive expected semantics from bytes,
+// never from this post-handoff object.
+const mutatedReviewedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
+mutatedReviewedTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
 const differentSerializedBytes=Uint8Array.from(reviewedMessageBytes);
 differentSerializedBytes[differentSerializedBytes.length-1]^=1;
 const semanticallySameMessage={
@@ -139,7 +144,7 @@ const semanticallySameMessage={
 };
 const semanticResult=await hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
-},semanticTx,reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"});
+},mutatedReviewedTx,reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"});
 assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
 assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
 assert.equal(semanticResult.semanticMatch,true);
@@ -148,7 +153,7 @@ assert.equal(semanticResult.diagnostics.semanticDifferences.length,0);
 const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new PublicKey(artifact.wallet).toBase58().replace(/^./,"2")};
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
-},semanticTx,reviewedMessageBytes,"test-signature","2411"),/CONFIRMED_BUT_UNVERIFIED/);
+},mutatedReviewedTx,reviewedMessageBytes,"test-signature","2411"),/CONFIRMED_BUT_UNVERIFIED/);
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:{InstructionError:[0,"Custom"]}},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
 },semanticTx,reviewedMessageBytes,"test-signature","2411"),/FAILED_ON_CHAIN/);
