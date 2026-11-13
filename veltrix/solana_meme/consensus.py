@@ -263,7 +263,8 @@ class ConsensusDecision:
     risk_evidence_hash: str
     paper_review_eligible: bool
     execution_authorized: bool = False
-    rule_version: str = "phase6-consensus-v1"
+    rule_version: str = "phase6-consensus-v2"
+    market_quality_flags: tuple[str, ...] = ()
 
 
 def validate_market_evidence(evidence: object) -> MarketEvidence:
@@ -347,11 +348,20 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         raise ValueError("consensus risk flag codes must be unique")
     if checked.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and checked.missing_claims:
         raise ValueError("review-ready consensus risk state cannot contain missing claims")
+    if not isinstance(checked.market_quality_flags, tuple) or any(
+        not isinstance(flag, str) or not flag.strip() for flag in checked.market_quality_flags
+    ):
+        raise ValueError("consensus market quality flags are malformed")
+    if checked.rule_version not in {"phase6-consensus-v1", "phase6-consensus-v2"}:
+        raise ValueError("unsupported consensus rule version")
+    if checked.rule_version == "phase6-consensus-v1" and checked.market_quality_flags:
+        raise ValueError("legacy consensus decisions cannot contain uncommitted market flags")
     if checked.status == "REJECTED" and checked_votes[3].stance != "REJECT":
         raise ValueError("rejected consensus requires a Shield veto")
     if checked_votes[3].stance == "APPROVE" and (
         checked.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
         or checked.missing_claims
+        or checked.market_quality_flags
         or any(flag.severity in {"medium", "high", "critical"} for flag in flags)
     ):
         raise ValueError("Shield approval requires complete risk evidence and no medium-or-higher flags")
@@ -387,6 +397,8 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         "risk_evidence_hash": checked.risk_evidence_hash,
         "rule_version": checked.rule_version,
     }
+    if checked.rule_version == "phase6-consensus-v2":
+        payload["market_quality_flags"] = checked.market_quality_flags
     expected_id = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -409,6 +421,7 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         paper_review_eligible=checked.paper_review_eligible,
         execution_authorized=False,
         rule_version=checked.rule_version,
+        market_quality_flags=tuple(sorted(set(checked.market_quality_flags))),
     )
 
 
@@ -679,7 +692,8 @@ class ConsensusEngine:
             ],
             "market_snapshot_id": market.snapshot_id,
             "risk_evidence_hash": risk.evidence_hash,
-            "rule_version": "phase6-consensus-v1",
+            "rule_version": "phase6-consensus-v2",
+            "market_quality_flags": market.quality_flags,
         }
         decision_id = hashlib.sha256(
             json.dumps(decision_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -700,4 +714,6 @@ class ConsensusEngine:
             risk_evidence_hash=risk.evidence_hash,
             paper_review_eligible=status == "CONSENSUS_APPROVED",
             execution_authorized=False,
+            rule_version="phase6-consensus-v2",
+            market_quality_flags=market.quality_flags,
         ))
