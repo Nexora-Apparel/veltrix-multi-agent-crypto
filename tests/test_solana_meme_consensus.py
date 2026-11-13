@@ -1,5 +1,7 @@
 from dataclasses import fields
 
+import hashlib
+
 import pytest
 
 from veltrix.whales import WalletBuyEvent
@@ -43,7 +45,7 @@ def risk(**overrides):
         missing_claims=(),
         errors=(),
         risk_flags=(),
-        evidence_hash="risk-evidence-hash",
+        evidence_hash=hashlib.sha256(b"risk-evidence-hash").hexdigest(),
     )
     values.update(overrides)
     if (values["missing_claims"] or values["errors"]) and "risk_state" not in overrides:
