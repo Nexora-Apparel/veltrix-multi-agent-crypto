@@ -66,11 +66,13 @@ class DexScreenerProvider:
                 response.raise_for_status()
                 payload = response.json()
             except (requests.RequestException, ValueError) as exc:
-                raise ProviderError(f"DexScreener request failed: {exc}") from exc
+                raise ProviderError(
+                    f"DexScreener request failed ({type(exc).__name__})"
+                ) from None
             except Exception as exc:
                 raise ProviderError(
-                    f"DexScreener request failed: {type(exc).__name__}: {exc}"
-                ) from exc
+                    f"DexScreener request failed ({type(exc).__name__})"
+                ) from None
             if not isinstance(payload, list):
                 raise ProviderError("Unexpected DexScreener response shape")
 
@@ -229,6 +231,12 @@ class DexScreenerProvider:
                 raise ProviderError("Invalid pairCreatedAt")
             created = int(created_number)
 
+        quality_flags = []
+        if "usd" not in liquidity or liquidity.get("usd") is None:
+            quality_flags.append("liquidity_usd_missing")
+        if "h1" not in volume or volume.get("h1") is None:
+            quality_flags.append("volume_h1_usd_missing")
+
         return MarketEvent(
             chain=chain,
             token_address=requested,
@@ -258,4 +266,5 @@ class DexScreenerProvider:
             quote_token_symbol=other.get("symbol") if isinstance(other.get("symbol"), str)
             else None,
             pool_token_side=side,
+            quality_flags=tuple(quality_flags),
         )
