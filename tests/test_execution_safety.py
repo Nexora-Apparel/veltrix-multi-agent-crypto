@@ -563,3 +563,53 @@ def test_safety_modules_have_no_wallet_signing_or_rpc_submission_adapter():
     for relative in modules:
         source = (root / relative).read_text(encoding="utf-8").lower()
         assert not any(marker in source for marker in forbidden), relative
+
+
+
+def test_authorized_intent_is_idempotent_and_not_reauthorized_after_restart(tmp_path):
+    intent = make_intent()
+    policy = live_policy()
+    pipeline, coordinator, _, _ = make_pipeline(tmp_path, policy=policy)
+    authorization = make_authorization(intent, policy)
+    args = {
+        "intent": intent,
+        "plan": make_plan(intent),
+        "risk": make_risk(intent),
+        "simulation": make_simulation(intent),
+        "authorization": authorization,
+    }
+    first = pipeline.prepare(**args)
+    second = pipeline.prepare(**args)
+
+    assert first.state is ExecutionState.AUTHORIZED
+    assert second.state is ExecutionState.AUTHORIZED
+    assert second.duplicate is True
+    assert coordinator.get(intent.intent_id)["state"] == "AUTHORIZED"
+    assert len(ExecutionAuditStore(coordinator.database_path).events(intent.intent_id)) == 4
+
+
+def test_audit_api_rejects_unapproved_secret_metadata(tmp_path):
+    audit = ExecutionAuditStore(tmp_path / "audit.sqlite3")
+    with pytest.raises(TypeError):
+        audit.append(
+            intent_id="intent-secret",
+            event_type="preflight",
+            state=StoredExecutionState.CREATED,
+            occurred_at_ms=NOW_MS,
+            reason_code="preflight",
+            private_key="must_not_be_persisted",
+        )
+    assert audit.events("intent-secret") == []
+
+
+def test_transaction_validator_rejects_duplicate_instruction_accounts():
+    intent = make_intent()
+    plan = make_plan(intent)
+    instructions = (
+        replace(plan.instructions[0], accounts=("wallet-in", "wallet-in", "pool-vault")),
+        plan.instructions[1],
+    )
+    tampered = replace(plan, instructions=instructions, message_hash="0" * 64)
+    tampered = replace(tampered, message_hash=tampered.computed_message_hash())
+    with pytest.raises(ExecutionGateError, match="duplicate_instruction_account"):
+        TransactionValidator.validate(intent, tampered, live_policy(), now_ms=NOW_MS)
