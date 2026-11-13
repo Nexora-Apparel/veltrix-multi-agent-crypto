@@ -128,7 +128,7 @@ class ConsensusStore:
                 """,
                 (limit,),
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._decode_payload(row["payload_json"]) for row in rows]
 
     def recent(self, *, limit: int = 100) -> list[dict]:
         """Return recent persisted decisions across all mints, newest first."""
