@@ -199,3 +199,51 @@ def test_preserves_quote_side_and_does_not_mislabel_base_price_change():
     assert snapshot.price_change_m5_pct is None
     assert "price_change_m5_missing" in snapshot.quality_flags
     assert "market_cap_missing" in snapshot.quality_flags
+
+
+
+def test_missing_liquidity_and_volume_are_not_mislabeled_as_observed_zero():
+    missing = event(
+        liquidity=0,
+        volume=0,
+        quality_flags=("liquidity_usd_missing", "volume_h1_usd_missing"),
+    )
+    snapshot = SolanaMarketData(
+        FakeMarketProvider([missing]), clock_ms=lambda: 10_500,
+    ).fetch(MINT_A)
+    assert "liquidity_usd_missing" in snapshot.quality_flags
+    assert "volume_h1_usd_missing" in snapshot.quality_flags
+    assert "zero_liquidity" not in snapshot.quality_flags
+    assert "zero_hourly_volume" not in snapshot.quality_flags
+
+
+def test_pool_with_reported_liquidity_precedes_pool_with_missing_liquidity():
+    missing = event(
+        pair="unknown-liquidity",
+        liquidity=0,
+        volume=1000,
+        quality_flags=("liquidity_usd_missing",),
+    )
+    reported = event(pair="reported-zero-liquidity", liquidity=0, volume=1)
+    snapshot = SolanaMarketData(
+        FakeMarketProvider([missing, reported]), clock_ms=lambda: 10_500,
+    ).fetch(MINT_A)
+    assert snapshot.selected_pair_address == "reported-zero-liquidity"
+
+
+def test_market_snapshot_rejects_response_timestamp_after_retrieval():
+    snapshot = SolanaMarketData(
+        FakeMarketProvider([event()]), clock_ms=lambda: 10_500,
+    ).fetch(MINT_A)
+    with pytest.raises(ValueError, match="cannot be later"):
+        replace(snapshot, response_received_at_ms=10_501)
+
+
+def test_market_snapshot_normalizes_quality_flags():
+    snapshot = SolanaMarketData(
+        FakeMarketProvider([
+            event(quality_flags=("z_flag", "a_flag", "z_flag"))
+        ]),
+        clock_ms=lambda: 10_500,
+    ).fetch(MINT_A)
+    assert snapshot.quality_flags == ("a_flag", "z_flag")
