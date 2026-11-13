@@ -37,6 +37,7 @@ class MarketEvent:
     dex_id: str | None = None
     quote_token_symbol: str | None = None
     pool_token_side: str | None = None
+    quality_flags: tuple[str, ...] = ()
 
     def is_fresh(self, now_ms: int, max_age_ms: int = 120_000) -> bool:
         return (
