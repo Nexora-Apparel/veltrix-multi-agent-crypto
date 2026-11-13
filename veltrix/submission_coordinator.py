@@ -208,16 +208,10 @@ class ExecutionAuditStore:
     def events(self, intent_id: str | None = None) -> list[dict]:
         with closing(self._connect()) as db, db:
             self._ensure_schema(db)
-            if intent_id is None:
-                rows = db.execute(
-                    "SELECT * FROM execution_audit_events ORDER BY id"
-                ).fetchall()
-            else:
-                safe_intent = _safe_id(intent_id)
-                rows = db.execute(
-                    "SELECT * FROM execution_audit_events WHERE intent_id=? ORDER BY id",
-                    (safe_intent,),
-                ).fetchall()
+            safe_intent = _safe_id(intent_id) if intent_id is not None else None
+            rows = db.execute(
+                "SELECT * FROM execution_audit_events ORDER BY id"
+            ).fetchall()
         result = [dict(row) for row in rows]
         previous_hash = "0" * 64
         for event in result:
@@ -237,6 +231,8 @@ class ExecutionAuditStore:
             if not isinstance(event["event_hash"], str) or not hmac.compare_digest(expected_hash, event["event_hash"]):
                 raise AuditIntegrityError("execution audit event hash mismatch")
             previous_hash = event["event_hash"]
+        if safe_intent is not None:
+            return [event for event in result if event["intent_id"] == safe_intent]
         return result
 
 
