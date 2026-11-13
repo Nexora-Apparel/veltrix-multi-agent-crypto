@@ -144,7 +144,7 @@ assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH")
 assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
 assert.equal(semanticResult.semanticMatch,true);
 assert.equal(semanticResult.diagnostics.firstByteDifference.offset,differentSerializedBytes.length-1);
-assert.deepEqual(semanticResult.diagnostics.semanticDifferences,[]);
+assert.equal(semanticResult.diagnostics.semanticDifferences.length,0);
 const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new PublicKey(artifact.wallet).toBase58().replace(/^./,"2")};
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
