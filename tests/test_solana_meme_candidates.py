@@ -6,6 +6,7 @@ from veltrix.solana_meme.candidates import (
     canonical_mint,
     deduplicate_candidates,
     normalize_candidate,
+    validate_candidate,
 )
 
 MINT_A = "So11111111111111111111111111111111111111112"
@@ -117,3 +118,75 @@ def test_dedupe_merges_sources_and_keeps_latest_observation():
 def test_dedupe_rejects_unvalidated_objects():
     with pytest.raises(CandidateRejected):
         deduplicate_candidates([{"mint": MINT_A}])
+
+
+
+def test_normalize_rejects_conflicting_mint_aliases():
+    with pytest.raises(CandidateRejected, match="mint fields conflict"):
+        normalize_candidate(
+            {
+                "chainId": "solana",
+                "tokenAddress": MINT_A,
+                "mint": MINT_B,
+            },
+            source="feed",
+            observed_at_ms=100,
+        )
+
+
+def test_normalize_accepts_redundant_matching_mint_aliases():
+    candidate = normalize_candidate(
+        {
+            "chainId": "solana",
+            "chain": "SOLANA",
+            "tokenAddress": MINT_A,
+            "mint": MINT_A,
+        },
+        source=" feed-a ",
+        observed_at_ms=100,
+    )
+    assert candidate.mint == MINT_A
+    assert candidate.source == "feed-a"
+    assert candidate.sources == ("feed-a",)
+
+
+def test_candidate_canonicalizes_source_provenance():
+    candidate = SolanaCandidate(
+        mint=MINT_A,
+        source=" feed-a ",
+        discovered_at_ms=100,
+        sources=("feed-b", " feed-a ", "feed-b"),
+    )
+    assert candidate.source == "feed-a"
+    assert candidate.sources == ("feed-a", "feed-b")
+
+
+def test_candidate_constructor_rejects_invalid_provenance_items():
+    with pytest.raises(CandidateRejected):
+        SolanaCandidate(
+            mint=MINT_A,
+            source="feed-a",
+            discovered_at_ms=100,
+            sources=("feed-b", None),
+        )
+
+
+def test_storage_boundary_revalidation_rejects_forged_frozen_dataclass():
+    forged = object.__new__(SolanaCandidate)
+    object.__setattr__(forged, "mint", "not-a-mint")
+    object.__setattr__(forged, "source", "feed")
+    object.__setattr__(forged, "discovered_at_ms", 100)
+    object.__setattr__(forged, "sources", ("feed",))
+    with pytest.raises(CandidateRejected):
+        validate_candidate(forged)
+
+
+def test_storage_boundary_revalidation_reconstructs_valid_candidate():
+    original = normalize_candidate(
+        {"chainId": "solana", "tokenAddress": MINT_A},
+        source="feed-a",
+        observed_at_ms=100,
+    )
+    checked = validate_candidate(original)
+    assert checked == original
+    assert checked is not original
