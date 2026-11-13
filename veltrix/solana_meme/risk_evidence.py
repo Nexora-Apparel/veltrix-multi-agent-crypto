@@ -77,6 +77,52 @@ class SolanaRiskEvidenceReport:
     mint_supply_reconciled: bool = False
     risk_flags: tuple[RiskFlag, ...] = ()
 
+    def __post_init__(self) -> None:
+        if canonical_mint(self.mint) != self.mint:
+            raise ValueError("risk report mint must be canonical")
+        if isinstance(self.observed_at_ms, bool) or not isinstance(self.observed_at_ms, int) or self.observed_at_ms <= 0:
+            raise ValueError("risk report timestamp must be a positive integer")
+        for field in ("holder_coverage_complete", "token_2022_extension_review_complete", "mint_supply_reconciled"):
+            if not isinstance(getattr(self, field), bool):
+                raise ValueError(f"{field} must be boolean")
+        if self.liquidity_locked is not None and not isinstance(self.liquidity_locked, bool):
+            raise ValueError("liquidity_locked must be boolean or None")
+        for field in ("goplus_dev_hold_pct", "goplus_bundled_supply_pct", "goplus_creator_hold_pct", "top_holder_pct", "top5_holder_pct", "top10_holder_pct"):
+            value = getattr(self, field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) or not 0 <= float(value) <= 100
+            ):
+                raise ValueError(f"{field} must be a finite percentage or None")
+        for field in ("missing_claims", "errors", "token_2022_extension_types", "risk_flags"):
+            if not isinstance(getattr(self, field), tuple):
+                raise ValueError(f"{field} must be a tuple")
+        if any(not isinstance(item, str) or not item.strip() for item in self.missing_claims + self.errors + self.token_2022_extension_types):
+            raise ValueError("risk report text collections must contain non-empty strings")
+        checked_flags = []
+        for flag in self.risk_flags:
+            if type(flag) is not RiskFlag:
+                raise ValueError("risk_flags must contain RiskFlag values")
+            checked_flags.append(RiskFlag(flag.code, flag.severity, flag.description, flag.evidence_source))
+        if len({flag.code for flag in checked_flags}) != len(checked_flags):
+            raise ValueError("risk flag codes must be unique")
+        object.__setattr__(self, "missing_claims", tuple(sorted(set(self.missing_claims))))
+        object.__setattr__(self, "token_2022_extension_types", tuple(sorted(set(self.token_2022_extension_types))))
+        object.__setattr__(self, "risk_flags", tuple(sorted(checked_flags, key=lambda flag: flag.code)))
+        if self.holder_coverage_complete and (
+            self.total_supply_raw is None or self.observed_holder_balance_raw != self.total_supply_raw
+        ):
+            raise ValueError("complete holder coverage must reconcile to total supply")
+        if self.mint_supply_reconciled and (
+            self.mint_supply_raw is None or self.total_supply_raw is None
+            or self.mint_supply_raw != self.total_supply_raw
+        ):
+            raise ValueError("mint supply reconciliation must match reported supplies")
+        if any(value is not None for value in (self.top_holder_pct, self.top5_holder_pct, self.top10_holder_pct)) and (
+            not self.holder_coverage_complete or not self.mint_supply_reconciled
+        ):
+            raise ValueError("concentration percentages require complete, mint-reconciled inventory")
+
     @property
     def risk_state(self) -> str:
         """Evidence readiness only; this property never returns SAFE."""
