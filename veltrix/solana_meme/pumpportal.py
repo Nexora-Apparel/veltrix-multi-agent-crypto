@@ -9,7 +9,7 @@ import json
 import math
 import threading
 import time
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 from collections.abc import Iterator
 from typing import Any, Callable
 
@@ -45,15 +45,12 @@ class PumpPortalDiscovery:
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
     def _safe_endpoint(self) -> str:
-        """Return an endpoint suitable for logs, with auth material removed."""
+        """Return only scheme/host; paths and all auth material are redacted."""
         parts = urlsplit(self.endpoint)
         safe_netloc = parts.netloc.rsplit("@", 1)[-1]
-        sensitive_markers = ("key", "token", "secret", "auth", "signature", "password", "credential")
-        safe_query = [
-            (key, "[REDACTED]" if any(marker in key.lower() for marker in sensitive_markers) else value)
-            for key, value in parse_qsl(parts.query, keep_blank_values=True)
-        ]
-        return urlunsplit((parts.scheme, safe_netloc, parts.path, urlencode(safe_query), ""))
+        if not parts.scheme or not parts.hostname or not safe_netloc:
+            return "[REDACTED_ENDPOINT]"
+        return f"{parts.scheme}://{safe_netloc}/[REDACTED]"
 
     def _connect(self) -> Any:
         factory = self._websocket_factory
