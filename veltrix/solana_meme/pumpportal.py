@@ -9,8 +9,8 @@ import json
 import math
 import threading
 import time
-from urllib.parse import urlsplit
 from collections.abc import Iterator
+from urllib.parse import urlsplit
 from typing import Any, Callable
 
 from .candidates import CandidateRejected, SolanaCandidate, normalize_candidate
