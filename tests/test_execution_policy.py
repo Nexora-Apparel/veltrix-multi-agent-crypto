@@ -105,6 +105,7 @@ def test_authorization_is_bound_and_consumed_once():
     [
         {"wallet_public_key": "different-wallet"},
         {"intent_id": "different-intent"},
+        {"intent_hash": "b" * 64},
         {"policy": ExecutionPolicy(mode=ExecutionMode.LIVE, chain="different-chain")},
     ],
 )
