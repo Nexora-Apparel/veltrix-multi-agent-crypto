@@ -12,9 +12,9 @@ MINT = "So11111111111111111111111111111111111111112"
 def decision(now, mint=MINT):
     market = MarketEvidence(
         mint=mint, snapshot_id=1, pair_address="pool",
-        price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
+        price_usd=0.001, liquidity_usd=100_000, volume_h1_usd=50_000,
         price_change_m5_pct=0.1, retrieved_at_ms=now,
-        pair_created_at_ms=now - 1000, pair_count=1, quality_flags=(),
+        pair_created_at_ms=max(1, now - 1000), pair_count=1, quality_flags=(),
     )
     risk = RiskEvidence(
         mint=mint, observed_at_ms=now,
@@ -124,24 +124,24 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
         MarketEvidence(
             mint=MINT, snapshot_id=1, pair_address="pool",
             price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
-            price_change_m5_pct=0.1, retrieved_at_ms=10_000,
-            pair_created_at_ms=9_000, pair_count=1, quality_flags=(),
+            price_change_m5_pct=5.0, retrieved_at_ms=10_000_000,
+            pair_created_at_ms=6_400_000, pair_count=1, quality_flags=(),
         ),
         RiskEvidence(
-            mint=MINT, observed_at_ms=10_000,
+            mint=MINT, observed_at_ms=10_000_000,
             risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED",
             missing_claims=(), errors=(), risk_flags=(),
             evidence_hash=hashlib.sha256(b"risk-approval-test").hexdigest(),
         ),
         history=[
-            {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000 - (index + 1) * 60_000}
+            {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000_000 - (index + 1) * 60_000}
             for index in range(5)
         ],
         wallet_events=(
-            WalletBuyEvent("solana", MINT, wallet_a, 9_900, 150, "helius"),
-            WalletBuyEvent("solana", MINT, wallet_b, 9_950, 200, "helius"),
+            WalletBuyEvent("solana", MINT, wallet_a, 9_999_900, 150, "helius"),
+            WalletBuyEvent("solana", MINT, wallet_b, 9_999_950, 200, "helius"),
         ),
-        now_ms=10_000,
+        now_ms=10_000_000,
     )
     assert approved.status == "CONSENSUS_APPROVED"
     # Risk flags are not part of the decision ID; the store must still enforce
