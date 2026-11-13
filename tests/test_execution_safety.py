@@ -283,6 +283,8 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
 
+    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash"}:
+        intent = replace(intent, expected_message_hash=plan.message_hash)
     with pytest.raises(ExecutionGateError, match=reason):
         TransactionValidator.validate(intent, plan, live_policy(), now_ms=NOW_MS)
 
@@ -506,6 +508,7 @@ def test_every_pipeline_rejection_stops_before_fake_signer(tmp_path, case, reaso
         instructions = (replace(plan.instructions[0], program_id="unknown"), plan.instructions[1])
         plan = replace(plan, instructions=instructions, message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
+        intent = replace(intent, expected_message_hash=plan.message_hash)
     elif case == "stale_market":
         risk = make_risk(intent, market_observed_at_ms=NOW_MS - 10_000)
     elif case == "failed_simulation":
@@ -638,5 +641,6 @@ def test_transaction_validator_rejects_duplicate_instruction_accounts():
     )
     tampered = replace(plan, instructions=instructions, message_hash="0" * 64)
     tampered = replace(tampered, message_hash=tampered.computed_message_hash())
+    intent = replace(intent, expected_message_hash=tampered.message_hash)
     with pytest.raises(ExecutionGateError, match="duplicate_instruction_account"):
         TransactionValidator.validate(intent, tampered, live_policy(), now_ms=NOW_MS)
