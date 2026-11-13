@@ -1,6 +1,7 @@
 """Durable SQLite paper ledger. No exchange connectivity or real orders."""
 import json
 import math
+import re
 import sqlite3
 import time
 import uuid
@@ -105,8 +106,8 @@ class PaperBroker:
         return fee, slippage
 
     def has_consensus_decision(self, decision_id):
-        if not isinstance(decision_id, str) or not decision_id.strip():
-            raise ValueError("decision_id is required")
+        if not isinstance(decision_id, str) or not re.fullmatch(r"[0-9a-f]{64}", decision_id):
+            raise ValueError("decision_id must be a canonical SHA-256 digest")
         with self._connect() as db:
             row = db.execute(
                 "SELECT execution_status FROM paper_consensus_decisions WHERE decision_id=?",
@@ -161,7 +162,8 @@ class PaperBroker:
         execution_authorized=None, created_at_ms,
         fee_bps=100, slippage_bps=50, processed_at_ms=None,
         expected_market_snapshot_id=None, expected_risk_evidence_hash=None,
-        max_portfolio_exposure_pct=1.0,
+        max_decision_age_ms=120_000, max_market_age_ms=120_000,
+        max_risk_age_ms=300_000, max_portfolio_exposure_pct=1.0,
     ):
         """Atomically open a paper position and consume one approved consensus ID."""
         import math
@@ -192,6 +194,21 @@ class PaperBroker:
             raise ValueError("processed_at_ms must be a positive integer")
         if amount > self.max_position_usd:
             raise ValueError("paper position exceeds the configured per-position limit")
+        if (
+            isinstance(expected_market_snapshot_id, bool)
+            or not isinstance(expected_market_snapshot_id, int)
+            or expected_market_snapshot_id < 1
+            or not isinstance(expected_risk_evidence_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_risk_evidence_hash)
+        ):
+            raise ValueError("expected market snapshot ID and risk evidence hash are required")
+        for name, value in (
+            ("max_decision_age_ms", max_decision_age_ms),
+            ("max_market_age_ms", max_market_age_ms),
+            ("max_risk_age_ms", max_risk_age_ms),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
         fill = mark * (1 + slippage_rate / 10_000)
         fee = amount * fee_rate / 10_000
         quantity = amount / fill
@@ -214,36 +231,121 @@ class PaperBroker:
                 "SELECT COALESCE(SUM(cost_basis),0) FROM positions"
             ).fetchone()[0])
             blocked_reason = None
-            if expected_market_snapshot_id is not None or expected_risk_evidence_hash is not None:
-                if (
-                    isinstance(expected_market_snapshot_id, bool)
-                    or not isinstance(expected_market_snapshot_id, int)
-                    or expected_market_snapshot_id < 1
-                    or not isinstance(expected_risk_evidence_hash, str)
-                    or not expected_risk_evidence_hash
-                ):
-                    raise ValueError("expected market snapshot ID and risk evidence hash are required together")
-                latest_decision = db.execute(
-                    """SELECT decision_id FROM solana_consensus_decisions
-                    WHERE mint=? ORDER BY created_at_ms DESC, id DESC LIMIT 1""",
-                    (token,),
-                ).fetchone()
-                latest_market = db.execute(
-                    """SELECT id FROM solana_market_snapshots
-                    WHERE mint=? ORDER BY retrieved_at_ms DESC, id DESC LIMIT 1""",
-                    (token,),
-                ).fetchone()
-                latest_risk = db.execute(
-                    """SELECT evidence_hash FROM solana_risk_evidence_reports
-                    WHERE mint=? ORDER BY observed_at_ms DESC, id DESC LIMIT 1""",
-                    (token,),
-                ).fetchone()
-                if latest_decision is None or latest_decision["decision_id"] != decision_id:
-                    blocked_reason = "a newer consensus decision superseded this approval"
-                elif latest_market is None or latest_market["id"] != expected_market_snapshot_id:
+            latest_decision = db.execute(
+                """SELECT decision_id, payload_json FROM solana_consensus_decisions
+                WHERE mint=? ORDER BY created_at_ms DESC, id DESC LIMIT 1""",
+                (token,),
+            ).fetchone()
+            latest_market = db.execute(
+                """SELECT id, price_usd, retrieved_at_ms, quality_flags
+                FROM solana_market_snapshots
+                WHERE mint=? ORDER BY retrieved_at_ms DESC, id DESC LIMIT 1""",
+                (token,),
+            ).fetchone()
+            latest_risk = db.execute(
+                """SELECT observed_at_ms, evidence_hash, payload_json
+                FROM solana_risk_evidence_reports
+                WHERE mint=? ORDER BY observed_at_ms DESC, id DESC LIMIT 1""",
+                (token,),
+            ).fetchone()
+
+            if latest_decision is None or latest_decision["decision_id"] != decision_id:
+                blocked_reason = "a newer consensus decision superseded this approval"
+            else:
+                try:
+                    from .solana_meme.consensus_store import ConsensusStore
+                    decision_payload = ConsensusStore._decode_payload(latest_decision["payload_json"])
+                except (TypeError, ValueError):
+                    blocked_reason = "latest consensus decision failed atomic validation"
+                else:
+                    decision_created = decision_payload.get("created_at_ms")
+                    if (
+                        decision_payload.get("mint") != token
+                        or decision_payload.get("decision_id") != decision_id
+                        or decision_payload.get("status") != "CONSENSUS_APPROVED"
+                        or decision_payload.get("paper_review_eligible") is not True
+                        or decision_payload.get("execution_authorized") is not False
+                        or decision_payload.get("created_at_ms") != created_at_ms
+                        or decision_payload.get("market_snapshot_id") != expected_market_snapshot_id
+                        or decision_payload.get("risk_evidence_hash") != expected_risk_evidence_hash
+                        or decision_payload.get("market_quality_flags") != []
+                    ):
+                        blocked_reason = "latest consensus decision no longer satisfies the paper-entry gate"
+                    elif (
+                        isinstance(decision_created, bool)
+                        or not isinstance(decision_created, int)
+                        or decision_created > processed
+                        or processed - decision_created > max_decision_age_ms
+                    ):
+                        blocked_reason = "consensus decision is stale or future-dated"
+
+            if blocked_reason is None:
+                if latest_market is None or latest_market["id"] != expected_market_snapshot_id:
                     blocked_reason = "market snapshot changed during paper-entry validation"
-                elif latest_risk is None or latest_risk["evidence_hash"] != expected_risk_evidence_hash:
+                else:
+                    try:
+                        quality_flags = json.loads(latest_market["quality_flags"])
+                        market_price = self._finite_number(
+                            latest_market["price_usd"], "latest_market_price", positive=True
+                        )
+                        market_retrieved = latest_market["retrieved_at_ms"]
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        blocked_reason = "latest market snapshot failed atomic validation"
+                    else:
+                        if (
+                            not isinstance(quality_flags, list)
+                            or quality_flags
+                            or not math.isclose(market_price, mark, rel_tol=1e-12, abs_tol=0.0)
+                        ):
+                            blocked_reason = "latest market snapshot changed or has quality flags"
+                        elif (
+                            isinstance(market_retrieved, bool)
+                            or not isinstance(market_retrieved, int)
+                            or market_retrieved > processed
+                            or processed - market_retrieved > max_market_age_ms
+                        ):
+                            blocked_reason = "market snapshot is stale or future-dated"
+
+            if blocked_reason is None:
+                if latest_risk is None or latest_risk["evidence_hash"] != expected_risk_evidence_hash:
                     blocked_reason = "security evidence changed during paper-entry validation"
+                else:
+                    try:
+                        from .solana_meme.consensus import RiskEvidence
+                        risk_payload = json.loads(latest_risk["payload_json"])
+                        risk_evidence = RiskEvidence.from_store_payload(risk_payload)
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        blocked_reason = "latest security evidence failed atomic validation"
+                    else:
+                        risk_observed = latest_risk["observed_at_ms"]
+                        expected_risk_flags = [
+                            {
+                                "code": flag.code,
+                                "severity": flag.severity,
+                                "description": flag.description,
+                                "evidence_source": flag.evidence_source,
+                            }
+                            for flag in risk_evidence.risk_flags
+                        ]
+                        if (
+                            risk_evidence.mint != token
+                            or risk_evidence.evidence_hash != expected_risk_evidence_hash
+                            or risk_evidence.risk_state != decision_payload.get("risk_state")
+                            or list(risk_evidence.missing_claims) != decision_payload.get("missing_claims")
+                            or expected_risk_flags != decision_payload.get("risk_flags")
+                            or risk_evidence.missing_claims
+                            or risk_evidence.errors
+                            or any(flag.severity not in {"low", "info"} for flag in risk_evidence.risk_flags)
+                        ):
+                            blocked_reason = "latest security evidence no longer satisfies the paper-entry gate"
+                        elif (
+                            isinstance(risk_observed, bool)
+                            or not isinstance(risk_observed, int)
+                            or risk_observed != risk_evidence.observed_at_ms
+                            or risk_observed > processed
+                            or processed - risk_observed > max_risk_age_ms
+                        ):
+                            blocked_reason = "security evidence is stale or future-dated"
             if blocked_reason is None and current_exposure + total_debit > starting_balance * exposure_limit_pct + 1e-9:
                 blocked_reason = "paper portfolio exposure cap would be exceeded"
             elif blocked_reason is None and count >= self.max_positions:
