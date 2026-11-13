@@ -140,7 +140,7 @@ class ConsensusStore:
                 ORDER BY created_at_ms DESC, id DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._decode_payload(row["payload_json"]) for row in rows]
 
     def count(self, mint: str | None = None) -> int:
         with self._connect() as db:
