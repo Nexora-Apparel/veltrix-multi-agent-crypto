@@ -219,6 +219,64 @@
       }))
     };
   }
+  function readMessageShortVec(bytes,state) {
+    let value=0,shift=0;
+    for(let i=0;i<5;i++) {
+      if(state.offset>=bytes.length) throw new Error("truncated legacy message shortvec");
+      const byte=bytes[state.offset++];
+      value|=(byte&0x7f)<<shift;
+      if((byte&0x80)===0) return value;
+      shift+=7;
+    }
+    throw new Error("invalid legacy message shortvec");
+  }
+  function normalizeReviewedLegacyMessageBytes(messageBytes) {
+    if(!(messageBytes instanceof Uint8Array)||messageBytes.length<3) {
+      throw new Error("immutable reviewed legacy message bytes are missing or truncated");
+    }
+    const bytes=Uint8Array.from(messageBytes),state={offset:0};
+    if(bytes[0]&0x80) throw new Error("immutable reviewed message is versioned; legacy-only policy rejected it");
+    const header={
+      numRequiredSignatures:bytes[state.offset++],
+      numReadonlySignedAccounts:bytes[state.offset++],
+      numReadonlyUnsignedAccounts:bytes[state.offset++]
+    };
+    const keyCount=readMessageShortVec(bytes,state);
+    if(keyCount<1||keyCount>32) throw new Error("reviewed legacy message account-key count violates policy");
+    const staticAccountKeys=[];
+    for(let i=0;i<keyCount;i++) {
+      if(state.offset+32>bytes.length) throw new Error("truncated reviewed legacy account key");
+      staticAccountKeys.push(b58encode(bytes.slice(state.offset,state.offset+32)));
+      state.offset+=32;
+    }
+    if(state.offset+32>bytes.length) throw new Error("truncated reviewed legacy recent blockhash");
+    const recentBlockhash=b58encode(bytes.slice(state.offset,state.offset+32));
+    state.offset+=32;
+    const instructionCount=readMessageShortVec(bytes,state);
+    if(instructionCount>64) throw new Error("reviewed legacy message instruction count violates policy");
+    const compiledInstructions=[];
+    for(let i=0;i<instructionCount;i++) {
+      if(state.offset>=bytes.length) throw new Error("truncated reviewed legacy instruction");
+      const programIdIndex=bytes[state.offset++];
+      const accountCount=readMessageShortVec(bytes,state);
+      if(accountCount>keyCount||state.offset+accountCount>bytes.length) throw new Error("invalid reviewed legacy instruction account indexes");
+      const accountKeyIndexes=Array.from(bytes.slice(state.offset,state.offset+accountCount));
+      state.offset+=accountCount;
+      const dataLength=readMessageShortVec(bytes,state);
+      if(state.offset+dataLength>bytes.length) throw new Error("truncated reviewed legacy instruction data");
+      const data=Uint8Array.from(bytes.slice(state.offset,state.offset+dataLength));
+      state.offset+=dataLength;
+      if(programIdIndex>=keyCount||accountKeyIndexes.some(index=>index>=keyCount)) {
+        throw new Error("reviewed legacy instruction references an unknown account key");
+      }
+      compiledInstructions.push({programIdIndex,accountKeyIndexes,data});
+    }
+    if(state.offset!==bytes.length) throw new Error("reviewed legacy message contains trailing bytes");
+    if(header.numRequiredSignatures!==1||header.numReadonlySignedAccounts!==0) {
+      throw new Error("reviewed legacy message signer policy violates the one-wallet-signer requirement");
+    }
+    return {version:"legacy",header,staticAccountKeys,recentBlockhash,addressTableLookups:[],compiledInstructions};
+  }
   function compareLegacyMessageSemantics(expectedMessage,actualMessage) {
     const differences=[];
     for(const field of ["numRequiredSignatures","numReadonlySignedAccounts","numReadonlyUnsignedAccounts"]) {
@@ -253,7 +311,7 @@
       return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
     } catch { return "unavailable"; }
   }
-  async function reconcileConfirmedTransaction(chainTx,reviewedTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence) {
+  async function reconcileConfirmedTransaction(chainTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence) {
     if(!chainTx) throw new Error("SUBMISSION_STATUS_UNKNOWN: confirmed signature transaction details are not yet available.");
     if(!chainTx.meta) throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC transaction metadata is missing.");
     if(chainTx.meta.err) throw new Error("FAILED_ON_CHAIN: Solana recorded an execution error: "+JSON.stringify(chainTx.meta.err));
@@ -267,7 +325,7 @@
     let confirmedBytes,expectedMessage,confirmedMessage;
     try {
       confirmedBytes=Uint8Array.from(transaction.message.serialize());
-      expectedMessage=normalizedTransactionMessage(reviewedTx);
+      expectedMessage=normalizeReviewedLegacyMessageBytes(reviewedMessageBytes);
       confirmedMessage=normalizeConfirmedLegacyMessage(transaction.message);
     } catch(error) {
       throw new Error("CONFIRMED_BUT_UNVERIFIED: confirmed transaction message could not be decoded or serialized: "+
@@ -1302,7 +1360,7 @@
       }
       try {
         reconciliation=await reconcileConfirmedTransaction(
-          chainTx,reviewed.txs[0],reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence
+          chainTx,reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence
         );
       } catch (reconciliationError) {
         throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
@@ -1352,7 +1410,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,normalizeConfirmedLegacyMessage,compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,normalizeConfirmedLegacyMessage,normalizeReviewedLegacyMessageBytes,compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
