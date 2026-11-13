@@ -565,7 +565,7 @@ def test_safety_modules_have_no_wallet_signing_or_rpc_submission_adapter():
         source = (root / relative).read_text(encoding="utf-8").lower()
         assert not any(marker in source for marker in forbidden), relative
         assert not re.search(
-            r"\\b(private_key|seed_phrase|mnemonic|secret_key)\\s*=",
+            r"\b(private_key|seed_phrase|mnemonic|secret_key)\s*=",
             source,
         ), relative
 
