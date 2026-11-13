@@ -65,8 +65,8 @@ The existing SQLite database path, `solana_launch_candidates` table, event/outag
 - [x] Direct constructor and deduplication enforce the contract.
 - [x] Persistence revalidates rather than trusting object type.
 - [x] Primary and secondary ingestion audit invalid candidates without dropping valid peers.
-- [ ] Full repository CI and targeted adversarial tests pass on the exact PR head.
+- [x] Full repository CI and targeted adversarial tests pass on the exact PR head (792 passed, 5 skipped; compileall passed).
 - [ ] Post-merge CI passes on the integrated main commit.
-- [ ] Review confirms no discovery expansion, market/risk logic, database migration, credentials or release activation was introduced.
+- [x] Review confirms no discovery expansion, market/risk logic, database migration, credentials or release activation was introduced.
 
-Stage 2 remains open until all exit criteria are verified.
+Stage 2 remains open until post-merge CI is independently verified.
