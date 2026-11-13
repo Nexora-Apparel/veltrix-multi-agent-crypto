@@ -75,6 +75,7 @@ class ConsensusStore:
                 for vote in payload["votes"]
             )
             payload["risk_flags"] = tuple(RiskFlag(**flag) for flag in payload["risk_flags"])
+            payload["market_quality_flags"] = tuple(payload.get("market_quality_flags", ()))
             for name in ("supporting_agents", "missing_claims", "reasons"):
                 payload[name] = tuple(payload[name])
             checked = validate_consensus_decision(ConsensusDecision(**payload))
