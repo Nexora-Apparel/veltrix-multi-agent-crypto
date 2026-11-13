@@ -322,7 +322,18 @@ class LaunchStreamManager:
                 for candidate in self.adapter.stream_new_tokens(stop_event=stop_event):
                     if stop_event.is_set():
                         break
-                    self.store.record_candidate(candidate)
+                    try:
+                        self.store.record_candidate(candidate)
+                    except CandidateRejected as exc:
+                        source = getattr(candidate, "source", "unknown")
+                        if not isinstance(source, str) or not source.strip():
+                            source = "unknown"
+                        self.store.record_event(
+                            "candidate_rejected",
+                            details={"source": source.strip()[:100], "reason": str(exc)[:160]},
+                            occurred_at_ms=self.clock_ms(),
+                        )
+                        continue
                     saw_candidate = True
                 if stop_event.is_set():
                     break
