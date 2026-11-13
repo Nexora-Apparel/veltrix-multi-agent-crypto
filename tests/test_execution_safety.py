@@ -569,7 +569,7 @@ def test_safety_modules_have_no_wallet_signing_or_rpc_submission_adapter():
 def test_authorized_intent_is_idempotent_and_not_reauthorized_after_restart(tmp_path):
     intent = make_intent()
     policy = live_policy()
-    pipeline, coordinator, _, _ = make_pipeline(tmp_path, policy=policy)
+    pipeline, coordinator, stop, consumer = make_pipeline(tmp_path, policy=policy)
     authorization = make_authorization(intent, policy)
     args = {
         "intent": intent,
@@ -579,7 +579,16 @@ def test_authorized_intent_is_idempotent_and_not_reauthorized_after_restart(tmp_
         "authorization": authorization,
     }
     first = pipeline.prepare(**args)
-    second = pipeline.prepare(**args)
+    restarted_coordinator = SubmissionCoordinator(coordinator.database_path)
+    restarted_pipeline = ExecutionSafetyPipeline(
+        policy=policy,
+        coordinator=restarted_coordinator,
+        emergency_stop=SQLiteEmergencyStop(stop.database_path),
+        authorization_consumer=SQLiteAuthorizationConsumer(consumer.database_path),
+        authorization_signing_key=KEY,
+        clock_ms=lambda: NOW_MS,
+    )
+    second = restarted_pipeline.prepare(**args)
 
     assert first.state is ExecutionState.AUTHORIZED
     assert second.state is ExecutionState.AUTHORIZED
