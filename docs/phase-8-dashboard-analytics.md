@@ -73,9 +73,7 @@ any remote deployment; the built-in HTTP server does not terminate TLS.
 
 ## Freshness and reporting
 
-Open positions are marked from the latest persisted Phase 04 market observation.
-Stale or missing marks remain visible but are not represented as current
-executable quotes. The overview reports the count of stale or unmarked positions.
+Open positions are marked from the latest persisted Phase 04 market observation only when it is fresh, finite, positive and has an empty, well-formed quality-flag list. Quality-flagged, malformed, missing, stale, future-dated or invalid observations fall back to the entry price and are visibly marked as non-fresh. The dashboard never presents a quality-flagged market price as a current mark. The overview reports the count of stale or unmarked positions.
 
 Realized P&L comes from persisted SELL fills. Unrealized P&L uses the last
 persisted mark less cost basis. Fees and slippage are shown separately as
@@ -96,3 +94,18 @@ audited broker equity curve and does not include unrealized position value.
 
 Phase 08 is analytics and presentation only. Phase 09 live execution remains
 disabled and is not part of this dashboard.
+
+
+## Stage 08 exit criteria
+
+- [x] Dashboard data access uses SQLite URI read-only mode and `PRAGMA query_only=ON`; it does not initialize or mutate tables.
+- [x] HTTP routes are GET-only; POST, PUT and DELETE return HTTP 405.
+- [x] Loopback is the default bind address; remote binding requires a token of at least 32 characters, and token comparison is constant-time.
+- [x] HTML, CSS, JavaScript and API routes require authorization when a token is configured; response headers include no-store, nosniff, no-referrer and a restrictive content-security policy.
+- [x] P&L, open positions, fills, consensus outcomes, pipeline counts, freshness, equity curve, fees and slippage are exposed as read-only analytics.
+- [x] Quality-flagged or malformed market observations are not used as position marks; the dashboard falls back to entry price and reports a non-fresh mark status.
+- [ ] Full repository CI and dashboard security/analytics tests pass on the exact Stage 08 PR head.
+- [ ] Post-merge CI and read-only database/API regression tests pass on main.
+- [ ] Review confirms no paper-ledger mutation, order/position route, production deployment, Telegram activation or scheduler was introduced.
+
+The dashboard is an analytics surface only. It is not an execution control panel.

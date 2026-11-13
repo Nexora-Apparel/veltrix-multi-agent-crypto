@@ -99,6 +99,21 @@ class DashboardRepository:
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    @staticmethod
+    def _decode_quality_flags(row: dict) -> list[str]:
+        if "quality_flags_json" not in row:
+            return ["quality_flags_unavailable"]
+        raw = row.pop("quality_flags_json")
+        try:
+            flags = json.loads(raw)
+        except (TypeError, ValueError):
+            return ["malformed_quality_flags"]
+        if not isinstance(flags, list) or any(
+            not isinstance(flag, str) or not flag.strip() for flag in flags
+        ):
+            return ["malformed_quality_flags"]
+        return sorted(set(flag.strip() for flag in flags))
+
     def _latest_market(self, db: sqlite3.Connection, mint: str) -> dict | None:
         if not self._has_table(db, "solana_market_snapshots"):
             return None
@@ -110,11 +125,31 @@ class DashboardRepository:
         if row is None:
             return None
         result = dict(row)
-        try:
-            result["quality_flags"] = json.loads(result.pop("quality_flags_json") or "[]")
-        except (TypeError, ValueError):
-            result["quality_flags"] = ["malformed_quality_flags"]
+        result["quality_flags"] = self._decode_quality_flags(result)
         return result
+
+    def _position_mark(self, market: dict | None, entry_price: float, now_ms: int):
+        if market is None:
+            return entry_price, "MISSING", None, []
+        flags = market.get("quality_flags")
+        observed = market.get("retrieved_at_ms")
+        age = (
+            now_ms - observed
+            if isinstance(observed, int) and not isinstance(observed, bool) and observed > 0
+            else None
+        )
+        if not isinstance(flags, list) or flags:
+            return entry_price, "QUALITY_FLAGGED", age, flags if isinstance(flags, list) else ["malformed_quality_flags"]
+        if age is None:
+            return entry_price, "INVALID_TIME", None, []
+        if age < 0:
+            return entry_price, "FUTURE", age, []
+        if age > self.max_market_age_ms:
+            return entry_price, "STALE", age, []
+        price = _number(market.get("price_usd"), 0.0)
+        if price <= 0:
+            return entry_price, "INVALID_PRICE", age, []
+        return price, "FRESH", age, []
 
     def overview(self) -> dict:
         now_ms = int(time.time() * 1000)
@@ -135,22 +170,16 @@ class DashboardRepository:
             unrealized_pnl = 0.0
             exposure = 0.0
             stale_positions = 0
+            quality_flagged_positions = 0
             for position in positions:
                 mint = position["token"]
                 market = self._latest_market(db, mint)
                 entry = _number(position["entry_price"])
-                mark = entry
-                observed = market.get("retrieved_at_ms") if market else None
-                if (
-                    market
-                    and isinstance(observed, int)
-                    and not isinstance(observed, bool)
-                    and 0 <= now_ms - observed <= self.max_market_age_ms
-                    and _number(market.get("price_usd")) > 0
-                ):
-                    mark = _number(market["price_usd"])
-                else:
+                mark, mark_status, _age, _flags = self._position_mark(market, entry, now_ms)
+                if mark_status != "FRESH":
                     stale_positions += 1
+                if mark_status == "QUALITY_FLAGGED":
+                    quality_flagged_positions += 1
                 value = _number(position["quantity"]) * mark
                 market_value += value
                 basis = _number(position["cost_basis"])
@@ -201,6 +230,7 @@ class DashboardRepository:
                 "portfolio_exposure_usd": exposure,
                 "portfolio_exposure_pct": (exposure / starting_balance * 100) if starting_balance else 0.0,
                 "stale_or_unmarked_positions": stale_positions,
+                "quality_flagged_positions": quality_flagged_positions,
             },
             "performance": {
                 "exit_fills": closed_fills,
@@ -229,13 +259,7 @@ class DashboardRepository:
                 market = self._latest_market(db, row["token"])
                 entry = _number(row["entry_price"])
                 observed = market.get("retrieved_at_ms") if market else None
-                fresh = (
-                    isinstance(observed, int)
-                    and not isinstance(observed, bool)
-                    and 0 <= now_ms - observed <= self.max_market_age_ms
-                    and _number(market.get("price_usd")) > 0
-                )
-                mark = _number(market["price_usd"]) if fresh else entry
+                mark, mark_status, age, flags = self._position_mark(market, entry, now_ms)
                 market_value = _number(row["quantity"]) * mark
                 pnl = market_value - _number(row["cost_basis"])
                 output.append({
@@ -248,7 +272,9 @@ class DashboardRepository:
                     "unrealized_pnl_usd": pnl,
                     "unrealized_pnl_pct": pnl / _number(row["cost_basis"]) * 100 if _number(row["cost_basis"]) else 0.0,
                     "opened_at": _iso_from_seconds(row["opened_at"]),
-                    "mark_status": "FRESH" if fresh else ("STALE" if market else "MISSING"),
+                    "mark_status": mark_status,
+                    "market_age_ms": age,
+                    "quality_flags": flags,
                     "market_observed_at": _iso_from_ms(observed),
                     "symbol": market.get("symbol") if market else None,
                     "name": market.get("name") if market else None,
@@ -345,10 +371,7 @@ class DashboardRepository:
             """, (limit,))
         output = []
         for row in rows:
-            try:
-                flags = json.loads(row.pop("quality_flags_json") or "[]")
-            except (TypeError, ValueError):
-                flags = ["malformed_quality_flags"]
+            flags = self._decode_quality_flags(row)
             output.append({
                 **row,
                 "quality_flags": flags,
