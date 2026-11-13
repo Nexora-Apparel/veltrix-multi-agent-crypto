@@ -1,9 +1,9 @@
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import pytest
 
 from veltrix.providers.base import MarketEvent
-from veltrix.solana_meme.market_data import SolanaMarketData
+from veltrix.solana_meme.market_data import SolanaMarketData, SolanaMarketSnapshot
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 
 MINT = "So11111111111111111111111111111111111111112"
@@ -93,3 +93,25 @@ def test_store_rejects_untyped_data_and_invalid_history_limit(tmp_path):
         store.history(MINT, limit=0)
     with pytest.raises(ValueError):
         MarketSnapshotStore(":memory:")
+
+
+
+def test_store_revalidates_forged_snapshot_before_writing(tmp_path):
+    store = MarketSnapshotStore(tmp_path / "market.sqlite3")
+    original = snapshot()
+    forged = object.__new__(SolanaMarketSnapshot)
+    for field in fields(SolanaMarketSnapshot):
+        object.__setattr__(forged, field.name, getattr(original, field.name))
+    object.__setattr__(forged, "price_usd", float("nan"))
+
+    with pytest.raises(ValueError, match="failed canonical validation"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+def test_store_rejects_snapshot_with_future_response_receipt(tmp_path):
+    store = MarketSnapshotStore(tmp_path / "market.sqlite3")
+    invalid = replace(snapshot(), response_received_at_ms=2001)
+    with pytest.raises(ValueError, match="cannot be later"):
+        store.record(invalid)
+    assert store.count(MINT) == 0
