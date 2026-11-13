@@ -12,6 +12,7 @@ from veltrix.solana_meme.risk_runtime import build_runtime as build_risk_runtime
         ("SCHEDULER_ENABLED", "true"),
         ("TELEGRAM_ENABLED", "true"),
         ("VERCEL_ENV", "production"),
+        ("LIVE_TRADING", "true"),
     ],
 )
 @pytest.mark.parametrize("builder", ["discovery", "intelligence", "consensus"])
