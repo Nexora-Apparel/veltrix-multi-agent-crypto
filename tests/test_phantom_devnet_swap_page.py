@@ -46,7 +46,10 @@ def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate
     assert "provider.publicKey.equals(wallet)" in execute
     assert "confirmTransaction(signature" in execute
     assert "getTransaction(signature" in execute
-    assert "exact reviewed transaction message" in execute
+    assert "reconcileConfirmedTransaction(" in execute
+    assert "CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH" in source
+    assert "firstByteDifference" in source
+    assert "reviewedMessageSha256" in source
     assert "tokenBalanceRaw()" in execute
     assert "window.confirm(" not in source
     assert "await provider.connect()" in source
