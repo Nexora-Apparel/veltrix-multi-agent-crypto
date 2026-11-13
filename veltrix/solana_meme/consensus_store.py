@@ -8,7 +8,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
 
-from .consensus import ConsensusDecision, validate_consensus_decision
+from .consensus import AgentVote, ConsensusDecision, validate_consensus_decision
+from .risk_evidence import RiskFlag
 
 
 class ConsensusStore:
@@ -58,8 +59,32 @@ class ConsensusStore:
             return cursor.rowcount == 1
 
     @staticmethod
-    def _decode(row: sqlite3.Row | None) -> dict | None:
-        return json.loads(row["payload_json"]) if row is not None else None
+    def _decode_payload(payload_json: str) -> dict:
+        try:
+            payload = json.loads(payload_json)
+            if type(payload) is not dict:
+                raise ValueError("persisted consensus payload must be an object")
+            payload["votes"] = tuple(
+                AgentVote(
+                    agent=vote["agent"],
+                    stance=vote["stance"],
+                    reason=vote["reason"],
+                    evidence_refs=tuple(vote["evidence_refs"]),
+                    observed_at_ms=vote["observed_at_ms"],
+                )
+                for vote in payload["votes"]
+            )
+            payload["risk_flags"] = tuple(RiskFlag(**flag) for flag in payload["risk_flags"])
+            for name in ("supporting_agents", "missing_claims", "reasons"):
+                payload[name] = tuple(payload[name])
+            checked = validate_consensus_decision(ConsensusDecision(**payload))
+            return json.loads(json.dumps(asdict(checked), sort_keys=True, separators=(",", ":")))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            raise ValueError("persisted consensus payload failed canonical validation") from None
+
+    @classmethod
+    def _decode(cls, row: sqlite3.Row | None) -> dict | None:
+        return cls._decode_payload(row["payload_json"]) if row is not None else None
 
     def latest(self, mint: str) -> dict | None:
         with self._connect() as db:
@@ -79,7 +104,7 @@ class ConsensusStore:
                 WHERE mint = ? ORDER BY created_at_ms DESC, id DESC LIMIT ?""",
                 (mint, limit),
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._decode_payload(row["payload_json"]) for row in rows]
 
     def latest_all(self, *, limit: int = 100) -> list[dict]:
         """Return the latest persisted consensus decision for each mint."""
