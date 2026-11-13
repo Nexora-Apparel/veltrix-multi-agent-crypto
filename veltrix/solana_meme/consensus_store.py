@@ -8,7 +8,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
 
-from .consensus import ConsensusDecision
+from .consensus import AgentVote, ConsensusDecision, validate_consensus_decision
+from .risk_evidence import RiskFlag
 
 
 class ConsensusStore:
@@ -46,14 +47,7 @@ class ConsensusStore:
             db.close()
 
     def record(self, decision: ConsensusDecision) -> bool:
-        if not isinstance(decision, ConsensusDecision):
-            raise TypeError("decision must be a ConsensusDecision")
-        if decision.status not in {"REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"}:
-            raise ValueError("unsupported consensus disposition")
-        if decision.execution_authorized is not False:
-            raise ValueError("Phase 06 consensus decisions cannot authorize execution")
-        if decision.paper_review_eligible is not (decision.status == "CONSENSUS_APPROVED"):
-            raise ValueError("paper-review eligibility must match the consensus disposition")
+        decision = validate_consensus_decision(decision)
         payload = json.dumps(asdict(decision), sort_keys=True, separators=(",", ":"))
         with self._connect() as db:
             cursor = db.execute(
@@ -65,8 +59,50 @@ class ConsensusStore:
             return cursor.rowcount == 1
 
     @staticmethod
-    def _decode(row: sqlite3.Row | None) -> dict | None:
-        return json.loads(row["payload_json"]) if row is not None else None
+    def _decode_payload(payload_json: str) -> dict:
+        try:
+            payload = json.loads(payload_json)
+            if type(payload) is not dict:
+                raise ValueError("persisted consensus payload must be an object")
+            raw_votes = payload.get("votes")
+            if not isinstance(raw_votes, list) or len(raw_votes) != 4:
+                raise ValueError("persisted consensus votes are malformed")
+            votes = []
+            for vote in raw_votes:
+                if type(vote) is not dict or not isinstance(vote.get("evidence_refs"), list):
+                    raise ValueError("persisted consensus vote is malformed")
+                votes.append(AgentVote(
+                    agent=vote["agent"],
+                    stance=vote["stance"],
+                    reason=vote["reason"],
+                    evidence_refs=tuple(vote["evidence_refs"]),
+                    observed_at_ms=vote["observed_at_ms"],
+                ))
+            raw_flags = payload.get("risk_flags")
+            if not isinstance(raw_flags, list) or any(type(flag) is not dict for flag in raw_flags):
+                raise ValueError("persisted consensus risk flags are malformed")
+            payload["votes"] = tuple(votes)
+            payload["risk_flags"] = tuple(RiskFlag(**flag) for flag in raw_flags)
+
+            raw_market_flags = payload.get("market_quality_flags", [])
+            if not isinstance(raw_market_flags, list):
+                raise ValueError("persisted market quality flags are malformed")
+            payload["market_quality_flags"] = tuple(raw_market_flags)
+            for name in ("supporting_agents", "missing_claims", "reasons"):
+                raw = payload.get(name)
+                if not isinstance(raw, list) or any(
+                    not isinstance(item, str) or not item.strip() for item in raw
+                ):
+                    raise ValueError(f"persisted consensus {name} are malformed")
+                payload[name] = tuple(raw)
+            checked = validate_consensus_decision(ConsensusDecision(**payload))
+            return json.loads(json.dumps(asdict(checked), sort_keys=True, separators=(",", ":")))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            raise ValueError("persisted consensus payload failed canonical validation") from None
+
+    @classmethod
+    def _decode(cls, row: sqlite3.Row | None) -> dict | None:
+        return cls._decode_payload(row["payload_json"]) if row is not None else None
 
     def latest(self, mint: str) -> dict | None:
         with self._connect() as db:
@@ -86,7 +122,7 @@ class ConsensusStore:
                 WHERE mint = ? ORDER BY created_at_ms DESC, id DESC LIMIT ?""",
                 (mint, limit),
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._decode_payload(row["payload_json"]) for row in rows]
 
     def latest_all(self, *, limit: int = 100) -> list[dict]:
         """Return the latest persisted consensus decision for each mint."""
@@ -110,7 +146,7 @@ class ConsensusStore:
                 """,
                 (limit,),
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._decode_payload(row["payload_json"]) for row in rows]
 
     def recent(self, *, limit: int = 100) -> list[dict]:
         """Return recent persisted decisions across all mints, newest first."""
@@ -122,7 +158,7 @@ class ConsensusStore:
                 ORDER BY created_at_ms DESC, id DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._decode_payload(row["payload_json"]) for row in rows]
 
     def count(self, mint: str | None = None) -> int:
         with self._connect() as db:

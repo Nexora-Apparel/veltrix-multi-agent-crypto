@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..foundation import validate_runtime_controls
 from .database import shared_database_path
 from .consensus import ConsensusEngine
 from .consensus_store import ConsensusStore
@@ -79,6 +80,7 @@ def build_runtime(
     wallet_event_provider: Any | None = None,
     wallet_event_batch_provider: Any | None = None,
 ) -> ConsensusRuntime:
+    validate_runtime_controls()
     db_path = shared_database_path(database_path)
     try:
         poll = float(

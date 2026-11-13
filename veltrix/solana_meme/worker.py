@@ -22,6 +22,7 @@ from .dexscreener import DexScreenerDiscovery
 from .discovery import SolanaDiscoveryEngine
 from .launch_stream import LaunchStore, LaunchStreamManager
 from .pumpportal import PumpPortalDiscovery
+from ..foundation import validate_runtime_controls
 
 LOGGER = logging.getLogger("veltrix.solana_discovery")
 
@@ -33,7 +34,8 @@ def build_engine(
     http_session: Any | None = None,
     websocket_factory: Any | None = None,
 ) -> SolanaDiscoveryEngine:
-    """Construct the production discovery runtime without opening network sockets."""
+    """Construct the read-only discovery runtime without opening network sockets."""
+    validate_runtime_controls()
     db_path = shared_database_path(database_path)
     raw_interval = (
         poll_interval_seconds

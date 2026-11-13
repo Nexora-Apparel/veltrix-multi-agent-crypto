@@ -1,7 +1,13 @@
+from dataclasses import fields
+import json
+import sqlite3
+import hashlib
+
 import pytest
 
-from veltrix.solana_meme.consensus import ConsensusEngine, MarketEvidence, RiskEvidence
+from veltrix.solana_meme.consensus import ConsensusDecision, ConsensusEngine, MarketEvidence, RiskEvidence
 from veltrix.solana_meme.consensus_store import ConsensusStore
+from veltrix.whales import WalletBuyEvent
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -9,15 +15,15 @@ MINT = "So11111111111111111111111111111111111111112"
 def decision(now, mint=MINT):
     market = MarketEvidence(
         mint=mint, snapshot_id=1, pair_address="pool",
-        price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
+        price_usd=0.001, liquidity_usd=100_000, volume_h1_usd=50_000,
         price_change_m5_pct=0.1, retrieved_at_ms=now,
-        pair_created_at_ms=now - 1000, pair_count=1, quality_flags=(),
+        pair_created_at_ms=max(1, now - 1000), pair_count=1, quality_flags=(),
     )
     risk = RiskEvidence(
         mint=mint, observed_at_ms=now,
         risk_state="REQUIRES_MORE_EVIDENCE",
         missing_claims=("liquidity_lock_complete_inventory",),
-        errors=(), risk_flags=(), evidence_hash=f"risk-{now}",
+        errors=(), risk_flags=(), evidence_hash=hashlib.sha256(f"risk-{now}".encode()).hexdigest(),
     )
     return ConsensusEngine().evaluate(
         market, risk, history=(), now_ms=now
@@ -85,3 +91,225 @@ def test_consensus_store_latest_all_returns_one_newest_decision_per_mint(tmp_pat
     ]
     with pytest.raises(ValueError):
         store.latest_all(limit=0)
+
+
+
+def test_consensus_store_revalidates_forged_decision_id_before_write(tmp_path):
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    original = decision(1000)
+    forged = object.__new__(ConsensusDecision)
+    for field in fields(ConsensusDecision):
+        object.__setattr__(forged, field.name, getattr(original, field.name))
+    object.__setattr__(forged, "decision_id", "0" * 64)
+
+    with pytest.raises(ValueError, match="decision ID"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_path):
+    from dataclasses import replace
+
+    from veltrix.solana_meme.risk_evidence import RiskFlag
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+
+    wallet_a = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    wallet_b = "Vote111111111111111111111111111111111111111"
+    approved = ConsensusEngine(
+        trusted_wallets=(wallet_a, wallet_b),
+        min_liquidity_usd=10_000,
+        min_volume_h1_usd=10_000,
+        min_pair_age_ms=60_000,
+        whale_min_buy_usd=100,
+    ).evaluate(
+        MarketEvidence(
+            mint=MINT, snapshot_id=1, pair_address="pool",
+            price_usd=0.001, liquidity_usd=100_000, volume_h1_usd=50_000,
+            price_change_m5_pct=5.0, retrieved_at_ms=10_000_000,
+            pair_created_at_ms=6_400_000, pair_count=1, quality_flags=(),
+        ),
+        RiskEvidence(
+            mint=MINT, observed_at_ms=10_000_000,
+            risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+            missing_claims=(), errors=(), risk_flags=(),
+            evidence_hash=hashlib.sha256(b"risk-approval-test").hexdigest(),
+        ),
+        history=[
+            {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000_000 - (index + 1) * 60_000}
+            for index in range(5)
+        ],
+        wallet_events=(
+            WalletBuyEvent("solana", MINT, wallet_a, 9_999_900, 150, "helius"),
+            WalletBuyEvent("solana", MINT, wallet_b, 9_999_950, 200, "helius"),
+        ),
+        now_ms=10_000_000,
+    )
+    assert approved.status == "CONSENSUS_APPROVED"
+    # Risk flags are not part of the decision ID; the store must still enforce
+    # the Shield gate against the persisted evidence envelope.
+    forged = replace(
+        approved,
+        risk_flags=(RiskFlag("medium_flag", "medium", "Needs review", "test"),),
+    )
+    with pytest.raises(ValueError, match="Shield approval"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+
+def test_consensus_store_revalidates_payloads_on_read(tmp_path):
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    store.record(decision(1000))
+    with sqlite3.connect(store.database_path) as db:
+        row = db.execute(
+            "SELECT id, payload_json FROM solana_consensus_decisions WHERE mint = ?",
+            (MINT,),
+        ).fetchone()
+        payload = json.loads(row[1])
+        payload["support_count"] = 3.0
+        db.execute(
+            "UPDATE solana_consensus_decisions SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload), row[0]),
+        )
+
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.latest(MINT)
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.history(MINT)
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.latest_all()
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.recent()
+
+
+
+def test_consensus_store_rejects_approved_decision_with_market_quality_flags(tmp_path):
+    from dataclasses import replace
+
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    approved = ConsensusEngine(
+        trusted_wallets=(
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "Vote111111111111111111111111111111111111111",
+        ),
+        min_liquidity_usd=10_000,
+        min_volume_h1_usd=10_000,
+        min_pair_age_ms=60_000,
+        whale_min_buy_usd=100,
+    ).evaluate(
+        MarketEvidence(
+            mint=MINT, snapshot_id=1, pair_address="pool",
+            price_usd=0.001, liquidity_usd=100_000, volume_h1_usd=50_000,
+            price_change_m5_pct=5.0, retrieved_at_ms=10_000_000,
+            pair_created_at_ms=6_400_000, pair_count=1, quality_flags=(),
+        ),
+        RiskEvidence(
+            mint=MINT, observed_at_ms=10_000_000,
+            risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+            missing_claims=(), errors=(), risk_flags=(),
+            evidence_hash=hashlib.sha256(b"market-flags-test").hexdigest(),
+        ),
+        history=[
+            {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000_000 - (index + 1) * 60_000}
+            for index in range(5)
+        ],
+        wallet_events=(
+            WalletBuyEvent("solana", MINT, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 9_999_900, 150, "helius"),
+            WalletBuyEvent("solana", MINT, "Vote111111111111111111111111111111111111111", 9_999_950, 200, "helius"),
+        ),
+        now_ms=10_000_000,
+    )
+    assert approved.status == "CONSENSUS_APPROVED"
+    forged = replace(
+        approved,
+        decision_id="0" * 64,
+        market_quality_flags=("liquidity_usd_missing",),
+    )
+    payload = {
+        "mint": forged.mint,
+        "status": forged.status,
+        "votes": [
+            {
+                "agent": vote.agent,
+                "stance": vote.stance,
+                "reason": vote.reason,
+                "evidence_refs": vote.evidence_refs,
+            }
+            for vote in forged.votes
+        ],
+        "market_snapshot_id": forged.market_snapshot_id,
+        "risk_evidence_hash": forged.risk_evidence_hash,
+        "rule_version": forged.rule_version,
+        "market_quality_flags": forged.market_quality_flags,
+    }
+    forged = replace(
+        forged,
+        decision_id=hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    )
+    with pytest.raises(ValueError, match="Shield approval"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+def test_consensus_store_keeps_legacy_v1_decisions_readable(tmp_path):
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    current = decision(1000)
+    store.record(current)
+    payload = {
+        "mint": current.mint,
+        "status": current.status,
+        "votes": [
+            {
+                "agent": vote.agent,
+                "stance": vote.stance,
+                "reason": vote.reason,
+                "evidence_refs": vote.evidence_refs,
+            }
+            for vote in current.votes
+        ],
+        "market_snapshot_id": current.market_snapshot_id,
+        "risk_evidence_hash": current.risk_evidence_hash,
+        "rule_version": "phase6-consensus-v1",
+    }
+    legacy_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    stored = store.latest(MINT)
+    with sqlite3.connect(store.database_path) as db:
+        row = db.execute(
+            "SELECT id FROM solana_consensus_decisions WHERE mint = ?",
+            (MINT,),
+        ).fetchone()
+        legacy_payload = dict(payload)
+        legacy_payload.update({
+            "decision_id": legacy_id,
+            "created_at_ms": current.created_at_ms,
+            "votes": [
+                {
+                    "agent": vote.agent,
+                    "stance": vote.stance,
+                    "reason": vote.reason,
+                    "evidence_refs": list(vote.evidence_refs),
+                    "observed_at_ms": vote.observed_at_ms,
+                }
+                for vote in current.votes
+            ],
+            "support_count": current.support_count,
+            "supporting_agents": list(current.supporting_agents),
+            "risk_state": current.risk_state,
+            "missing_claims": list(current.missing_claims),
+            "risk_flags": [],
+            "reasons": list(current.reasons),
+            "paper_review_eligible": current.paper_review_eligible,
+            "execution_authorized": False,
+        })
+        db.execute(
+            "UPDATE solana_consensus_decisions SET payload_json = ? WHERE id = ?",
+            (json.dumps(legacy_payload), row[0]),
+        )
+    decoded = store.latest(MINT)
+    assert decoded["rule_version"] == "phase6-consensus-v1"
+    assert decoded["decision_id"] == legacy_id
+    assert stored["decision_id"] == current.decision_id

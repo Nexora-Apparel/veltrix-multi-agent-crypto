@@ -8,7 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, fields
 from typing import Iterable, Mapping
 
 from ..agents import Scout
@@ -34,6 +35,44 @@ class MarketEvidence:
     quality_flags: tuple[str, ...]
     source: str = "dexscreener"
     chain: str = "solana"
+
+    def __post_init__(self) -> None:
+        if canonical_mint(self.mint) != self.mint:
+            raise ValueError("market evidence mint must be canonical")
+        if isinstance(self.snapshot_id, bool) or not isinstance(self.snapshot_id, int) or self.snapshot_id <= 0:
+            raise ValueError("market evidence snapshot id must be positive")
+        if not isinstance(self.pair_address, str) or not self.pair_address.strip():
+            raise ValueError("market evidence pair address is required")
+        object.__setattr__(self, "pair_address", self.pair_address.strip())
+        for name in ("price_usd", "liquidity_usd", "volume_h1_usd"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError(f"market evidence {name} must be finite")
+        if self.price_usd <= 0 or self.liquidity_usd < 0 or self.volume_h1_usd < 0:
+            raise ValueError("market evidence values are outside valid bounds")
+        if self.price_change_m5_pct is not None and (
+            isinstance(self.price_change_m5_pct, bool)
+            or not isinstance(self.price_change_m5_pct, (int, float))
+            or not math.isfinite(float(self.price_change_m5_pct))
+        ):
+            raise ValueError("market evidence price change must be finite or None")
+        for name in ("retrieved_at_ms", "pair_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"market evidence {name} must be positive")
+        if self.pair_created_at_ms is not None and (
+            isinstance(self.pair_created_at_ms, bool)
+            or not isinstance(self.pair_created_at_ms, int)
+            or self.pair_created_at_ms <= 0
+        ):
+            raise ValueError("market evidence pair creation time is invalid")
+        if self.source != "dexscreener" or self.chain != "solana":
+            raise ValueError("market evidence must be canonical Solana DEX Screener evidence")
+        if not isinstance(self.quality_flags, tuple) or any(
+            not isinstance(flag, str) or not flag.strip() for flag in self.quality_flags
+        ):
+            raise ValueError("market evidence quality flags are malformed")
+        object.__setattr__(self, "quality_flags", tuple(sorted(set(flag.strip() for flag in self.quality_flags))))
 
     @classmethod
     def from_store_row(cls, row: Mapping[str, object]) -> "MarketEvidence":
@@ -110,6 +149,42 @@ class RiskEvidence:
     evidence_hash: str
     mint_evidence_id: str | None = None
     holder_evidence_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if canonical_mint(self.mint) != self.mint:
+            raise ValueError("risk evidence mint must be canonical")
+        if isinstance(self.observed_at_ms, bool) or not isinstance(self.observed_at_ms, int) or self.observed_at_ms <= 0:
+            raise ValueError("risk evidence timestamp must be positive")
+        if self.risk_state not in {"REQUIRES_MORE_EVIDENCE", "EVIDENCE_COLLECTED_REVIEW_REQUIRED"}:
+            raise ValueError("risk evidence state is unsupported")
+        for name in ("missing_claims", "errors", "risk_flags"):
+            if not isinstance(getattr(self, name), tuple):
+                raise ValueError(f"risk evidence {name} must be a tuple")
+        if any(not isinstance(item, str) or not item.strip() for item in self.missing_claims + self.errors):
+            raise ValueError("risk evidence claims and errors must be non-empty strings")
+        if self.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and (
+            self.missing_claims or self.errors
+        ):
+            raise ValueError("review-ready risk state cannot contain missing claims or errors")
+        checked_flags = []
+        for flag in self.risk_flags:
+            if type(flag) is not RiskFlag:
+                raise ValueError("risk evidence flags must be RiskFlag values")
+            checked_flags.append(RiskFlag(flag.code, flag.severity, flag.description, flag.evidence_source))
+        if len({flag.code for flag in checked_flags}) != len(checked_flags):
+            raise ValueError("risk evidence flag codes must be unique")
+        if not isinstance(self.evidence_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", self.evidence_hash):
+            raise ValueError("risk evidence hash must be a canonical SHA-256 digest")
+        if self.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and (
+            self.missing_claims or self.errors
+        ):
+            raise ValueError("review-ready risk state cannot contain missing claims or errors")
+        for name in ("mint_evidence_id", "holder_evidence_id"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string or None")
+        object.__setattr__(self, "missing_claims", tuple(sorted(set(self.missing_claims))))
+        object.__setattr__(self, "risk_flags", tuple(sorted(checked_flags, key=lambda flag: flag.code)))
 
     @classmethod
     def from_store_payload(cls, payload: Mapping[str, object]) -> "RiskEvidence":
@@ -188,7 +263,169 @@ class ConsensusDecision:
     risk_evidence_hash: str
     paper_review_eligible: bool
     execution_authorized: bool = False
-    rule_version: str = "phase6-consensus-v1"
+    rule_version: str = "phase6-consensus-v2"
+    market_quality_flags: tuple[str, ...] = ()
+
+
+def validate_market_evidence(evidence: object) -> MarketEvidence:
+    if type(evidence) is not MarketEvidence:
+        raise TypeError("market evidence must be a MarketEvidence value")
+    try:
+        values = {field.name: getattr(evidence, field.name) for field in fields(MarketEvidence)}
+        return MarketEvidence(**values)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("market evidence failed canonical validation") from None
+
+
+def validate_risk_evidence(evidence: object) -> RiskEvidence:
+    if type(evidence) is not RiskEvidence:
+        raise TypeError("risk evidence must be a RiskEvidence value")
+    try:
+        values = {field.name: getattr(evidence, field.name) for field in fields(RiskEvidence)}
+        return RiskEvidence(**values)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("risk evidence failed canonical validation") from None
+
+
+def validate_consensus_decision(decision: object) -> ConsensusDecision:
+    """Reconstruct all decision fields and recompute its deterministic ID."""
+    if type(decision) is not ConsensusDecision:
+        raise TypeError("decision must be a ConsensusDecision value")
+    try:
+        values = {field.name: getattr(decision, field.name) for field in fields(ConsensusDecision)}
+        checked = ConsensusDecision(**values)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("consensus decision failed canonical validation") from None
+
+    if canonical_mint(checked.mint) != checked.mint:
+        raise ValueError("consensus decision mint must be canonical")
+    if not isinstance(checked.status, str) or checked.status not in ("REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"):
+        raise ValueError("unsupported consensus disposition")
+    if isinstance(checked.created_at_ms, bool) or not isinstance(checked.created_at_ms, int) or checked.created_at_ms <= 0:
+        raise ValueError("consensus decision timestamp must be positive")
+    if not isinstance(checked.votes, tuple) or len(checked.votes) != 4:
+        raise ValueError("consensus decision must contain four specialist votes")
+    expected_agents = ("scout", "whale", "sniper", "shield")
+    checked_votes = []
+    for vote, expected_agent in zip(checked.votes, expected_agents):
+        if type(vote) is not AgentVote or vote.agent != expected_agent:
+            raise ValueError("consensus votes are missing or out of order")
+        allowed = ("APPROVE", "ABSTAIN", "REJECT") if expected_agent == "shield" else ("SUPPORT", "ABSTAIN")
+        if not isinstance(vote.stance, str) or vote.stance not in allowed:
+            raise ValueError("consensus vote stance is invalid for its agent")
+        if not isinstance(vote.reason, str) or not vote.reason.strip():
+            raise ValueError("consensus vote reason is required")
+        if not isinstance(vote.evidence_refs, tuple) or any(
+            not isinstance(ref, str) or not ref.strip() for ref in vote.evidence_refs
+        ):
+            raise ValueError("consensus vote evidence references are malformed")
+        if isinstance(vote.observed_at_ms, bool) or not isinstance(vote.observed_at_ms, int) or vote.observed_at_ms <= 0:
+            raise ValueError("consensus vote timestamp must be positive")
+        checked_votes.append(AgentVote(
+            vote.agent, vote.stance, vote.reason, tuple(vote.evidence_refs), vote.observed_at_ms
+        ))
+    support_agents = tuple(
+        vote.agent for vote in checked_votes
+        if vote.agent in {"scout", "whale", "sniper"} and vote.stance == "SUPPORT"
+    )
+    if isinstance(checked.support_count, bool) or not isinstance(checked.support_count, int) or checked.support_count != len(support_agents):
+        raise ValueError("consensus support count does not match votes")
+    if not isinstance(checked.supporting_agents, tuple) or checked.supporting_agents != support_agents:
+        raise ValueError("consensus supporting agents do not match votes")
+    if not isinstance(checked.risk_state, str) or checked.risk_state not in ("REQUIRES_MORE_EVIDENCE", "EVIDENCE_COLLECTED_REVIEW_REQUIRED"):
+        raise ValueError("consensus risk state is unsupported")
+    for name in ("missing_claims", "risk_flags", "reasons"):
+        if not isinstance(getattr(checked, name), tuple):
+            raise ValueError(f"consensus {name} must be a tuple")
+    if any(not isinstance(item, str) or not item.strip() for item in checked.missing_claims + checked.reasons):
+        raise ValueError("consensus claims and reasons must be non-empty strings")
+    flags = []
+    for flag in checked.risk_flags:
+        if type(flag) is not RiskFlag:
+            raise ValueError("consensus risk flags must be RiskFlag values")
+        flags.append(RiskFlag(flag.code, flag.severity, flag.description, flag.evidence_source))
+    if len({flag.code for flag in flags}) != len(flags):
+        raise ValueError("consensus risk flag codes must be unique")
+    if checked.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and checked.missing_claims:
+        raise ValueError("review-ready consensus risk state cannot contain missing claims")
+    if not isinstance(checked.market_quality_flags, tuple) or any(
+        not isinstance(flag, str) or not flag.strip() for flag in checked.market_quality_flags
+    ):
+        raise ValueError("consensus market quality flags are malformed")
+    if checked.rule_version not in {"phase6-consensus-v1", "phase6-consensus-v2"}:
+        raise ValueError("unsupported consensus rule version")
+    if checked.rule_version == "phase6-consensus-v1" and checked.market_quality_flags:
+        raise ValueError("legacy consensus decisions cannot contain uncommitted market flags")
+    if checked.status == "REJECTED" and checked_votes[3].stance != "REJECT":
+        raise ValueError("rejected consensus requires a Shield veto")
+    if checked_votes[3].stance == "APPROVE" and (
+        checked.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
+        or checked.missing_claims
+        or any(flag.severity in {"medium", "high", "critical"} for flag in flags)
+    ):
+        raise ValueError("Shield approval requires complete risk evidence and no medium-or-higher flags")
+    if checked.status == "CONSENSUS_APPROVED" and (
+        checked_votes[3].stance != "APPROVE"
+        or checked.support_count < 2
+        or checked.market_quality_flags
+    ):
+        raise ValueError("consensus approval requires Shield approval, clean market quality and two specialist supports")
+    if checked.status in {"WATCH", "ABSTAIN"} and checked_votes[3].stance == "REJECT":
+        raise ValueError("a Shield veto must be represented as REJECTED")
+    if isinstance(checked.market_snapshot_id, bool) or not isinstance(checked.market_snapshot_id, int) or checked.market_snapshot_id <= 0:
+        raise ValueError("consensus market snapshot id must be positive")
+    if not isinstance(checked.risk_evidence_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", checked.risk_evidence_hash):
+        raise ValueError("consensus risk evidence hash must be a canonical SHA-256 digest")
+    if not isinstance(checked.paper_review_eligible, bool) or checked.paper_review_eligible != (checked.status == "CONSENSUS_APPROVED"):
+        raise ValueError("paper-review eligibility must match the consensus disposition")
+    if checked.execution_authorized is not False:
+        raise ValueError("Phase 06 consensus decisions cannot authorize execution")
+    if not isinstance(checked.rule_version, str) or not checked.rule_version.strip():
+        raise ValueError("consensus rule version is required")
+    payload = {
+        "mint": checked.mint,
+        "status": checked.status,
+        "votes": [
+            {
+                "agent": vote.agent,
+                "stance": vote.stance,
+                "reason": vote.reason,
+                "evidence_refs": vote.evidence_refs,
+            }
+            for vote in checked_votes
+        ],
+        "market_snapshot_id": checked.market_snapshot_id,
+        "risk_evidence_hash": checked.risk_evidence_hash,
+        "rule_version": checked.rule_version,
+    }
+    if checked.rule_version == "phase6-consensus-v2":
+        payload["market_quality_flags"] = checked.market_quality_flags
+    expected_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if checked.decision_id != expected_id:
+        raise ValueError("consensus decision ID does not match its evidence and votes")
+    return ConsensusDecision(
+        decision_id=checked.decision_id,
+        mint=checked.mint,
+        status=checked.status,
+        created_at_ms=checked.created_at_ms,
+        votes=tuple(checked_votes),
+        support_count=checked.support_count,
+        supporting_agents=support_agents,
+        risk_state=checked.risk_state,
+        missing_claims=tuple(sorted(set(checked.missing_claims))),
+        risk_flags=tuple(sorted(flags, key=lambda flag: flag.code)),
+        reasons=tuple(checked.reasons),
+        market_snapshot_id=checked.market_snapshot_id,
+        risk_evidence_hash=checked.risk_evidence_hash,
+        paper_review_eligible=checked.paper_review_eligible,
+        execution_authorized=False,
+        rule_version=checked.rule_version,
+        market_quality_flags=tuple(sorted(set(checked.market_quality_flags))),
+    )
+
+
 
 
 @dataclass(frozen=True)
@@ -272,8 +509,8 @@ class ConsensusEngine:
         wallet_events: Iterable[WalletBuyEvent] = (),
         now_ms: int,
     ) -> ConsensusDecision:
-        if not isinstance(market, MarketEvidence) or not isinstance(risk, RiskEvidence):
-            raise TypeError("consensus requires typed market and risk evidence")
+        market = validate_market_evidence(market)
+        risk = validate_risk_evidence(risk)
         now = now_ms
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("now_ms must be a positive integer")
@@ -456,12 +693,13 @@ class ConsensusEngine:
             ],
             "market_snapshot_id": market.snapshot_id,
             "risk_evidence_hash": risk.evidence_hash,
-            "rule_version": "phase6-consensus-v1",
+            "rule_version": "phase6-consensus-v2",
+            "market_quality_flags": market.quality_flags,
         }
         decision_id = hashlib.sha256(
             json.dumps(decision_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return ConsensusDecision(
+        return validate_consensus_decision(ConsensusDecision(
             decision_id=decision_id,
             mint=market.mint,
             status=status,
@@ -477,4 +715,6 @@ class ConsensusEngine:
             risk_evidence_hash=risk.evidence_hash,
             paper_review_eligible=status == "CONSENSUS_APPROVED",
             execution_authorized=False,
-        )
+            rule_version="phase6-consensus-v2",
+            market_quality_flags=market.quality_flags,
+        ))

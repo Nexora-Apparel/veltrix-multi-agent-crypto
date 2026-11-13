@@ -1,4 +1,4 @@
-"""Scheduled consensus analysis over Phase 04 market and Phase 05 risk evidence."""
+"""Read-only polling consensus analysis over Phase 04 and Phase 05 evidence."""
 from __future__ import annotations
 
 import logging
@@ -175,7 +175,7 @@ class ConsensusWorker:
                     next_run_at_ms = ?, lease_until_ms = NULL,
                     last_error = ?, updated_at_ms = ?
                 WHERE mint = ?
-            """, (failures, now + delay, f"{type(error).__name__}: {error}"[:500], now, mint))
+            """, (failures, now + delay, f"{type(error).__name__}", now, mint))
 
     def _wallet_events(self, mint: str) -> tuple[WalletBuyEvent, ...]:
         if self.wallet_event_provider is None:
@@ -191,7 +191,7 @@ class ConsensusWorker:
         try:
             events = tuple(self.wallet_event_batch_provider(tuple(mints), now_ms))
         except Exception as exc:
-            LOGGER.warning("Solana wallet evidence batch unavailable; Whale will abstain: %s", exc)
+            LOGGER.warning("Solana wallet evidence batch unavailable; Whale will abstain (%s)", type(exc).__name__)
             return {}
         grouped: dict[str, list[WalletBuyEvent]] = {}
         for event in events:

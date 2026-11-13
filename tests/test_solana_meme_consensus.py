@@ -1,3 +1,7 @@
+from dataclasses import fields
+
+import hashlib
+
 import pytest
 
 from veltrix.whales import WalletBuyEvent
@@ -40,9 +44,11 @@ def risk(**overrides):
         missing_claims=(),
         errors=(),
         risk_flags=(),
-        evidence_hash="risk-evidence-hash",
+        evidence_hash=hashlib.sha256(b"risk-evidence-hash").hexdigest(),
     )
     values.update(overrides)
+    if (values["missing_claims"] or values["errors"]) and "risk_state" not in overrides:
+        values["risk_state"] = "REQUIRES_MORE_EVIDENCE"
     return RiskEvidence(**values)
 
 
@@ -281,3 +287,35 @@ def test_risk_payload_rejects_unknown_state():
     }
     with pytest.raises(ValueError):
         RiskEvidence.from_store_payload(payload)
+
+
+
+def test_engine_reconstructs_and_revalidates_market_evidence():
+    original = market()
+    forged = object.__new__(MarketEvidence)
+    for field in fields(MarketEvidence):
+        object.__setattr__(forged, field.name, getattr(original, field.name))
+    object.__setattr__(forged, "price_usd", float("nan"))
+
+    with pytest.raises(ValueError, match="failed canonical validation"):
+        full_engine().evaluate(
+            forged, risk(), history=history(), wallet_events=wallet_events(), now_ms=NOW
+        )
+
+
+def test_engine_rejects_forged_risk_state():
+    original = risk()
+    forged = object.__new__(RiskEvidence)
+    for field in fields(RiskEvidence):
+        object.__setattr__(forged, field.name, getattr(original, field.name))
+    object.__setattr__(forged, "risk_state", "SAFE")
+
+    with pytest.raises(ValueError, match="failed canonical validation"):
+        full_engine().evaluate(
+            market(), forged, history=history(), wallet_events=wallet_events(), now_ms=NOW
+        )
+
+
+def test_review_ready_risk_state_cannot_hide_missing_claims():
+    with pytest.raises(ValueError, match="cannot contain missing claims"):
+        risk(missing_claims=("creator_wallet_provenance",), risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED")
