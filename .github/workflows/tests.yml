@@ -19,7 +19,7 @@ jobs:
       - run: python -m compileall -q veltrix tests
       - run: pytest -q
       - name: Live Solana discovery provider smoke
-        if: github.event_name == 'pull_request' && github.head_ref == 'work/phase-3-solana-discovery'
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/phase-3-solana-discovery')
         env:
           VELTRIX_PUMPPORTAL_WS_ENDPOINT: ${{ secrets.VELTRIX_PUMPPORTAL_WS_ENDPOINT }}
         run: python -m veltrix.solana_meme.smoke
