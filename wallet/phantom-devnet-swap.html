@@ -264,9 +264,15 @@
     if(!Array.isArray(transaction.signatures)||!transaction.signatures.includes(signature)) {
       throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC transaction signature list does not contain the returned Phantom signature.");
     }
-    const confirmedBytes=Uint8Array.from(transaction.message.serialize());
-    const expectedMessage=normalizedTransactionMessage(reviewedTx);
-    const confirmedMessage=normalizeConfirmedLegacyMessage(transaction.message);
+    let confirmedBytes,expectedMessage,confirmedMessage;
+    try {
+      confirmedBytes=Uint8Array.from(transaction.message.serialize());
+      expectedMessage=normalizedTransactionMessage(reviewedTx);
+      confirmedMessage=normalizeConfirmedLegacyMessage(transaction.message);
+    } catch(error) {
+      throw new Error("CONFIRMED_BUT_UNVERIFIED: confirmed transaction message could not be decoded or serialized: "+
+        (error&&error.message?error.message:String(error)));
+    }
     const semanticDifferences=compareLegacyMessageSemantics(expectedMessage,confirmedMessage);
     const exact=bytesEqual(confirmedBytes,reviewedMessageBytes);
     if(confirmedMessage.header.numRequiredSignatures!==1 || confirmedMessage.staticAccountKeys[0]!==wallet.toBase58()) {
