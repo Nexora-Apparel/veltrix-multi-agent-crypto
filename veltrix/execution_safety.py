@@ -68,6 +68,7 @@ def _canonical_json(value: dict) -> bytes:
 @dataclass(frozen=True, slots=True)
 class ExecutionIntent:
     intent_id: str
+    expected_message_hash: str
     chain: str
     wallet_public_key: str
     input_mint: str
@@ -86,6 +87,7 @@ class ExecutionIntent:
             value = getattr(self, name)
             if not isinstance(value, str) or not value or value.strip() != value:
                 raise ExecutionGateError(f"invalid_{name}")
+        _digest(self.expected_message_hash, "expected_message_hash")
         if self.input_mint == self.output_mint:
             raise ExecutionGateError("identical_input_output_mints")
         for name in ("input_base_units", "requested_exposure_base_units", "minimum_output_base_units", "expires_at_ms"):
@@ -106,6 +108,7 @@ class ExecutionIntent:
     def canonical_payload(self) -> bytes:
         return _canonical_json({
             "intent_id": self.intent_id,
+            "expected_message_hash": self.expected_message_hash,
             "chain": self.chain,
             "wallet_public_key": self.wallet_public_key,
             "input_mint": self.input_mint,
@@ -281,6 +284,8 @@ class TransactionValidator:
         _digest(plan.message_hash, "message_hash")
         if not hmac_compare(plan.message_hash, plan.computed_message_hash()):
             raise ExecutionGateError("transaction_manifest_hash_mismatch")
+        if not hmac_compare(plan.message_hash, intent.expected_message_hash):
+            raise ExecutionGateError("transaction_not_bound_to_authorized_intent")
 
         allowed_programs = set(policy.allowed_program_ids) & set(intent.expected_program_ids)
         swap_count = 0
