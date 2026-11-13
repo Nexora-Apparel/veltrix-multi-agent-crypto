@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings as load_settings
+from ..foundation import validate_runtime_controls
 from ..providers.factory import build_solana_risk_evidence_collector
 from .database import shared_database_path
 from .launch_stream import LaunchStore
@@ -77,6 +78,7 @@ def build_runtime(
     collector: Any | None = None,
     clock_ms: Any | None = None,
 ) -> SolanaRiskRuntime:
+    validate_runtime_controls()
     config = settings_obj or load_settings()
     db_path = shared_database_path(database_path)
     try:
