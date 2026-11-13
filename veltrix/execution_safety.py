@@ -284,6 +284,7 @@ class TransactionValidator:
 
         allowed_programs = set(policy.allowed_program_ids) & set(intent.expected_program_ids)
         swap_count = 0
+        compute_budget_count = 0
         for instruction in plan.instructions:
             if not isinstance(instruction, InstructionPlan):
                 raise ExecutionGateError("malformed_instruction")
@@ -293,6 +294,8 @@ class TransactionValidator:
                 raise ExecutionGateError("unknown_instruction")
             if instruction.operation == "SWAP":
                 swap_count += 1
+            elif instruction.operation == "COMPUTE_BUDGET":
+                compute_budget_count += 1
             if instruction.changes_authority or instruction.changes_delegate:
                 raise ExecutionGateError("authority_or_delegate_change")
             if not isinstance(instruction.accounts, tuple) or not instruction.accounts:
@@ -302,9 +305,13 @@ class TransactionValidator:
                 for account in instruction.accounts
             ):
                 raise ExecutionGateError("unexpected_instruction_account")
+            if len(set(instruction.accounts)) != len(instruction.accounts):
+                raise ExecutionGateError("duplicate_instruction_account")
             _digest(instruction.data_hash, "instruction_data_hash")
         if swap_count != 1:
             raise ExecutionGateError("expected_exactly_one_swap_instruction")
+        if compute_budget_count > 2:
+            raise ExecutionGateError("too_many_compute_budget_instructions")
 
         input_effects = []
         output_effects = []
