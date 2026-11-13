@@ -60,7 +60,7 @@ def run_market_smoke(provider=None) -> MarketSmokeResult:
                 else:
                     diagnostic = f"unexpected raw response type={type(raw).__name__}"
             except Exception as exc:
-                diagnostic = f"raw diagnostic request failed: {type(exc).__name__}: {exc}"
+                diagnostic = f"raw diagnostic request failed ({type(exc).__name__})"
         raise MarketDataUnavailable(
             f"DEX Screener returned no normalized BONK pair data; {diagnostic}"
         )

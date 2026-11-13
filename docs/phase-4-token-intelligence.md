@@ -34,10 +34,12 @@ For the selected pool, the snapshot records:
 - DEX, quote-token symbol and pair address.
 - Pair creation time, number of eligible pools, local retrieval time and source
   response receipt time.
-- Explicit data-quality flags for missing or zero fields.
+- Explicit data-quality flags for missing or zero fields. Missing liquidity and hourly volume remain distinguishable from observed zero values.
 
 The selected pool is the single eligible pool with the highest reported USD
-liquidity. Liquidity and volume are not summed across pools, because fragmented
+liquidity. Pools with reported liquidity take precedence over pools whose
+liquidity field is missing; a missing field is never treated as a measured zero
+for pool selection. Liquidity and volume are not summed across pools, because fragmented
 or correlated pools must not be mistaken for one executable market.
 
 The provider records whether the requested mint is the pair's base or quote
@@ -60,8 +62,10 @@ pair-level observations and must not be represented as token-specific flow.
 
 ## Persistence and workers
 
-`MarketSnapshotStore` is append-only. It deduplicates the same mint/pair/source
-response timestamp while retaining later observations.
+`MarketSnapshotStore` is append-only. It reconstructs and validates every
+snapshot again at the persistence boundary, rather than trusting a frozen
+dataclass instance. It deduplicates the same mint/pair/source response timestamp
+while retaining later observations.
 
 `CandidateEnrichmentWorker`:
 1. Imports unseen launch candidates into a durable job table.
@@ -110,3 +114,20 @@ This stage reports market facts and data-quality gaps only. It does not inspect
 mint/freeze authorities, holder concentration, creator wallets, honeypot or
 sellability conditions, liquidity locks, malicious metadata, or contract risk.
 Those checks belong to Phase 05. No market snapshot is a buy signal.
+
+
+## Stage 4 exit criteria
+
+- [x] DEX Screener token-pairs requests are batched at no more than 30 mints per request.
+- [x] Exact Solana chain/mint matching, finite numeric checks, response-age bounds and quote-side price normalization are enforced.
+- [x] Highest reported-liquidity pool is selected without summing liquidity or volume across pools.
+- [x] Base-token-only FDV, market cap and price-change fields are not misattributed to quote-side tokens.
+- [x] Missing liquidity/hourly-volume fields are distinguished from observed zero values and are surfaced in quality flags.
+- [x] Append-only snapshots are revalidated at persistence; shared database path, bounded leases and capped retries are enforced.
+- [x] DEX provider and market-smoke errors do not echo raw exception text that may contain configured endpoint credentials.
+- [x] Full repository CI and adversarial tests pass on the exact Stage 4 PR head (805 passed, 5 skipped; compileall passed).
+- [x] Live, read-only BONK market-data smoke passed in the Stage 4 PR workflow; one eligible Orca pool returned a finite USD price and no quality flags.
+- [ ] Post-merge CI and snapshot persistence/replay tests pass on main.
+- [x] Review confirms only market provider, snapshot normalization/storage, tests, documentation and PR smoke workflow changed; no holder/security analysis, scoring, consensus, paper trading, Telegram, scheduling, production deployment or execution was introduced.
+
+This stage produces timestamped market observations only. It does not assert token safety, executable depth, or trading suitability.

@@ -66,11 +66,13 @@ class DexScreenerProvider:
                 response.raise_for_status()
                 payload = response.json()
             except (requests.RequestException, ValueError) as exc:
-                raise ProviderError(f"DexScreener request failed: {exc}") from exc
+                raise ProviderError(
+                    f"DexScreener request failed ({type(exc).__name__})"
+                ) from None
             except Exception as exc:
                 raise ProviderError(
-                    f"DexScreener request failed: {type(exc).__name__}: {exc}"
-                ) from exc
+                    f"DexScreener request failed ({type(exc).__name__})"
+                ) from None
             if not isinstance(payload, list):
                 raise ProviderError("Unexpected DexScreener response shape")
 
@@ -229,14 +231,24 @@ class DexScreenerProvider:
                 raise ProviderError("Invalid pairCreatedAt")
             created = int(created_number)
 
+        quality_flags = []
+        liquidity_usd = liquidity.get("usd")
+        volume_h1_usd = volume.get("h1")
+        if liquidity_usd is None:
+            quality_flags.append("liquidity_usd_missing")
+            liquidity_usd = 0
+        if volume_h1_usd is None:
+            quality_flags.append("volume_h1_usd_missing")
+            volume_h1_usd = 0
+
         return MarketEvent(
             chain=chain,
             token_address=requested,
             pair_address=pair_address.strip(),
             symbol=token.get("symbol") if isinstance(token.get("symbol"), str) else None,
             price_usd=price_usd,
-            liquidity_usd=cls._number(liquidity.get("usd", 0), "liquidity.usd") or 0.0,
-            volume_h1_usd=cls._number(volume.get("h1", 0), "volume.h1") or 0.0,
+            liquidity_usd=cls._number(liquidity_usd, "liquidity.usd") or 0.0,
+            volume_h1_usd=cls._number(volume_h1_usd, "volume.h1") or 0.0,
             price_change_m5_pct=change_m5,
             observed_at_ms=observed_at_ms,
             pair_created_at_ms=created,
@@ -258,4 +270,5 @@ class DexScreenerProvider:
             quote_token_symbol=other.get("symbol") if isinstance(other.get("symbol"), str)
             else None,
             pool_token_side=side,
+            quality_flags=tuple(quality_flags),
         )

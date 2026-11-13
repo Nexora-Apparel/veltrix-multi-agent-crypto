@@ -24,7 +24,7 @@ jobs:
           VELTRIX_PUMPPORTAL_WS_ENDPOINT: ${{ secrets.VELTRIX_PUMPPORTAL_WS_ENDPOINT }}
         run: python -m veltrix.solana_meme.smoke
       - name: Live Solana market-data smoke
-        if: github.event_name == 'pull_request' && github.head_ref == 'work/phase-4-token-intelligence'
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/phase-4-token-intelligence')
         run: python -m veltrix.solana_meme.market_smoke
       - name: Live Solana finalized mint-account smoke
         if: github.event_name == 'pull_request' && github.head_ref == 'work/phase-5-security-risk'
