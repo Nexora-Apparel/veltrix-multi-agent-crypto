@@ -131,7 +131,7 @@ See `docs/phase-09-operator-checklist.md` for the future manual safety checklist
 - [x] One-use authorization is bound to wallet, chain, policy hash, intent ID and short expiry, with durable atomic replay protection.
 - [x] Emergency stop is active by default, independently persisted, restart-safe, audited and fail-closed on read errors.
 - [x] Risk gate enforces evidence state, missing-claim/flag checks, freshness and integer-base-unit exposure/daily-loss limits.
-- [x] Normalized transaction manifest validator enforces program/account allowlists, mint/spend/output/slippage/fee limits and authority/delegate invariants.
+- [x] Normalized transaction manifest validator enforces program/account allowlists, exact intent-to-message-hash binding, mint/spend/output/slippage/fee limits and authority/delegate invariants.
 - [x] Simulation gate binds successful simulation to the exact manifest hash and checks freshness, slot, account-state hash, output and fee parity.
 - [x] Submission coordinator enforces durable intent idempotency, compare-and-set transitions and terminal-state protection; SIGNED/SUBMITTED/CONFIRMED are blocked.
 - [x] Execution audit is append-only, redacted and rejects fields outside its allowlist; static scans reject key-import/signing/RPC submission adapters.
