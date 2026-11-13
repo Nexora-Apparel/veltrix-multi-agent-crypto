@@ -1,6 +1,8 @@
+from dataclasses import fields
+
 import pytest
 
-from veltrix.solana_meme.consensus import ConsensusEngine, MarketEvidence, RiskEvidence
+from veltrix.solana_meme.consensus import ConsensusDecision, ConsensusEngine, MarketEvidence, RiskEvidence
 from veltrix.solana_meme.consensus_store import ConsensusStore
 
 MINT = "So11111111111111111111111111111111111111112"
@@ -85,3 +87,49 @@ def test_consensus_store_latest_all_returns_one_newest_decision_per_mint(tmp_pat
     ]
     with pytest.raises(ValueError):
         store.latest_all(limit=0)
+
+
+
+def test_consensus_store_revalidates_forged_decision_id_before_write(tmp_path):
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    original = decision(1000)
+    forged = object.__new__(ConsensusDecision)
+    for field in fields(ConsensusDecision):
+        object.__setattr__(forged, field.name, getattr(original, field.name))
+    object.__setattr__(forged, "decision_id", "0" * 64)
+
+    with pytest.raises(ValueError, match="decision ID"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_path):
+    from dataclasses import replace
+
+    from veltrix.solana_meme.risk_evidence import RiskFlag
+
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    approved = ConsensusEngine().evaluate(
+        MarketEvidence(
+            mint=MINT, snapshot_id=1, pair_address="pool",
+            price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
+            price_change_m5_pct=0.1, retrieved_at_ms=10_000,
+            pair_created_at_ms=9_000, pair_count=1, quality_flags=(),
+        ),
+        RiskEvidence(
+            mint=MINT, observed_at_ms=10_000,
+            risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+            missing_claims=(), errors=(), risk_flags=(),
+            evidence_hash="risk-approval-test",
+        ),
+        history=(), now_ms=10_000,
+    )
+    # The baseline has no specialist supports and is not approved; forge the
+    # Shield vote/status fields while keeping the original deterministic ID.
+    forged = replace(
+        approved,
+        risk_flags=(RiskFlag("medium_flag", "medium", "Needs review", "test"),),
+    )
+    with pytest.raises(ValueError, match="Shield approval"):
+        store.record(forged)
+    assert store.count(MINT) == 0
