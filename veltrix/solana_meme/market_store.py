@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from .market_data import SolanaMarketSnapshot
+from .market_data import SolanaMarketSnapshot, validate_market_snapshot
 
 
 class MarketSnapshotStore:
@@ -72,8 +72,7 @@ class MarketSnapshotStore:
             db.close()
 
     def record(self, snapshot: SolanaMarketSnapshot) -> bool:
-        if not isinstance(snapshot, SolanaMarketSnapshot):
-            raise TypeError("snapshot must be a normalized SolanaMarketSnapshot")
+        snapshot = validate_market_snapshot(snapshot)
         with self._connect() as db:
             cursor = db.execute(
                 """INSERT OR IGNORE INTO solana_market_snapshots
