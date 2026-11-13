@@ -103,7 +103,7 @@ the existing verified-intelligence adapter before reaching Whale. USD buy
 notional is estimated using a fresh persisted spot price, not historical
 execution price; this approximation is not treated as proof of trade
 profitability. Provider failures yield no Whale support for that cycle and are
-retried on the next scheduled cycle. Missing credentials or trust configuration
+retried on the next polling cycle. Missing credentials or trust configuration
 leave Whale in abstention mode.
 
 ## Phase boundary
@@ -112,3 +112,19 @@ Phase 06 ends at a persisted consensus decision. Paper-trading execution,
 position sizing, entry/exit simulation, portfolio accounting and P&L remain
 exclusively in Phase 07. Dashboard work remains Phase 08. Live wallet signing
 and swaps remain disabled in Phase 09.
+
+
+## Stage 6 exit criteria
+
+- [x] Scout, Whale, Sniper and Shield emit one typed vote each in deterministic order.
+- [x] Market and risk evidence are reconstructed and revalidated before analysis; malformed or forged inputs fail closed.
+- [x] Shield approval requires review-ready risk state, no missing claims/errors and no medium/high/critical flags.
+- [x] Consensus persistence revalidates all votes, support counts, evidence references, disposition and eligibility, then recomputes the deterministic decision ID.
+- [x] Every persisted decision has `execution_authorized=false`; only `CONSENSUS_APPROVED` can be marked eligible for a later paper review.
+- [x] Provider exception text is excluded from wallet-feed logs and retry records.
+- [x] Discovery, market-intelligence, risk and consensus runtime builders enforce the shared production/Telegram/scheduling/live-trading release locks.
+- [ ] Full repository CI and adversarial tests pass on the exact Stage 6 PR head.
+- [ ] Post-merge CI and deterministic decision replay/store tests pass on main.
+- [ ] Review confirms no wallet allowlist was fabricated, no LLM can override Shield, and no paper-trading, Telegram, scheduling, production deployment or execution capability was activated.
+
+The Whale agent remains abstention-only until an operator explicitly configures a trusted provider and approved wallet allowlist. This is an intentional evidence boundary, not a reason to infer wallet identities.
