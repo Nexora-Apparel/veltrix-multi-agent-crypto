@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
+from contextlib import closing
 import re
 import sqlite3
 import time
@@ -90,7 +91,7 @@ class ExecutionAuditStore:
         if not self.database_path or self.database_path == ":memory:":
             raise ValueError("execution audit requires a persistent database")
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             self._ensure_schema(db)
 
     def _connect(self) -> sqlite3.Connection:
@@ -164,7 +165,7 @@ class ExecutionAuditStore:
         return event_id
 
     def append(self, **event) -> str:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             self._ensure_schema(db)
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -177,7 +178,7 @@ class ExecutionAuditStore:
                 raise
 
     def events(self, intent_id: str | None = None) -> list[dict]:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             self._ensure_schema(db)
             if intent_id is None:
                 rows = db.execute(
@@ -200,7 +201,7 @@ class SubmissionCoordinator:
         if not self.database_path or self.database_path == ":memory:":
             raise ValueError("submission coordinator requires a persistent database")
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS execution_intents (
                     intent_id TEXT PRIMARY KEY,
@@ -240,7 +241,7 @@ class SubmissionCoordinator:
         policy = _safe_hash(policy_hash, "policy_hash")
         intent_digest = _safe_hash(intent_hash, "intent_hash")
         stamp = _stamp(created_at_ms)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(
@@ -306,7 +307,7 @@ class SubmissionCoordinator:
         reason = _safe_code(reason_code, "reason_code")
         evidence = _safe_hash(evidence_hash, "evidence_hash")
         tx_hash = _safe_hash(transaction_hash, "transaction_hash")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(
@@ -361,7 +362,7 @@ class SubmissionCoordinator:
 
     def get(self, intent_id: str) -> dict | None:
         safe_intent = _safe_id(intent_id)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT * FROM execution_intents WHERE intent_id=?",
                 (safe_intent,),
