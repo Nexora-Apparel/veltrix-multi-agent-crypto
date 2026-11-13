@@ -167,3 +167,22 @@ def test_paper_runtime_main_requires_explicit_enable_flag(monkeypatch, caplog):
     main()
 
     assert "paper runtime is disabled" in caplog.text
+
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("SCHEDULER_ENABLED", "true"),
+        ("TELEGRAM_ENABLED", "true"),
+        ("VERCEL_ENV", "production"),
+    ],
+)
+def test_paper_runtime_enforces_production_telegram_and_scheduler_locks(
+    tmp_path, monkeypatch, name, value
+):
+    monkeypatch.setenv(name, value)
+    monkeypatch.setenv("VELTRIX_DEPLOYMENT_TARGET", "development")
+    monkeypatch.setenv("LIVE_TRADING", "false")
+    with pytest.raises(RuntimeError):
+        build_runtime(database_path=tmp_path / f"locked-{name}.sqlite3")
