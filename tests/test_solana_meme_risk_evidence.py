@@ -222,8 +222,8 @@ def test_stale_or_future_evidence_is_rejected_and_reported():
         max_age_ms=100,
     ).collect(MINT)
 
-    assert any("holder snapshot is stale" in error for error in report.errors)
-    assert any("mint evidence is stale" in error for error in report.errors)
+    assert "holders: ProviderError" in report.errors
+    assert "mint_account: ProviderError" in report.errors
     assert report.top_holder_pct is None
     assert report.mint_evidence_id is None
 
@@ -290,3 +290,47 @@ def test_goplus_percentages_are_retained_as_supplemental_flags_only():
     assert "goplus_reports_elevated_creator_holdings" in codes
     assert "bundled_supply" in report.missing_claims
     assert "developer_wallet_linkage" in report.missing_claims
+
+
+
+def test_holder_percentages_require_mint_supply_and_decimals_reconciliation():
+    report = SolanaRiskEvidenceCollector(
+        None,
+        FakeHolderProvider(holder_snapshot()),
+        mint_provider=FakeMintProvider(mint_snapshot(supply_raw=999)),
+        clock_ms=lambda: NOW,
+    ).collect(MINT)
+
+    assert report.holder_coverage_complete is True
+    assert report.mint_supply_reconciled is False
+    assert report.top_holder_pct is None
+    assert report.top5_holder_pct is None
+    assert report.top10_holder_pct is None
+    assert "complete_holder_inventory" not in report.missing_claims
+    assert "mint_holder_supply_reconciliation" in report.missing_claims
+    codes = {flag.code for flag in report.risk_flags}
+    assert "mint_holder_supply_mismatch" in codes
+    assert "holder_inventory_incomplete" not in codes
+
+
+def test_provider_exception_text_is_not_persisted_in_risk_report():
+    report = SolanaRiskEvidenceCollector(
+        FakeGoPlus(error=RuntimeError("request URL contains private-secret")),
+        FakeHolderProvider(error=RuntimeError("RPC URL contains private-secret")),
+        mint_provider=FakeMintProvider(error=RuntimeError("endpoint contains private-secret")),
+        clock_ms=lambda: NOW,
+    ).collect(MINT)
+
+    assert len(report.errors) == 3
+    assert all("private-secret" not in error for error in report.errors)
+    assert report.errors == (
+        "goplus: RuntimeError",
+        "holders: RuntimeError",
+        "mint_account: RuntimeError",
+    )
+
+
+def test_risk_report_rejects_concentration_without_reconciled_supply():
+    report = collector().collect(MINT)
+    with pytest.raises(ValueError, match="require complete, mint-reconciled"):
+        replace(report, mint_supply_reconciled=False)
