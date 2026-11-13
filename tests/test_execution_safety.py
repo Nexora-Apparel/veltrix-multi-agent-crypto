@@ -387,6 +387,7 @@ def test_authorization_replay_is_rejected_by_pipeline(tmp_path):
         policy=policy,
         wallet_public_key=intent.wallet_public_key,
         intent_id=intent.intent_id,
+        intent_hash=intent.intent_hash,
         consumer=consumer,
         now=NOW_MS // 1000,
     )
