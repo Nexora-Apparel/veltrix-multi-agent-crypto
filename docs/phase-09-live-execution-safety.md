@@ -123,3 +123,21 @@ Implemented in `veltrix/emergency_stop.py` and `veltrix/submission_coordinator.p
 The Stage 09 implementation is a safety-gate kernel, not a live trading release. Runtime environment construction still resolves to PAPER and rejects truthy or malformed `LIVE_TRADING`. The live-risk approval state is not produced by the existing risk pipeline. The raw Solana message decoder, signer adapter, submission adapter and settlement reconciliation are intentionally not implemented. Existing Phase 09 Raydium/Devnet draft branches remain isolated and unmerged.
 
 See `docs/phase-09-operator-checklist.md` for the future manual safety checklist. It does not request or require the user to expose any wallet secret.
+
+
+## Safety-kernel acceptance status
+
+- [x] Runtime policy defaults to PAPER; truthy or malformed LIVE_TRADING configuration is rejected.
+- [x] One-use authorization is bound to wallet, chain, policy hash, intent ID and short expiry, with durable atomic replay protection.
+- [x] Emergency stop is active by default, independently persisted, restart-safe, audited and fail-closed on read errors.
+- [x] Risk gate enforces evidence state, missing-claim/flag checks, freshness and integer-base-unit exposure/daily-loss limits.
+- [x] Normalized transaction manifest validator enforces program/account allowlists, mint/spend/output/slippage/fee limits and authority/delegate invariants.
+- [x] Simulation gate binds successful simulation to the exact manifest hash and checks freshness, slot, account-state hash, output and fee parity.
+- [x] Submission coordinator enforces durable intent idempotency, compare-and-set transitions and terminal-state protection; SIGNED/SUBMITTED/CONFIRMED are blocked.
+- [x] Execution audit is append-only, redacted and rejects fields outside its allowlist; static scans reject key-import/signing/RPC submission adapters.
+- [x] Adversarial tests cover gate rejection, emergency-stop restart/storage failure, authorization replay, concurrent intent creation and zero fake-signer calls.
+- [ ] Full repository CI passes on the exact Stage 09 PR head.
+- [ ] Post-merge CI passes on main.
+- [ ] Independent security review signs off the exact diff and threat model.
+
+The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Raw serialized Solana transaction decoding, a real signer, RPC submission and settlement reconciliation remain intentionally absent. Therefore Stage 09 safety controls are implemented, but live execution and final release are not complete or enabled.
