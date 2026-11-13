@@ -21,7 +21,7 @@ from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 MINT = "So11111111111111111111111111111111111111112"
 
 
-def add_market_snapshot(store, observed_ms, price=1.5):
+def add_market_snapshot(store, observed_ms, price=1.5, quality_flags=()):
     store.record(SolanaMarketSnapshot(
         mint=MINT,
         selected_pair_address="dashboard-pool",
@@ -50,7 +50,7 @@ def add_market_snapshot(store, observed_ms, price=1.5):
         retrieved_at_ms=observed_ms,
         response_received_at_ms=observed_ms,
         pair_created_at_ms=observed_ms - 3_600_000,
-        quality_flags=(),
+        quality_flags=tuple(quality_flags),
     ))
 
 
@@ -168,3 +168,21 @@ def test_remote_dashboard_binding_requires_long_access_token(tmp_path):
         access_token="r" * 40,
     )
     server.server_close()
+
+
+
+def test_legacy_dashboard_reader_does_not_mark_quality_flagged_snapshot(tmp_path):
+    db_path, _, markets, now = build_dashboard_db(tmp_path)
+    add_market_snapshot(
+        markets,
+        now + 1,
+        price=2.0,
+        quality_flags=("liquidity_usd_missing",),
+    )
+    reader = PaperDashboardReader(db_path, clock_ms=lambda: now + 1)
+
+    position = reader.positions()[0]
+
+    assert position["mark_status"] == "quality_flagged"
+    assert position["mark_price"] == pytest.approx(1.0)
+    assert position["quality_flags"] == ["liquidity_usd_missing"]
