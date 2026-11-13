@@ -251,7 +251,7 @@
       return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
     } catch { return "unavailable"; }
   }
-  async function reconcileConfirmedTransaction(chainTx,reviewedTx,reviewedMessageBytes,signature,expectedMinimumRaw) {
+  async function reconcileConfirmedTransaction(chainTx,reviewedTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence) {
     if(!chainTx || !chainTx.meta || chainTx.meta.err) throw new Error("Confirmed signature has no successful transaction metadata.");
     const transaction=chainTx.transaction;
     if(!transaction || !transaction.message || typeof transaction.message.serialize!=="function") {
@@ -275,9 +275,9 @@
       catch { semanticDifferences.push("directCpmmInputOrMinimumOutput"); }
     }
     const diagnostics={
-      reviewedMessageLength:reviewedMessageBytes.length,
+      reviewedMessageLength:reviewedEvidence?.length ?? reviewedMessageBytes.length,
       confirmedMessageLength:confirmedBytes.length,
-      reviewedMessageSha256:await sha256Hex(reviewedMessageBytes),
+      reviewedMessageSha256:reviewedEvidence?.sha256 || await sha256Hex(reviewedMessageBytes),
       confirmedMessageSha256:await sha256Hex(confirmedBytes),
       firstByteDifference:firstByteDifference(reviewedMessageBytes,confirmedBytes),
       semanticDifferences:[...new Set(semanticDifferences)]
@@ -1252,6 +1252,11 @@
       // Snapshot the exact message before handing the mutable Transaction object to Phantom.
       // Wallet adapters may mutate their in-memory transaction after signing/submission.
       const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
+      const reviewedMessageEvidence = Object.freeze({
+        length:reviewedMessageBytes.length,
+        sha256:await sha256Hex(reviewedMessageBytes)
+      });
+      reviewed.reviewedMessageEvidence = reviewedMessageEvidence;
       if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
         throw new Error("Phantom wallet changed before approval.");
       }
@@ -1280,7 +1285,7 @@
       let reconciliation;
       try {
         reconciliation=await reconcileConfirmedTransaction(
-          chainTx,reviewed.txs[0],reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold
+          chainTx,reviewed.txs[0],reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence
         );
       } catch (reconciliationError) {
         throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
