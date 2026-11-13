@@ -250,6 +250,7 @@ def test_default_environment_policy_cannot_enter_live_pipeline(tmp_path):
         ("authority_change", "authority_or_delegate_change"),
         ("wallet_delta", "wallet_input_delta_mismatch"),
         ("message_hash", "transaction_manifest_hash_mismatch"),
+        ("authorized_intent_substitution", "transaction_not_bound_to_authorized_intent"),
         ("stale_blockhash", "blockhash_stale_or_unbounded"),
     ],
 )
@@ -274,6 +275,9 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, message_hash=plan.computed_message_hash())
     elif mutation == "message_hash":
         plan = replace(plan, message_hash="f" * 64)
+    elif mutation == "authorized_intent_substitution":
+        plan = replace(plan, recent_blockhash="substituted-blockhash", message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
     elif mutation == "stale_blockhash":
         plan = replace(plan, blockhash_expires_at_ms=NOW_MS)
         plan = replace(plan, message_hash="0" * 64)
