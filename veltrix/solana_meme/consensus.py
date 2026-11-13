@@ -361,14 +361,15 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
     if checked_votes[3].stance == "APPROVE" and (
         checked.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
         or checked.missing_claims
-        or checked.market_quality_flags
         or any(flag.severity in {"medium", "high", "critical"} for flag in flags)
     ):
         raise ValueError("Shield approval requires complete risk evidence and no medium-or-higher flags")
     if checked.status == "CONSENSUS_APPROVED" and (
-        checked_votes[3].stance != "APPROVE" or checked.support_count < 2
+        checked_votes[3].stance != "APPROVE"
+        or checked.support_count < 2
+        or checked.market_quality_flags
     ):
-        raise ValueError("consensus approval requires Shield approval and two specialist supports")
+        raise ValueError("consensus approval requires Shield approval, clean market quality and two specialist supports")
     if checked.status in {"WATCH", "ABSTAIN"} and checked_votes[3].stance == "REJECT":
         raise ValueError("a Shield veto must be represented as REJECTED")
     if isinstance(checked.market_snapshot_id, bool) or not isinstance(checked.market_snapshot_id, int) or checked.market_snapshot_id <= 0:
