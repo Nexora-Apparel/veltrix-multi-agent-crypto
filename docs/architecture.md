@@ -130,7 +130,7 @@ The existing append-oriented SQLite event/evidence stores are retained. No schem
 
 ## 5. Persistence and infrastructure
 
-- Preserve the existing GitHub repository, GitHub Actions CI, Vercel project, Neon/other configured data services, and existing credential stores.
+- Preserve the existing GitHub repository, GitHub Actions CI, Vercel project, configured data services, and existing credential stores.
 - The repository currently uses SQLite stores for the paper ledger and several Solana intelligence domains. Existing database paths and records must not be renamed, reset, or migrated without a separately tested backup/restore plan.
 - The shared `DB_PATH` / `VELTRIX_SOLANA_DISCOVERY_DB` contract must remain consistent where the existing runtime requires it.
 - Do not place API keys, private RPC URLs, signing material, wallet secrets or Telegram bot tokens in source control, logs, generated artifacts, or architecture documents.
