@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import os
 from dotenv import load_dotenv
 from solders.pubkey import Pubkey
+from .foundation import validate_runtime_controls
 
 load_dotenv()
 
@@ -89,8 +90,7 @@ class Settings:
     bsc_tokens: tuple[str, ...] = _addresses("WATCHLIST_BSC")
 
 def settings() -> Settings:
-    if os.getenv("LIVE_TRADING", "false").lower() == "true":
-        raise RuntimeError("Live trading is disabled in this project.")
+    validate_runtime_controls()
     s = Settings()
     try:
         if str(Pubkey.from_string(s.jupiter_taker_public_key)) != s.jupiter_taker_public_key:
