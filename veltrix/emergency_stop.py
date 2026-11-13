@@ -6,6 +6,7 @@ operator call. Read failures are propagated so callers must fail closed.
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import closing
 import re
 import sqlite3
 import time
@@ -28,7 +29,7 @@ class SQLiteEmergencyStop:
         self.timeout_seconds = float(timeout_seconds)
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS execution_emergency_stop (
                     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1),
@@ -87,7 +88,7 @@ class SQLiteEmergencyStop:
         stamp = int(time.time() * 1000) if changed_at_ms is None else changed_at_ms
         if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp <= 0:
             raise ValueError("changed_at_ms must be a positive integer")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
                 """UPDATE execution_emergency_stop
@@ -106,7 +107,7 @@ class SQLiteEmergencyStop:
 
     def status(self) -> dict:
         try:
-            with self._connect() as db:
+            with closing(self._connect()) as db, db:
                 row = db.execute(
                     """SELECT active,reason_code,changed_at_ms
                        FROM execution_emergency_stop WHERE singleton_id=1"""
@@ -130,7 +131,7 @@ class SQLiteEmergencyStop:
 
     def events(self) -> list[dict]:
         try:
-            with self._connect() as db:
+            with closing(self._connect()) as db, db:
                 rows = db.execute(
                     """SELECT event_id,active,reason_code,changed_at_ms
                        FROM execution_emergency_stop_events ORDER BY event_id"""
