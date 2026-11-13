@@ -197,6 +197,96 @@
     }
     return true;
   }
+  function normalizeConfirmedLegacyMessage(message) {
+    if(!message || !message.header || !Array.isArray(message.accountKeys) ||
+       !Array.isArray(message.instructions) || typeof message.recentBlockhash!=="string") {
+      throw new Error("Confirmed RPC message is not a complete legacy message.");
+    }
+    return {
+      version:"legacy",
+      header:{
+        numRequiredSignatures:message.header.numRequiredSignatures,
+        numReadonlySignedAccounts:message.header.numReadonlySignedAccounts,
+        numReadonlyUnsignedAccounts:message.header.numReadonlyUnsignedAccounts
+      },
+      staticAccountKeys:message.accountKeys.map(key=>key.toBase58()),
+      recentBlockhash:message.recentBlockhash,
+      addressTableLookups:[],
+      compiledInstructions:message.instructions.map(ix=>({
+        programIdIndex:ix.programIdIndex,
+        accountKeyIndexes:Array.from(ix.accounts),
+        data:b58decode(ix.data)
+      }))
+    };
+  }
+  function compareLegacyMessageSemantics(expectedMessage,actualMessage) {
+    const differences=[];
+    for(const field of ["numRequiredSignatures","numReadonlySignedAccounts","numReadonlyUnsignedAccounts"]) {
+      if(expectedMessage.header[field]!==actualMessage.header[field]) differences.push("header."+field);
+    }
+    if(expectedMessage.recentBlockhash!==actualMessage.recentBlockhash) differences.push("recentBlockhash");
+    if(expectedMessage.staticAccountKeys.length!==actualMessage.staticAccountKeys.length) differences.push("accountKeys.length");
+    const keyCount=Math.max(expectedMessage.staticAccountKeys.length,actualMessage.staticAccountKeys.length);
+    for(let i=0;i<keyCount;i++) if(expectedMessage.staticAccountKeys[i]!==actualMessage.staticAccountKeys[i]) differences.push("accountKeys["+i+"]");
+    if(expectedMessage.compiledInstructions.length!==actualMessage.compiledInstructions.length) differences.push("instructions.length");
+    const instructionCount=Math.max(expectedMessage.compiledInstructions.length,actualMessage.compiledInstructions.length);
+    for(let i=0;i<instructionCount;i++) {
+      const a=expectedMessage.compiledInstructions[i],b=actualMessage.compiledInstructions[i];
+      if(!a||!b){differences.push("instructions["+i+"]");continue;}
+      if(a.programIdIndex!==b.programIdIndex) differences.push("instructions["+i+"].programIdIndex");
+      if(a.accountKeyIndexes.join(",")!==b.accountKeyIndexes.join(",")) differences.push("instructions["+i+"].accountKeyIndexes");
+      if(!bytesEqual(a.data,b.data)) differences.push("instructions["+i+"].data");
+    }
+    return differences;
+  }
+  function firstByteDifference(expected,actual) {
+    const limit=Math.min(expected.length,actual.length);
+    for(let i=0;i<limit;i++) if(expected[i]!==actual[i]) return {offset:i,expectedByte:expected[i],confirmedByte:actual[i]};
+    return expected.length===actual.length?null:{offset:limit,expectedByte:expected[limit]??null,confirmedByte:actual[limit]??null};
+  }
+  async function sha256Hex(bytes) {
+    try {
+      if(!window.crypto || !window.crypto.subtle) return "unavailable";
+      const digest=await window.crypto.subtle.digest("SHA-256",bytes);
+      return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+    } catch { return "unavailable"; }
+  }
+  async function reconcileConfirmedTransaction(chainTx,reviewedTx,reviewedMessageBytes,signature,expectedMinimumRaw) {
+    if(!chainTx || !chainTx.meta || chainTx.meta.err) throw new Error("Confirmed signature has no successful transaction metadata.");
+    const transaction=chainTx.transaction;
+    if(!transaction || !transaction.message || typeof transaction.message.serialize!=="function") {
+      throw new Error("Confirmed signature was returned, but RPC did not provide a serializable transaction message.");
+    }
+    if(!Array.isArray(transaction.signatures)||!transaction.signatures.includes(signature)) {
+      throw new Error("RPC transaction signature list does not contain the returned Phantom signature.");
+    }
+    const confirmedBytes=Uint8Array.from(transaction.message.serialize());
+    const expectedMessage=normalizedTransactionMessage(reviewedTx);
+    const confirmedMessage=normalizeConfirmedLegacyMessage(transaction.message);
+    const semanticDifferences=compareLegacyMessageSemantics(expectedMessage,confirmedMessage);
+    const exact=bytesEqual(confirmedBytes,reviewedMessageBytes);
+    if(confirmedMessage.header.numRequiredSignatures!==1 || confirmedMessage.staticAccountKeys[0]!==wallet.toBase58()) {
+      semanticDifferences.push("feePayerOrSignerPolicy");
+    }
+    const cpmmInstructions=confirmedMessage.compiledInstructions.filter(ix=>confirmedMessage.staticAccountKeys[ix.programIdIndex]===CPMM);
+    if(cpmmInstructions.length!==1) semanticDifferences.push("directCpmmInstructionCount");
+    else {
+      try { decodeCpmmSwapData(cpmmInstructions[0].data,BigInt(String(expectedMinimumRaw))); }
+      catch { semanticDifferences.push("directCpmmInputOrMinimumOutput"); }
+    }
+    const diagnostics={
+      reviewedMessageLength:reviewedMessageBytes.length,
+      confirmedMessageLength:confirmedBytes.length,
+      reviewedMessageSha256:await sha256Hex(reviewedMessageBytes),
+      confirmedMessageSha256:await sha256Hex(confirmedBytes),
+      firstByteDifference:firstByteDifference(reviewedMessageBytes,confirmedBytes),
+      semanticDifferences:[...new Set(semanticDifferences)]
+    };
+    if(semanticDifferences.length) {
+      throw new Error("CONFIRMED_BUT_UNVERIFIED: independent legacy transaction semantic audit failed. Diagnostics: "+JSON.stringify(diagnostics));
+    }
+    return {status:exact?"CONFIRMED_EXACT_MATCH":"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH",exactBytes:exact,semanticMatch:true,diagnostics};
+  }
   function snapshotUnsignedTransaction(tx) {
     const bytes=serializeUnsignedTransaction(tx);
     if(!(bytes instanceof Uint8Array)||bytes.length<1) fail("could not serialize unsigned transaction");
@@ -1187,11 +1277,13 @@
         if (chainTx) break;
         await new Promise(resolve=>setTimeout(resolve,1500));
       }
+      let reconciliation;
       try {
-        assertConfirmedTransactionMatchesReviewedMessage(chainTx,reviewedMessageBytes,signature);
+        reconciliation=await reconcileConfirmedTransaction(
+          chainTx,reviewed.txs[0],reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold
+        );
       } catch (reconciliationError) {
-        throw new Error("Confirmed transaction could not be reconciled to the exact reviewed transaction message. " +
-          (reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
+        throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
       }
       let finalUsdcBalance = BigInt(reviewed.tokenBalanceBefore);
       for (let i=0;i<15;i++) {
@@ -1206,8 +1298,14 @@
       prepared = null;
       $("review").classList.add("hidden");
       await refreshBalance();
-      status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
-        fmtFixedRaw(received,6) + " USDC. The exact reviewed message was found on-chain. One-time test complete.","good");
+      if(reconciliation.status==="CONFIRMED_EXACT_MATCH") {
+        status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\\nVerified Devnet USDC balance increase: " +
+          fmtFixedRaw(received,6) + " USDC. Exact reviewed message match verified. One-time test complete.","good");
+      } else {
+        status("DEVNET SWAP CONFIRMED — SEMANTIC MATCH. Signature: " + signature + "\\nVerified Devnet USDC balance increase: " +
+          fmtFixedRaw(received,6) + " USDC. Fee payer, signer, account ordering, blockhash and every instruction match the reviewed transaction, but serialized message bytes differ. No retry is needed. Diagnostics: " +
+          JSON.stringify(reconciliation.diagnostics),"warning");
+      }
     } catch (error) {
       if (error && error.code === 4001) {
         reviewed.executionStarted = false;
@@ -1227,7 +1325,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,normalizeConfirmedLegacyMessage,compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
