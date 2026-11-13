@@ -1,4 +1,6 @@
 from dataclasses import replace
+import hashlib
+import json
 
 import pytest
 
@@ -17,6 +19,48 @@ MINT = "So11111111111111111111111111111111111111112"
 WALLET_A = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 WALLET_B = "Vote111111111111111111111111111111111111111"
 NOW = 10_000_000
+
+
+def nonapproved_decision(decision, *, created_at_ms):
+    votes = list(decision.votes)
+    votes[3] = replace(
+        votes[3],
+        stance="ABSTAIN",
+        reason="Required security evidence is incomplete",
+        evidence_refs=("risk:creator_wallet_provenance",),
+    )
+    changed = replace(
+        decision,
+        decision_id="0" * 64,
+        status="WATCH",
+        created_at_ms=created_at_ms,
+        votes=tuple(votes),
+        risk_state="REQUIRES_MORE_EVIDENCE",
+        missing_claims=("creator_wallet_provenance",),
+        reasons=("Security evidence requires manual review",),
+        paper_review_eligible=False,
+        execution_authorized=False,
+    )
+    payload = {
+        "mint": changed.mint,
+        "status": changed.status,
+        "votes": [
+            {
+                "agent": vote.agent,
+                "stance": vote.stance,
+                "reason": vote.reason,
+                "evidence_refs": vote.evidence_refs,
+            }
+            for vote in changed.votes
+        ],
+        "market_snapshot_id": changed.market_snapshot_id,
+        "risk_evidence_hash": changed.risk_evidence_hash,
+        "rule_version": changed.rule_version,
+    }
+    decision_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return replace(changed, decision_id=decision_id)
 
 
 def market_snapshot(observed, *, price=0.001, volume=50_000, liquidity=100_000):
@@ -123,12 +167,7 @@ def build_pipeline(tmp_path, *, approved=True, broker_balance=500):
         now_ms=NOW,
     )
     if not approved:
-        decision = replace(
-            decision,
-            decision_id=decision.decision_id + "-not-approved",
-            status="ABSTAIN",
-            paper_review_eligible=False,
-        )
+        decision = nonapproved_decision(decision, created_at_ms=NOW)
     consensus.record(decision)
     broker = PaperBroker(
         str(tmp_path / "shared.sqlite3"),
@@ -180,7 +219,7 @@ def test_non_approved_consensus_is_recorded_without_opening(tmp_path):
 
     result = worker.run_once()
 
-    assert decision.status == "ABSTAIN"
+    assert decision.status == "WATCH"
     assert result.opened_positions == 0
     assert result.skipped_decisions == 1
     assert broker.snapshot()["open_positions"] == []
@@ -259,13 +298,7 @@ def test_paper_broker_decision_idempotency_and_cost_validation(tmp_path):
 
 def test_newer_nonapproved_decision_prevents_execution_of_older_approval(tmp_path):
     _, _, consensus, broker, worker, approved = build_pipeline(tmp_path)
-    newer = replace(
-        approved,
-        decision_id="f" * 64,
-        created_at_ms=NOW + 1,
-        status="ABSTAIN",
-        paper_review_eligible=False,
-    )
+    newer = nonapproved_decision(approved, created_at_ms=NOW + 1)
     assert consensus.record(newer)
 
     result = worker.run_once()
@@ -320,13 +353,7 @@ def test_broker_rechecks_latest_consensus_inside_entry_transaction(tmp_path):
     original = broker.open_position_from_consensus
 
     def race_newer_abstention(*args, **kwargs):
-        newer = replace(
-            decision,
-            decision_id=decision.decision_id + "-newer",
-            created_at_ms=NOW + 1,
-            status="ABSTAIN",
-            paper_review_eligible=False,
-        )
+        newer = nonapproved_decision(decision, created_at_ms=NOW + 1)
         consensus.record(newer)
         return original(*args, **kwargs)
 
@@ -439,13 +466,7 @@ def test_broker_atomically_rechecks_latest_risk_evidence_hash(tmp_path):
 def test_broker_atomically_rechecks_latest_consensus_decision(tmp_path):
     markets, _, consensus, broker, _, decision = build_pipeline(tmp_path)
     market = markets.latest(MINT)
-    newer = replace(
-        decision,
-        decision_id="e" * 64,
-        created_at_ms=NOW + 1,
-        status="ABSTAIN",
-        paper_review_eligible=False,
-    )
+    newer = nonapproved_decision(decision, created_at_ms=NOW + 1)
     assert consensus.record(newer)
     result = broker.open_position_from_consensus(
         decision.decision_id, MINT, market["price_usd"], 25, "approved",
