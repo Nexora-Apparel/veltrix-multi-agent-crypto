@@ -1,3 +1,5 @@
+import sqlite3
+
 from veltrix.providers.base import MarketEvent
 from veltrix.whales import WalletBuyEvent
 from veltrix.solana_meme.candidates import normalize_candidate
@@ -230,3 +232,35 @@ def test_consensus_worker_batch_wallet_provider_failure_fails_closed(tmp_path):
     assert result.failed == 0
     assert store.latest(MINT)["status"] == "ABSTAIN"
     assert store.latest(MINT)["execution_authorized"] is False
+
+
+
+def test_consensus_worker_does_not_log_or_persist_wallet_provider_exception_text(
+    tmp_path, caplog
+):
+    secret = "private-helius-api-key"
+
+    def failing_batch(_mints, _now_ms):
+        raise RuntimeError(f"request URL contains {secret}")
+
+    _, _, _, _, worker, _ = setup_worker(
+        tmp_path, wallet_event_batch_provider=failing_batch
+    )
+    worker.run_once()
+    assert secret not in caplog.text
+
+    def failing_single(_mint):
+        raise RuntimeError(f"wallet endpoint contains {secret}")
+
+    _, _, _, _, single_worker, _ = setup_worker(
+        tmp_path / "single", wallet_event_provider=failing_single
+    )
+    result = single_worker.run_once()
+    assert result.failed == 1
+    with sqlite3.connect(single_worker.database_path) as db:
+        last_error = db.execute(
+            "SELECT last_error FROM solana_consensus_jobs WHERE mint = ?",
+            (MINT,),
+        ).fetchone()[0]
+    assert last_error == "RuntimeError"
+    assert secret not in last_error
