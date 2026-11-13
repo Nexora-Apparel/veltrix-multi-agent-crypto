@@ -120,3 +120,17 @@ def test_risk_store_rejects_report_with_inconsistent_holder_percentages(tmp_path
     with pytest.raises(ValueError, match="failed canonical validation"):
         store.record(forged)
     assert store.count(MINT) == 0
+
+
+
+def test_risk_store_rejects_forged_decimal_reconciliation_before_writing(tmp_path):
+    store = SolanaRiskEvidenceStore(tmp_path / "risk.sqlite3")
+    report = make_report(1000)
+    forged = object.__new__(SolanaRiskEvidenceReport)
+    for field in fields(SolanaRiskEvidenceReport):
+        object.__setattr__(forged, field.name, getattr(report, field.name))
+    object.__setattr__(forged, "holder_decimals", report.holder_decimals + 1)
+
+    with pytest.raises(ValueError, match="failed canonical validation"):
+        store.record(forged)
+    assert store.count(MINT) == 0
