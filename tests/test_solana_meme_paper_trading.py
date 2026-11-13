@@ -465,13 +465,14 @@ def test_worker_blocks_entry_that_would_exceed_portfolio_exposure_policy(tmp_pat
 def test_broker_atomically_rechecks_latest_market_snapshot(tmp_path):
     markets, _, _, broker, _, decision = build_pipeline(tmp_path)
     market = markets.latest(MINT)
+    markets.record(market_snapshot(NOW + 1, price=0.0012))
     result = broker.open_position_from_consensus(
         decision.decision_id, MINT, market["price_usd"], 25, "approved",
         created_at_ms=decision.created_at_ms,
         paper_review_eligible=True, execution_authorized=False,
-        expected_market_snapshot_id=market["id"] + 1,
+        expected_market_snapshot_id=market["id"],
         expected_risk_evidence_hash=decision.risk_evidence_hash,
-        processed_at_ms=NOW,
+        processed_at_ms=NOW + 1,
     )
     assert result["status"] == "BLOCKED"
     assert "market snapshot changed" in result["reason"]
@@ -479,15 +480,16 @@ def test_broker_atomically_rechecks_latest_market_snapshot(tmp_path):
 
 
 def test_broker_atomically_rechecks_latest_risk_evidence_hash(tmp_path):
-    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    markets, risks, _, broker, _, decision = build_pipeline(tmp_path)
     market = markets.latest(MINT)
+    assert risks.record(complete_risk_report(NOW + 1))
     result = broker.open_position_from_consensus(
         decision.decision_id, MINT, market["price_usd"], 25, "approved",
         created_at_ms=decision.created_at_ms,
         paper_review_eligible=True, execution_authorized=False,
         expected_market_snapshot_id=market["id"],
-        expected_risk_evidence_hash="f" * 64,
-        processed_at_ms=NOW,
+        expected_risk_evidence_hash=decision.risk_evidence_hash,
+        processed_at_ms=NOW + 1,
     )
     assert result["status"] == "BLOCKED"
     assert "security evidence changed" in result["reason"]
@@ -580,7 +582,7 @@ def test_broker_revalidates_market_quality_inside_entry_transaction(tmp_path):
                 (MINT,),
             ).fetchone()
             db.execute(
-                "UPDATE solana_market_snapshots SET quality_flags = ? WHERE id = ?",
+                "UPDATE solana_market_snapshots SET quality_flags_json = ? WHERE id = ?",
                 (json.dumps(["liquidity_usd_missing"]), row[0]),
             )
         return original(*args, **kwargs)
