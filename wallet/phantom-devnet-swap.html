@@ -1315,10 +1315,10 @@
       $("review").classList.add("hidden");
       await refreshBalance();
       if(reconciliation.status==="CONFIRMED_EXACT_MATCH") {
-        status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\\nVerified Devnet USDC balance increase: " +
+        status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
           fmtFixedRaw(received,6) + " USDC. Exact reviewed message match verified. One-time test complete.","good");
       } else {
-        status("DEVNET SWAP CONFIRMED — SEMANTIC MATCH. Signature: " + signature + "\\nVerified Devnet USDC balance increase: " +
+        status("DEVNET SWAP CONFIRMED — SEMANTIC MATCH. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
           fmtFixedRaw(received,6) + " USDC. Fee payer, signer, account ordering, blockhash and every instruction match the reviewed transaction, but serialized message bytes differ. No retry is needed. Diagnostics: " +
           JSON.stringify(reconciliation.diagnostics),"warning");
       }
@@ -1327,12 +1327,12 @@
         reviewed.executionStarted = false;
         status("Phantom approval was rejected. No transaction was sent.","warning");
       } else if ((error.message || "").includes("FAILED_ON_CHAIN")) {
-        status((error.message || String(error)) + "\\nThe transaction failed on Solana. Do not retry automatically; inspect the signature and wallet activity.","warning");
+        status((error.message || String(error)) + "\nThe transaction failed on Solana. Do not retry automatically; inspect the signature and wallet activity.","warning");
       } else if ((error.message || "").includes("CONFIRMED_BUT_UNVERIFIED")) {
-        status((error.message || String(error)) + "\\nThe transaction is confirmed but not fully verified. Do not retry; inspect the signature and wallet activity.","warning");
+        status((error.message || String(error)) + "\nThe transaction is confirmed but not fully verified. Do not retry; inspect the signature and wallet activity.","warning");
       } else if ((error.message || "").includes("SUBMISSION_STATUS_UNKNOWN") || signature || approvalRequested) {
         status("SUBMISSION_STATUS_UNKNOWN: " + (error.message || String(error)) +
-          "\\nDo not retry; inspect Phantom activity and the Devnet signature" +
+          "\nDo not retry; inspect Phantom activity and the Devnet signature" +
           (signature ? ": " + signature : " before building another transaction."),"warning");
       } else {
         reviewed.executionStarted = false;
