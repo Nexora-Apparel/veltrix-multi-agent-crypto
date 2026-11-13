@@ -133,11 +133,15 @@ class DashboardRepository:
             return entry_price, "MISSING", None, []
         flags = market.get("quality_flags")
         observed = market.get("retrieved_at_ms")
+        age = (
+            now_ms - observed
+            if isinstance(observed, int) and not isinstance(observed, bool) and observed > 0
+            else None
+        )
         if not isinstance(flags, list) or flags:
-            return entry_price, "QUALITY_FLAGGED", None, flags if isinstance(flags, list) else ["malformed_quality_flags"]
-        if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
+            return entry_price, "QUALITY_FLAGGED", age, flags if isinstance(flags, list) else ["malformed_quality_flags"]
+        if age is None:
             return entry_price, "INVALID_TIME", None, []
-        age = now_ms - observed
         if age < 0:
             return entry_price, "FUTURE", age, []
         if age > self.max_market_age_ms:
@@ -256,7 +260,6 @@ class DashboardRepository:
                 entry = _number(row["entry_price"])
                 observed = market.get("retrieved_at_ms") if market else None
                 mark, mark_status, age, flags = self._position_mark(market, entry, now_ms)
-                fresh = mark_status == "FRESH"
                 market_value = _number(row["quantity"]) * mark
                 pnl = market_value - _number(row["cost_basis"])
                 output.append({
