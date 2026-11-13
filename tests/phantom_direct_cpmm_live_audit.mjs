@@ -137,7 +137,8 @@ const mutatedReviewedTx=Transaction.from(semanticTx.serialize({requireAllSignatu
 mutatedReviewedTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
 const immutableExpected=hooks.normalizeReviewedLegacyMessageBytes(reviewedMessageBytes);
 const originalExpected=hooks.normalizedTransactionMessage(semanticTx);
-assert.deepEqual(hooks.compareLegacyMessageSemantics(immutableExpected,originalExpected),[]);
+assert.equal(hooks.compareLegacyMessageSemantics(immutableExpected,originalExpected).length,0,
+  "immutable reviewed bytes must reconstruct the original reviewed semantics");
 assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(mutatedReviewedTx)).length>0,
   "regression setup must prove the wallet-mutated transaction differs from the immutable reviewed message");
 const differentSerializedBytes=Uint8Array.from(reviewedMessageBytes);
