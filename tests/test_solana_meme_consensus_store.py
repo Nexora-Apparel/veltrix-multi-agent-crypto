@@ -1,4 +1,6 @@
 from dataclasses import fields
+import json
+import sqlite3
 import hashlib
 
 import pytest
@@ -153,3 +155,27 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
     with pytest.raises(ValueError, match="Shield approval"):
         store.record(forged)
     assert store.count(MINT) == 0
+
+
+
+def test_consensus_store_revalidates_payloads_on_read(tmp_path):
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    store.record(decision(1000))
+    with sqlite3.connect(store.database_path) as db:
+        row = db.execute(
+            "SELECT id, payload_json FROM solana_consensus_decisions WHERE mint = ?",
+            (MINT,),
+        ).fetchone()
+        payload = json.loads(row[1])
+        payload["support_count"] = 3.0
+        db.execute(
+            "UPDATE solana_consensus_decisions SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload), row[0]),
+        )
+
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.latest(MINT)
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.history(MINT)
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.latest_all()
