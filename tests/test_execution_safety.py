@@ -481,7 +481,12 @@ def test_execution_audit_hash_chain_detects_offline_tampering(tmp_path):
         wallet_public_key=WALLET, policy_hash="a" * 64,
         intent_hash="b" * 64, created_at_ms=NOW_MS,
     )
-    store.fail("intent-tamper", occurred_at_ms=NOW_MS + 1, reason_code="gate_failed")
+    store.create(
+        intent_id="intent-other", chain="solana-devnet",
+        wallet_public_key=WALLET, policy_hash="a" * 64,
+        intent_hash="c" * 64, created_at_ms=NOW_MS + 1,
+    )
+    store.fail("intent-tamper", occurred_at_ms=NOW_MS + 2, reason_code="gate_failed")
     audit = ExecutionAuditStore(store.database_path)
     events = audit.events("intent-tamper")
     assert len(events) == 2
