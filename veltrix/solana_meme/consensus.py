@@ -297,7 +297,7 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
 
     if canonical_mint(checked.mint) != checked.mint:
         raise ValueError("consensus decision mint must be canonical")
-    if checked.status not in {"REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"}:
+    if not isinstance(checked.status, str) or checked.status not in ("REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"):
         raise ValueError("unsupported consensus disposition")
     if isinstance(checked.created_at_ms, bool) or not isinstance(checked.created_at_ms, int) or checked.created_at_ms <= 0:
         raise ValueError("consensus decision timestamp must be positive")
@@ -308,8 +308,8 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
     for vote, expected_agent in zip(checked.votes, expected_agents):
         if type(vote) is not AgentVote or vote.agent != expected_agent:
             raise ValueError("consensus votes are missing or out of order")
-        allowed = {"APPROVE", "ABSTAIN", "REJECT"} if expected_agent == "shield" else {"SUPPORT", "ABSTAIN"}
-        if vote.stance not in allowed:
+        allowed = ("APPROVE", "ABSTAIN", "REJECT") if expected_agent == "shield" else ("SUPPORT", "ABSTAIN")
+        if not isinstance(vote.stance, str) or vote.stance not in allowed:
             raise ValueError("consensus vote stance is invalid for its agent")
         if not isinstance(vote.reason, str) or not vote.reason.strip():
             raise ValueError("consensus vote reason is required")
@@ -330,21 +330,7 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         raise ValueError("consensus support count does not match votes")
     if not isinstance(checked.supporting_agents, tuple) or checked.supporting_agents != support_agents:
         raise ValueError("consensus supporting agents do not match votes")
-    if checked.status == "REJECTED" and checked_votes[3].stance != "REJECT":
-        raise ValueError("rejected consensus requires a Shield veto")
-    if checked_votes[3].stance == "APPROVE" and (
-        checked.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
-        or checked.missing_claims
-        or any(flag.severity in {"medium", "high", "critical"} for flag in checked.risk_flags)
-    ):
-        raise ValueError("Shield approval requires complete risk evidence and no medium-or-higher flags")
-    if checked.status == "CONSENSUS_APPROVED" and (
-        checked_votes[3].stance != "APPROVE" or checked.support_count < 2
-    ):
-        raise ValueError("consensus approval requires Shield approval and two specialist supports")
-    if checked.status in {"WATCH", "ABSTAIN"} and checked_votes[3].stance == "REJECT":
-        raise ValueError("a Shield veto must be represented as REJECTED")
-    if checked.risk_state not in {"REQUIRES_MORE_EVIDENCE", "EVIDENCE_COLLECTED_REVIEW_REQUIRED"}:
+    if not isinstance(checked.risk_state, str) or checked.risk_state not in ("REQUIRES_MORE_EVIDENCE", "EVIDENCE_COLLECTED_REVIEW_REQUIRED"):
         raise ValueError("consensus risk state is unsupported")
     for name in ("missing_claims", "risk_flags", "reasons"):
         if not isinstance(getattr(checked, name), tuple):
@@ -358,6 +344,22 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         flags.append(RiskFlag(flag.code, flag.severity, flag.description, flag.evidence_source))
     if len({flag.code for flag in flags}) != len(flags):
         raise ValueError("consensus risk flag codes must be unique")
+    if checked.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and checked.missing_claims:
+        raise ValueError("review-ready consensus risk state cannot contain missing claims")
+    if checked.status == "REJECTED" and checked_votes[3].stance != "REJECT":
+        raise ValueError("rejected consensus requires a Shield veto")
+    if checked_votes[3].stance == "APPROVE" and (
+        checked.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
+        or checked.missing_claims
+        or any(flag.severity in {"medium", "high", "critical"} for flag in flags)
+    ):
+        raise ValueError("Shield approval requires complete risk evidence and no medium-or-higher flags")
+    if checked.status == "CONSENSUS_APPROVED" and (
+        checked_votes[3].stance != "APPROVE" or checked.support_count < 2
+    ):
+        raise ValueError("consensus approval requires Shield approval and two specialist supports")
+    if checked.status in {"WATCH", "ABSTAIN"} and checked_votes[3].stance == "REJECT":
+        raise ValueError("a Shield veto must be represented as REJECTED")
     if isinstance(checked.market_snapshot_id, bool) or not isinstance(checked.market_snapshot_id, int) or checked.market_snapshot_id <= 0:
         raise ValueError("consensus market snapshot id must be positive")
     if not isinstance(checked.risk_evidence_hash, str) or not checked.risk_evidence_hash.strip():
