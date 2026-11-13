@@ -179,3 +179,5 @@ def test_consensus_store_revalidates_payloads_on_read(tmp_path):
         store.history(MINT)
     with pytest.raises(ValueError, match="persisted consensus payload"):
         store.latest_all()
+    with pytest.raises(ValueError, match="persisted consensus payload"):
+        store.recent()
