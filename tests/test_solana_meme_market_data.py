@@ -247,3 +247,24 @@ def test_market_snapshot_normalizes_quality_flags():
         clock_ms=lambda: 10_500,
     ).fetch(MINT_A)
     assert snapshot.quality_flags == ("a_flag", "z_flag")
+
+
+
+def test_default_retrieval_timestamp_is_captured_after_provider_response():
+    class AdvancingClock:
+        def __init__(self):
+            self.value = 10_000
+
+        def __call__(self):
+            self.value += 1
+            return self.value
+
+    clock = AdvancingClock()
+
+    class TimedProvider:
+        def fetch_token_pairs(self, chain, token_addresses):
+            observed_at = clock()
+            return [event(observed=observed_at)]
+
+    snapshot = SolanaMarketData(TimedProvider(), clock_ms=clock).fetch(MINT_A)
+    assert snapshot.response_received_at_ms < snapshot.retrieved_at_ms
