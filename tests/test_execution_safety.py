@@ -317,7 +317,14 @@ def test_emergency_stop_is_active_by_default_and_survives_restart(tmp_path):
     first.set_active(False, reason_code="operator_clear", changed_at_ms=NOW_MS)
     assert SQLiteEmergencyStop(database).is_active() is False
     SQLiteEmergencyStop(database).set_active(True, reason_code="manual_stop", changed_at_ms=NOW_MS + 1)
-    assert SQLiteEmergencyStop(database).is_active() is True
+    restarted = SQLiteEmergencyStop(database)
+    assert restarted.is_active() is True
+    assert [event["reason_code"] for event in restarted.events()] == [
+        "operator_clear", "manual_stop"
+    ]
+    with sqlite3.connect(database) as db:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            db.execute("DELETE FROM execution_emergency_stop_events")
 
 
 def test_emergency_stop_unavailable_fails_closed(tmp_path):
