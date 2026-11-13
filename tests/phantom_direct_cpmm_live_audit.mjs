@@ -135,6 +135,11 @@ const confirmedMessageBase=semanticTx.compileMessage();
 // never from this post-handoff object.
 const mutatedReviewedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
 mutatedReviewedTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
+const immutableExpected=hooks.normalizeReviewedLegacyMessageBytes(reviewedMessageBytes);
+const originalExpected=hooks.normalizedTransactionMessage(semanticTx);
+assert.deepEqual(hooks.compareLegacyMessageSemantics(immutableExpected,originalExpected),[]);
+assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(mutatedReviewedTx)).length>0,
+  "regression setup must prove the wallet-mutated transaction differs from the immutable reviewed message");
 const differentSerializedBytes=Uint8Array.from(reviewedMessageBytes);
 differentSerializedBytes[differentSerializedBytes.length-1]^=1;
 const semanticallySameMessage={
