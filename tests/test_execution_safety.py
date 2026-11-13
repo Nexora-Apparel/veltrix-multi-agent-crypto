@@ -459,3 +459,107 @@ def test_execution_audit_is_append_only_and_has_no_secret_columns(tmp_path):
             db.execute("UPDATE execution_audit_events SET state='SIGNED'")
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             db.execute("DELETE FROM execution_audit_events")
+
+
+
+@pytest.mark.parametrize(
+    "case,reason",
+    [
+        ("paper_policy", "live_execution_disabled"),
+        ("emergency_active", "emergency_stop_active"),
+        ("emergency_unavailable", "emergency_stop_unavailable"),
+        ("unknown_program", "program_not_allowlisted"),
+        ("stale_market", "market_evidence_stale"),
+        ("failed_simulation", "simulation_failed_or_missing"),
+        ("missing_authorization", "operator_authorization_missing"),
+    ],
+)
+def test_every_pipeline_rejection_stops_before_fake_signer(tmp_path, case, reason):
+    intent = make_intent()
+    policy = ExecutionPolicy.from_environment({}) if case == "paper_policy" else live_policy()
+    pipeline, coordinator, stop, _consumer = make_pipeline(
+        tmp_path / case, policy=policy
+    )
+    plan = make_plan(intent)
+    risk = make_risk(intent)
+    simulation = make_simulation(intent, plan)
+    authorization = make_authorization(intent, policy) if policy.mode is ExecutionMode.LIVE else None
+    if case == "emergency_active":
+        stop.set_active(True, reason_code="manual_stop", changed_at_ms=NOW_MS)
+    elif case == "emergency_unavailable":
+        stop.database_path = str(tmp_path / "unavailable-parent" / "stop.sqlite3")
+    elif case == "unknown_program":
+        instructions = (replace(plan.instructions[0], program_id="unknown"), plan.instructions[1])
+        plan = replace(plan, instructions=instructions, message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
+    elif case == "stale_market":
+        risk = make_risk(intent, market_observed_at_ms=NOW_MS - 10_000)
+    elif case == "failed_simulation":
+        simulation = make_simulation(intent, plan, succeeded=False)
+    elif case == "missing_authorization":
+        authorization = None
+
+    fake_signer = FakeSigner()
+    result = pipeline.prepare(
+        intent=intent,
+        plan=plan,
+        risk=risk,
+        simulation=simulation,
+        authorization=authorization,
+    )
+
+    assert result.state is ExecutionState.FAILED
+    assert result.reason_code == reason
+    assert coordinator.get(intent.intent_id)["state"] == "FAILED"
+    assert fake_signer.calls == 0
+
+
+def test_audit_store_cannot_record_unavailable_signed_states(tmp_path):
+    audit = ExecutionAuditStore(tmp_path / "audit.sqlite3")
+    with pytest.raises(ExecutionDisabled):
+        audit.append(
+            intent_id="intent-signed",
+            event_type="state_transition",
+            state=StoredExecutionState.SIGNED,
+            occurred_at_ms=NOW_MS,
+            reason_code="signed",
+        )
+
+
+def test_failed_intent_is_terminal_and_cannot_be_reopened(tmp_path):
+    store = SubmissionCoordinator(tmp_path / "terminal.sqlite3")
+    store.create(
+        intent_id="intent-terminal", chain="solana-devnet",
+        wallet_public_key=WALLET, policy_hash="a" * 64,
+        intent_hash="b" * 64, created_at_ms=NOW_MS,
+    )
+    store.fail("intent-terminal", occurred_at_ms=NOW_MS + 1, reason_code="gate_failed")
+    with pytest.raises(ValueError, match="not allowed"):
+        store.transition(
+            "intent-terminal", expected_state="FAILED", next_state="VALIDATED",
+            occurred_at_ms=NOW_MS + 2,
+        )
+
+
+def test_safety_modules_have_no_wallet_signing_or_rpc_submission_adapter():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    modules = (
+        "veltrix/execution_safety.py",
+        "veltrix/execution_policy.py",
+        "veltrix/authorization_store.py",
+        "veltrix/emergency_stop.py",
+        "veltrix/submission_coordinator.py",
+    )
+    forbidden = (
+        "solders.keypair",
+        "solana.rpc",
+        "sign_transaction(",
+        "send_transaction(",
+        "keypair.from_seed",
+        "keypair.from_bytes",
+    )
+    for relative in modules:
+        source = (root / relative).read_text(encoding="utf-8").lower()
+        assert not any(marker in source for marker in forbidden), relative
