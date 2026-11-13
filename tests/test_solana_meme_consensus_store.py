@@ -109,7 +109,17 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
     from veltrix.solana_meme.risk_evidence import RiskFlag
 
     store = ConsensusStore(tmp_path / "consensus.sqlite3")
-    approved = ConsensusEngine().evaluate(
+    from veltrix.whales import WalletBuyEvent
+
+    wallet_a = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    wallet_b = "Vote111111111111111111111111111111111111111"
+    approved = ConsensusEngine(
+        trusted_wallets=(wallet_a, wallet_b),
+        min_liquidity_usd=10_000,
+        min_volume_h1_usd=10_000,
+        min_pair_age_ms=60_000,
+        whale_min_buy_usd=100,
+    ).evaluate(
         MarketEvidence(
             mint=MINT, snapshot_id=1, pair_address="pool",
             price_usd=0.001, liquidity_usd=1000, volume_h1_usd=100,
@@ -122,10 +132,19 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
             missing_claims=(), errors=(), risk_flags=(),
             evidence_hash="risk-approval-test",
         ),
-        history=(), now_ms=10_000,
+        history=[
+            {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000 - (index + 1) * 60_000}
+            for index in range(5)
+        ],
+        wallet_events=(
+            WalletBuyEvent("solana", MINT, wallet_a, 9_900, 150, "helius"),
+            WalletBuyEvent("solana", MINT, wallet_b, 9_950, 200, "helius"),
+        ),
+        now_ms=10_000,
     )
-    # The baseline has no specialist supports and is not approved; forge the
-    # Shield vote/status fields while keeping the original deterministic ID.
+    assert approved.status == "CONSENSUS_APPROVED"
+    # Risk flags are not part of the decision ID; the store must still enforce
+    # the Shield gate against the persisted evidence envelope.
     forged = replace(
         approved,
         risk_flags=(RiskFlag("medium_flag", "medium", "Needs review", "test"),),
