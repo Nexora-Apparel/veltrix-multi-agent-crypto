@@ -181,3 +181,136 @@ def test_consensus_store_revalidates_payloads_on_read(tmp_path):
         store.latest_all()
     with pytest.raises(ValueError, match="persisted consensus payload"):
         store.recent()
+
+
+
+def test_consensus_store_rejects_approved_decision_with_market_quality_flags(tmp_path):
+    from dataclasses import replace
+
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    approved = ConsensusEngine(
+        trusted_wallets=(
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "Vote111111111111111111111111111111111111111",
+        ),
+        min_liquidity_usd=10_000,
+        min_volume_h1_usd=10_000,
+        min_pair_age_ms=60_000,
+        whale_min_buy_usd=100,
+    ).evaluate(
+        MarketEvidence(
+            mint=MINT, snapshot_id=1, pair_address="pool",
+            price_usd=0.001, liquidity_usd=100_000, volume_h1_usd=50_000,
+            price_change_m5_pct=5.0, retrieved_at_ms=10_000_000,
+            pair_created_at_ms=6_400_000, pair_count=1, quality_flags=(),
+        ),
+        RiskEvidence(
+            mint=MINT, observed_at_ms=10_000_000,
+            risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED",
+            missing_claims=(), errors=(), risk_flags=(),
+            evidence_hash=hashlib.sha256(b"market-flags-test").hexdigest(),
+        ),
+        history=[
+            {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000_000 - (index + 1) * 60_000}
+            for index in range(5)
+        ],
+        wallet_events=(
+            WalletBuyEvent("solana", MINT, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 9_999_900, 150, "helius"),
+            WalletBuyEvent("solana", MINT, "Vote111111111111111111111111111111111111111", 9_999_950, 200, "helius"),
+        ),
+        now_ms=10_000_000,
+    )
+    assert approved.status == "CONSENSUS_APPROVED"
+    forged = replace(
+        approved,
+        decision_id="0" * 64,
+        market_quality_flags=("liquidity_usd_missing",),
+    )
+    payload = {
+        "mint": forged.mint,
+        "status": forged.status,
+        "votes": [
+            {
+                "agent": vote.agent,
+                "stance": vote.stance,
+                "reason": vote.reason,
+                "evidence_refs": vote.evidence_refs,
+            }
+            for vote in forged.votes
+        ],
+        "market_snapshot_id": forged.market_snapshot_id,
+        "risk_evidence_hash": forged.risk_evidence_hash,
+        "rule_version": forged.rule_version,
+        "market_quality_flags": forged.market_quality_flags,
+    }
+    forged = replace(
+        forged,
+        decision_id=hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    )
+    with pytest.raises(ValueError, match="Shield approval"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+def test_consensus_store_keeps_legacy_v1_decisions_readable(tmp_path):
+    store = ConsensusStore(tmp_path / "consensus.sqlite3")
+    current = decision(1000)
+    store.record(current)
+    payload = {
+        "mint": current.mint,
+        "status": current.status,
+        "votes": [
+            {
+                "agent": vote.agent,
+                "stance": vote.stance,
+                "reason": vote.reason,
+                "evidence_refs": vote.evidence_refs,
+            }
+            for vote in current.votes
+        ],
+        "market_snapshot_id": current.market_snapshot_id,
+        "risk_evidence_hash": current.risk_evidence_hash,
+        "rule_version": "phase6-consensus-v1",
+    }
+    legacy_id = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    stored = store.latest(MINT)
+    with sqlite3.connect(store.database_path) as db:
+        row = db.execute(
+            "SELECT id FROM solana_consensus_decisions WHERE mint = ?",
+            (MINT,),
+        ).fetchone()
+        legacy_payload = dict(payload)
+        legacy_payload.update({
+            "decision_id": legacy_id,
+            "created_at_ms": current.created_at_ms,
+            "votes": [
+                {
+                    "agent": vote.agent,
+                    "stance": vote.stance,
+                    "reason": vote.reason,
+                    "evidence_refs": list(vote.evidence_refs),
+                    "observed_at_ms": vote.observed_at_ms,
+                }
+                for vote in current.votes
+            ],
+            "support_count": current.support_count,
+            "supporting_agents": list(current.supporting_agents),
+            "risk_state": current.risk_state,
+            "missing_claims": list(current.missing_claims),
+            "risk_flags": [],
+            "reasons": list(current.reasons),
+            "paper_review_eligible": current.paper_review_eligible,
+            "execution_authorized": False,
+        })
+        db.execute(
+            "UPDATE solana_consensus_decisions SET payload_json = ? WHERE id = ?",
+            (json.dumps(legacy_payload), row[0]),
+        )
+    decoded = store.latest(MINT)
+    assert decoded["rule_version"] == "phase6-consensus-v1"
+    assert decoded["decision_id"] == legacy_id
+    assert stored["decision_id"] == current.decision_id
