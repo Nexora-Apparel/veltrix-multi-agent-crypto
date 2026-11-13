@@ -1,9 +1,11 @@
+from dataclasses import fields
+
 import pytest
 
 from veltrix.developer_concentration import HolderBalance, HolderSnapshot
 from veltrix.providers.intelligence import TokenSafetyObservation
 from veltrix.providers.solana_mint import SolanaMintAuthoritySnapshot, TOKEN_PROGRAM_ID
-from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector
+from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector, SolanaRiskEvidenceReport
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 
 MINT = "So11111111111111111111111111111111111111112"
@@ -91,3 +93,30 @@ def test_risk_store_history_is_newest_first_and_validates_limit(tmp_path):
 def test_risk_store_requires_persistent_database():
     with pytest.raises(ValueError):
         SolanaRiskEvidenceStore(":memory:")
+
+
+
+def test_risk_store_revalidates_forged_report_before_writing(tmp_path):
+    store = SolanaRiskEvidenceStore(tmp_path / "risk.sqlite3")
+    original = make_report(1000)
+    forged = object.__new__(SolanaRiskEvidenceReport)
+    for field in fields(SolanaRiskEvidenceReport):
+        object.__setattr__(forged, field.name, getattr(original, field.name))
+    object.__setattr__(forged, "observed_at_ms", True)
+
+    with pytest.raises(ValueError, match="failed canonical validation"):
+        store.record(forged)
+    assert store.count(MINT) == 0
+
+
+def test_risk_store_rejects_report_with_inconsistent_holder_percentages(tmp_path):
+    store = SolanaRiskEvidenceStore(tmp_path / "risk.sqlite3")
+    report = make_report(1000)
+    forged = object.__new__(SolanaRiskEvidenceReport)
+    for field in fields(SolanaRiskEvidenceReport):
+        object.__setattr__(forged, field.name, getattr(report, field.name))
+    object.__setattr__(forged, "mint_supply_reconciled", False)
+
+    with pytest.raises(ValueError, match="failed canonical validation"):
+        store.record(forged)
+    assert store.count(MINT) == 0

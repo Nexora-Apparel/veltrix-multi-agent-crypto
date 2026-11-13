@@ -77,9 +77,10 @@ Neither state means that the token is safe to buy.
 ## Persistence and worker
 
 Reports are append-only in `solana_risk_evidence_reports`, deduplicated by
-canonical report hash. The scheduled worker only processes candidates that
+canonical report hash. The polling worker only processes candidates that
 already have Phase 04 market snapshots, uses SQLite leases, and retries
-transient collection failures.
+transient collection failures. It is launched manually; no scheduler or
+production worker is enabled.
 
 Start the worker with:
 
@@ -102,3 +103,20 @@ Configuration:
 Phase 05 does not implement AI consensus, autonomous buy/sell decisions,
 paper-trading positions, dashboard presentation, wallet signing or transaction
 execution. Those remain later roadmap stages.
+
+
+## Stage 5 exit criteria
+
+- [x] Finalized mint-account parser identifies classic SPL Token and Token-2022, authorities, supply, decimals and TLV extension inventory.
+- [x] Unknown Token-2022 extensions remain visible and force manual review rather than being silently accepted.
+- [x] Holder inventory reads both SPL token programs at one finalized context and reconciles owner balances to total supply.
+- [x] Concentration percentages are withheld unless holder coverage is complete and mint supply/decimals reconcile.
+- [x] GoPlus observations remain supplemental and cannot clear missing claims for complete LP inventory, developer linkage, bundle analysis, creator provenance or sellability.
+- [x] Risk reports never emit SAFE or authorize a trade.
+- [x] Provider exception text is not copied into risk reports or retry records; append-only report persistence revalidates report and flag fields.
+- [x] Full repository CI and adversarial tests pass on the exact Stage 5 PR head (812 passed, 5 skipped; compileall passed).
+- [x] Live, read-only finalized BONK mint-account smoke passed in Stage 5 PR CI; the finalized account was parsed as classic SPL Token with no active mint/freeze authority and no Token-2022 extensions.
+- [ ] Post-merge CI and report/holder reconciliation tests pass on main.
+- [x] Review confirms only risk evidence, report persistence, provider error handling, tests, documentation and read-only PR smoke changed; no wallet signing, trade execution, Telegram activation, scheduling or production deployment was introduced.
+
+The risk runtime remains a manually invoked polling process. Production scheduling and all execution capabilities remain disabled.

@@ -1,4 +1,5 @@
 from dataclasses import replace
+import sqlite3
 
 import pytest
 
@@ -200,3 +201,19 @@ def test_risk_worker_rejects_invalid_configuration(tmp_path, kwargs):
         SolanaRiskEvidenceWorker(
             launches, markets, FakeCollector(Clock(10_000)), risks, **kwargs
         )
+
+
+
+def test_risk_worker_does_not_persist_raw_exception_text(tmp_path):
+    clock = Clock(10_000)
+    collector = FakeCollector(clock, fail=True)
+    _, _, _, _, worker, _ = setup_worker(tmp_path, collector=collector)
+    result = worker.run_once()
+    assert result.failed == 1
+
+    with sqlite3.connect(worker.database_path) as db:
+        row = db.execute(
+            "SELECT last_error FROM solana_risk_evidence_jobs WHERE mint = ?",
+            (MINT,),
+        ).fetchone()
+    assert row[0] == "RuntimeError"

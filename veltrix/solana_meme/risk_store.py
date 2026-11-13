@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
 
-from .risk_evidence import SolanaRiskEvidenceReport
+from .risk_evidence import SolanaRiskEvidenceReport, validate_risk_report
 
 
 class SolanaRiskEvidenceStore:
@@ -48,8 +48,7 @@ class SolanaRiskEvidenceStore:
             db.close()
 
     def record(self, report: SolanaRiskEvidenceReport) -> bool:
-        if not isinstance(report, SolanaRiskEvidenceReport):
-            raise TypeError("report must be a SolanaRiskEvidenceReport")
+        report = validate_risk_report(report)
         payload_data = asdict(report)
         payload_data["risk_state"] = report.risk_state
         payload = json.dumps(payload_data, sort_keys=True, separators=(",", ":"))

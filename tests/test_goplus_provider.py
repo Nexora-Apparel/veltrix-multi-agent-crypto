@@ -1,3 +1,5 @@
+import requests
+
 from veltrix.providers.goplus import GoPlusTokenSafetyProvider
 from veltrix.providers.base import ProviderError
 
@@ -124,3 +126,26 @@ def test_goplus_sol_creator_percentage_remains_unknown_without_documented_field(
     )
     result = provider.fetch_safety_observation("solana", token)
     assert result.dev_hold_pct is None
+
+
+
+def test_goplus_transport_errors_do_not_echo_endpoint_or_access_token():
+    secret_url = "https://user:password@goplus.test/private?api-key=private-secret"
+
+    class BrokenSession:
+        def get(self, url, **kwargs):
+            raise requests.ConnectionError(f"connection failed for {secret_url}")
+
+    provider = GoPlusTokenSafetyProvider(
+        access_token="private-secret",
+        base_url=secret_url,
+        session=BrokenSession(),
+    )
+    try:
+        provider.fetch_safety_observation("bsc", "0xabc")
+    except ProviderError as error:
+        assert "private-secret" not in str(error)
+        assert "password" not in str(error)
+        assert "ConnectionError" in str(error)
+    else:
+        raise AssertionError("Expected transport failure")

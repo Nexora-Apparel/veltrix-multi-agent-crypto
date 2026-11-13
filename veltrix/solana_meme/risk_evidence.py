@@ -5,7 +5,7 @@ safe, produce a buy/sell signal, or replace independent provider due diligence.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import math
 import time
 from typing import Callable
@@ -30,6 +30,16 @@ class RiskFlag:
     severity: str
     description: str
     evidence_source: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.code, str) or not self.code.strip():
+            raise ValueError("risk flag code is required")
+        if self.severity not in {"info", "low", "medium", "high", "critical"}:
+            raise ValueError("risk flag severity is invalid")
+        if not isinstance(self.description, str) or not self.description.strip():
+            raise ValueError("risk flag description is required")
+        if not isinstance(self.evidence_source, str) or not self.evidence_source.strip():
+            raise ValueError("risk flag evidence source is required")
 
 
 @dataclass(frozen=True)
@@ -67,12 +77,112 @@ class SolanaRiskEvidenceReport:
     mint_supply_reconciled: bool = False
     risk_flags: tuple[RiskFlag, ...] = ()
 
+    def __post_init__(self) -> None:
+        if canonical_mint(self.mint) != self.mint:
+            raise ValueError("risk report mint must be canonical")
+        if isinstance(self.observed_at_ms, bool) or not isinstance(self.observed_at_ms, int) or self.observed_at_ms <= 0:
+            raise ValueError("risk report timestamp must be a positive integer")
+        for field in ("goplus_provider", "goplus_evidence_id", "holder_provider", "holder_evidence_id", "holder_block_ref", "mint_evidence_id", "token_program_id"):
+            value = getattr(self, field)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{field} must be a non-empty string or None")
+        if self.token_program_id is not None and self.token_program_id not in {TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID}:
+            raise ValueError("risk report token program is unsupported")
+        for field in ("mint_authority", "freeze_authority"):
+            value = getattr(self, field)
+            if value is not None and canonical_mint(value) != value:
+                raise ValueError(f"{field} must be a canonical Solana public key")
+        if self.goplus_observed_at_ms is not None and (
+            isinstance(self.goplus_observed_at_ms, bool)
+            or not isinstance(self.goplus_observed_at_ms, int)
+            or self.goplus_observed_at_ms <= 0
+        ):
+            raise ValueError("goplus_observed_at_ms must be a positive integer or None")
+        for field in ("holder_count", "mint_finalized_slot"):
+            value = getattr(self, field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{field} must be a non-negative integer or None")
+        for field in ("total_supply_raw", "mint_supply_raw"):
+            value = getattr(self, field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            ):
+                raise ValueError(f"{field} must be a positive integer or None")
+        if self.observed_holder_balance_raw is not None and (
+            isinstance(self.observed_holder_balance_raw, bool)
+            or not isinstance(self.observed_holder_balance_raw, int)
+            or self.observed_holder_balance_raw < 0
+        ):
+            raise ValueError("observed_holder_balance_raw must be a non-negative integer or None")
+        if self.mint_decimals is not None and (
+            isinstance(self.mint_decimals, bool)
+            or not isinstance(self.mint_decimals, int)
+            or not 0 <= self.mint_decimals <= 38
+        ):
+            raise ValueError("mint_decimals must be between 0 and 38 or None")
+        for field in ("holder_coverage_complete", "token_2022_extension_review_complete", "mint_supply_reconciled"):
+            if not isinstance(getattr(self, field), bool):
+                raise ValueError(f"{field} must be boolean")
+        if self.liquidity_locked is not None and not isinstance(self.liquidity_locked, bool):
+            raise ValueError("liquidity_locked must be boolean or None")
+        for field in ("goplus_dev_hold_pct", "goplus_bundled_supply_pct", "goplus_creator_hold_pct", "top_holder_pct", "top5_holder_pct", "top10_holder_pct"):
+            value = getattr(self, field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) or not 0 <= float(value) <= 100
+            ):
+                raise ValueError(f"{field} must be a finite percentage or None")
+        for field in ("missing_claims", "errors", "token_2022_extension_types", "risk_flags"):
+            if not isinstance(getattr(self, field), tuple):
+                raise ValueError(f"{field} must be a tuple")
+        if any(not isinstance(item, str) or not item.strip() for item in self.missing_claims + self.errors + self.token_2022_extension_types):
+            raise ValueError("risk report text collections must contain non-empty strings")
+        checked_flags = []
+        for flag in self.risk_flags:
+            if type(flag) is not RiskFlag:
+                raise ValueError("risk_flags must contain RiskFlag values")
+            checked_flags.append(RiskFlag(flag.code, flag.severity, flag.description, flag.evidence_source))
+        if len({flag.code for flag in checked_flags}) != len(checked_flags):
+            raise ValueError("risk flag codes must be unique")
+        object.__setattr__(self, "missing_claims", tuple(sorted(set(self.missing_claims))))
+        object.__setattr__(self, "token_2022_extension_types", tuple(sorted(set(self.token_2022_extension_types))))
+        object.__setattr__(self, "risk_flags", tuple(sorted(checked_flags, key=lambda flag: flag.code)))
+        if self.holder_coverage_complete and (
+            self.total_supply_raw is None or self.observed_holder_balance_raw != self.total_supply_raw
+        ):
+            raise ValueError("complete holder coverage must reconcile to total supply")
+        if self.mint_supply_reconciled and (
+            self.mint_supply_raw is not None
+            and self.total_supply_raw is not None
+            and self.mint_supply_raw != self.total_supply_raw
+        ):
+            raise ValueError("mint supply reconciliation must match reported supplies")
+        if any(value is not None for value in (self.top_holder_pct, self.top5_holder_pct, self.top10_holder_pct)) and (
+            not self.holder_coverage_complete or not self.mint_supply_reconciled
+        ):
+            raise ValueError("concentration percentages require complete, mint-reconciled inventory")
+
     @property
     def risk_state(self) -> str:
         """Evidence readiness only; this property never returns SAFE."""
         if self.missing_claims or self.errors:
             return "REQUIRES_MORE_EVIDENCE"
         return "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
+
+
+def validate_risk_report(report: object) -> SolanaRiskEvidenceReport:
+    """Reconstruct a report and nested risk flags before persistent storage."""
+    if type(report) is not SolanaRiskEvidenceReport:
+        raise TypeError("report must be a normalized SolanaRiskEvidenceReport")
+    try:
+        values = {field.name: getattr(report, field.name) for field in fields(SolanaRiskEvidenceReport)}
+        return SolanaRiskEvidenceReport(**values)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("risk report failed canonical validation") from None
+
+
 
 
 class SolanaRiskEvidenceCollector:
@@ -200,7 +310,7 @@ class SolanaRiskEvidenceCollector:
                 goplus_observation = candidate
                 missing.discard("goplus_token_security_observation")
             except Exception as exc:
-                errors.append(f"goplus: {type(exc).__name__}: {str(exc)[:240]}")
+                errors.append(f"goplus: {type(exc).__name__}")
                 missing.add("goplus_token_security_observation")
 
         holder_snapshot = None
@@ -252,7 +362,7 @@ class SolanaRiskEvidenceCollector:
                     raise ProviderError("holder coverage declaration is malformed")
                 holder_snapshot = candidate
             except Exception as exc:
-                errors.append(f"holders: {type(exc).__name__}: {str(exc)[:240]}")
+                errors.append(f"holders: {type(exc).__name__}")
                 missing.add("complete_holder_inventory")
 
         mint_snapshot = None
@@ -319,7 +429,7 @@ class SolanaRiskEvidenceCollector:
                 if extension_review_complete:
                     missing.discard("token_2022_extension_review")
             except Exception as exc:
-                errors.append(f"mint_account: {type(exc).__name__}: {str(exc)[:240]}")
+                errors.append(f"mint_account: {type(exc).__name__}")
                 missing.update({
                     "mint_account_state",
                     "mint_authority",
@@ -360,11 +470,12 @@ class SolanaRiskEvidenceCollector:
                 and balance_sum == total_supply
             )
             if coverage_complete:
-                denominator = float(total_supply)
-                top1 = balances[0] / denominator * 100.0 if balances else 0.0
-                top5 = sum(balances[:5]) / denominator * 100.0
-                top10 = sum(balances[:10]) / denominator * 100.0
                 missing.discard("complete_holder_inventory")
+                if mint_supply_reconciled:
+                    denominator = float(total_supply)
+                    top1 = balances[0] / denominator * 100.0 if balances else 0.0
+                    top5 = sum(balances[:5]) / denominator * 100.0
+                    top10 = sum(balances[:10]) / denominator * 100.0
             else:
                 missing.add("complete_holder_inventory")
 
@@ -434,7 +545,7 @@ class SolanaRiskEvidenceCollector:
                     "Top ten owners control at least 90% of supply",
                     "solana-rpc-holder-inventory",
                 )
-        elif holder_snapshot is not None:
+        elif holder_snapshot is not None and not coverage_complete:
             add_flag(
                 "holder_inventory_incomplete", "high",
                 "Holder inventory does not reconcile exactly to total supply",

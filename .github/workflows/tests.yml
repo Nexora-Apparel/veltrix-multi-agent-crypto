@@ -27,7 +27,7 @@ jobs:
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/phase-4-token-intelligence')
         run: python -m veltrix.solana_meme.market_smoke
       - name: Live Solana finalized mint-account smoke
-        if: github.event_name == 'pull_request' && github.head_ref == 'work/phase-5-security-risk'
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/phase-5-security-risk')
         env:
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}

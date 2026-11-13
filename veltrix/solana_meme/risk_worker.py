@@ -1,4 +1,4 @@
-"""Scheduled, retry-safe collection of Solana security evidence."""
+"""Retry-safe polling worker for Solana security evidence."""
 from __future__ import annotations
 
 import sqlite3
@@ -176,7 +176,7 @@ class SolanaRiskEvidenceWorker:
             """, (
                 failures,
                 now + delay,
-                f"{type(error).__name__}: {error}"[:500],
+                f"{type(error).__name__}",
                 now,
                 mint,
             ))
