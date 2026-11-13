@@ -7,6 +7,7 @@ import pytest
 
 from veltrix.solana_meme.consensus import ConsensusDecision, ConsensusEngine, MarketEvidence, RiskEvidence
 from veltrix.solana_meme.consensus_store import ConsensusStore
+from veltrix.whales import WalletBuyEvent
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -110,10 +111,7 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
     from dataclasses import replace
 
     from veltrix.solana_meme.risk_evidence import RiskFlag
-from veltrix.whales import WalletBuyEvent
-
     store = ConsensusStore(tmp_path / "consensus.sqlite3")
-    from veltrix.whales import WalletBuyEvent
 
     wallet_a = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     wallet_b = "Vote111111111111111111111111111111111111111"
