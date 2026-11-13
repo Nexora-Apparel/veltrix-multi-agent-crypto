@@ -318,7 +318,7 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         vote.agent for vote in checked_votes
         if vote.agent in {"scout", "whale", "sniper"} and vote.stance == "SUPPORT"
     )
-    if isinstance(checked.support_count, bool) or checked.support_count != len(support_agents):
+    if isinstance(checked.support_count, bool) or not isinstance(checked.support_count, int) or checked.support_count != len(support_agents):
         raise ValueError("consensus support count does not match votes")
     if not isinstance(checked.supporting_agents, tuple) or checked.supporting_agents != support_agents:
         raise ValueError("consensus supporting agents do not match votes")
