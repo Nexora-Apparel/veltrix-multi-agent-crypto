@@ -131,6 +131,19 @@ class SolanaRiskEvidenceReport:
         return "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
 
 
+def validate_risk_report(report: object) -> SolanaRiskEvidenceReport:
+    """Reconstruct a report and nested risk flags before persistent storage."""
+    if type(report) is not SolanaRiskEvidenceReport:
+        raise TypeError("report must be a normalized SolanaRiskEvidenceReport")
+    try:
+        values = {field.name: getattr(report, field.name) for field in fields(SolanaRiskEvidenceReport)}
+        return SolanaRiskEvidenceReport(**values)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("risk report failed canonical validation") from None
+
+
+
+
 class SolanaRiskEvidenceCollector:
     """Collect independent mint, holder and supplemental token-security evidence."""
 
@@ -256,7 +269,7 @@ class SolanaRiskEvidenceCollector:
                 goplus_observation = candidate
                 missing.discard("goplus_token_security_observation")
             except Exception as exc:
-                errors.append(f"goplus: {type(exc).__name__}: {str(exc)[:240]}")
+                errors.append(f"goplus: {type(exc).__name__}")
                 missing.add("goplus_token_security_observation")
 
         holder_snapshot = None
@@ -308,7 +321,7 @@ class SolanaRiskEvidenceCollector:
                     raise ProviderError("holder coverage declaration is malformed")
                 holder_snapshot = candidate
             except Exception as exc:
-                errors.append(f"holders: {type(exc).__name__}: {str(exc)[:240]}")
+                errors.append(f"holders: {type(exc).__name__}")
                 missing.add("complete_holder_inventory")
 
         mint_snapshot = None
@@ -375,7 +388,7 @@ class SolanaRiskEvidenceCollector:
                 if extension_review_complete:
                     missing.discard("token_2022_extension_review")
             except Exception as exc:
-                errors.append(f"mint_account: {type(exc).__name__}: {str(exc)[:240]}")
+                errors.append(f"mint_account: {type(exc).__name__}")
                 missing.update({
                     "mint_account_state",
                     "mint_authority",
@@ -416,11 +429,12 @@ class SolanaRiskEvidenceCollector:
                 and balance_sum == total_supply
             )
             if coverage_complete:
-                denominator = float(total_supply)
-                top1 = balances[0] / denominator * 100.0 if balances else 0.0
-                top5 = sum(balances[:5]) / denominator * 100.0
-                top10 = sum(balances[:10]) / denominator * 100.0
                 missing.discard("complete_holder_inventory")
+                if mint_supply_reconciled:
+                    denominator = float(total_supply)
+                    top1 = balances[0] / denominator * 100.0 if balances else 0.0
+                    top5 = sum(balances[:5]) / denominator * 100.0
+                    top10 = sum(balances[:10]) / denominator * 100.0
             else:
                 missing.add("complete_holder_inventory")
 
