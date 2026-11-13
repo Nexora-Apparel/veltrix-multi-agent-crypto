@@ -1,6 +1,6 @@
 import pytest
 
-from veltrix.solana_meme.candidates import normalize_candidate
+from veltrix.solana_meme.candidates import SolanaCandidate, normalize_candidate
 from veltrix.solana_meme.dexscreener import DexScreenerBatch
 from veltrix.solana_meme.discovery import SolanaDiscoveryEngine
 from veltrix.solana_meme.launch_stream import LaunchStore
@@ -91,3 +91,32 @@ def test_engine_rejects_invalid_poll_intervals(tmp_path, interval):
             FakeSecondarySource(DexScreenerBatch((), (), ())),
             poll_interval_seconds=interval,
         )
+
+
+
+def test_poll_once_revalidates_each_candidate_and_records_rejections(tmp_path):
+    store = LaunchStore(tmp_path / "discovery.sqlite3")
+    forged = object.__new__(SolanaCandidate)
+    object.__setattr__(forged, "mint", "not-a-mint")
+    object.__setattr__(forged, "source", "untrusted-feed")
+    object.__setattr__(forged, "discovered_at_ms", 200)
+    object.__setattr__(forged, "sources", ("untrusted-feed",))
+    valid = normalize_candidate(
+        {"chain": "solana", "mint": MINT},
+        source="trusted-format-not-trust",
+        observed_at_ms=250,
+    )
+    source = FakeSecondarySource(DexScreenerBatch(
+        candidates=(forged, valid),
+        successful_sources=("dexscreener-latest-profile",),
+        errors=(),
+    ))
+    engine = SolanaDiscoveryEngine(store, source, clock_ms=lambda: 300)
+
+    result = engine.poll_once()
+
+    assert result.candidates_received == 2
+    assert result.candidates_stored == 1
+    assert result.candidates_rejected == 1
+    assert store.candidate_count() == 1
+    assert store.event_count(event_type="candidate_rejected") == 1
