@@ -509,3 +509,105 @@ def test_broker_atomically_rechecks_latest_consensus_decision(tmp_path):
     assert result["status"] == "BLOCKED"
     assert "newer consensus decision superseded" in result["reason"]
     assert broker.snapshot()["open_positions"] == []
+
+
+
+def test_broker_revalidates_consensus_payload_inside_entry_transaction(tmp_path):
+    _, _, _, broker, worker, decision = build_pipeline(tmp_path)
+    original = broker.open_position_from_consensus
+
+    def tamper_consensus(*args, **kwargs):
+        with sqlite3.connect(broker.db_path) as db:
+            row = db.execute(
+                "SELECT id, payload_json FROM solana_consensus_decisions WHERE decision_id = ?",
+                (decision.decision_id,),
+            ).fetchone()
+            payload = json.loads(row[1])
+            payload["status"] = "WATCH"
+            payload["paper_review_eligible"] = False
+            db.execute(
+                "UPDATE solana_consensus_decisions SET payload_json = ? WHERE id = ?",
+                (json.dumps(payload), row[0]),
+            )
+        return original(*args, **kwargs)
+
+    broker.open_position_from_consensus = tamper_consensus
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "consensus decision failed atomic validation" in broker.paper_decisions(limit=1)[0]["reason"]
+
+
+def test_broker_revalidates_risk_payload_inside_entry_transaction(tmp_path):
+    _, _, _, broker, worker, decision = build_pipeline(tmp_path)
+    original = broker.open_position_from_consensus
+
+    def tamper_risk(*args, **kwargs):
+        with sqlite3.connect(broker.db_path) as db:
+            row = db.execute(
+                "SELECT id, payload_json FROM solana_risk_evidence_reports WHERE mint = ?",
+                (MINT,),
+            ).fetchone()
+            payload = json.loads(row[1])
+            payload["risk_state"] = "REQUIRES_MORE_EVIDENCE"
+            payload["missing_claims"] = ["creator_wallet_provenance"]
+            db.execute(
+                "UPDATE solana_risk_evidence_reports SET payload_json = ? WHERE id = ?",
+                (json.dumps(payload), row[0]),
+            )
+        return original(*args, **kwargs)
+
+    broker.open_position_from_consensus = tamper_risk
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "security evidence" in broker.paper_decisions(limit=1)[0]["reason"]
+
+
+def test_broker_revalidates_market_quality_inside_entry_transaction(tmp_path):
+    _, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    original = broker.open_position_from_consensus
+
+    def tamper_market(*args, **kwargs):
+        with sqlite3.connect(broker.db_path) as db:
+            row = db.execute(
+                "SELECT id FROM solana_market_snapshots WHERE mint = ? ORDER BY retrieved_at_ms DESC, id DESC LIMIT 1",
+                (MINT,),
+            ).fetchone()
+            db.execute(
+                "UPDATE solana_market_snapshots SET quality_flags = ? WHERE id = ?",
+                (json.dumps(["liquidity_usd_missing"]), row[0]),
+            )
+        return original(*args, **kwargs)
+
+    broker.open_position_from_consensus = tamper_market
+    result = worker.run_once()
+
+    assert result.opened_positions == 0
+    assert result.blocked_entries == 1
+    assert broker.snapshot()["open_positions"] == []
+    assert "market snapshot changed or has quality flags" in broker.paper_decisions(limit=1)[0]["reason"]
+
+
+def test_paper_exits_and_status_ignore_market_snapshots_with_quality_flags(tmp_path):
+    markets, _, _, broker, worker, _ = build_pipeline(tmp_path)
+    assert worker.run_once().opened_positions == 1
+    markets.record(
+        market_snapshot(
+            NOW + 1,
+            price=0.0008,
+            quality_flags=("liquidity_usd_missing",),
+        )
+    )
+    worker.clock_ms = lambda: NOW + 1
+
+    result = worker.run_once()
+    status = worker.status()
+
+    assert result.exit_fills == 0
+    assert broker.snapshot()["open_positions"]
+    assert status["unmarked_positions"] == [MINT]
