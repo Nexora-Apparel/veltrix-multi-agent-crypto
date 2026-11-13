@@ -64,20 +64,37 @@ class ConsensusStore:
             payload = json.loads(payload_json)
             if type(payload) is not dict:
                 raise ValueError("persisted consensus payload must be an object")
-            payload["votes"] = tuple(
-                AgentVote(
+            raw_votes = payload.get("votes")
+            if not isinstance(raw_votes, list) or len(raw_votes) != 4:
+                raise ValueError("persisted consensus votes are malformed")
+            votes = []
+            for vote in raw_votes:
+                if type(vote) is not dict or not isinstance(vote.get("evidence_refs"), list):
+                    raise ValueError("persisted consensus vote is malformed")
+                votes.append(AgentVote(
                     agent=vote["agent"],
                     stance=vote["stance"],
                     reason=vote["reason"],
                     evidence_refs=tuple(vote["evidence_refs"]),
                     observed_at_ms=vote["observed_at_ms"],
-                )
-                for vote in payload["votes"]
-            )
-            payload["risk_flags"] = tuple(RiskFlag(**flag) for flag in payload["risk_flags"])
-            payload["market_quality_flags"] = tuple(payload.get("market_quality_flags", ()))
+                ))
+            raw_flags = payload.get("risk_flags")
+            if not isinstance(raw_flags, list) or any(type(flag) is not dict for flag in raw_flags):
+                raise ValueError("persisted consensus risk flags are malformed")
+            payload["votes"] = tuple(votes)
+            payload["risk_flags"] = tuple(RiskFlag(**flag) for flag in raw_flags)
+
+            raw_market_flags = payload.get("market_quality_flags", [])
+            if not isinstance(raw_market_flags, list):
+                raise ValueError("persisted market quality flags are malformed")
+            payload["market_quality_flags"] = tuple(raw_market_flags)
             for name in ("supporting_agents", "missing_claims", "reasons"):
-                payload[name] = tuple(payload[name])
+                raw = payload.get(name)
+                if not isinstance(raw, list) or any(
+                    not isinstance(item, str) or not item.strip() for item in raw
+                ):
+                    raise ValueError(f"persisted consensus {name} are malformed")
+                payload[name] = tuple(raw)
             checked = validate_consensus_decision(ConsensusDecision(**payload))
             return json.loads(json.dumps(asdict(checked), sort_keys=True, separators=(",", ":")))
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
