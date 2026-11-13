@@ -225,9 +225,11 @@
       if(expectedMessage.header[field]!==actualMessage.header[field]) differences.push("header."+field);
     }
     if(expectedMessage.recentBlockhash!==actualMessage.recentBlockhash) differences.push("recentBlockhash");
-    if(expectedMessage.staticAccountKeys.length!==actualMessage.staticAccountKeys.length) differences.push("accountKeys.length");
-    const keyCount=Math.max(expectedMessage.staticAccountKeys.length,actualMessage.staticAccountKeys.length);
-    for(let i=0;i<keyCount;i++) if(expectedMessage.staticAccountKeys[i]!==actualMessage.staticAccountKeys[i]) differences.push("accountKeys["+i+"]");
+    const expectedKeys=expectedMessage.staticAccountKeys.map(key=>typeof key==="string"?key:key.toBase58());
+    const actualKeys=actualMessage.staticAccountKeys.map(key=>typeof key==="string"?key:key.toBase58());
+    if(expectedKeys.length!==actualKeys.length) differences.push("accountKeys.length");
+    const keyCount=Math.max(expectedKeys.length,actualKeys.length);
+    for(let i=0;i<keyCount;i++) if(expectedKeys[i]!==actualKeys[i]) differences.push("accountKeys["+i+"]");
     if(expectedMessage.compiledInstructions.length!==actualMessage.compiledInstructions.length) differences.push("instructions.length");
     const instructionCount=Math.max(expectedMessage.compiledInstructions.length,actualMessage.compiledInstructions.length);
     for(let i=0;i<instructionCount;i++) {
