@@ -557,6 +557,7 @@ class ExecutionSafetyPipeline:
                 policy=self.policy,
                 wallet_public_key=intent.wallet_public_key,
                 intent_id=intent.intent_id,
+                intent_hash=intent.intent_hash,
                 consumer=self.authorization_consumer,
                 now=now_ms // 1000,
             )
