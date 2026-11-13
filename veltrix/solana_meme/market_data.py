@@ -5,7 +5,7 @@ buy signals, liquidity guarantees, or proof of executable sell depth.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import math
 import time
 from typing import Callable, Protocol, Sequence
@@ -59,6 +59,11 @@ class SolanaMarketSnapshot:
         canonical_mint(self.mint)
         if not isinstance(self.selected_pair_address, str) or not self.selected_pair_address.strip():
             raise ValueError("selected_pair_address is required")
+        object.__setattr__(self, "selected_pair_address", self.selected_pair_address.strip())
+        for field in ("symbol", "name", "dex_id", "quote_token_symbol"):
+            value = getattr(self, field)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{field} must be a string or None")
         for field in ("retrieved_at_ms", "response_received_at_ms"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -119,18 +124,38 @@ class SolanaMarketSnapshot:
                 isinstance(value, bool) or not isinstance(value, int) or value < 0
             ):
                 raise ValueError(f"{field} must be a non-negative integer or None")
+        if self.response_received_at_ms > self.retrieved_at_ms:
+            raise ValueError("response_received_at_ms cannot be later than retrieved_at_ms")
         if self.pool_token_side not in (None, "base", "quote"):
             raise ValueError("pool_token_side must be base, quote or None")
         if not isinstance(self.quality_flags, tuple) or any(
-            not isinstance(flag, str) or not flag for flag in self.quality_flags
+            not isinstance(flag, str) or not flag.strip() for flag in self.quality_flags
         ):
             raise ValueError("quality_flags must be a tuple of non-empty strings")
+        object.__setattr__(
+            self, "quality_flags", tuple(sorted({flag.strip() for flag in self.quality_flags}))
+        )
 
     @property
     def pair_age_seconds(self) -> int | None:
         if self.pair_created_at_ms is None:
             return None
         return max(0, (self.retrieved_at_ms - self.pair_created_at_ms) // 1000)
+
+
+def validate_market_snapshot(snapshot: object) -> SolanaMarketSnapshot:
+    """Reconstruct a snapshot at the persistence boundary.
+
+    A frozen dataclass can be forged with object.__new__ or mutated with
+    object.__setattr__; type identity alone is not proof of valid market data.
+    """
+    if type(snapshot) is not SolanaMarketSnapshot:
+        raise TypeError("snapshot must be a normalized SolanaMarketSnapshot")
+    try:
+        values = {field.name: getattr(snapshot, field.name) for field in fields(SolanaMarketSnapshot)}
+        return SolanaMarketSnapshot(**values)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("market snapshot failed canonical validation") from None
 
 
 @dataclass(frozen=True)
@@ -215,6 +240,11 @@ class SolanaMarketData:
         for event in events:
             if not isinstance(event, MarketEvent):
                 continue
+            if (
+                not isinstance(event.quality_flags, tuple)
+                or any(not isinstance(flag, str) or not flag.strip() for flag in event.quality_flags)
+            ):
+                continue
             if event.chain != "solana" or event.token_address != mint:
                 continue
             if not isinstance(event.pair_address, str) or not event.pair_address.strip():
@@ -279,17 +309,18 @@ class SolanaMarketData:
         selected, values = max(
             eligible,
             key=lambda item: (
+                "liquidity_usd_missing" not in item[0].quality_flags,
                 float(item[1]["liquidity"]),
                 float(item[1]["volume_h1"]),
                 item[0].pair_address,
             ),
         )
-        flags: list[str] = []
+        flags: list[str] = list(selected.quality_flags)
         if float(values["liquidity"]) < self.minimum_liquidity_usd:
             flags.append("below_configured_minimum_liquidity")
-        if float(values["liquidity"]) == 0:
+        if float(values["liquidity"]) == 0 and "liquidity_usd_missing" not in flags:
             flags.append("zero_liquidity")
-        if float(values["volume_h1"]) == 0:
+        if float(values["volume_h1"]) == 0 and "volume_h1_usd_missing" not in flags:
             flags.append("zero_hourly_volume")
         if values["volume_m5"] is None:
             flags.append("volume_m5_missing")
