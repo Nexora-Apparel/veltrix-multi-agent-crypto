@@ -145,6 +145,8 @@ class ExecutionAuditStore:
         state_value = state.value if isinstance(state, ExecutionState) else state
         if state_value not in {item.value for item in ExecutionState}:
             raise ValueError("state is invalid")
+        if state_value in {item.value for item in _DISABLED}:
+            raise ExecutionDisabled("signed, submitted and confirmed audit states are disabled in this release")
         stamp = _stamp(occurred_at_ms)
         reason = _safe_code(reason_code, "reason_code")
         policy = _safe_hash(policy_hash, "policy_hash")
