@@ -9,6 +9,7 @@ import json
 import math
 import threading
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from collections.abc import Iterator
 from typing import Any, Callable
 
@@ -43,6 +44,17 @@ class PumpPortalDiscovery:
         self._websocket_factory = websocket_factory
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
+    def _safe_endpoint(self) -> str:
+        """Return an endpoint suitable for logs, with auth material removed."""
+        parts = urlsplit(self.endpoint)
+        safe_netloc = parts.netloc.rsplit("@", 1)[-1]
+        sensitive_markers = ("key", "token", "secret", "auth", "signature", "password", "credential")
+        safe_query = [
+            (key, "[REDACTED]" if any(marker in key.lower() for marker in sensitive_markers) else value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+        return urlunsplit((parts.scheme, safe_netloc, parts.path, urlencode(safe_query), ""))
+
     def _connect(self) -> Any:
         factory = self._websocket_factory
         if factory is None:
@@ -56,7 +68,9 @@ class PumpPortalDiscovery:
         try:
             return factory(self.endpoint, timeout=self.timeout_seconds)
         except Exception as exc:
-            raise PumpPortalError(f"PumpPortal connection failed: {exc}") from exc
+            raise PumpPortalError(
+                f"PumpPortal connection failed ({type(exc).__name__}) for {self._safe_endpoint()}"
+            ) from None
 
     @staticmethod
     def _decode(raw: Any) -> dict[str, Any] | None:
@@ -92,7 +106,9 @@ class PumpPortalDiscovery:
         try:
             ws.send(json.dumps({"method": "subscribeNewToken"}))
         except Exception as exc:
-            raise PumpPortalError(f"PumpPortal subscription failed: {exc}") from exc
+            raise PumpPortalError(
+                f"PumpPortal subscription failed ({type(exc).__name__})"
+            ) from None
         finally:
             try:
                 ws.close()
@@ -126,7 +142,9 @@ class PumpPortalDiscovery:
                 except Exception as exc:
                     if exc.__class__.__name__ in {"WebSocketTimeoutException", "TimeoutError"}:
                         continue
-                    raise PumpPortalError(f"PumpPortal stream failed: {exc}") from exc
+                    raise PumpPortalError(
+                        f"PumpPortal stream failed ({type(exc).__name__})"
+                    ) from None
                 if raw in (None, ""):
                     continue
                 received += 1
