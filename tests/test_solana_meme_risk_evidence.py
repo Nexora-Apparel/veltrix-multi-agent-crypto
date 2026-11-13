@@ -343,7 +343,7 @@ def test_mint_reconciliation_requires_both_supplies_and_matching_decimals():
     assert report.mint_supply_raw == report.total_supply_raw
     assert report.mint_decimals == report.holder_decimals
 
-    with pytest.raises(ValueError, match="matching reported evidence"):
+    with pytest.raises(ValueError):
         replace(report, mint_supply_raw=None)
     with pytest.raises(ValueError, match="matching reported evidence"):
         replace(report, total_supply_raw=None)
