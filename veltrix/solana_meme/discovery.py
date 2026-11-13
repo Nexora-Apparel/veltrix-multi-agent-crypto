@@ -115,8 +115,10 @@ class SolanaDiscoveryEngine:
             for source, reason in result.source_errors:
                 LOGGER.warning("secondary discovery source %s failed: %s", source, reason)
             LOGGER.debug(
-                "discovery cycle: candidates=%s healthy_sources=%s source_errors=%s",
+                "discovery cycle: received=%s stored=%s rejected=%s healthy_sources=%s source_errors=%s",
+                result.candidates_received,
                 result.candidates_stored,
+                result.candidates_rejected,
                 result.healthy_sources,
                 len(result.source_errors),
             )
