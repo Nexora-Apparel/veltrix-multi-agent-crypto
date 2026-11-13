@@ -125,3 +125,8 @@ The risk runtime remains a manually invoked polling process. Production scheduli
 ### Reconciliation invariant correction
 
 The persisted report now retains both the holder inventory decimals and finalized mint decimals. A report cannot claim reconciliation unless both raw supplies exist and match and both decimals exist and match. The persistence boundary reconstructs the report and rechecks these values before hashing or writing.
+
+
+### Downstream legacy-payload gate
+
+Consensus and paper-review consumers now independently validate the persisted reconciliation claim. Historical reports that predate `holder_decimals` remain readable as history, but a legacy report with `mint_supply_reconciled=true` and no holder-decimal proof cannot be used as review-ready evidence. Concentration values also require complete holder coverage and matching finalized mint/holder supply and decimals.
