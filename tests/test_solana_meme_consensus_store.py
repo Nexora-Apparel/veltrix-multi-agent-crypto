@@ -1,4 +1,5 @@
 from dataclasses import fields
+import hashlib
 
 import pytest
 
@@ -19,7 +20,7 @@ def decision(now, mint=MINT):
         mint=mint, observed_at_ms=now,
         risk_state="REQUIRES_MORE_EVIDENCE",
         missing_claims=("liquidity_lock_complete_inventory",),
-        errors=(), risk_flags=(), evidence_hash=f"risk-{now}",
+        errors=(), risk_flags=(), evidence_hash=hashlib.sha256(f"risk-{now}".encode()).hexdigest(),
     )
     return ConsensusEngine().evaluate(
         market, risk, history=(), now_ms=now
@@ -130,7 +131,7 @@ def test_consensus_store_rejects_forged_shield_approval_with_medium_risk(tmp_pat
             mint=MINT, observed_at_ms=10_000,
             risk_state="EVIDENCE_COLLECTED_REVIEW_REQUIRED",
             missing_claims=(), errors=(), risk_flags=(),
-            evidence_hash="risk-approval-test",
+            evidence_hash=hashlib.sha256(b"risk-approval-test").hexdigest(),
         ),
         history=[
             {"volume_h1_usd": 100.0, "retrieved_at_ms": 10_000 - (index + 1) * 60_000}
