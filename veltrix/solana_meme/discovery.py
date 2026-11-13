@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
+from .candidates import CandidateRejected
 from .dexscreener import DexScreenerDiscovery
 from .launch_stream import LaunchStore, LaunchStreamManager
 
@@ -19,6 +20,7 @@ class DiscoveryCycleResult:
     candidates_stored: int
     healthy_sources: tuple[str, ...]
     source_errors: tuple[tuple[str, str], ...]
+    candidates_rejected: int = 0
 
 
 class SolanaDiscoveryEngine:
@@ -71,14 +73,29 @@ class SolanaDiscoveryEngine:
                 source=source,
                 occurred_at_ms=timestamp,
             )
+        stored = 0
+        rejected = 0
         for candidate in batch.candidates:
-            self.store.record_candidate(candidate)
+            try:
+                self.store.record_candidate(candidate)
+                stored += 1
+            except CandidateRejected as exc:
+                rejected += 1
+                source = getattr(candidate, "source", "unknown")
+                if not isinstance(source, str) or not source.strip():
+                    source = "unknown"
+                self.store.record_event(
+                    "candidate_rejected",
+                    details={"source": source.strip()[:100], "reason": str(exc)[:160]},
+                    occurred_at_ms=timestamp,
+                )
 
         return DiscoveryCycleResult(
             candidates_received=len(batch.candidates),
-            candidates_stored=len(batch.candidates),
+            candidates_stored=stored,
             healthy_sources=batch.successful_sources,
             source_errors=batch.errors,
+            candidates_rejected=rejected,
         )
 
     def run(self, stop_event: threading.Event) -> None:

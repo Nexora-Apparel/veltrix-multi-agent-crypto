@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from .candidates import SolanaCandidate
+from .candidates import CandidateRejected, SolanaCandidate, validate_candidate
 from .pumpportal import PumpPortalDiscovery
 
 LOGGER = logging.getLogger(__name__)
@@ -102,9 +102,10 @@ class LaunchStore:
         return value
 
     def record_candidate(self, candidate: SolanaCandidate) -> None:
-        if not isinstance(candidate, SolanaCandidate):
-            raise TypeError("only validated SolanaCandidate values can be stored")
-        sources = sorted(set(candidate.sources or (candidate.source,)))
+        # Reconstruct at the storage boundary: frozen dataclasses can be forged
+        # or mutated outside their constructor, so isinstance() is insufficient.
+        candidate = validate_candidate(candidate)
+        sources = list(candidate.sources)
         with self._connect() as db:
             row = db.execute(
                 "SELECT first_seen_at_ms, latest_seen_at_ms, primary_source, sources_json "
@@ -321,7 +322,18 @@ class LaunchStreamManager:
                 for candidate in self.adapter.stream_new_tokens(stop_event=stop_event):
                     if stop_event.is_set():
                         break
-                    self.store.record_candidate(candidate)
+                    try:
+                        self.store.record_candidate(candidate)
+                    except CandidateRejected as exc:
+                        source = getattr(candidate, "source", "unknown")
+                        if not isinstance(source, str) or not source.strip():
+                            source = "unknown"
+                        self.store.record_event(
+                            "candidate_rejected",
+                            details={"source": source.strip()[:100], "reason": str(exc)[:160]},
+                            occurred_at_ms=self.clock_ms(),
+                        )
+                        continue
                     saw_candidate = True
                 if stop_event.is_set():
                     break
