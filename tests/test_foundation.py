@@ -82,3 +82,16 @@ def test_shared_settings_factory_enforces_release_locks(monkeypatch):
     monkeypatch.setenv("TELEGRAM_ENABLED", "true")
     with pytest.raises(RuntimeError, match="Telegram delivery is locked"):
         settings()
+
+
+def test_platform_production_environment_cannot_be_overridden():
+    with pytest.raises(RuntimeError, match="Production deployment is locked"):
+        validate_runtime_controls({
+            "VELTRIX_DEPLOYMENT_TARGET": "development",
+            "VERCEL_ENV": "production",
+        })
+
+
+def test_vercel_preview_environment_is_recognized():
+    controls = validate_runtime_controls({"VERCEL_ENV": "preview"})
+    assert controls.deployment_target == "preview"
