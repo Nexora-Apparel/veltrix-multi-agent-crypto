@@ -139,8 +139,9 @@ const semanticallySameMessage={
 };
 const semanticResult=await hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
-},semanticTx,reviewedMessageBytes,"test-signature","2411");
+},semanticTx,reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"});
 assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
+assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
 assert.equal(semanticResult.semanticMatch,true);
 assert.equal(semanticResult.diagnostics.firstByteDifference.offset,differentSerializedBytes.length-1);
 assert.deepEqual(semanticResult.diagnostics.semanticDifferences,[]);
