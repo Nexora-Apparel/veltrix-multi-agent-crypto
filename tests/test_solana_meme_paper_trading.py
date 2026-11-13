@@ -64,7 +64,7 @@ def nonapproved_decision(decision, *, created_at_ms):
     return replace(changed, decision_id=decision_id)
 
 
-def market_snapshot(observed, *, price=0.001, volume=50_000, liquidity=100_000):
+def market_snapshot(observed, *, price=0.001, volume=50_000, liquidity=100_000, quality_flags=()):
     return SolanaMarketSnapshot(
         mint=MINT,
         selected_pair_address="pool-1",
@@ -93,7 +93,7 @@ def market_snapshot(observed, *, price=0.001, volume=50_000, liquidity=100_000):
         retrieved_at_ms=observed,
         response_received_at_ms=observed,
         pair_created_at_ms=NOW - 3_600_000,
-        quality_flags=(),
+        quality_flags=quality_flags,
     )
 
 
@@ -395,22 +395,32 @@ def test_paper_broker_rejects_missing_or_enabled_execution_authority(tmp_path):
         )
 
 def test_broker_enforces_total_portfolio_exposure_cap_and_reports_exposure(tmp_path):
-    broker = PaperBroker(str(tmp_path / "exposure.sqlite3"), 100, 5, 50)
-    first = broker.open_position_from_consensus(
-        "exposure-1", MINT, 1.0, 40, "first approved",
-        created_at_ms=NOW, paper_review_eligible=True,
-        execution_authorized=False, fee_bps=0, slippage_bps=0,
-        max_portfolio_exposure_pct=0.5,
-    )
-    second = broker.open_position_from_consensus(
-        "exposure-2", "mint-two", 1.0, 20, "second approved",
-        created_at_ms=NOW + 1, paper_review_eligible=True,
-        execution_authorized=False, fee_bps=0, slippage_bps=0,
+    markets, _, _, broker, _, decision = build_pipeline(tmp_path)
+    # Seed an existing virtual position so this test exercises the portfolio
+    # cap while the new entry still passes the complete consensus gate.
+    with sqlite3.connect(broker.db_path) as db:
+        db.execute("UPDATE account SET cash = 60 WHERE id = 1")
+        db.execute(
+            "INSERT INTO positions(token,entry_price,quantity,cost_basis,opened_at) VALUES(?,?,?,?,?)",
+            ("existing-token", 1.0, 40.0, 40.0, NOW / 1000),
+        )
+        db.execute(
+            "INSERT INTO position_state(token,peak_price) VALUES(?,?)",
+            ("existing-token", 1.0),
+        )
+    market = markets.latest(MINT)
+    result = broker.open_position_from_consensus(
+        decision.decision_id, MINT, market["price_usd"], 20, "approved entry",
+        created_at_ms=decision.created_at_ms,
+        paper_review_eligible=True, execution_authorized=False,
+        fee_bps=0, slippage_bps=0, processed_at_ms=NOW,
+        expected_market_snapshot_id=market["id"],
+        expected_risk_evidence_hash=decision.risk_evidence_hash,
         max_portfolio_exposure_pct=0.5,
     )
 
-    assert first["status"] == "OPENED"
-    assert second["status"] == "BLOCKED"
+    assert result["status"] == "BLOCKED"
+    assert "exposure cap" in result["reason"]
     snapshot = broker.snapshot()
     assert snapshot["portfolio_exposure_usd"] == pytest.approx(40)
     assert snapshot["portfolio_exposure_pct"] == pytest.approx(40)
