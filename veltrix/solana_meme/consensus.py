@@ -66,7 +66,7 @@ class MarketEvidence:
         ):
             raise ValueError("market evidence pair creation time is invalid")
         if self.source != "dexscreener" or self.chain != "solana":
-            raise ValueError("market evidence source and chain are unsupported")
+            raise ValueError("market evidence must be canonical Solana DEX Screener evidence")
         if not isinstance(self.quality_flags, tuple) or any(
             not isinstance(flag, str) or not flag.strip() for flag in self.quality_flags
         ):
@@ -161,6 +161,10 @@ class RiskEvidence:
                 raise ValueError(f"risk evidence {name} must be a tuple")
         if any(not isinstance(item, str) or not item.strip() for item in self.missing_claims + self.errors):
             raise ValueError("risk evidence claims and errors must be non-empty strings")
+        if self.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and (
+            self.missing_claims or self.errors
+        ):
+            raise ValueError("review-ready risk state cannot contain missing claims or errors")
         checked_flags = []
         for flag in self.risk_flags:
             if type(flag) is not RiskFlag:
