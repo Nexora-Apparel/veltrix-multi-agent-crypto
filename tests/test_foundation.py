@@ -74,3 +74,11 @@ def test_example_environment_keeps_release_switches_disabled():
             if line.startswith(name + "=")
         ]
         assert values == ["false"], f"{name} must have one explicit false default"
+
+
+def test_shared_settings_factory_enforces_release_locks(monkeypatch):
+    from veltrix.config import settings
+
+    monkeypatch.setenv("TELEGRAM_ENABLED", "true")
+    with pytest.raises(RuntimeError, match="Telegram delivery is locked"):
+        settings()
