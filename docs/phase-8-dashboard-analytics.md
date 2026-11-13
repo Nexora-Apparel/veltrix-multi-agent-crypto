@@ -104,8 +104,8 @@ disabled and is not part of this dashboard.
 - [x] HTML, CSS, JavaScript and API routes require authorization when a token is configured; response headers include no-store, nosniff, no-referrer and a restrictive content-security policy.
 - [x] P&L, open positions, fills, consensus outcomes, pipeline counts, freshness, equity curve, fees and slippage are exposed as read-only analytics.
 - [x] Quality-flagged or malformed market observations are not used as position marks; the dashboard falls back to entry price and reports a non-fresh mark status.
-- [ ] Full repository CI and dashboard security/analytics tests pass on the exact Stage 08 PR head.
-- [ ] Post-merge CI and read-only database/API regression tests pass on main.
-- [ ] Review confirms no paper-ledger mutation, order/position route, production deployment, Telegram activation or scheduler was introduced.
+- [x] Full repository CI and dashboard security/analytics tests pass on the exact Stage 08 PR head (run `43518573180`: 858 passed, 5 skipped; compileall passed).
+- [x] Post-merge CI and read-only database/API regression tests pass on main (run `43518709290`: 858 passed, 5 skipped; compileall passed).
+- [x] Review confirms no paper-ledger mutation, order/position route, production deployment, Telegram activation or scheduler was introduced.
 
 The dashboard is an analytics surface only. It is not an execution control panel.
