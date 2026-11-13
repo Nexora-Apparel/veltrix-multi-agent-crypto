@@ -126,3 +126,49 @@ def test_probe_connection_wraps_subscription_send_errors():
     with pytest.raises(PumpPortalError, match="subscription failed"):
         adapter.probe_connection()
     assert ws.closed
+
+
+
+def test_connection_errors_redact_endpoint_credentials():
+    endpoint = "wss://user:password@pumpportal.test/api/data?api-key=private-secret&region=us"
+
+    def fail(url, **kwargs):
+        raise OSError(f"connection refused for {url}")
+
+    adapter = PumpPortalDiscovery(websocket_factory=fail, endpoint=endpoint)
+    with pytest.raises(PumpPortalError) as error:
+        list(adapter.stream_new_tokens(max_messages=1))
+
+    message = str(error.value)
+    assert "private-secret" not in message
+    assert "password" not in message
+    assert "[REDACTED]" in message
+    assert "pumpportal.test" in message
+
+
+def test_subscription_error_does_not_echo_provider_exception():
+    class SecretFailure(FakeWebSocket):
+        def send(self, value):
+            raise OSError("provider rejected private-secret")
+
+    ws = SecretFailure([])
+    adapter = PumpPortalDiscovery(websocket_factory=lambda *a, **k: ws)
+    with pytest.raises(PumpPortalError) as error:
+        adapter.probe_connection()
+    assert "private-secret" not in str(error.value)
+    assert "OSError" in str(error.value)
+    assert ws.closed
+
+
+def test_stream_error_does_not_echo_provider_exception():
+    class SecretFailure(FakeWebSocket):
+        def recv(self):
+            raise OSError("socket context contains private-secret")
+
+    ws = SecretFailure([])
+    adapter = PumpPortalDiscovery(websocket_factory=lambda *a, **k: ws)
+    with pytest.raises(PumpPortalError) as error:
+        list(adapter.stream_new_tokens(max_messages=1))
+    assert "private-secret" not in str(error.value)
+    assert "OSError" in str(error.value)
+    assert ws.closed
