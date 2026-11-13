@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from veltrix.solana_meme.candidates import normalize_candidate
+from veltrix.solana_meme.candidates import CandidateRejected, SolanaCandidate, normalize_candidate
 from veltrix.solana_meme.launch_stream import LaunchStore, LaunchStreamManager
 
 MINT = "So11111111111111111111111111111111111111112"
@@ -180,3 +180,42 @@ def test_stream_manager_rejects_invalid_backoff(tmp_path, kwargs):
     store = LaunchStore(tmp_path / "manager.sqlite3")
     with pytest.raises(ValueError):
         LaunchStreamManager(object(), store, **kwargs)
+
+
+
+def forged_candidate():
+    candidate = object.__new__(SolanaCandidate)
+    object.__setattr__(candidate, "mint", "not-a-mint")
+    object.__setattr__(candidate, "source", "pumpportal-new-token")
+    object.__setattr__(candidate, "discovered_at_ms", 1000)
+    object.__setattr__(candidate, "sources", ("pumpportal-new-token",))
+    return candidate
+
+
+def test_store_revalidates_forged_candidate_before_writing(tmp_path):
+    store = LaunchStore(tmp_path / "candidate-validation.sqlite3")
+    with pytest.raises(CandidateRejected):
+        store.record_candidate(forged_candidate())
+    assert store.candidate_count() == 0
+    assert store.event_count(event_type="candidate_observed") == 0
+
+
+def test_stream_manager_audits_invalid_candidate_without_feed_outage(tmp_path):
+    stop = threading.Event()
+    store = LaunchStore(tmp_path / "candidate-validation.sqlite3")
+
+    class InvalidThenStopAdapter:
+        name = "pumpportal-new-token"
+
+        def stream_new_tokens(self, *, stop_event=None):
+            yield forged_candidate()
+            stop.set()
+
+    manager = LaunchStreamManager(
+        InvalidThenStopAdapter(), store, clock_ms=lambda: 5000,
+    )
+    manager.run(stop)
+
+    assert store.candidate_count() == 0
+    assert store.event_count(event_type="candidate_rejected") == 1
+    assert store.active_outage_count(source="pumpportal-new-token") == 0
