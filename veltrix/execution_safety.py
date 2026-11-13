@@ -55,6 +55,12 @@ def _digest(value: str, name: str) -> str:
     return value
 
 
+def _signed_integer(value: int, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ExecutionGateError(f"invalid_{name}")
+    return value
+
+
 def _canonical_json(value: dict) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
@@ -264,7 +270,7 @@ class TransactionValidator:
         if not isinstance(plan.recent_blockhash, str) or not plan.recent_blockhash:
             raise ExecutionGateError("missing_recent_blockhash")
         expiry = _integer(plan.blockhash_expires_at_ms, "blockhash_expiry", minimum=1)
-        if expiry <= now_ms or expiry - now_ms > 120_000:
+        if expiry <= now_ms or expiry > intent.expires_at_ms or expiry - now_ms > 120_000:
             raise ExecutionGateError("blockhash_stale_or_unbounded")
         if not isinstance(plan.instructions, tuple) or not 1 <= len(plan.instructions) <= 8:
             raise ExecutionGateError("invalid_instruction_count")
@@ -297,12 +303,16 @@ class TransactionValidator:
 
         input_effects = []
         output_effects = []
+        seen_effect_accounts = set()
         for effect in plan.account_effects:
             if not isinstance(effect, AccountEffect):
                 raise ExecutionGateError("malformed_account_effect")
             if effect.account not in intent.allowed_accounts:
                 raise ExecutionGateError("unexpected_account_mutation")
-            _integer(effect.delta_base_units, "account_delta")
+            if effect.account in seen_effect_accounts:
+                raise ExecutionGateError("duplicate_account_effect")
+            seen_effect_accounts.add(effect.account)
+            _signed_integer(effect.delta_base_units, "account_delta")
             if effect.authority_before != effect.authority_after:
                 raise ExecutionGateError("account_authority_changed")
             if effect.delegate_before != effect.delegate_after:
@@ -319,8 +329,8 @@ class TransactionValidator:
                 raise ExecutionGateError("unknown_account_effect_role")
         if sum(input_effects) != -intent.input_base_units:
             raise ExecutionGateError("wallet_input_delta_mismatch")
-        if sum(output_effects) < intent.minimum_output_base_units:
-            raise ExecutionGateError("wallet_output_delta_below_minimum")
+        if sum(output_effects) != plan.expected_output_base_units:
+            raise ExecutionGateError("wallet_output_delta_mismatch")
 
 
 def hmac_compare(first: str, second: str) -> bool:
@@ -343,9 +353,17 @@ class RiskGate:
             raise ExecutionGateError("risk_scope_mismatch")
         if risk.risk_state != "LIVE_RISK_APPROVED":
             raise ExecutionGateError("token_risk_not_live_approved")
-        if not isinstance(risk.missing_claims, tuple) or risk.missing_claims:
+        if (
+            not isinstance(risk.missing_claims, tuple)
+            or any(not isinstance(item, str) or not item for item in risk.missing_claims)
+            or risk.missing_claims
+        ):
             raise ExecutionGateError("risk_claims_missing")
-        if not isinstance(risk.risk_flags, tuple) or risk.risk_flags:
+        if (
+            not isinstance(risk.risk_flags, tuple)
+            or any(not isinstance(item, str) or not item for item in risk.risk_flags)
+            or risk.risk_flags
+        ):
             raise ExecutionGateError("risk_flags_present")
         for name, observed in (
             ("risk", risk.observed_at_ms),
@@ -375,7 +393,7 @@ class RiskGate:
             or risk.current_portfolio_exposure_base_units + intent.input_base_units > policy.max_portfolio_exposure_base_units
         ):
             raise ExecutionGateError("portfolio_exposure_limit_exceeded")
-        if policy.max_daily_loss_base_units <= 0 or risk.daily_loss_base_units > policy.max_daily_loss_base_units:
+        if risk.daily_loss_base_units > policy.max_daily_loss_base_units:
             raise ExecutionGateError("daily_loss_limit_exceeded")
         _digest(risk.evidence_hash, "risk_evidence_hash")
 
@@ -403,10 +421,12 @@ class SimulationGate:
             raise ExecutionGateError("simulation_stale")
         fee = _integer(receipt.fee_base_units, "simulation_fee")
         output = _integer(receipt.output_base_units, "simulation_output", minimum=1)
-        if fee > min(intent.max_priority_fee_base_units, policy.max_priority_fee_base_units):
+        if fee > min(intent.max_priority_fee_base_units, policy.max_priority_fee_base_units, plan.priority_fee_base_units):
             raise ExecutionGateError("simulated_fee_limit_exceeded")
         if output < intent.minimum_output_base_units:
             raise ExecutionGateError("simulated_output_below_minimum")
+        if output != plan.expected_output_base_units:
+            raise ExecutionGateError("simulated_output_mismatch")
         _digest(receipt.account_state_hash, "simulation_account_state_hash")
 
 
