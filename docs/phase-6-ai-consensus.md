@@ -124,7 +124,7 @@ and swaps remain disabled in Phase 09.
 - [x] Provider exception text is excluded from wallet-feed logs and retry records.
 - [x] Discovery, market-intelligence, risk and consensus runtime builders enforce the shared production/Telegram/scheduling/live-trading release locks.
 - [x] Full repository CI and adversarial tests pass on the exact Stage 6 PR head (834 passed, 5 skipped; compileall passed).
-- [ ] Post-merge CI and deterministic decision replay/store tests pass on main.
+- [x] Post-merge CI and deterministic decision replay/store tests pass on main (main run `43395108875` passed).
 - [x] Review confirms no wallet allowlist was fabricated, no generative LLM can override Shield, and no paper-trading, Telegram, scheduling, production deployment or execution capability was activated.
 
 Stage 6 implements deterministic specialist agents and an evidence-gated consensus policy; it does not claim a trained predictive model or generative LLM.
