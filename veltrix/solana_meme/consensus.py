@@ -170,6 +170,10 @@ class RiskEvidence:
             raise ValueError("risk evidence flag codes must be unique")
         if not isinstance(self.evidence_hash, str) or not self.evidence_hash.strip():
             raise ValueError("risk evidence hash is required")
+        if self.risk_state == "EVIDENCE_COLLECTED_REVIEW_REQUIRED" and (
+            self.missing_claims or self.errors
+        ):
+            raise ValueError("review-ready risk state cannot contain missing claims or errors")
         for name in ("mint_evidence_id", "holder_evidence_id"):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value.strip()):
@@ -324,6 +328,12 @@ def validate_consensus_decision(decision: object) -> ConsensusDecision:
         raise ValueError("consensus supporting agents do not match votes")
     if checked.status == "REJECTED" and checked_votes[3].stance != "REJECT":
         raise ValueError("rejected consensus requires a Shield veto")
+    if checked_votes[3].stance == "APPROVE" and (
+        checked.risk_state != "EVIDENCE_COLLECTED_REVIEW_REQUIRED"
+        or checked.missing_claims
+        or any(flag.severity in {"medium", "high", "critical"} for flag in checked.risk_flags)
+    ):
+        raise ValueError("Shield approval requires complete risk evidence and no medium-or-higher flags")
     if checked.status == "CONSENSUS_APPROVED" and (
         checked_votes[3].stance != "APPROVE" or checked.support_count < 2
     ):
