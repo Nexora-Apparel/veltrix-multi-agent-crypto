@@ -232,10 +232,14 @@ class DexScreenerProvider:
             created = int(created_number)
 
         quality_flags = []
-        if "usd" not in liquidity or liquidity.get("usd") is None:
+        liquidity_usd = liquidity.get("usd")
+        volume_h1_usd = volume.get("h1")
+        if liquidity_usd is None:
             quality_flags.append("liquidity_usd_missing")
-        if "h1" not in volume or volume.get("h1") is None:
+            liquidity_usd = 0
+        if volume_h1_usd is None:
             quality_flags.append("volume_h1_usd_missing")
+            volume_h1_usd = 0
 
         return MarketEvent(
             chain=chain,
@@ -243,8 +247,8 @@ class DexScreenerProvider:
             pair_address=pair_address.strip(),
             symbol=token.get("symbol") if isinstance(token.get("symbol"), str) else None,
             price_usd=price_usd,
-            liquidity_usd=cls._number(liquidity.get("usd", 0), "liquidity.usd") or 0.0,
-            volume_h1_usd=cls._number(volume.get("h1", 0), "volume.h1") or 0.0,
+            liquidity_usd=cls._number(liquidity_usd, "liquidity.usd") or 0.0,
+            volume_h1_usd=cls._number(volume_h1_usd, "volume.h1") or 0.0,
             price_change_m5_pct=change_m5,
             observed_at_ms=observed_at_ms,
             pair_created_at_ms=created,
