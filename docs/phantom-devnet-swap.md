@@ -53,7 +53,11 @@ If any freshness condition changes, the page rejects the old transaction and req
 
 - Phantom's `signAndSendTransaction` is called only after the final freshness gate passes and only from the user's explicit button click.
 - The wallet owner must inspect and approve the transaction in Phantom. The page cannot approve on the user's behalf.
-- The page waits for Devnet confirmation, retrieves the confirmed legacy transaction, and compares its message bytes with the reviewed message.
+- Immediately before opening Phantom, the page copies the serialized reviewed message and records its byte length and SHA-256 digest. This immutable evidence is retained in the in-flight review state before the wallet provider receives the transaction object.
+- The page waits for Devnet confirmation, retrieves the confirmed legacy transaction, and records its serialized message length and SHA-256 digest.
+- Exact message bytes produce `CONFIRMED_EXACT_MATCH`. If serialized bytes differ, the page records the first differing byte and compares the complete normalized legacy message: header, fee payer/signer policy, ordered account keys, recent blockhash, instruction count/order, program indexes, account indexes and instruction data. It also rechecks the exact CPMM input and minimum output.
+- Only if every normalized field and the signer/fee-payer/CPMM policy match may the page classify the result as `CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH`. This remains a confirmed on-chain swap and is displayed with a diagnostic warning; it is not reported as a failed transaction.
+- Any semantic difference is classified `CONFIRMED_BUT_UNVERIFIED`; no retry is offered and the signature must be inspected. A transaction with a non-null on-chain execution error is `FAILED_ON_CHAIN`; an ambiguous submission remains `SUBMISSION_STATUS_UNKNOWN`.
 - The page then checks the wallet's Devnet USDC balance increase against the reviewed minimum output.
 - A signature or successful simulation alone is not reported as a successful swap.
 - If Phantom explicitly rejects approval, the action may be retried only while the prepared review remains fresh. If the submission result is ambiguous or a signature exists, the action is locked against retries until wallet activity is inspected.
@@ -74,4 +78,4 @@ There is no automatic router or multi-hop fallback. Any failed verifier, freshne
 
 ## Evidence boundary
 
-A quote or successful simulation is not a swap. The test is complete only after a user-approved transaction has a real signature, Devnet confirmation, exact-message reconciliation, and a verified positive Devnet USDC balance delta meeting the minimum output.
+A quote or successful simulation is not a swap. The test is complete only after a user-approved transaction has a real signature, Devnet confirmation, either exact-message matching or a full strict semantic match, and a verified positive Devnet USDC balance delta meeting the minimum output. A semantic mismatch remains unverified and must never trigger an automatic retry.
