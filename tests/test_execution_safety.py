@@ -253,6 +253,9 @@ def test_default_environment_policy_cannot_enter_live_pipeline(tmp_path):
         ("message_hash", "transaction_manifest_hash_mismatch"),
         ("authorized_intent_substitution", "transaction_not_bound_to_authorized_intent"),
         ("stale_blockhash", "blockhash_stale_or_unbounded"),
+        ("fee_credit", "fee_payer_delta_not_debit"),
+        ("fee_limit", "fee_payer_debit_exceeds_limit"),
+        ("missing_fee_effect", "fee_payer_effect_missing_or_ambiguous"),
     ],
 )
 def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
@@ -283,8 +286,19 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, blockhash_expires_at_ms=NOW_MS)
         plan = replace(plan, message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
+    elif mutation == "fee_credit":
+        effects = (*plan.account_effects[:-1], replace(plan.account_effects[-1], delta_base_units=10))
+        plan = replace(plan, account_effects=effects, message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
+    elif mutation == "fee_limit":
+        effects = (*plan.account_effects[:-1], replace(plan.account_effects[-1], delta_base_units=-11))
+        plan = replace(plan, account_effects=effects, message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
+    elif mutation == "missing_fee_effect":
+        plan = replace(plan, account_effects=plan.account_effects[:-1], message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
 
-    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash"}:
+    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash", "fee_credit", "fee_limit", "missing_fee_effect"}:
         intent = replace(intent, expected_message_hash=plan.message_hash)
     with pytest.raises(ExecutionGateError, match=reason):
         TransactionValidator.validate(intent, plan, live_policy(), now_ms=NOW_MS)
