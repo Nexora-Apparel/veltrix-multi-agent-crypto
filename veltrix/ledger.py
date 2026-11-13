@@ -237,7 +237,7 @@ class PaperBroker:
                 (token,),
             ).fetchone()
             latest_market = db.execute(
-                """SELECT id, price_usd, retrieved_at_ms, quality_flags
+                """SELECT id, price_usd, retrieved_at_ms, quality_flags_json AS quality_flags
                 FROM solana_market_snapshots
                 WHERE mint=? ORDER BY retrieved_at_ms DESC, id DESC LIMIT 1""",
                 (token,),
