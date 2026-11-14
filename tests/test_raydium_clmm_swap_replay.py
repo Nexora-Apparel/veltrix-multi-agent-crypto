@@ -211,18 +211,18 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
 @pytest.mark.parametrize(
     ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount", "multi_array", "empty_array_after_order", "bitmap_extension", "negative_bitmap_extension"),
     [
-        (False, True, 1_000_000, False, 0, False, False, False),
-        (True, True, 1_000_000, False, 0, False, False, False),
-        (False, False, 100, False, 0, False, False, False),
-        (False, True, 1_000_000, True, 0, False, False, False),
-        (False, True, 1_000_000, False, 100, False, False, False),
-        (False, True, 1_000_000, False, 0, True, False, False),
-        (False, True, 1_000_000, False, 100, False, True, False),
-        (False, True, 1_000_000_000_000_000_000, False, 1, False, False, True),
+        (False, True, 1_000_000, False, 0, False, False, False, False),
+        (True, True, 1_000_000, False, 0, False, False, False, False),
+        (False, False, 100, False, 0, False, False, False, False),
+        (False, True, 1_000_000, True, 0, False, False, False, False),
+        (False, True, 1_000_000, False, 100, False, False, False, False),
+        (False, True, 1_000_000, False, 0, True, False, False, False),
+        (False, True, 1_000_000, False, 100, False, True, False, False),
+        (False, True, 1_000_000_000_000_000_000, False, 1, False, False, True, False),
         (True, True, 1_000_000_000_000_000_000, False, 100, False, False, False, True),
     ],
 )
-def test_single_array_swap_replay_matches_direction_and_amount_mode(
+def test_swap_replay_matches_direction_and_amount_mode(
     zero_for_one,
     is_base_input,
     amount_specified,
