@@ -85,7 +85,8 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
             headers={"Authorization": "Bearer " + token},
         )
         stylesheet = urlopen(request).read().decode("utf-8")
-        assert "--bg:#090609" in stylesheet
+        assert "--bg:#090A0B" in stylesheet
+        assert "--surface:#121417" in stylesheet
         assert ".bottom-nav" in stylesheet
 
         write = Request(
