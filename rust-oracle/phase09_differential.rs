@@ -936,7 +936,6 @@ fn assert_swap_replay_fixture(fixture: &Value) {
                 &mut extension_data,
                 &extension_owner,
                 false,
-                0,
             );
             let result = swap_internal(
                 &amm_config,
