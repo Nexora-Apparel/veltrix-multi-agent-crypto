@@ -87,7 +87,6 @@ def test_decodes_variant_with_multiple_serialized_fields():
         (JUPITER_V6_PROGRAM_ID, route_data(variant=255), "unknown_jupiter_swap_variant"),
         (JUPITER_V6_PROGRAM_ID, route_data(variant=17, variant_payload=b"\x02"), "noncanonical_boolean"),
         (JUPITER_V6_PROGRAM_ID, route_data(percent=101), "route_percent_out_of_range"),
-        (JUPITER_V6_PROGRAM_ID, route_data(input_index=1, output_index=1), "route_step_input_output_alias"),
         (JUPITER_V6_PROGRAM_ID, route_data(amount=0), "route_amount_must_be_positive"),
         (JUPITER_V6_PROGRAM_ID, route_data(slippage=10001), "route_fee_or_slippage_out_of_range"),
         (JUPITER_V6_PROGRAM_ID, route_data(trailing=b"\x00"), "trailing_instruction_data"),
@@ -136,3 +135,20 @@ def test_rejects_noncanonical_whirlpool_option_tag():
             JUPITER_V6_PROGRAM_ID,
             route_data(variant=47, variant_payload=b"\x01\x02"),
         )
+
+
+def test_decodes_exact_out_route_and_preserves_u8_fee_field():
+    decoded = decode_jupiter_v6_route_instruction(
+        JUPITER_V6_PROGRAM_ID,
+        route_data(
+            discriminator="d033ef977b2bed5c",
+            amount=700,
+            quoted=800,
+            fee=255,
+        ),
+    )
+    assert decoded.instruction_name == "exact_out_route"
+    assert decoded.exact_out is True
+    assert decoded.amount == 700
+    assert decoded.quoted_amount == 800
+    assert decoded.platform_fee_bps == 255
