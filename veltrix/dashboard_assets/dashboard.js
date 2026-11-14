@@ -12,7 +12,7 @@
   async function api(path){
     const token=sessionStorage.getItem(tokenKey)||"";
     const response=await fetch(path,{headers:token?{Authorization:"Bearer "+token}:{},cache:"no-store"});
-    if(response.status===401){ $("access-gate").hidden=false; throw new Error("Dashboard access token required."); }
+    if(response.status===401){ $("access-gate").hidden=false; $("access-error").textContent="Token missing or rejected. Check the dashboard token."; throw new Error("Dashboard access token required."); }
     if(!response.ok) throw new Error("Dashboard request failed ("+response.status+").");
     return response.json();
   }
@@ -151,6 +151,7 @@
         api("/api/decisions"),api("/api/consensus"),api("/api/markets"),api("/api/equity-curve")
       ]);
       allPositions=positions;allTrades=trades;allConsensus=consensus;allMarkets=markets;chartPoints=curve.points||[];
+      $("access-gate").hidden=true;$("access-token").value="";
       renderHome(overview);renderPositions();renderTrades();renderAgents();renderChart();
       $("health-label").textContent=health.database==="connected"?"Database connected · read-only":"Database health requires review";
       const missing=(health.missing_paper_tables||[]);
