@@ -869,18 +869,28 @@ fn assert_swap_replay_fixture(fixture: &Value) {
         .as_secs()
         / (2 * 24 * 3600);
     let pool_bytes = decode_hex_bytes(fixture["initial_pool_hex"].as_str().unwrap());
-    let tick_array_bytes = decode_hex_bytes(fixture["initial_tick_array_hex"].as_str().unwrap());
+    let tick_array_bytes: Vec<Vec<u8>> = fixture["initial_tick_arrays_hex"]
+        .as_array()
+        .expect("initial TickArrayState byte images")
+        .iter()
+        .map(|value| decode_hex_bytes(value.as_str().unwrap()))
+        .collect();
     let observation_bytes = decode_hex_bytes(fixture["initial_observation_hex"].as_str().unwrap());
     assert_eq!(pool_bytes.len(), PoolState::LEN);
-    assert_eq!(tick_array_bytes.len(), TickArrayState::LEN);
     assert_eq!(observation_bytes.len(), ObservationState::LEN);
     assert_eq!(&pool_bytes[..8], PoolState::DISCRIMINATOR);
-    assert_eq!(&tick_array_bytes[..8], TickArrayState::DISCRIMINATOR);
     assert_eq!(&observation_bytes[..8], ObservationState::DISCRIMINATOR);
+    assert!(!tick_array_bytes.is_empty());
+    for bytes in &tick_array_bytes {
+        assert_eq!(bytes.len(), TickArrayState::LEN);
+        assert_eq!(&bytes[..8], TickArrayState::DISCRIMINATOR);
+    }
 
     let pool_state = bytemuck::pod_read_unaligned::<PoolState>(&pool_bytes[8..]);
-    let tick_array_state =
-        bytemuck::pod_read_unaligned::<TickArrayState>(&tick_array_bytes[8..]);
+    let tick_array_cells: Vec<RefCell<TickArrayState>> = tick_array_bytes
+        .iter()
+        .map(|bytes| RefCell::new(bytemuck::pod_read_unaligned::<TickArrayState>(&bytes[8..])))
+        .collect();
     let observation_state =
         bytemuck::pod_read_unaligned::<ObservationState>(&observation_bytes[8..]);
 
@@ -897,7 +907,9 @@ fn assert_swap_replay_fixture(fixture: &Value) {
     let observation_cell = RefCell::new(observation_state);
     let mut pool_ref = pool_cell.borrow_mut();
     let mut tick_array_queue = VecDeque::new();
-    tick_array_queue.push_back(tick_array_cell.borrow_mut());
+    for cell in &tick_array_cells {
+        tick_array_queue.push_back(cell.borrow_mut());
+    }
     let mut observation_ref = observation_cell.borrow_mut();
 
     let result = swap_internal(
@@ -925,33 +937,48 @@ fn assert_swap_replay_fixture(fixture: &Value) {
 
     let mut final_pool_bytes = PoolState::DISCRIMINATOR.to_vec();
     final_pool_bytes.extend_from_slice(bytemuck::bytes_of(&*pool_ref));
-    let mut final_tick_array_bytes = TickArrayState::DISCRIMINATOR.to_vec();
-    {
-        let final_tick_array = tick_array_cell.borrow();
-        final_tick_array_bytes.extend_from_slice(bytemuck::bytes_of(&*final_tick_array));
+    drop(tick_array_queue);
+    let mut final_tick_array_bytes = Vec::new();
+    for cell in &tick_array_cells {
+        let final_tick_array = cell.borrow();
+        let mut bytes = TickArrayState::DISCRIMINATOR.to_vec();
+        bytes.extend_from_slice(bytemuck::bytes_of(&*final_tick_array));
+        final_tick_array_bytes.push(bytes);
     }
     let mut final_observation_bytes = ObservationState::DISCRIMINATOR.to_vec();
     final_observation_bytes.extend_from_slice(bytemuck::bytes_of(&*observation_ref));
 
     let mut expected_pool_bytes = decode_hex_bytes(expected["pool_hex"].as_str().unwrap());
-    let mut expected_tick_array_bytes = decode_hex_bytes(expected["tick_array_hex"].as_str().unwrap());
-    // swap_internal refreshes both recent_epoch fields through the pinned
-    // cfg(test) get_recent_epoch() system-time calculation; the Python fixture
-    // uses epoch zero, so normalize only these two environmental
-    // u64 fields to the epoch observed by the pinned Rust harness.
+    let mut expected_tick_array_bytes: Vec<Vec<u8>> = expected["tick_arrays_hex"]
+        .as_array()
+        .expect("expected final TickArrayState byte images")
+        .iter()
+        .map(|value| decode_hex_bytes(value.as_str().unwrap()))
+        .collect();
+    let normalize_tick_array_epochs = fixture["normalize_tick_array_epochs"]
+        .as_array()
+        .expect("TickArrayState epoch normalization flags");
+    assert_eq!(final_tick_array_bytes.len(), expected_tick_array_bytes.len());
+    assert_eq!(final_tick_array_bytes.len(), normalize_tick_array_epochs.len());
+    // swap_internal refreshes PoolState.recent_epoch and mutated TickArrayState
+    // recent_epoch fields through the pinned cfg(test) system-time helper.
+    // Normalize only those environmental u64 fields; all other bytes are exact.
     expected_pool_bytes[1088..1096].copy_from_slice(&runtime_epoch.to_le_bytes());
-    if fixture["normalize_tick_array_epoch"].as_bool().unwrap() {
-        expected_tick_array_bytes[10125..10133].copy_from_slice(&runtime_epoch.to_le_bytes());
+    for index in 0..expected_tick_array_bytes.len() {
+        if normalize_tick_array_epochs[index].as_bool().unwrap() {
+            expected_tick_array_bytes[index][10125..10133]
+                .copy_from_slice(&runtime_epoch.to_le_bytes());
+        }
+        assert_account_bytes_equal(
+            &final_tick_array_bytes[index],
+            &expected_tick_array_bytes[index],
+            "final TickArrayState",
+        );
     }
     assert_account_bytes_equal(
         &final_pool_bytes,
         &expected_pool_bytes,
         "final PoolState",
-    );
-    assert_account_bytes_equal(
-        &final_tick_array_bytes,
-        &expected_tick_array_bytes,
-        "final TickArrayState",
     );
     assert_account_bytes_equal(
         &final_observation_bytes,
