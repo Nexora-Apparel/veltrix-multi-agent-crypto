@@ -948,7 +948,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False) -> dict:
+def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -1016,9 +1016,11 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
                 tick_index=tick_index,
                 liquidity_net=500,
                 liquidity_gross=1000,
-                orders_amount=0,
+                orders_amount=fifo_order_amount,
                 part_filled_orders_remaining=0,
                 initialized=True,
+                order_phase=0,
+                unfilled_ratio_x64=(1 << 64) if fifo_order_amount else 0,
             ))
         else:
             ticks.append(RaydiumClmmTick(
@@ -1109,6 +1111,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "zero_for_one": zero_for_one,
         "is_base_input": is_base_input,
         "dynamic_fee_enabled": dynamic_fee_enabled,
+        "fifo_order_amount": fifo_order_amount,
         "block_timestamp": block_timestamp,
         "trade_fee_rate": base_fee_rate,
         "protocol_fee_rate": protocol_fee_rate,
@@ -1181,6 +1184,7 @@ def build_vectors() -> dict:
             swap_replay_vector(True, True, 1_000_000),
             swap_replay_vector(False, False, 100),
             swap_replay_vector(False, True, 1_000_000, True),
+            swap_replay_vector(False, True, 1_000_000, False, 100),
         ],
     }
 
