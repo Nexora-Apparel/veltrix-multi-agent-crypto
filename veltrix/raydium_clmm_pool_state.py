@@ -27,6 +27,7 @@ RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS = 16
 RAYDIUM_POOL_REWARD_INFO_OFFSET = 397
 RAYDIUM_POOL_REWARD_INFO_LENGTH = 169
 RAYDIUM_POOL_REWARD_COUNT = 3
+RAYDIUM_POOL_RECENT_EPOCH_OFFSET = 1088
 RAYDIUM_POOL_DYNAMIC_FEE_INFO_OFFSET = 1096
 RAYDIUM_POOL_DYNAMIC_FEE_INFO_LENGTH = 80
 RAYDIUM_POOL_SEED = b"pool"
@@ -107,6 +108,7 @@ class RaydiumClmmPoolState:
     protocol_fees_token_1: int = 0
     fund_fees_token_0: int = 0
     fund_fees_token_1: int = 0
+    recent_epoch: int = 0
     tick_array_bitmap: tuple[int, ...] = (0,) * RAYDIUM_POOL_TICK_ARRAY_BITMAP_WORDS
     source_commit: str = RAYDIUM_CLMM_SOURCE_COMMIT
     dynamic_fee_info: RaydiumClmmDynamicFeeInfo = RaydiumClmmDynamicFeeInfo()
@@ -233,6 +235,7 @@ def decode_raydium_clmm_pool_state(
     )
     fund_fees_token_0 = int.from_bytes(data[1064:1072], "little")
     fund_fees_token_1 = int.from_bytes(data[1072:1080], "little")
+    recent_epoch = int.from_bytes(data[RAYDIUM_POOL_RECENT_EPOCH_OFFSET:RAYDIUM_POOL_RECENT_EPOCH_OFFSET + 8], "little")
 
     reward_infos = []
     for reward_index in range(RAYDIUM_POOL_REWARD_COUNT):
@@ -365,12 +368,74 @@ def decode_raydium_clmm_pool_state(
         protocol_fees_token_1=protocol_fees_token_1,
         fund_fees_token_0=fund_fees_token_0,
         fund_fees_token_1=fund_fees_token_1,
+        recent_epoch=recent_epoch,
         tick_array_bitmap=tick_array_bitmap,
         dynamic_fee_info=dynamic_fee_info,
         reward_infos=tuple(reward_infos),
         account_data=data,
     )
 
+
+
+
+def update_raydium_pool_reward_infos(
+    pool: RaydiumClmmPoolState,
+    *,
+    current_timestamp: int,
+    recent_epoch: int,
+) -> RaydiumClmmPoolState:
+    """Port PoolState::update_reward_infos from the pinned pool.rs."""
+    if not isinstance(pool, RaydiumClmmPoolState):
+        raise RaydiumClmmPoolStateError("decoded Raydium PoolState is required")
+    if isinstance(current_timestamp, bool) or not isinstance(current_timestamp, int) or not 0 <= current_timestamp <= 0xFFFFFFFFFFFFFFFF:
+        raise RaydiumClmmPoolStateError("reward update timestamp must fit u64")
+    if isinstance(recent_epoch, bool) or not isinstance(recent_epoch, int) or not 0 <= recent_epoch <= 0xFFFFFFFFFFFFFFFF:
+        raise RaydiumClmmPoolStateError("recent epoch must fit u64")
+
+    q64 = 1 << 64
+    u64_max = (1 << 64) - 1
+    u128_max = (1 << 128) - 1
+    rewards = list(pool.reward_infos)
+    for index, reward in enumerate(rewards):
+        if not reward.initialized or reward.reward_total_emitted == u64_max:
+            continue
+        if current_timestamp <= reward.open_time:
+            continue
+        latest_timestamp = min(current_timestamp, reward.end_time)
+        if pool.liquidity != 0:
+            time_delta = max(0, latest_timestamp - reward.last_update_time)
+            if time_delta == 0:
+                continue
+            reward_delta_numerator = time_delta * reward.emissions_per_second_x64
+            reward_delta = (reward_delta_numerator + q64 - 1) // q64
+            if reward_delta > u128_max:
+                reward_delta = 0
+            growth_delta = (time_delta * reward.emissions_per_second_x64) // pool.liquidity
+            if growth_delta > u128_max:
+                growth_delta = 0
+            remaining = u64_max - reward.reward_total_emitted
+            if reward_delta <= remaining:
+                total_emitted = reward.reward_total_emitted + reward_delta
+            else:
+                total_emitted = u64_max
+                growth_delta = (remaining * q64) // pool.liquidity
+            reward = replace(
+                reward,
+                reward_total_emitted=total_emitted,
+                reward_growth_global_x64=(reward.reward_growth_global_x64 + growth_delta) & u128_max,
+            )
+        reward_state = reward.reward_state
+        if latest_timestamp >= reward.open_time and latest_timestamp < reward.end_time:
+            reward_state = 2  # RewardState::Opening
+        elif latest_timestamp == reward.end_time:
+            reward_state = 3  # RewardState::Ended
+        rewards[index] = replace(
+            reward,
+            last_update_time=latest_timestamp,
+            reward_state=reward_state,
+        )
+
+    return replace(pool, reward_infos=tuple(rewards), recent_epoch=recent_epoch)
 
 
 def encode_raydium_clmm_pool_state(pool: RaydiumClmmPoolState) -> bytes:
@@ -447,6 +512,7 @@ def encode_raydium_clmm_pool_state(pool: RaydiumClmmPoolState) -> bytes:
         data[start:start + 8] = integer(word, 8, f"bitmap word {index}")
     data[1064:1072] = integer(pool.fund_fees_token_0, 8, "fund fees token 0")
     data[1072:1080] = integer(pool.fund_fees_token_1, 8, "fund fees token 1")
+    data[RAYDIUM_POOL_RECENT_EPOCH_OFFSET:RAYDIUM_POOL_RECENT_EPOCH_OFFSET + 8] = integer(pool.recent_epoch, 8, "recent epoch")
 
     if not isinstance(pool.reward_infos, tuple) or len(pool.reward_infos) != RAYDIUM_POOL_REWARD_COUNT:
         raise RaydiumClmmPoolStateError("PoolState must contain exactly three reward infos")
