@@ -303,7 +303,7 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     updated_tick = result.tick_arrays[0].ticks[1] if bitmap_extension else (result.tick_arrays[1].ticks[0] if multi_array else result.tick_arrays[0].ticks[0 if zero_for_one else 1])
     if is_base_input and not multi_array and not empty_array_after_order and not bitmap_extension:
         assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
-    elif empty_array_after_order:
+    elif empty_array_after_order or bitmap_extension:
         assert updated_tick.liquidity_gross == 0
     else:
         assert updated_tick.liquidity_gross == 1000
