@@ -948,7 +948,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0) -> dict:
+def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0, multi_array: bool = False) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -959,7 +959,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     )
     observation_address, _ = derive_raydium_clmm_observation_address(str(pool_address))
     bitmap = [0] * 16
-    bitmap[8] = 1
+    bitmap[8] = 3 if multi_array else 1
     base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
     dynamic_fee_info = (
         RaydiumClmmDynamicFeeInfo(
@@ -977,6 +977,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         if dynamic_fee_enabled
         else RaydiumClmmDynamicFeeInfo()
     )
+    current_tick = 590 if multi_array else (10 if zero_for_one else 0)
     pool = RaydiumClmmPoolState(
         pool_address=str(pool_address),
         bump=bump,
@@ -991,8 +992,8 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         mint_decimals_1=6,
         tick_spacing=10,
         liquidity=1_000_000,
-        sqrt_price_x64=get_sqrt_price_at_tick(10 if zero_for_one else 0),
-        tick_current=10 if zero_for_one else 0,
+        sqrt_price_x64=get_sqrt_price_at_tick(current_tick),
+        tick_current=current_tick,
         status=0,
         fee_on=0,
         seed_index=0,
@@ -1008,47 +1009,57 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         account_data_sha256=hashlib.sha256(initial_pool_bytes).hexdigest(),
     )
 
-    ticks = []
-    for index in range(RAYDIUM_TICK_ARRAY_SIZE):
-        tick_index = index * pool.tick_spacing
-        if index == (0 if zero_for_one else 1):
-            ticks.append(RaydiumClmmTick(
-                tick_index=tick_index,
-                liquidity_net=500,
-                liquidity_gross=1000,
-                orders_amount=fifo_order_amount,
-                part_filled_orders_remaining=0,
-                initialized=True,
-                order_phase=0,
-                unfilled_ratio_x64=(1 << 64) if fifo_order_amount else 0,
-            ))
-        else:
-            ticks.append(RaydiumClmmTick(
-                tick_index=tick_index,
-                liquidity_net=0,
-                liquidity_gross=0,
-                orders_amount=0,
-                part_filled_orders_remaining=0,
-                initialized=False,
-            ))
-    tick_array = RaydiumClmmTickArray(
-        address=derive_raydium_clmm_tick_array_address(
+    array_specs = (
+        [(0, 58, 0, 100, 0), (600, 0, 500, 1000, 0)]
+        if multi_array
+        else [(0, 0 if zero_for_one else 1, 500, 1000, fifo_order_amount)]
+    )
+    tick_arrays = []
+    initial_tick_array_bytes = []
+    for start_tick_index, initialized_slot, liquidity_net, liquidity_gross, order_amount in array_specs:
+        ticks = []
+        for index in range(RAYDIUM_TICK_ARRAY_SIZE):
+            tick_index = start_tick_index + index * pool.tick_spacing
+            if index == initialized_slot:
+                ticks.append(RaydiumClmmTick(
+                    tick_index=tick_index,
+                    liquidity_net=liquidity_net,
+                    liquidity_gross=liquidity_gross,
+                    orders_amount=order_amount,
+                    part_filled_orders_remaining=0,
+                    initialized=True,
+                    order_phase=0,
+                    unfilled_ratio_x64=(1 << 64) if order_amount else 0,
+                ))
+            else:
+                ticks.append(RaydiumClmmTick(
+                    tick_index=tick_index,
+                    liquidity_net=0,
+                    liquidity_gross=0,
+                    orders_amount=0,
+                    part_filled_orders_remaining=0,
+                    initialized=False,
+                ))
+        tick_array = RaydiumClmmTickArray(
+            address=derive_raydium_clmm_tick_array_address(
+                pool_address=pool.pool_address,
+                start_tick_index=start_tick_index,
+            ),
             pool_address=pool.pool_address,
-            start_tick_index=0,
-        ),
-        pool_address=pool.pool_address,
-        start_tick_index=0,
-        tick_spacing=pool.tick_spacing,
-        initialized_tick_count=1,
-        recent_epoch=1,
-        ticks=tuple(ticks),
-        data_sha256="0" * 64,
-    )
-    initial_tick_array_bytes = encode_raydium_clmm_tick_array(tick_array)
-    tick_array = replace(
-        tick_array,
-        data_sha256=hashlib.sha256(initial_tick_array_bytes).hexdigest(),
-    )
+            start_tick_index=start_tick_index,
+            tick_spacing=pool.tick_spacing,
+            initialized_tick_count=1,
+            recent_epoch=1,
+            ticks=tuple(ticks),
+            data_sha256="0" * 64,
+        )
+        raw_tick_array = encode_raydium_clmm_tick_array(tick_array)
+        tick_array = replace(
+            tick_array,
+            data_sha256=hashlib.sha256(raw_tick_array).hexdigest(),
+        )
+        tick_arrays.append(tick_array)
+        initial_tick_array_bytes.append(raw_tick_array)
 
     observation = RaydiumClmmObservationState(
         address=observation_address,
@@ -1069,9 +1080,9 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         data_sha256=hashlib.sha256(initial_observation_bytes).hexdigest(),
     )
 
-    sqrt_price_limit = get_sqrt_price_at_tick(0 if zero_for_one else 10)
+    sqrt_price_limit = get_sqrt_price_at_tick(600 if multi_array else (0 if zero_for_one else 10))
     block_timestamp = 1_700_000_000
-    recent_epoch = 0  # host-side Solana Clock default used by the pinned Rust test harness
+    recent_epoch = 0  # fixture epoch; Rust normalizes upstream cfg(test) system-time fields
     base_fee_rate = 3_000
     protocol_fee_rate = 1_000
     fund_fee_rate = 500
@@ -1083,8 +1094,8 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         cluster="devnet",
         genesis_hash="fixture-genesis",
         context_slot=101,
-        tick_arrays=(tick_array,),
-        cpi_account_order=(tick_array.address,),
+        tick_arrays=tuple(tick_arrays),
+        cpi_account_order=tuple(array.address for array in tick_arrays),
     )
     result = run_raydium_clmm_swap_replay(
         pool,
@@ -1100,11 +1111,11 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         protocol_fee_rate=protocol_fee_rate,
         fund_fee_rate=fund_fee_rate,
     )
-    final_tick_array_bytes = encode_raydium_clmm_tick_array(result.tick_arrays[0])
+    final_tick_array_bytes = [encode_raydium_clmm_tick_array(array) for array in result.tick_arrays]
     final_observation_bytes = encode_raydium_clmm_observation_state(result.observation_state)
     return {
         "initial_pool_hex": initial_pool_bytes.hex(),
-        "initial_tick_array_hex": initial_tick_array_bytes.hex(),
+        "initial_tick_arrays_hex": [raw.hex() for raw in initial_tick_array_bytes],
         "initial_observation_hex": initial_observation_bytes.hex(),
         "amount_specified": amount_specified,
         "sqrt_price_limit_x64": str(sqrt_price_limit),
@@ -1112,11 +1123,12 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "is_base_input": is_base_input,
         "dynamic_fee_enabled": dynamic_fee_enabled,
         "fifo_order_amount": fifo_order_amount,
+        "multi_array": multi_array,
         "block_timestamp": block_timestamp,
         "trade_fee_rate": base_fee_rate,
         "protocol_fee_rate": protocol_fee_rate,
         "fund_fee_rate": fund_fee_rate,
-        "normalize_tick_array_epoch": any(item.reached_initialized_tick for item in result.iterations),
+        "normalize_tick_array_epochs": [final.recent_epoch != initial.recent_epoch for initial, final in zip(tick_arrays, result.tick_arrays)],
         "expected": {
             "amount_0": result.settlement.amount_0,
             "amount_1": result.settlement.amount_1,
@@ -1127,7 +1139,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
             "liquidity": str(result.pool.liquidity),
             "remaining_amount": result.fee_state.amount_specified_remaining,
             "pool_hex": result.pool.account_data.hex(),
-            "tick_array_hex": final_tick_array_bytes.hex(),
+            "tick_arrays_hex": [raw.hex() for raw in final_tick_array_bytes],
             "observation_hex": final_observation_bytes.hex(),
         },
     }
@@ -1185,6 +1197,7 @@ def build_vectors() -> dict:
             swap_replay_vector(False, False, 100),
             swap_replay_vector(False, True, 1_000_000, True),
             swap_replay_vector(False, True, 1_000_000, False, 100),
+            swap_replay_vector(False, True, 1_000_000, False, 0, True),
         ],
     }
 
