@@ -6,7 +6,7 @@ fee configuration, liquidity depth, oracle state, or DEX CPI account semantics.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import struct
 
