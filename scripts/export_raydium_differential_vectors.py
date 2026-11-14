@@ -24,6 +24,7 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmRewardInfo,
     derive_raydium_clmm_pool_address,
     encode_raydium_clmm_pool_state,
+    update_raydium_pool_reward_infos,
 )
 from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
 from veltrix.raydium_clmm_dynamic_fee import RaydiumDynamicFeeSwapState
@@ -1202,6 +1203,90 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     }
 
 
+
+def reward_update_vectors() -> list[dict]:
+    """Export Python reward-info transitions for direct pinned PoolState::update_reward_infos parity."""
+    cases = [
+        ("opening", 1_000_000, 150, dict(open_time=100, end_time=200, last_update_time=110, emissions_per_second_x64=Q64, reward_total_emitted=5, reward_claimed=1, reward_growth_global_x64=9)),
+        ("ended", 1_000_000, 250, dict(open_time=100, end_time=200, last_update_time=110, emissions_per_second_x64=Q64, reward_total_emitted=5, reward_claimed=1, reward_growth_global_x64=9)),
+        ("before_open", 1_000_000, 99, dict(open_time=100, end_time=200, last_update_time=100, emissions_per_second_x64=Q64, reward_total_emitted=5, reward_claimed=1, reward_growth_global_x64=9)),
+        ("at_open", 1_000_000, 100, dict(open_time=100, end_time=200, last_update_time=100, emissions_per_second_x64=Q64, reward_total_emitted=5, reward_claimed=1, reward_growth_global_x64=9)),
+        ("zero_liquidity", 0, 150, dict(open_time=100, end_time=200, last_update_time=110, emissions_per_second_x64=Q64, reward_total_emitted=5, reward_claimed=1, reward_growth_global_x64=9)),
+        ("emission_cap", 1_000_000, 120, dict(open_time=100, end_time=200, last_update_time=110, emissions_per_second_x64=Q64, reward_total_emitted=(1 << 64) - 6, reward_claimed=1, reward_growth_global_x64=9)),
+        ("already_capped", 1_000_000, 150, dict(open_time=100, end_time=200, last_update_time=110, emissions_per_second_x64=Q64, reward_total_emitted=(1 << 64) - 1, reward_claimed=1, reward_growth_global_x64=9)),
+        ("backward_timestamp", 1_000_000, 150, dict(open_time=100, end_time=300, last_update_time=180, emissions_per_second_x64=Q64, reward_total_emitted=5, reward_claimed=1, reward_growth_global_x64=9)),
+        ("wide_mul_div_intermediate", 1, 102, dict(open_time=100, end_time=200, last_update_time=100, emissions_per_second_x64=(1 << 128) - 1, reward_total_emitted=0, reward_claimed=0, reward_growth_global_x64=0)),
+    ]
+    vectors = []
+    for name, liquidity, timestamp, fields in cases:
+        mint = str(Pubkey.new_unique())
+        reward = RaydiumClmmRewardInfo(
+            reward_state=1,
+            token_mint=mint,
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            **fields,
+        )
+        pool = RaydiumClmmPoolState(
+            pool_address=str(Pubkey.new_unique()),
+            bump=1,
+            amm_config=str(Pubkey.new_unique()),
+            pool_creator=str(Pubkey.new_unique()),
+            token_mint_0=str(Pubkey.new_unique()),
+            token_mint_1=str(Pubkey.new_unique()),
+            token_vault_0=str(Pubkey.new_unique()),
+            token_vault_1=str(Pubkey.new_unique()),
+            observation_key=str(Pubkey.new_unique()),
+            mint_decimals_0=6,
+            mint_decimals_1=6,
+            tick_spacing=10,
+            liquidity=liquidity,
+            sqrt_price_x64=1 << 64,
+            tick_current=0,
+            status=0,
+            fee_on=0,
+            seed_index=0,
+            account_data_sha256="0" * 64,
+            reward_infos=(reward, RaydiumClmmRewardInfo(), RaydiumClmmRewardInfo()),
+        )
+        updated = update_raydium_pool_reward_infos(
+            pool, current_timestamp=timestamp, recent_epoch=7
+        )
+        result = updated.reward_infos[0]
+        vectors.append({
+            "name": name,
+            "liquidity": liquidity,
+            "timestamp": timestamp,
+            "initial": {
+                "reward_state": reward.reward_state,
+                "open_time": reward.open_time,
+                "end_time": reward.end_time,
+                "last_update_time": reward.last_update_time,
+                "emissions_per_second_x64": str(reward.emissions_per_second_x64),
+                "reward_total_emitted": reward.reward_total_emitted,
+                "reward_claimed": reward.reward_claimed,
+                "token_mint": reward.token_mint,
+                "token_vault": reward.token_vault,
+                "authority": reward.authority,
+                "reward_growth_global_x64": str(reward.reward_growth_global_x64),
+            },
+            "expected": {
+                "reward_state": result.reward_state,
+                "open_time": result.open_time,
+                "end_time": result.end_time,
+                "last_update_time": result.last_update_time,
+                "emissions_per_second_x64": str(result.emissions_per_second_x64),
+                "reward_total_emitted": result.reward_total_emitted,
+                "reward_claimed": result.reward_claimed,
+                "token_mint": result.token_mint,
+                "token_vault": result.token_vault,
+                "authority": result.authority,
+                "reward_growth_global_x64": str(result.reward_growth_global_x64),
+            },
+        })
+    return vectors
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -1248,6 +1333,7 @@ def build_vectors() -> dict:
         "observation_updates": observation_update_vectors(),
         "observation_serialization": observation_serialization_vector(),
         "account_serialization": account_serialization_vectors(),
+        "reward_updates": reward_update_vectors(),
         "swap_replays": [
             swap_replay_vector(False, True, 1_000_000),
             swap_replay_vector(True, True, 1_000_000),
