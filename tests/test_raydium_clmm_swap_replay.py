@@ -36,7 +36,7 @@ from veltrix.raydium_clmm_tick_array_mutation import (
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
 
-def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, multi_array=False, empty_array_after_order=False, bitmap_extension=False):
+def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, multi_array=False, empty_array_after_order=False, bitmap_extension=False, negative_bitmap_extension=False):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -46,9 +46,13 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
     )
     observation_key, _ = derive_raydium_clmm_observation_address(str(pool_key))
     bitmap = [0] * 16
-    bitmap[8] = 0 if bitmap_extension else (3 if multi_array else 1)
+    if bitmap_extension and negative_bitmap_extension:
+        raise ValueError("positive and negative bitmap-extension cases are mutually exclusive")
+    if negative_bitmap_extension and not zero_for_one:
+        raise ValueError("negative bitmap-extension traversal requires zero_for_one")
+    bitmap[8] = 0 if (bitmap_extension or negative_bitmap_extension) else (3 if multi_array else 1)
     pool_base = bytes(RAYDIUM_POOL_STATE_LENGTH)
-    current_tick = 307_200 if bitmap_extension else (590 if multi_array else (10 if zero_for_one else 0))
+    current_tick = 307_200 if bitmap_extension else (-307_201 if negative_bitmap_extension else (590 if multi_array else (10 if zero_for_one else 0)))
     pool = RaydiumClmmPoolState(
         pool_address=str(pool_key),
         bump=bump,
@@ -62,7 +66,7 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
         mint_decimals_0=6,
         mint_decimals_1=6,
         tick_spacing=10,
-        liquidity=1_000_000_000_000 if bitmap_extension else 1_000_000,
+        liquidity=1_000_000_000_000 if (bitmap_extension or negative_bitmap_extension) else 1_000_000,
         sqrt_price_x64=get_sqrt_price_at_tick(current_tick),
         tick_current=current_tick,
         status=0,
@@ -98,9 +102,11 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
     array_specs = (
         [(307_200, 1, 0, 0, 100)]
         if bitmap_extension
+        else ([(-307_800, 59, 0, 0, 100)]
+        if negative_bitmap_extension
         else ([(0, 58, 0, 100, 0), (600, 0, 500, 1000, 0)]
         if multi_array
-        else [(0, 0 if zero_for_one else 1, 0 if empty_array_after_order else 500, 0 if empty_array_after_order else 1000, fifo_order_amount)])
+        else [(0, 0 if zero_for_one else 1, 0 if empty_array_after_order else 500, 0 if empty_array_after_order else 1000, fifo_order_amount)]))
     )
     arrays = []
     for start_tick_index, initialized_slot, liquidity_net, liquidity_gross, order_amount in array_specs:
@@ -146,11 +152,14 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
     snapshot_extension = None
     extension_address = None
     extension_digest = None
-    if bitmap_extension:
+    if bitmap_extension or negative_bitmap_extension:
         extension_address = derive_raydium_tick_array_bitmap_extension_address(pool.pool_address)
         positive = [[0] * 8 for _ in range(14)]
         negative = [[0] * 8 for _ in range(14)]
-        positive[0][0] |= 1  # first positive extension bit => TickArrayState start 307200
+        if bitmap_extension:
+            positive[0][0] |= 1  # first positive extension bit => TickArrayState start 307200
+        else:
+            negative[0][7] |= 1 << 63  # first negative extension bit => TickArrayState start -307800
         mutation_extension = MutationBitmapExtension(
             address=extension_address,
             pool_address=pool.pool_address,
@@ -200,7 +209,7 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
 
 
 @pytest.mark.parametrize(
-    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount", "multi_array", "empty_array_after_order", "bitmap_extension"),
+    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount", "multi_array", "empty_array_after_order", "bitmap_extension", "negative_bitmap_extension"),
     [
         (False, True, 1_000_000, False, 0, False, False, False),
         (True, True, 1_000_000, False, 0, False, False, False),
@@ -210,6 +219,7 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
         (False, True, 1_000_000, False, 0, True, False, False),
         (False, True, 1_000_000, False, 100, False, True, False),
         (False, True, 1_000_000_000_000_000_000, False, 1, False, False, True),
+        (True, True, 1_000_000_000_000_000_000, False, 100, False, False, False, True),
     ],
 )
 def test_single_array_swap_replay_matches_direction_and_amount_mode(
@@ -221,14 +231,15 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     multi_array,
     empty_array_after_order,
     bitmap_extension,
+    negative_bitmap_extension,
 ):
-    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount, multi_array, empty_array_after_order, bitmap_extension)
+    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount, multi_array, empty_array_after_order, bitmap_extension, negative_bitmap_extension)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
         snapshot,
         amount_specified=amount_specified,
-        sqrt_price_limit_x64=get_sqrt_price_at_tick(307_210 if bitmap_extension else (600 if multi_array else (0 if zero_for_one else 10))),
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(307_210 if bitmap_extension else (-307_210 if negative_bitmap_extension else (600 if multi_array else (0 if zero_for_one else 10))),
         zero_for_one=zero_for_one,
         is_base_input=is_base_input,
         block_timestamp=1_700_000_000,
@@ -248,7 +259,7 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     assert result.observation_state.observations[0].block_timestamp == 1_700_000_000
     assert result.observation_state.observations[0].tick_cumulative == 0
 
-    if bitmap_extension:
+    if bitmap_extension or negative_bitmap_extension:
         assert result.iterations[-1].reached_initialized_tick is True
         assert result.iterations[-1].crossed_tick is False
         assert result.pool.liquidity == 1_000_000_000_000
@@ -256,9 +267,12 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
         assert result.tick_arrays[0].initialized_tick_count == 0
         assert result.tick_arrays[0].recent_epoch == 2
         assert result.bitmap_extension is not None
-        assert not ((result.bitmap_extension.positive_bitmaps[0]) & 1)
+        if bitmap_extension:
+            assert not (result.bitmap_extension.positive_bitmaps[0] & 1)
+        else:
+            assert not (result.bitmap_extension.negative_bitmaps[7] & (1 << 63))
         assert hashlib.sha256(result.bitmap_extension.data_bytes).hexdigest() == result.bitmap_extension.data_sha256
-    elif empty_array_after_order or bitmap_extension:
+    elif empty_array_after_order or bitmap_extension or negative_bitmap_extension:
         assert result.iterations[-1].reached_initialized_tick is True
         assert result.iterations[-1].crossed_tick is False
         assert result.pool.liquidity == 1_000_000
@@ -300,8 +314,8 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
         assert result.settlement.trade_fee_0 == 0
         assert result.settlement.trade_fee_1 > 0
 
-    updated_tick = result.tick_arrays[0].ticks[1] if bitmap_extension else (result.tick_arrays[1].ticks[0] if multi_array else result.tick_arrays[0].ticks[0 if zero_for_one else 1])
-    if is_base_input and not multi_array and not empty_array_after_order and not bitmap_extension:
+    updated_tick = result.tick_arrays[0].ticks[1] if bitmap_extension else (result.tick_arrays[0].ticks[59] if negative_bitmap_extension else (result.tick_arrays[1].ticks[0] if multi_array else result.tick_arrays[0].ticks[0 if zero_for_one else 1]))
+    if is_base_input and not multi_array and not empty_array_after_order and not bitmap_extension and not negative_bitmap_extension:
         assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
     elif empty_array_after_order or bitmap_extension:
         assert updated_tick.liquidity_gross == 0
