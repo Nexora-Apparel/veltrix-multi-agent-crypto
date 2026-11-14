@@ -141,3 +141,19 @@ See `docs/phase-09-operator-checklist.md` for the future manual safety checklist
 - [ ] Independent security review signs off the exact diff and threat model.
 
 The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Raw serialized Solana transaction decoding, a real signer, RPC submission and settlement reconciliation remain intentionally absent. Therefore Stage 09 safety controls are implemented, but live execution and final release are not complete or enabled.
+
+
+### 09.4 — raw unsigned Solana message decoding (implementation in review)
+
+Added `veltrix/solana_message_decoder.py` and focused adversarial coverage in
+`tests/test_solana_message_decoder.py`.
+
+- Parses the serialized transaction signature vector and legacy/v0 message wire format directly; does not accept a caller-normalized instruction manifest as its source of truth.
+- Requires signature-slot count to match the message header and every signature slot to remain zero. Already-signed transactions are rejected.
+- Enforces canonical compact-u16 lengths, bounded transaction/instruction/lookup counts, exact message consumption, valid signer/read-only header relationships, static fee-payer presence, and in-range compiled instruction indices.
+- Reconstructs v0 account ordering as static keys, all loaded writable addresses, then all loaded readonly addresses. Program IDs must resolve to static keys.
+- Resolves each ALT only from a caller-supplied raw account snapshot whose address matches the message key and whose owner is the canonical Address Lookup Table program. It parses the 56-byte metadata prefix, rejects uninitialized/deactivated tables, out-of-range/duplicate indices, snapshots preceding the last extension, and same-slot addresses that have not completed warm-up.
+- Commits to exact message bytes and full transaction bytes with SHA-256; exposes ordered instruction program IDs, account indices/keys, raw data and per-instruction data hashes.
+- No RPC fetcher, signer, submitter, broadcaster, token-program decoder, swap-program decoder, or account-effect inference is included in this module.
+
+This is a structural wire decoder and ALT resolver, not a complete semantic transaction approval. Program-specific instruction decoding, account-state provenance verification, exact effect reconstruction, and integration with `TransactionValidator` remain separate acceptance gates. CI has not yet been recorded for this implementation branch.
