@@ -209,7 +209,7 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
         (False, True, 1_000_000, False, 100, False, False, False),
         (False, True, 1_000_000, False, 0, True, False, False),
         (False, True, 1_000_000, False, 100, False, True, False),
-        (False, True, 1_000_000, False, 100, False, False, True),
+        (False, True, 1_000_000_000_000_000, False, 100, False, False, True),
     ],
 )
 def test_single_array_swap_replay_matches_direction_and_amount_mode(
