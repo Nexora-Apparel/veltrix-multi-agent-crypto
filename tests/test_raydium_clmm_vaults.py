@@ -170,19 +170,29 @@ def fixture(*, slot=501, owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, state0=1, state1=1,
     return pool_evidence, checks, simulation, adapter, session, vault_a, vault_b, pool_address, mint_a, mint_b
 
 
-def fetch(values=None):
+def fetch(values=None, **kwargs):
     pool_evidence, checks, simulation, adapter, *_ = values or fixture()
     return fetch_raydium_clmm_vault_snapshot(
         pool_evidence,
         pool_checks=checks,
         simulation=simulation,
         rpc_adapter=adapter,
+        **kwargs,
     )
 
 
 def test_fetches_both_vaults_at_or_after_the_pool_and_simulation_slot():
     values = fixture()
     result = fetch(values)
+
+def test_fetch_honors_the_cpi_tick_snapshot_minimum_context_slot():
+    values = fixture(slot=600)
+    result = fetch(values, minimum_context_slot=550)
+    session = values[4]
+    assert result.context_slot == 600
+    assert session.calls[-1]["params"][1]["minContextSlot"] == 550
+
+
     assert result.execution_ready is False
     assert result.context_slot == 501
     assert result.simulation_context_slot == 500
