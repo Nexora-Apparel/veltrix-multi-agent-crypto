@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import sqlite3
 import re
+import hashlib
 
 import pytest
 
@@ -47,7 +48,7 @@ def _pubkey(byte):
 
 def _b58(raw):
     alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    zeros = len(raw) - len(raw.lstrip(b"\\x00"))
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
     value = int.from_bytes(raw, "big")
     encoded = ""
     while value:
@@ -96,8 +97,6 @@ def _raw_transaction():
     message = _raw_message()
     return _compact(1) + bytes(64) + message
 
-
-import hashlib
 
 WALLET = _b58(_pubkey(1))
 INPUT_MINT = _b58(_pubkey(3))
