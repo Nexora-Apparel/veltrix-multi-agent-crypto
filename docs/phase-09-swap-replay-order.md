@@ -4,7 +4,21 @@
 **Pinned source commit:** `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`  
 **Primary source:** `programs/amm/src/instructions/swap.rs`, `swap_internal`  
 **Reference range:** lines 501–830 at the pinned commit  
-**Status:** specification only; no transaction-level replay is implemented by this document.
+**Status:** the Python orchestrator is implemented in `veltrix/raydium_clmm_swap_replay.py`. Eight controlled swap-loop scenarios are differentially verified against upstream Rust; this document remains the required source-order specification, not execution authorization.
+
+## Current implementation and verified subset
+
+The Python composition lives in `veltrix/raydium_clmm_swap_replay.py`. It composes the canonical primitives in the ordering above and returns immutable final state only after settlement and PoolState finalization succeed.
+
+Verified single-array scenarios:
+- One initialized liquidity tick at tick 10; one CPI-ordered TickArrayState; no bitmap extension.
+- One-for-zero and zero-for-one exact-input boundary crossings; one-for-zero exact-output amount exhaustion; one dynamic-fee-active exact-input; one FIFO limit-order boundary match with liquidity crossing; one two-array traversal using the default bitmap; one order-only tick removal that empties its default-bitmap array; and one positive bitmap-extension traversal where a filled order empties the extension array and flips its extension bit off.
+- Pre-swap PoolState reward/epoch update, price/fee iteration, boundary tick crossing, tick-array persistence, ObservationState first write, token amount/fee settlement, and PoolState finalization.
+- [Pinned Rust oracle run #43610008339](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43610008339): **17 passed, 0 failed**. The replay test invokes upstream `swap_internal` for all three fixtures and compares amounts, fees, final tick/price/liquidity, and final account bytes.
+- [Python CI run #43610008327](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43610008327): **1,504 passed, 5 skipped**.
+- The two runtime-derived `recent_epoch` fields are normalized to the pinned upstream `cfg(test)` epoch calculation; all other compared bytes must match exactly.
+
+Not yet verified as end-to-end scenarios: negative bitmap-extension traversal/mutation, initialized reward accrual, and token-vault balance reconciliation.
 
 ## Required execution order
 
