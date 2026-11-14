@@ -158,6 +158,7 @@ def test_single_array_swap_replay_crosses_tick_and_settles_atomically():
     assert result.pool.tick_current == 10
     assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(10)
     assert result.pool.liquidity == 1_000_500
+    assert result.pool.recent_epoch == 2
     assert result.fee_state.amount_specified_remaining > 0
     assert result.settlement.amount_0 > 0
     assert result.settlement.amount_1 > 0
