@@ -2,112 +2,113 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090609">
   <meta name="color-scheme" content="dark">
-  <title>VELTRIX — Paper Trading Intelligence</title>
+  <title>VELTRIX</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script defer src="/assets/dashboard.js"></script>
 </head>
 <body>
+  <div class="ambient" aria-hidden="true"></div>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="VELTRIX dashboard home">
-      <span class="brand-mark">V</span>
-      <span><strong>VELTRIX</strong><small>CRYPTO INTELLIGENCE</small></span>
-    </a>
-    <div class="top-actions">
-      <span class="mode-pill"><i></i> SIMULATION ONLY</span>
-      <button id="refresh" class="button button-quiet" type="button">Refresh</button>
-    </div>
+    <div class="device-time"><span id="device-time">--:--</span><span class="tiny-status">●</span></div>
+    <div class="brand-island"><i></i><span>VELTRIX</span><b>AI</b><em>●</em></div>
+    <button id="refresh" class="refresh-control" type="button" aria-label="Refresh dashboard">↻</button>
   </header>
 
-  <main class="shell">
-    <section class="page-heading">
-      <div>
-        <p class="eyebrow">PHASE 08 / ANALYTICS</p>
-        <h1>Paper trading overview</h1>
-        <p class="subheading">Consensus-driven virtual positions, execution costs and evidence freshness.</p>
+  <main class="app-shell">
+    <section class="screen active" id="screen-home" aria-labelledby="home-title">
+      <div class="hero">
+        <div class="identity-row">
+          <div class="avatar-mark">V</div>
+          <div class="identity-copy"><h1 id="home-title">Veltrix AI</h1><span class="live-pill"><i></i> PAPER LIVE</span></div>
+          <button class="more-control" type="button" aria-label="Dashboard status" id="status-toggle">•••</button>
+        </div>
+        <p class="activity-line"><i></i><span id="latest-activity">Paper trading · Solana</span></p>
+        <div class="balance-label">Balance</div>
+        <div class="balance-value" id="equity">$—</div>
+        <div class="gain-row"><span class="gain-pill" id="return-pill">▲ —</span><span class="multiplier-pill">PAPER</span></div>
       </div>
-      <div class="updated">
-        <span class="live-dot"></span>
-        <span id="last-updated">Waiting for database</span>
+
+      <section class="equity-panel">
+        <div class="equity-heading"><h2>Equity</h2><span id="session-age">REALIZED</span></div>
+        <div class="chart-wrap"><svg id="equity-chart" viewBox="0 0 600 180" role="img" aria-label="Realized equity history"></svg><div id="chart-empty" class="chart-empty">No settled paper exits yet</div></div>
+        <div class="range-tabs" role="group" aria-label="Equity chart range">
+          <button type="button" data-range="1H">1H</button><button type="button" data-range="4H">4H</button><button type="button" data-range="12H">12H</button><button type="button" data-range="ALL" class="selected">ALL</button>
+        </div>
+      </section>
+
+      <div class="quick-stats">
+        <article><span>Trades</span><strong id="trade-count">—</strong></article>
+        <article><span>Win rate</span><strong id="win-rate">—</strong></article>
+        <article><span>Best close</span><strong id="best-close">—</strong></article>
       </div>
+
+      <div class="section-heading"><h2>Recent closes</h2><button type="button" class="text-action" data-go="trades">See all</button></div>
+      <div class="close-list" id="recent-closes"><div class="empty-state">Loading paper ledger…</div></div>
+      <div class="home-status" id="home-status">Read-only paper ledger · Live execution disabled</div>
     </section>
 
-    <section class="status-strip" aria-live="polite">
-      <div><span class="status-led" id="health-led"></span><strong id="health-label">Connecting to shared ledger</strong></div>
-      <p id="health-detail">Read-only data access · No order controls</p>
+    <section class="screen" id="screen-trades" aria-labelledby="trades-title">
+      <div class="subpage-heading"><p class="eyebrow">PAPER LEDGER</p><h1 id="trades-title">Trades</h1><p>Recorded entries and settled closes.</p></div>
+      <div class="trade-summary"><span>Open positions <b id="open-count">—</b></span><span>Realized P&amp;L <b id="realized">$—</b></span></div>
+      <h2 class="list-title">Open positions</h2><div id="open-positions" class="record-list"><div class="empty-state">Loading…</div></div>
+      <h2 class="list-title">Recent fills</h2><div id="all-trades" class="record-list"><div class="empty-state">Loading…</div></div>
     </section>
 
-    <section class="metrics-grid" id="metrics">
-      <article class="metric-card"><span>Portfolio equity</span><strong id="equity">$—</strong><small id="return">— total return</small></article>
-      <article class="metric-card"><span>Available cash</span><strong id="cash">$—</strong><small>Virtual account balance</small></article>
-      <article class="metric-card"><span>Realized P&amp;L</span><strong id="realized">$—</strong><small id="closed-fills">— exit fills</small></article>
-      <article class="metric-card"><span>Unrealized P&amp;L</span><strong id="unrealized">$—</strong><small>Fresh marks only where available</small></article>
-      <article class="metric-card"><span>Open positions</span><strong id="open-count">—</strong><small id="stale-count">— stale / unmarked</small></article>
-      <article class="metric-card"><span>Portfolio exposure</span><strong id="exposure">$—</strong><small id="exposure-pct">— of starting balance</small></article>
-    </section>
-
-    <section class="panel chart-panel">
-      <div class="panel-heading">
-        <div><p class="eyebrow">PERFORMANCE</p><h2>Realized equity curve</h2><p class="panel-note">Starting balance plus settled exit-fill P&amp;L. Open-position value is excluded.</p></div>
-        <span class="legend"><i></i> Realized equity</span>
+    <section class="screen" id="screen-agents" aria-labelledby="agents-title">
+      <div class="subpage-heading"><p class="eyebrow">MULTI-AGENT INTELLIGENCE</p><h1 id="agents-title">Agents</h1><p>Persisted consensus decisions from the Solana analysis pipeline.</p></div>
+      <div class="agent-lineup">
+        <article><span class="agent-symbol">S</span><div><b>Scout</b><small>Discovery</small></div></article>
+        <article><span class="agent-symbol">W</span><div><b>Whale</b><small>Wallet activity</small></div></article>
+        <article><span class="agent-symbol">N</span><div><b>Sniper</b><small>Entry timing</small></div></article>
+        <article><span class="agent-symbol">S</span><div><b>Shield</b><small>Risk review</small></div></article>
       </div>
-      <div class="chart-wrap"><svg id="equity-chart" viewBox="0 0 900 240" role="img" aria-label="Realized equity curve"></svg></div>
-      <div id="chart-empty" class="empty-state">No settled paper exits recorded yet.</div>
+      <div class="section-heading"><h2>Consensus activity</h2><span id="consensus-count" class="muted-count">—</span></div>
+      <div id="agent-decisions" class="record-list"><div class="empty-state">Loading agent records…</div></div>
     </section>
 
-    <section class="content-grid">
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">LIVE LEDGER</p><h2>Open positions</h2></div><span class="count-pill" id="position-count">0</span></div>
-        <div class="table-scroll"><table><thead><tr><th>Token</th><th>Entry</th><th>Mark</th><th>Value</th><th>Unrealized</th><th>Mark age</th></tr></thead><tbody id="positions-body"></tbody></table></div>
-        <div id="positions-empty" class="empty-state">No open paper positions.</div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">EXECUTION QUALITY</p><h2>Trading costs</h2></div><span class="count-pill">USD</span></div>
-        <div class="cost-total"><span>Total modeled costs</span><strong id="total-costs">$—</strong></div>
-        <div class="cost-row"><span>Fees</span><strong id="fees">$—</strong></div>
-        <div class="cost-row"><span>Slippage</span><strong id="slippage">$—</strong></div>
-        <div class="cost-bars"><div><span>Entry</span><i id="entry-cost-bar"></i><b id="entry-cost">$—</b></div><div><span>Exit</span><i id="exit-cost-bar"></i><b id="exit-cost">$—</b></div></div>
-        <p class="footnote">Fee and slippage values are configured simulation assumptions, not observed exchange fills.</p>
-      </article>
+    <section class="screen" id="screen-wallet" aria-labelledby="wallet-title">
+      <div class="subpage-heading"><p class="eyebrow">VIRTUAL ACCOUNT</p><h1 id="wallet-title">Wallet</h1><p>Paper account balances. No wallet signing or transfers.</p></div>
+      <div class="wallet-balance"><span>Portfolio equity</span><strong id="wallet-equity">$—</strong><small id="wallet-return">— total return</small></div>
+      <div class="wallet-rows">
+        <div><span>Available cash</span><b id="cash">$—</b></div>
+        <div><span>Realized P&amp;L</span><b id="wallet-realized">$—</b></div>
+        <div><span>Unrealized P&amp;L</span><b id="unrealized">$—</b></div>
+        <div><span>Open exposure</span><b id="exposure">$—</b></div>
+        <div><span>Open positions</span><b id="wallet-open-count">—</b></div>
+      </div>
+      <div class="wallet-safety"><i></i><div><b>Paper mode only</b><small>Wallet connection, signing and transaction submission are not available in this dashboard.</small></div></div>
     </section>
-
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">DECISION AUDIT</p><h2>Paper execution decisions</h2><p class="panel-note">Why a consensus decision opened, skipped or blocked a virtual position.</p></div></div>
-      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Consensus</th><th>Paper outcome</th><th>Notional</th><th>Reason</th></tr></thead><tbody id="decisions-body"></tbody></table></div>
-      <div id="decisions-empty" class="empty-state">No paper decisions recorded.</div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">MULTI-AGENT</p><h2>Consensus activity</h2><p class="panel-note">Latest persisted Scout, Whale, Sniper and Shield dispositions.</p></div></div>
-      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Disposition</th><th>Support</th><th>Paper review</th><th>Reason</th></tr></thead><tbody id="consensus-body"></tbody></table></div>
-      <div id="consensus-empty" class="empty-state">No consensus decisions recorded.</div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">MARKET INTELLIGENCE</p><h2>Latest Solana snapshots</h2></div><span class="count-pill" id="market-count">0</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Token</th><th>Price</th><th>Liquidity</th><th>1h volume</th><th>5m change</th><th>Quality</th><th>Updated</th></tr></thead><tbody id="markets-body"></tbody></table></div>
-      <div id="markets-empty" class="empty-state">No market snapshots available.</div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">LEDGER HISTORY</p><h2>Recent fills</h2></div><span class="count-pill">Last 100</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Fill price</th><th>Notional</th><th>Realized P&amp;L</th><th>Fee</th><th>Slippage</th></tr></thead><tbody id="trades-body"></tbody></table></div>
-      <div id="trades-empty" class="empty-state">No paper fills recorded.</div>
-    </section>
-
-    <details class="access-panel">
-      <summary>Remote dashboard access</summary>
-      <p>When the server is bound beyond localhost, requests require a bearer token. Use HTTPS through a trusted reverse proxy for remote access.</p>
-      <div class="token-entry"><input id="api-token" type="password" autocomplete="off" placeholder="Dashboard API token"><button id="save-token" class="button" type="button">Save in this session</button><button id="clear-token" class="button button-quiet" type="button">Clear</button></div>
-      <small>Token is kept in this browser tab's session storage only.</small>
-    </details>
   </main>
 
-  <footer class="footer">
-    <span>VELTRIX / READ-ONLY ANALYTICS</span>
-    <span>Virtual positions only · Live execution disabled</span>
-  </footer>
+  <nav class="bottom-nav" aria-label="Main navigation">
+    <div class="nav-pill">
+      <button class="nav-item active" type="button" data-screen="home" aria-current="page"><span class="nav-icon">⌂</span><b>Home</b></button>
+      <button class="nav-item" type="button" data-screen="trades"><span class="nav-icon">↕</span><b>Trades</b></button>
+      <button class="nav-item" type="button" data-screen="agents"><span class="nav-icon">✦</span><b>Agents</b></button>
+      <button class="nav-item" type="button" data-screen="wallet"><span class="nav-icon">▣</span><b>Wallet</b></button>
+    </div>
+    <button class="search-button" id="search-open" type="button" aria-label="Search"><span></span></button>
+  </nav>
+
+  <div class="search-sheet" id="search-sheet" hidden>
+    <div class="sheet-backdrop" id="search-close"></div>
+    <section class="sheet-content" role="dialog" aria-modal="true" aria-labelledby="search-title">
+      <div class="sheet-handle"></div><h2 id="search-title">Search VELTRIX</h2>
+      <input id="search-input" type="search" placeholder="Token, symbol or wallet address" autocomplete="off">
+      <div id="search-results" class="search-results"><p>Search loaded ledger and market records.</p></div>
+    </section>
+  </div>
+
+  <div class="status-sheet" id="status-sheet" hidden>
+    <div class="sheet-backdrop" id="status-close"></div>
+    <section class="sheet-content" role="dialog" aria-modal="true" aria-labelledby="status-title">
+      <div class="sheet-handle"></div><h2 id="status-title">System status</h2>
+      <p id="health-label">Checking database…</p><small id="health-detail">Live execution disabled</small>
+      <small id="last-updated">Waiting for data</small>
+    </section>
+  </div>
 </body>
 </html>
