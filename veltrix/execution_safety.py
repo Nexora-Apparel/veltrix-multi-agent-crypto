@@ -187,6 +187,7 @@ class UnsignedTransactionPlan:
             "priority_fee_base_units": self.priority_fee_base_units,
             "recent_blockhash": self.recent_blockhash,
             "blockhash_expires_at_ms": self.blockhash_expires_at_ms,
+            "raw_message_sha256": self.raw_message_sha256,
             "instructions": [
                 {
                     "program_id": item.program_id,
