@@ -184,8 +184,6 @@
   $("search-input").addEventListener("input",e=>renderSearch(e.target.value));
   $("status-toggle").addEventListener("click",()=>{$("status-sheet").hidden=false;});
   $("status-close").addEventListener("click",()=>{$("status-sheet").hidden=true;});
-  $("device-time").textContent=new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
   refresh();
   window.setInterval(refresh,15000);
-  window.setInterval(()=>$("device-time").textContent=new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}),30000);
 })();
