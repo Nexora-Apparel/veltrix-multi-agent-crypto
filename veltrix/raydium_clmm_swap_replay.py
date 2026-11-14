@@ -21,10 +21,8 @@ from veltrix.raydium_clmm_observation import (
     RaydiumClmmObservationState,
     apply_raydium_observation_update,
 )
-from veltrix.raydium_clmm_pool_post_swap_finalization import (
-    RaydiumPoolPostSwapFinalizationError,
-    finalize_raydium_pool_after_swap,
-)
+from veltrix.raydium_clmm_pool_post_swap_finalization import finalize_raydium_pool_after_swap
+
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_SOURCE_COMMIT,
     RaydiumClmmPoolState,
