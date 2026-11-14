@@ -21,3 +21,28 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;scroll-behavior:auto!important}}
 
 .access-gate{position:fixed;z-index:20;inset:0;display:grid;place-items:center;padding:22px;background:#070507ed;backdrop-filter:blur(18px)}.access-panel{width:min(100%,360px);padding:27px 22px;background:#1b141a;border:1px solid #523344;border-radius:25px;box-shadow:0 25px 90px #000b}.access-mark{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:#42172b;color:#ff7ba8;font-weight:850;font-size:20px;margin-bottom:18px}.access-panel h2{font-size:25px;margin:0}.access-panel p:not(.eyebrow){font-size:12px;color:var(--muted);margin:8px 0 16px}.access-panel input{width:100%;padding:14px;border-radius:13px;border:1px solid #49303c;background:#0e0a0e;color:var(--text);font:14px inherit}.access-panel button{width:100%;margin-top:10px;padding:13px;border:0;border-radius:13px;background:#a92557;color:white;font-weight:750}.access-panel small{display:block;min-height:16px;margin-top:9px;color:var(--red);font-size:11px}
+
+/* Floating stardust: independent, slow-moving particles over the burgundy atmosphere */
+.ambient .particle{position:absolute;left:var(--x);top:var(--y);z-index:0;width:3px;height:3px;border-radius:50%;background:#ff9abc;box-shadow:0 0 7px 2px rgba(240,45,117,.42),0 0 18px rgba(240,45,117,.24);opacity:0;animation:veltrix-particle-float var(--duration) ease-in-out var(--delay) infinite;will-change:transform,opacity}
+.ambient .particle:nth-child(3n){background:#e6b4d0;box-shadow:0 0 7px 2px rgba(190,116,164,.36),0 0 17px rgba(190,116,164,.2)}
+.ambient .particle.star{width:0;height:0;background:transparent;box-shadow:none;border-radius:0}
+.ambient .particle.star:before,.ambient .particle.star:after{content:"";position:absolute;left:50%;top:50%;display:block;transform:translate(-50%,-50%);border-radius:3px;background:rgba(255,174,207,.92);box-shadow:0 0 8px 1px rgba(240,45,117,.48)}
+.ambient .particle.star:before{width:2px;height:11px}
+.ambient .particle.star:after{width:11px;height:2px}
+@keyframes veltrix-particle-float{0%{opacity:0;transform:translate3d(0,20px,0) scale(.55)}16%{opacity:.72}48%{opacity:.48;transform:translate3d(var(--drift),-30px,0) scale(1)}82%{opacity:.65}100%{opacity:0;transform:translate3d(var(--drift),-78px,0) scale(.45)}}
+.ambient .p1{--x:8%;--y:68%;--drift:18px;--duration:14s;--delay:-4s}
+.ambient .p2{--x:17%;--y:29%;--drift:-13px;--duration:17s;--delay:-11s}
+.ambient .p3{--x:27%;--y:78%;--drift:12px;--duration:12s;--delay:-7s}
+.ambient .p4{--x:36%;--y:43%;--drift:-17px;--duration:19s;--delay:-15s}
+.ambient .p5{--x:46%;--y:88%;--drift:14px;--duration:15s;--delay:-2s}
+.ambient .p6{--x:55%;--y:23%;--drift:-12px;--duration:13s;--delay:-9s}
+.ambient .p7{--x:64%;--y:69%;--drift:19px;--duration:18s;--delay:-13s}
+.ambient .p8{--x:73%;--y:38%;--drift:-15px;--duration:16s;--delay:-6s}
+.ambient .p9{--x:82%;--y:82%;--drift:12px;--duration:14s;--delay:-10s}
+.ambient .p10{--x:91%;--y:28%;--drift:-18px;--duration:20s;--delay:-17s}
+.ambient .p11{--x:12%;--y:91%;--drift:15px;--duration:18s;--delay:-8s}
+.ambient .p12{--x:31%;--y:15%;--drift:-11px;--duration:15s;--delay:-12s}
+.ambient .p13{--x:69%;--y:12%;--drift:17px;--duration:17s;--delay:-5s}
+.ambient .p14{--x:88%;--y:61%;--drift:-14px;--duration:13s;--delay:-3s}
+.ambient .p15{--x:43%;--y:57%;--drift:10px;--duration:21s;--delay:-18s}
+.ambient .p16{--x:96%;--y:92%;--drift:-12px;--duration:16s;--delay:-14s}
