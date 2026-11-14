@@ -617,12 +617,16 @@ fn observation_update_edge_transitions_match_pinned_raydium_rust() {
     assert_eq!(backwards_timestamp, 100);
     assert_eq!(backwards_cumulative, 77);
 
-    // Multiplication saturates before the cumulative value is wrapping-added.
-    let mut saturated = ObservationState::default();
-    saturated.initialized = true;
-    saturated.observation_index = 0;
-    saturated.observations[0].block_timestamp = 0;
-    saturated.update(u32::MAX, i32::MAX);
-    let saturated_cumulative = saturated.observations[1].tick_cumulative;
-    assert_eq!(saturated_cumulative, i64::MAX);
+    // The full valid input-domain product fits in i64; cumulative addition
+    // remains wrapping, but multiplication itself does not saturate here.
+    let mut max_domain = ObservationState::default();
+    max_domain.initialized = true;
+    max_domain.observation_index = 0;
+    max_domain.observations[0].block_timestamp = 0;
+    max_domain.update(u32::MAX, i32::MAX);
+    let max_domain_cumulative = max_domain.observations[1].tick_cumulative;
+    assert_eq!(
+        max_domain_cumulative,
+        i64::from(i32::MAX) * i64::from(u32::MAX)
+    );
 }
