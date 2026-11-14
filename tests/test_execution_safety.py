@@ -183,7 +183,8 @@ def _make_plan_for_intent(intent):
 
 def make_intent():
     base = _make_base_intent()
-    plan = _make_plan_for_intent(base)\n    return replace(base, expected_message_hash=plan.message_hash, expected_raw_message_sha256=plan.raw_message_sha256)
+    plan = _make_plan_for_intent(base)
+    return replace(base, expected_message_hash=plan.message_hash, expected_raw_message_sha256=plan.raw_message_sha256)
 
 
 def make_plan(intent=None):
