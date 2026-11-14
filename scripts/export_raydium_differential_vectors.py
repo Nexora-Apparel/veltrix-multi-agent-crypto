@@ -948,7 +948,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000) -> dict:
+def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -961,6 +961,22 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     bitmap = [0] * 16
     bitmap[8] = 1
     base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
+    dynamic_fee_info = (
+        RaydiumClmmDynamicFeeInfo(
+            filter_period=60,
+            decay_period=3600,
+            reduction_factor=5000,
+            dynamic_fee_control=1000,
+            max_volatility_accumulator=10000,
+            tick_spacing_index_reference=0,
+            volatility_reference=100,
+            volatility_accumulator=200,
+            last_update_timestamp=1_699_999_900,
+            padding=bytes(46),
+        )
+        if dynamic_fee_enabled
+        else RaydiumClmmDynamicFeeInfo()
+    )
     pool = RaydiumClmmPoolState(
         pool_address=str(pool_address),
         bump=bump,
@@ -982,6 +998,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         seed_index=0,
         account_data_sha256=hashlib.sha256(base_pool_bytes).hexdigest(),
         tick_array_bitmap=tuple(bitmap),
+        dynamic_fee_info=dynamic_fee_info,
         account_data=base_pool_bytes,
     )
     initial_pool_bytes = encode_raydium_clmm_pool_state(pool)
@@ -1091,6 +1108,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "sqrt_price_limit_x64": str(sqrt_price_limit),
         "zero_for_one": zero_for_one,
         "is_base_input": is_base_input,
+        "dynamic_fee_enabled": dynamic_fee_enabled,
         "block_timestamp": block_timestamp,
         "trade_fee_rate": base_fee_rate,
         "protocol_fee_rate": protocol_fee_rate,
@@ -1162,6 +1180,7 @@ def build_vectors() -> dict:
             swap_replay_vector(False, True, 1_000_000),
             swap_replay_vector(True, True, 1_000_000),
             swap_replay_vector(False, False, 100),
+            swap_replay_vector(False, True, 1_000_000, True),
         ],
     }
 
