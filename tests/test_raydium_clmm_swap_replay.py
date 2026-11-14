@@ -30,7 +30,7 @@ from veltrix.raydium_clmm_swap_replay import run_raydium_clmm_swap_replay
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
 
-def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, multi_array=False):
+def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, multi_array=False, empty_array_after_order=False):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -92,7 +92,7 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
     array_specs = (
         [(0, 58, 0, 100, 0), (600, 0, 500, 1000, 0)]
         if multi_array
-        else [(0, 0 if zero_for_one else 1, 500, 1000, fifo_order_amount)]
+        else [(0, 0 if zero_for_one else 1, 0 if empty_array_after_order else 500, 0 if empty_array_after_order else 1000, fifo_order_amount)]
     )
     arrays = []
     for start_tick_index, initialized_slot, liquidity_net, liquidity_gross, order_amount in array_specs:
@@ -163,14 +163,15 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, 
 
 
 @pytest.mark.parametrize(
-    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount", "multi_array"),
+    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount", "multi_array", "empty_array_after_order"),
     [
-        (False, True, 1_000_000, False, 0, False),
-        (True, True, 1_000_000, False, 0, False),
-        (False, False, 100, False, 0, False),
-        (False, True, 1_000_000, True, 0, False),
-        (False, True, 1_000_000, False, 100, False),
-        (False, True, 1_000_000, False, 0, True),
+        (False, True, 1_000_000, False, 0, False, False),
+        (True, True, 1_000_000, False, 0, False, False),
+        (False, False, 100, False, 0, False, False),
+        (False, True, 1_000_000, True, 0, False, False),
+        (False, True, 1_000_000, False, 100, False, False),
+        (False, True, 1_000_000, False, 0, True, False),
+        (False, True, 1_000_000, False, 100, False, True),
     ],
 )
 def test_single_array_swap_replay_matches_direction_and_amount_mode(
@@ -180,8 +181,9 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     dynamic_fee_enabled,
     fifo_order_amount,
     multi_array,
+    empty_array_after_order,
 ):
-    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount, multi_array)
+    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount, multi_array, empty_array_after_order)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
@@ -207,7 +209,15 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     assert result.observation_state.observations[0].block_timestamp == 1_700_000_000
     assert result.observation_state.observations[0].tick_cumulative == 0
 
-    if multi_array:
+    if empty_array_after_order:
+        assert result.iterations[-1].reached_initialized_tick is True
+        assert result.iterations[-1].crossed_tick is False
+        assert result.pool.liquidity == 1_000_000
+        assert result.pool.tick_array_bitmap[8] == 0
+        assert result.tick_arrays[0].initialized_tick_count == 0
+        assert result.tick_arrays[0].ticks[1].initialized is False
+        assert result.tick_arrays[0].recent_epoch == 2
+    elif multi_array:
         assert result.iterations[-1].reached_initialized_tick is True
         assert result.iterations[-1].crossed_tick is True
         assert result.pool.tick_current == 600
@@ -242,8 +252,10 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
         assert result.settlement.trade_fee_1 > 0
 
     updated_tick = result.tick_arrays[1].ticks[0] if multi_array else result.tick_arrays[0].ticks[0 if zero_for_one else 1]
-    if is_base_input and not multi_array:
+    if is_base_input and not multi_array and not empty_array_after_order:
         assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
+    elif empty_array_after_order:
+        assert updated_tick.liquidity_gross == 0
     else:
         assert updated_tick.liquidity_gross == 1000
     if fifo_order_amount:
