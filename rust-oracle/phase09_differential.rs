@@ -2,7 +2,7 @@
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState};
+use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
 use anchor_lang::prelude::Pubkey;
 use serde_json::Value;
 
@@ -560,4 +560,69 @@ fn python_positive_negative_bitmap_extension_vectors_match_pinned_raydium_extens
             }
         }
     }
+}
+
+
+#[test]
+fn python_observation_update_transitions_match_pinned_raydium_rust() {
+    // First write initializes the ring without advancing its index.
+    let mut first = ObservationState::default();
+    first.update(100, 10);
+    let first_initialized = first.initialized;
+    let first_index = first.observation_index;
+    let first_timestamp = first.observations[0].block_timestamp;
+    let first_cumulative = first.observations[0].tick_cumulative;
+    assert!(first_initialized);
+    assert_eq!(first_index, 0);
+    assert_eq!(first_timestamp, 100);
+    assert_eq!(first_cumulative, 0);
+
+    // The 14-second update is ignored; exactly 15 seconds advances the ring.
+    first.update(114, 2);
+    let cadence_index = first.observation_index;
+    assert_eq!(cadence_index, 0);
+    first.update(115, 2);
+    let cadence_index = first.observation_index;
+    let cadence_timestamp = first.observations[1].block_timestamp;
+    let cadence_cumulative = first.observations[1].tick_cumulative;
+    assert_eq!(cadence_index, 1);
+    assert_eq!(cadence_timestamp, 115);
+    assert_eq!(cadence_cumulative, 30);
+
+    // Ring wrap and i64 cumulative addition use Rust wrapping semantics.
+    let mut wrap = ObservationState::default();
+    wrap.initialized = true;
+    wrap.observation_index = 99;
+    wrap.observations[99].block_timestamp = 100;
+    wrap.observations[99].tick_cumulative = i64::MAX - 2;
+    wrap.update(115, 1);
+    let wrap_index = wrap.observation_index;
+    let wrap_timestamp = wrap.observations[0].block_timestamp;
+    let wrap_cumulative = wrap.observations[0].tick_cumulative;
+    assert_eq!(wrap_index, 0);
+    assert_eq!(wrap_timestamp, 115);
+    assert_eq!(wrap_cumulative, i64::MIN + 12);
+
+    // Backward timestamps saturate elapsed time to zero and do not advance.
+    let mut backwards = ObservationState::default();
+    backwards.initialized = true;
+    backwards.observation_index = 4;
+    backwards.observations[4].block_timestamp = 100;
+    backwards.observations[4].tick_cumulative = 77;
+    backwards.update(90, 9);
+    let backwards_index = backwards.observation_index;
+    let backwards_timestamp = backwards.observations[4].block_timestamp;
+    let backwards_cumulative = backwards.observations[4].tick_cumulative;
+    assert_eq!(backwards_index, 4);
+    assert_eq!(backwards_timestamp, 100);
+    assert_eq!(backwards_cumulative, 77);
+
+    // Multiplication saturates before the cumulative value is wrapping-added.
+    let mut saturated = ObservationState::default();
+    saturated.initialized = true;
+    saturated.observation_index = 0;
+    saturated.observations[0].block_timestamp = 0;
+    saturated.update(u32::MAX, i32::MAX);
+    let saturated_cumulative = saturated.observations[1].tick_cumulative;
+    assert_eq!(saturated_cumulative, i64::MAX);
 }
