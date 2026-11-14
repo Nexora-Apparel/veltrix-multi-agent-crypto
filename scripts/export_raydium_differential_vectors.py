@@ -957,7 +957,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0, multi_array: bool = False, empty_array_after_order: bool = False, bitmap_extension: bool = False, active_reward: bool = False, negative_bitmap_extension: bool = False) -> dict:
+def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0, multi_array: bool = False, empty_array_after_order: bool = False, bitmap_extension: bool = False, active_reward: bool = False, negative_bitmap_extension: bool = False, fee_on: int = 0) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -1055,7 +1055,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         sqrt_price_x64=get_sqrt_price_at_tick(current_tick),
         tick_current=current_tick,
         status=0,
-        fee_on=0,
+        fee_on=fee_on,
         seed_index=0,
         account_data_sha256=hashlib.sha256(base_pool_bytes).hexdigest(),
         tick_array_bitmap=tuple(bitmap),
@@ -1262,6 +1262,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "bitmap_extension": bitmap_extension,
         "negative_bitmap_extension": negative_bitmap_extension,
         "active_reward": active_reward,
+        "fee_on": fee_on,
         "program_id": RAYDIUM_CLMM_PROGRAM_ID,
         "pool_address": pool.pool_address,
         "pool_vault_0": pool.token_vault_0,
@@ -1532,6 +1533,10 @@ def build_vectors() -> dict:
             swap_replay_vector(False, True, 1_000_000_000_000_000_000, False, 100, False, False, True),
             swap_replay_vector(False, True, 1_000_000, False, 0, False, False, False, True),
             swap_replay_vector(zero_for_one=True, amount_specified=1_000_000_000_000_000_000, fifo_order_amount=100, negative_bitmap_extension=True),
+            swap_replay_vector(zero_for_one=False, fee_on=1),
+            swap_replay_vector(zero_for_one=True, fee_on=1),
+            swap_replay_vector(zero_for_one=False, fee_on=2),
+            swap_replay_vector(zero_for_one=True, fee_on=2),
         ],
     }
 
