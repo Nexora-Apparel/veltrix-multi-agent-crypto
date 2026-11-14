@@ -77,7 +77,7 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         )
         dashboard_js = urlopen(request).read().decode("utf-8")
         assert "renderAgents" in dashboard_js
-        assert "Agent identities recorded" in dashboard_js
+        assert "No agent identities recorded in consensus history" in dashboard_js
         assert "Scout" not in dashboard_js
 
         request = Request(
