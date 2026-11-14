@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#090609">
   <meta name="color-scheme" content="dark">
   <title>VELTRIX</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script defer src="/assets/dashboard.js"></script>
 </head>
@@ -22,17 +25,17 @@
       <div class="hero">
         <div class="identity-row">
           <div class="avatar-mark">V</div>
-          <div class="identity-copy"><h1 id="home-title">Veltrix AI</h1><span class="live-pill"><i></i> PAPER MODE</span></div>
+          <div class="identity-copy"><h1 id="home-title">Veltrix Bot</h1><span class="live-pill"><i></i> PAPER</span></div>
           <button class="more-control" type="button" aria-label="Dashboard status" id="status-toggle">•••</button>
         </div>
-        <p class="activity-line"><i></i><span id="latest-activity">Paper trading · Solana</span></p>
+        <p class="activity-line" id="activity-line" hidden><i></i><span id="latest-activity"></span></p>
         <div class="balance-label">Balance</div>
         <div class="balance-value" id="equity">$—</div>
-        <div class="gain-row"><span class="gain-pill" id="return-pill">▲ —</span><span class="multiplier-pill">PAPER</span></div>
+        <div class="gain-row"><span class="gain-pill" id="return-pill">▲ —</span></div>
       </div>
 
       <section class="equity-panel">
-        <div class="equity-heading"><h2>Equity</h2><span id="session-age">REALIZED</span></div>
+        <div class="equity-heading"><h2>Equity</h2></div>
         <div class="chart-wrap"><svg id="equity-chart" viewBox="0 0 600 180" role="img" aria-label="Realized equity history"></svg><div id="chart-empty" class="chart-empty">No settled paper exits yet</div></div>
         <div class="range-tabs" role="group" aria-label="Equity chart range">
           <button type="button" data-range="1H">1H</button><button type="button" data-range="4H">4H</button><button type="button" data-range="12H">12H</button><button type="button" data-range="ALL" class="selected">ALL</button>
