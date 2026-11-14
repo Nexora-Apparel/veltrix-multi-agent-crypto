@@ -12,6 +12,7 @@ from veltrix.raydium_clmm_observation import (
     derive_raydium_clmm_observation_address,
 )
 from veltrix.raydium_clmm_pool_state import (
+    RaydiumClmmDynamicFeeInfo,
     RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_LENGTH,
     RaydiumClmmPoolState,
@@ -29,7 +30,7 @@ from veltrix.raydium_clmm_swap_replay import run_raydium_clmm_swap_replay
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
 
-def fixture(zero_for_one=False):
+def fixture(zero_for_one=False, dynamic_fee_enabled=False):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -62,6 +63,22 @@ def fixture(zero_for_one=False):
         seed_index=0,
         account_data_sha256=hashlib.sha256(pool_base).hexdigest(),
         tick_array_bitmap=tuple(bitmap),
+        dynamic_fee_info=(
+            RaydiumClmmDynamicFeeInfo(
+                filter_period=60,
+                decay_period=3600,
+                reduction_factor=5000,
+                dynamic_fee_control=1000,
+                max_volatility_accumulator=10000,
+                tick_spacing_index_reference=0,
+                volatility_reference=100,
+                volatility_accumulator=200,
+                last_update_timestamp=1_699_999_900,
+                padding=bytes(46),
+            )
+            if dynamic_fee_enabled
+            else RaydiumClmmDynamicFeeInfo()
+        ),
         account_data=pool_base,
     )
     pool_bytes = encode_raydium_clmm_pool_state(pool)
@@ -136,19 +153,21 @@ def fixture(zero_for_one=False):
 
 
 @pytest.mark.parametrize(
-    ("zero_for_one", "is_base_input", "amount_specified"),
+    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled"),
     [
-        (False, True, 1_000_000),
-        (True, True, 1_000_000),
-        (False, False, 100),
+        (False, True, 1_000_000, False),
+        (True, True, 1_000_000, False),
+        (False, False, 100, False),
+        (False, True, 1_000_000, True),
     ],
 )
 def test_single_array_swap_replay_matches_direction_and_amount_mode(
     zero_for_one,
     is_base_input,
     amount_specified,
+    dynamic_fee_enabled,
 ):
-    pool, observation, snapshot = fixture(zero_for_one)
+    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
@@ -167,6 +186,7 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     assert result.iterations
     assert result.iterations[-1].swap_complete is True
     assert result.pool.recent_epoch == 2
+    assert (result.iterations[-1].dynamic_fee_state is not None) is dynamic_fee_enabled
     assert result.settlement.amount_0 > 0
     assert result.settlement.amount_1 > 0
     assert result.observation_state.initialized is True
