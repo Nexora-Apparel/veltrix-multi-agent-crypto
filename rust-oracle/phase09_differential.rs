@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 use raydium_clmm::states::{tick_spacing_index_from_tick, AmmConfig, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::account_info::AccountInfo;
+use anchor_lang::solana_program::program_pack::Pack;
+use anchor_spl::token::spl_token::state::Account as SplTokenAccount;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::str::FromStr;
 use anchor_lang::Discriminator;
@@ -1050,6 +1052,62 @@ fn assert_swap_replay_fixture(fixture: &Value) {
     assert_eq!(result.tick, expected["tick"].as_i64().unwrap() as i32);
     assert_eq!(result.sqrt_price_x64, parse_u128(&expected["sqrt_price_x64"]));
     assert_eq!(result.liquidity, parse_u128(&expected["liquidity"]));
+
+    // Decode the classic SPL Token vaults with the exact interface used by
+    // pinned Anchor SPL, apply the actual Rust swap_internal token deltas,
+    // and compare the packed post-transfer account images to Python.
+    let initial_vault_0 = decode_hex_bytes(fixture["initial_vault_0_hex"].as_str().unwrap());
+    let initial_vault_1 = decode_hex_bytes(fixture["initial_vault_1_hex"].as_str().unwrap());
+    assert_eq!(initial_vault_0.len(), SplTokenAccount::LEN);
+    assert_eq!(initial_vault_1.len(), SplTokenAccount::LEN);
+    assert_eq!(
+        fixture["vault_token_program_id"].as_str().unwrap(),
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    );
+    let pool_address = parse_pubkey(&fixture["pool_address"]);
+    let mut vault_0 = SplTokenAccount::unpack(&initial_vault_0)
+        .expect("valid classic SPL token0 vault");
+    let mut vault_1 = SplTokenAccount::unpack(&initial_vault_1)
+        .expect("valid classic SPL token1 vault");
+    let pool_mint_0 = pool_ref.token_mint_0;
+    let pool_mint_1 = pool_ref.token_mint_1;
+    let pool_vault_0 = pool_ref.token_vault_0;
+    let pool_vault_1 = pool_ref.token_vault_1;
+    assert_eq!(vault_0.mint, pool_mint_0);
+    assert_eq!(vault_1.mint, pool_mint_1);
+    assert_eq!(vault_0.owner, pool_address);
+    assert_eq!(vault_1.owner, pool_address);
+    assert_eq!(vault_0.amount, 1u64 << 62);
+    assert_eq!(vault_1.amount, 1u64 << 62);
+    if fixture["zero_for_one"].as_bool().unwrap() {
+        vault_0.amount = vault_0.amount.checked_add(result.amount_0)
+            .expect("token0 input vault addition fits u64");
+        vault_1.amount = vault_1.amount.checked_sub(result.amount_1)
+            .expect("token1 output vault subtraction fits u64");
+    } else {
+        vault_0.amount = vault_0.amount.checked_sub(result.amount_0)
+            .expect("token0 output vault subtraction fits u64");
+        vault_1.amount = vault_1.amount.checked_add(result.amount_1)
+            .expect("token1 input vault addition fits u64");
+    }
+    let mut actual_vault_0_bytes = vec![0u8; SplTokenAccount::LEN];
+    let mut actual_vault_1_bytes = vec![0u8; SplTokenAccount::LEN];
+    SplTokenAccount::pack(vault_0, &mut actual_vault_0_bytes)
+        .expect("pack post-swap classic SPL token0 vault");
+    SplTokenAccount::pack(vault_1, &mut actual_vault_1_bytes)
+        .expect("pack post-swap classic SPL token1 vault");
+    assert_account_bytes_equal(
+        &actual_vault_0_bytes,
+        &decode_hex_bytes(expected["vault_0_hex"].as_str().unwrap()),
+        "post-swap classic SPL token0 vault",
+    );
+    assert_account_bytes_equal(
+        &actual_vault_1_bytes,
+        &decode_hex_bytes(expected["vault_1_hex"].as_str().unwrap()),
+        "post-swap classic SPL token1 vault",
+    );
+    assert_eq!(pool_vault_0, parse_pubkey(&fixture["pool_vault_0"]));
+    assert_eq!(pool_vault_1, parse_pubkey(&fixture["pool_vault_1"]));
 
     let mut final_pool_bytes = PoolState::DISCRIMINATOR.to_vec();
     final_pool_bytes.extend_from_slice(bytemuck::bytes_of(&*pool_ref));
