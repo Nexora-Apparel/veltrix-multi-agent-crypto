@@ -49,7 +49,7 @@
     $("trade-count").textContent=number(p.exit_fills,0);
     $("win-rate").textContent=number(p.win_rate_pct,0)+"%";
     const closes=allTrades.filter(t=>t.side==="SELL");
-    const best=closes.reduce((max,t)=>Math.max(max,Number(t.realized_pnl||0)),0);
+    const best=closes.length?closes.reduce((max,t)=>Math.max(max,Number(t.realized_pnl||0)),-Infinity):0;
     $("best-close").textContent=closes.length?signed(best):"—";
     $("best-close").className=best>=0?"positive":"negative";
     const recent=$("recent-closes");recent.replaceChildren();
@@ -87,7 +87,15 @@
     });
   }
   function renderAgents(){
-    const host=$("agent-decisions");host.replaceChildren();
+    const lineup=$("agent-lineup"),host=$("agent-decisions");
+    lineup.replaceChildren();host.replaceChildren();
+    const agentNames=[...new Set(allConsensus.flatMap(item=>Array.isArray(item.supporting_agents)?item.supporting_agents:[]).filter(name=>typeof name==="string"&&name.trim()))].sort();
+    if(!agentNames.length) lineup.append(element("div","empty-state","No agent identities recorded in consensus history."));
+    else agentNames.forEach(name=>{
+      const item=element("article",""),symbol=element("span","agent-symbol",name.trim().slice(0,1).toUpperCase()),copy=element("div","");
+      copy.append(element("b","",name.trim()),element("small","","Observed in persisted consensus"));
+      item.append(symbol,copy);lineup.append(item);
+    });
     $("consensus-count").textContent=number(allConsensus.length,0)+" records";
     if(!allConsensus.length){host.append(element("div","empty-state","No persisted consensus decisions yet."));return;}
     allConsensus.slice(0,60).forEach(item=>{
