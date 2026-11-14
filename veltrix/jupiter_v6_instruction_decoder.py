@@ -170,10 +170,16 @@ def _read_swap_variant(reader: _Reader) -> tuple[int, str, tuple[int | bool, ...
                 raise JupiterInstructionDecodeError("unknown_swap_side")
             args.append(side)
         elif field == "remaining_accounts_info":
-            # Preserve a stable count/length commitment; this field is not
-            # interpreted as proof of the invoked transfer-hook behavior.
-            slices = _read_remaining_accounts_info(reader)
-            args.extend((len(slices), sum(length for _, length in slices)))
+            # IDL type is Option<RemainingAccountsInfo>; Borsh option tags
+            # are canonical 0/1. This does not approve transfer-hook behavior.
+            present = reader.uint(1)
+            if present not in (0, 1):
+                raise JupiterInstructionDecodeError("noncanonical_option_tag")
+            if present == 0:
+                args.extend((False, 0, 0))
+            else:
+                slices = _read_remaining_accounts_info(reader)
+                args.extend((True, len(slices), sum(length for _, length in slices)))
         else:
             raise JupiterInstructionDecodeError("unsupported_swap_variant_schema")
     return index, _SWAP_VARIANT_NAMES[index], tuple(args)
