@@ -47,6 +47,12 @@ from veltrix.raydium_clmm_tick_arrays import (
     encode_raydium_clmm_tick_array,
 )
 from veltrix.raydium_clmm_tick_math import Q64
+from veltrix.raydium_clmm_vaults import (
+    CLASSIC_SPL_TOKEN_PROGRAM_ID,
+    RaydiumClmmVaultAccount,
+    apply_raydium_clmm_vault_balance_delta,
+    derive_raydium_clmm_vault_address,
+)
 from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
 from veltrix.raydium_clmm_tick_crossing import RaydiumRewardGrowth, cross_tick_and_apply_liquidity
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
@@ -1003,8 +1009,12 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         pool_creator=str(Pubkey.new_unique()),
         token_mint_0=str(mint_0),
         token_mint_1=str(mint_1),
-        token_vault_0=str(Pubkey.new_unique()),
-        token_vault_1=str(Pubkey.new_unique()),
+        token_vault_0=derive_raydium_clmm_vault_address(
+            pool_address=str(pool_address), mint=str(mint_0)
+        ),
+        token_vault_1=derive_raydium_clmm_vault_address(
+            pool_address=str(pool_address), mint=str(mint_1)
+        ),
         observation_key=observation_address,
         mint_decimals_0=6,
         mint_decimals_1=6,
@@ -1164,6 +1174,43 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     )
     final_tick_array_bytes = [encode_raydium_clmm_tick_array(array) for array in result.tick_arrays]
     final_observation_bytes = encode_raydium_clmm_observation_state(result.observation_state)
+
+    def make_vault(mint: str, address: str) -> RaydiumClmmVaultAccount:
+        raw = bytearray(165)
+        raw[:32] = bytes(Pubkey.from_string(mint))
+        raw[32:64] = bytes(Pubkey.from_string(pool.pool_address))
+        raw[64:72] = (1 << 62).to_bytes(8, "little")
+        raw[108] = 1
+        encoded = bytes(raw)
+        return RaydiumClmmVaultAccount(
+            address=address,
+            pool_address=pool.pool_address,
+            mint=mint,
+            token_program_id=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+            token_authority=pool.pool_address,
+            amount_raw=1 << 62,
+            state=1,
+            lamports=1,
+            data_sha256=hashlib.sha256(encoded).hexdigest(),
+            account_data=encoded,
+        )
+
+    vault_0 = make_vault(pool.token_mint_0, pool.token_vault_0)
+    vault_1 = make_vault(pool.token_mint_1, pool.token_vault_1)
+    if zero_for_one:
+        final_vault_0 = apply_raydium_clmm_vault_balance_delta(
+            vault_0, delta_raw=result.settlement.amount_0
+        )
+        final_vault_1 = apply_raydium_clmm_vault_balance_delta(
+            vault_1, delta_raw=-result.settlement.amount_1
+        )
+    else:
+        final_vault_0 = apply_raydium_clmm_vault_balance_delta(
+            vault_0, delta_raw=-result.settlement.amount_0
+        )
+        final_vault_1 = apply_raydium_clmm_vault_balance_delta(
+            vault_1, delta_raw=result.settlement.amount_1
+        )
     return {
         "initial_pool_hex": initial_pool_bytes.hex(),
         "initial_tick_arrays_hex": [raw.hex() for raw in initial_tick_array_bytes],
@@ -1178,6 +1225,10 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "bitmap_extension": bitmap_extension,
         "active_reward": active_reward,
         "program_id": RAYDIUM_CLMM_PROGRAM_ID,
+        "pool_address": pool.pool_address,
+        "vault_token_program_id": CLASSIC_SPL_TOKEN_PROGRAM_ID,
+        "initial_vault_0_hex": vault_0.account_data.hex(),
+        "initial_vault_1_hex": vault_1.account_data.hex(),
         "bitmap_extension_address": extension_address,
         "initial_bitmap_extension_hex": extension_raw.hex() if extension_raw is not None else None,
         "empty_array_after_order": empty_array_after_order,
@@ -1199,6 +1250,8 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
             "tick_arrays_hex": [raw.hex() for raw in final_tick_array_bytes],
             "bitmap_extension_hex": result.bitmap_extension.data_bytes.hex() if result.bitmap_extension is not None else None,
             "observation_hex": final_observation_bytes.hex(),
+            "vault_0_hex": final_vault_0.account_data.hex(),
+            "vault_1_hex": final_vault_1.account_data.hex(),
         },
     }
 
