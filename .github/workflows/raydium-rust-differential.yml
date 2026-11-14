@@ -16,6 +16,7 @@ on:
       - "veltrix/raydium_clmm_pool_post_swap_finalization.py"
       - "veltrix/raydium_clmm_fee_accounting.py"
       - "veltrix/raydium_clmm_swap_inner_iteration.py"
+      - "veltrix/raydium_clmm_swap_replay.py"
       - "scripts/export_raydium_differential_vectors.py"
       - "rust-oracle/**"
       - ".github/workflows/raydium-rust-differential.yml"
