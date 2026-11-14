@@ -251,7 +251,7 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     if bitmap_extension:
         assert result.iterations[-1].reached_initialized_tick is True
         assert result.iterations[-1].crossed_tick is False
-        assert result.pool.liquidity == 1_000_000
+        assert result.pool.liquidity == 1_000_000_000_000
         assert result.pool.tick_array_bitmap[8] == 0
         assert result.tick_arrays[0].initialized_tick_count == 0
         assert result.tick_arrays[0].recent_epoch == 2
