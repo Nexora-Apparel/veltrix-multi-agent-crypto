@@ -158,6 +158,13 @@ def test_expected_post_swap_vault_balances_apply_exact_directional_transfer(zero
 def test_actual_post_swap_vault_snapshot_reconciles_against_expected_amounts():
     p = pool()
     tick_snapshot, before = snapshots(p)
+    handoff = loop_settlement(p, tick_snapshot, zero_for_one=True)
+    expected = apply_raydium_clmm_swap_vault_settlement(before, handoff).expected_post_state
+    after = replace(expected, context_slot=102)
+    result = reconcile_raydium_clmm_swap_vault_snapshots(before, after, handoff)
+    assert result.reconciliation.input_vault_delta == 100
+    assert result.reconciliation.output_vault_delta == 80
+
 
 def test_pre_swap_vault_snapshot_must_not_precede_the_cpi_tick_snapshot():
     p = pool()
@@ -166,14 +173,6 @@ def test_pre_swap_vault_snapshot_must_not_precede_the_cpi_tick_snapshot():
     handoff = loop_settlement(p, tick_snapshot, zero_for_one=True)
     with pytest.raises(RaydiumSwapVaultSettlementError, match="tick-array snapshot"):
         apply_raydium_clmm_swap_vault_settlement(stale_before, handoff)
-
-
-    handoff = loop_settlement(p, tick_snapshot, zero_for_one=True)
-    expected = apply_raydium_clmm_swap_vault_settlement(before, handoff).expected_post_state
-    after = replace(expected, context_slot=102)
-    result = reconcile_raydium_clmm_swap_vault_snapshots(before, after, handoff)
-    assert result.reconciliation.input_vault_delta == 100
-    assert result.reconciliation.output_vault_delta == 80
 
 
 def test_reconciliation_rejects_wrong_actual_delta_and_nonzero_transfer_fee():
