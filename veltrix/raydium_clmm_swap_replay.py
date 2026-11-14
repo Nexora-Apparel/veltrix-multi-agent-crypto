@@ -28,6 +28,7 @@ from veltrix.raydium_clmm_pool_post_swap_finalization import (
 from veltrix.raydium_clmm_pool_state import (
     RAYDIUM_CLMM_SOURCE_COMMIT,
     RaydiumClmmPoolState,
+    update_raydium_pool_reward_infos,
 )
 from veltrix.raydium_clmm_swap_inner_iteration import (
     RaydiumClmmSwapInnerIterationError,
@@ -177,6 +178,15 @@ def run_raydium_clmm_swap_replay(
         raise RaydiumClmmSwapReplayError("max_inner_iterations must be a positive integer")
     if observation_state.pool_id != pool.pool_address or observation_state.address != pool.observation_key:
         raise RaydiumClmmSwapReplayError("ObservationState identity does not match PoolState.pool_id/observation_key")
+
+    try:
+        pool = update_raydium_pool_reward_infos(
+            pool,
+            current_timestamp=block_timestamp,
+            recent_epoch=recent_epoch,
+        )
+    except Exception as exc:
+        raise RaydiumClmmSwapReplayError(f"PoolState reward/epoch pre-swap update failed: {exc}") from exc
 
     try:
         queue, first_array_contains_pool_tick = initialize_raydium_tick_array_queue(
