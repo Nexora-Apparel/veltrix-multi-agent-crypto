@@ -223,7 +223,7 @@ def decode_unsigned_transaction(
 
     blockhash_raw, cursor = _take(message, cursor, 32)
     instruction_count, cursor = _read_compact_u16(message, cursor)
-    if not 1 <= instruction_count <= 64:
+    if instruction_count > 64:
         raise SolanaMessageDecodeError("instruction_count_out_of_range")
     raw_instructions = []
     for _ in range(instruction_count):
