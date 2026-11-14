@@ -157,3 +157,33 @@ Added `veltrix/solana_message_decoder.py` and focused adversarial coverage in
 - No RPC fetcher, signer, submitter, broadcaster, token-program decoder, swap-program decoder, or account-effect inference is included in this module.
 
 This is a structural wire decoder and ALT resolver, not a complete semantic transaction approval. Program-specific instruction decoding, account-state provenance verification, exact effect reconstruction, and integration with `TransactionValidator` remain separate acceptance gates. Exact-head GitHub Actions run `43544982357` passed: `compileall` succeeded and pytest reported **929 passed, 5 skipped**. The five skipped tests are the repository's live-provider smoke tests; no external live-provider evidence was produced.
+
+
+
+### 09.5 — semantic transaction binding audit (in progress)
+
+Repository inspection on `work/phase-9-raw-message-decoder` established the following implementation boundary:
+
+- The current order path is `JupiterSwapV2OrderAdapter` in `veltrix/jupiter_order.py`. Its configured preflight permits only the Jupiter `metis` router; alternate Jupiter routers are explicitly withheld pending independent semantic decoders.
+- The adapter validates the returned unsigned v0 envelope, taker/fee-payer, mint pair, amounts, fee fields and Jupiter route-plan metadata. The route plan is provider metadata; it is not a decoded proof of the compiled instruction semantics or resulting token-account mutations.
+- `veltrix/providers/solana_liquidity_reader.py` identifies Raydium AMM V4 (`675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`) and Raydium CPMM (`CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`) for pool inventory. That reader's pool-state layouts do not constitute swap-instruction decoders. Its UNCX lock reader is not a swap adapter.
+- Classic SPL Token and Token-2022 program IDs appear in the liquidity reader for token-account inventory/custody checks. Their presence does not establish that execution instructions are semantically decoded.
+- No repository implementation was found that decodes the exact Jupiter/DEX compiled swap instructions and independently reconstructs their token-account, authority, pool-vault, fee and output effects from verified account state. The supported transaction-program set is therefore not yet certified for execution.
+
+**Critical hash-domain distinction:**
+
+- `ExecutionIntent.expected_message_hash` is currently compared by `TransactionValidator` to `UnsignedTransactionPlan.message_hash`.
+- `UnsignedTransactionPlan.computed_message_hash()` hashes the canonical JSON payload of the normalized plan (instructions and caller-supplied effects). It is not the SHA-256 of serialized Solana message bytes.
+- The Stage 09.4 decoder separately computes `DecodedSolanaTransaction.message_sha256` from the exact raw message bytes. That value is not yet an authorization field checked by `TransactionValidator`.
+- Do not rename or silently repurpose the existing manifest hash. Add a distinct intent-bound raw-message commitment and verify it against the exact decoded bytes. The normalized manifest commitment must remain a separate domain.
+
+**Required implementation order before any signer work:**
+
+1. Extend the authorized intent contract to bind the exact raw message SHA-256 independently from the canonical manifest SHA-256; update canonical serialization, authorization and persistence tests.
+2. Build a strict semantic decoder registry. Unknown program IDs, instruction discriminators, account layouts and unsupported route variants must reject.
+3. Derive the normalized instruction plan and account effects only from decoded bytes plus independently verified, same-context account snapshots. Never accept caller-provided effects as authoritative.
+4. Bind the decoder output, exact raw message hash, ordered program/account keys and account-state commitments to the intent; then pass the derived plan through the existing `TransactionValidator` without weakening any existing checks.
+5. Add adversarial tests for wrong mint/vault/pool, amount and destination mismatches, authority/delegate changes, unexpected token transfers, fee/slippage mismatch, account aliasing, stale or inconsistent state, unknown programs and unsupported instructions.
+6. Run exact-head CI and obtain independent review of the semantic decoders and threat model.
+
+**Release status:** Stage 09.5 is not complete. No production-ready semantic swap decoder or authoritative account-effect reconstruction is present. The current validator's normalized-manifest hash must not be mistaken for a raw-message commitment. Phantom signing, transaction submission, broadcasting and Mainnet execution remain disabled.
