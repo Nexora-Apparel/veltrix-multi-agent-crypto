@@ -22,6 +22,11 @@ from .execution_policy import (
 )
 from .emergency_stop import SQLiteEmergencyStop
 from .submission_coordinator import ExecutionState, SubmissionCoordinator
+from .solana_message_decoder import (
+    AddressLookupTableSnapshot,
+    SolanaMessageDecodeError,
+    decode_unsigned_transaction,
+)
 
 
 _HEX_256 = re.compile(r"^[0-9a-f]{64}$")
@@ -172,6 +177,7 @@ class UnsignedTransactionPlan:
     account_effects: tuple[AccountEffect, ...]
     message_hash: str
     raw_message_sha256: str
+    raw_transaction_bytes: bytes
 
     def canonical_payload(self) -> bytes:
         return _canonical_json({
@@ -258,6 +264,7 @@ class TransactionValidator:
         policy: ExecutionPolicy,
         *,
         now_ms: int,
+        lookup_tables: dict[str, AddressLookupTableSnapshot] | None = None,
     ) -> None:
         if policy.mode is not ExecutionMode.LIVE:
             raise ExecutionGateError("paper_only_policy")
@@ -295,6 +302,30 @@ class TransactionValidator:
         _digest(plan.raw_message_sha256, "raw_message_sha256")
         if not hmac_compare(plan.raw_message_sha256, intent.expected_raw_message_sha256):
             raise ExecutionGateError("raw_message_not_bound_to_authorized_intent")
+        if not isinstance(plan.raw_transaction_bytes, bytes) or not plan.raw_transaction_bytes:
+            raise ExecutionGateError("raw_transaction_bytes_missing")
+        try:
+            decoded = decode_unsigned_transaction(
+                plan.raw_transaction_bytes,
+                lookup_tables=lookup_tables,
+            )
+        except SolanaMessageDecodeError:
+            raise ExecutionGateError("raw_transaction_decode_failed") from None
+        if not hmac_compare(decoded.message_sha256, plan.raw_message_sha256):
+            raise ExecutionGateError("raw_transaction_digest_mismatch")
+        if decoded.fee_payer != intent.wallet_public_key:
+            raise ExecutionGateError("raw_transaction_fee_payer_mismatch")
+        if decoded.recent_blockhash != plan.recent_blockhash:
+            raise ExecutionGateError("raw_transaction_blockhash_mismatch")
+        if len(decoded.instructions) != len(plan.instructions):
+            raise ExecutionGateError("raw_transaction_instruction_count_mismatch")
+        for decoded_instruction, planned_instruction in zip(decoded.instructions, plan.instructions):
+            if (
+                decoded_instruction.program_id != planned_instruction.program_id
+                or decoded_instruction.accounts != planned_instruction.accounts
+                or decoded_instruction.data_sha256 != planned_instruction.data_hash
+            ):
+                raise ExecutionGateError("raw_transaction_instruction_binding_mismatch")
 
         allowed_programs = set(policy.allowed_program_ids) & set(intent.expected_program_ids)
         swap_count = 0
@@ -540,6 +571,7 @@ class ExecutionSafetyPipeline:
         risk: RiskSnapshot,
         simulation: SimulationReceipt,
         authorization: OperatorAuthorization | None,
+        lookup_tables: dict[str, AddressLookupTableSnapshot] | None = None,
     ) -> ExecutionPreparation:
         now_ms = self.clock_ms()
         _integer(now_ms, "clock", minimum=1)
@@ -568,7 +600,9 @@ class ExecutionSafetyPipeline:
             except Exception:
                 raise ExecutionGateError("emergency_stop_unavailable") from None
 
-            TransactionValidator.validate(intent, plan, self.policy, now_ms=now_ms)
+            TransactionValidator.validate(
+                intent, plan, self.policy, now_ms=now_ms, lookup_tables=lookup_tables
+            )
             self.coordinator.transition(
                 intent.intent_id, expected_state=ExecutionState.CREATED,
                 next_state=ExecutionState.VALIDATED, occurred_at_ms=now_ms,
