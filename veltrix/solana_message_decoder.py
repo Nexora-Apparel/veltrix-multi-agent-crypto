@@ -179,7 +179,9 @@ def decode_unsigned_transaction(
         raw = bytes(transaction)
     else:
         raise SolanaMessageDecodeError("invalid_transaction_type")
-    if not raw or len(raw) > max_transaction_bytes:
+    if isinstance(max_transaction_bytes, bool) or not isinstance(max_transaction_bytes, int) or max_transaction_bytes < 1:
+        raise SolanaMessageDecodeError("invalid_transaction_size_limit")
+    if not raw or len(raw) > min(max_transaction_bytes, 1232):
         raise SolanaMessageDecodeError("transaction_size_out_of_range")
 
     signature_count, offset = _read_compact_u16(raw, 0)
@@ -221,7 +223,7 @@ def decode_unsigned_transaction(
 
     blockhash_raw, cursor = _take(message, cursor, 32)
     instruction_count, cursor = _read_compact_u16(message, cursor)
-    if instruction_count > 64:
+    if not 1 <= instruction_count <= 64:
         raise SolanaMessageDecodeError("instruction_count_out_of_range")
     raw_instructions = []
     for _ in range(instruction_count):
@@ -298,6 +300,8 @@ def decode_unsigned_transaction(
     if len(all_keys_raw) > 256:
         raise SolanaMessageDecodeError("resolved_account_count_out_of_range")
     all_keys = tuple(_b58encode(key) for key in all_keys_raw)
+    if len(set(all_keys)) != len(all_keys):
+        raise SolanaMessageDecodeError("duplicate_resolved_account_key")
     instructions = []
     for program_index, account_indices, instruction_data in raw_instructions:
         if program_index >= len(all_keys_raw):
