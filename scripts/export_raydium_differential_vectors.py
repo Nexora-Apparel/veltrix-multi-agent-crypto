@@ -38,6 +38,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     RAYDIUM_TICK_ARRAY_SIZE,
     RaydiumClmmTick,
     RaydiumClmmTickArray,
+    RaydiumClmmTickArraySnapshot,
     derive_raydium_clmm_tick_array_address,
     encode_raydium_clmm_tick_array,
 )
@@ -46,6 +47,7 @@ from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
 from veltrix.raydium_clmm_tick_crossing import RaydiumRewardGrowth, cross_tick_and_apply_liquidity
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
+from veltrix.raydium_clmm_swap_replay import run_raydium_clmm_swap_replay
 from veltrix.raydium_clmm_observation import (
     RaydiumClmmObservation,
     RaydiumClmmObservationState,
@@ -945,6 +947,170 @@ def account_serialization_vectors() -> dict:
     }
 
 
+def swap_replay_vector() -> dict:
+    """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
+    program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
+    config = Pubkey.new_unique()
+    mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
+    pool_address, bump = Pubkey.find_program_address(
+        [b"pool", bytes(config), bytes(mint_0), bytes(mint_1)],
+        program,
+    )
+    observation_address, _ = derive_raydium_clmm_observation_address(str(pool_address))
+    bitmap = [0] * 16
+    bitmap[8] = 1
+    base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
+    pool = RaydiumClmmPoolState(
+        pool_address=str(pool_address),
+        bump=bump,
+        amm_config=str(config),
+        pool_creator=str(Pubkey.new_unique()),
+        token_mint_0=str(mint_0),
+        token_mint_1=str(mint_1),
+        token_vault_0=str(Pubkey.new_unique()),
+        token_vault_1=str(Pubkey.new_unique()),
+        observation_key=observation_address,
+        mint_decimals_0=6,
+        mint_decimals_1=6,
+        tick_spacing=10,
+        liquidity=1_000_000,
+        sqrt_price_x64=Q64,
+        tick_current=0,
+        status=0,
+        fee_on=0,
+        seed_index=0,
+        account_data_sha256=hashlib.sha256(base_pool_bytes).hexdigest(),
+        tick_array_bitmap=tuple(bitmap),
+        account_data=base_pool_bytes,
+    )
+    initial_pool_bytes = encode_raydium_clmm_pool_state(pool)
+    pool = replace(
+        pool,
+        account_data=initial_pool_bytes,
+        account_data_sha256=hashlib.sha256(initial_pool_bytes).hexdigest(),
+    )
+
+    ticks = []
+    for index in range(RAYDIUM_TICK_ARRAY_SIZE):
+        tick_index = index * pool.tick_spacing
+        if index == 1:
+            ticks.append(RaydiumClmmTick(
+                tick_index=tick_index,
+                liquidity_net=500,
+                liquidity_gross=1000,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=True,
+            ))
+        else:
+            ticks.append(RaydiumClmmTick(
+                tick_index=tick_index,
+                liquidity_net=0,
+                liquidity_gross=0,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=False,
+            ))
+    tick_array = RaydiumClmmTickArray(
+        address=derive_raydium_clmm_tick_array_address(
+            pool_address=pool.pool_address,
+            start_tick_index=0,
+        ),
+        pool_address=pool.pool_address,
+        start_tick_index=0,
+        tick_spacing=pool.tick_spacing,
+        initialized_tick_count=1,
+        recent_epoch=1,
+        ticks=tuple(ticks),
+        data_sha256="0" * 64,
+    )
+    initial_tick_array_bytes = encode_raydium_clmm_tick_array(tick_array)
+    tick_array = replace(
+        tick_array,
+        data_sha256=hashlib.sha256(initial_tick_array_bytes).hexdigest(),
+    )
+
+    observation = RaydiumClmmObservationState(
+        address=observation_address,
+        initialized=False,
+        recent_epoch=1,
+        observation_index=0,
+        pool_id=pool.pool_address,
+        observations=tuple(
+            RaydiumClmmObservation(0, 0, bytes(32))
+            for _ in range(100)
+        ),
+        padding=bytes(32),
+        data_sha256="0" * 64,
+    )
+    initial_observation_bytes = encode_raydium_clmm_observation_state(observation)
+    observation = replace(
+        observation,
+        data_sha256=hashlib.sha256(initial_observation_bytes).hexdigest(),
+    )
+
+    amount_specified = 1_000_000
+    sqrt_price_limit = get_sqrt_price_at_tick(10)
+    block_timestamp = 1_700_000_000
+    recent_epoch = 2
+    base_fee_rate = 3_000
+    protocol_fee_rate = 1_000
+    fund_fee_rate = 500
+    snapshot = RaydiumClmmTickArraySnapshot(
+        route_message_sha256="a" * 64,
+        simulation_response_id="simulation-1",
+        simulation_context_slot=100,
+        provider_id="fixture-rpc",
+        cluster="devnet",
+        genesis_hash="fixture-genesis",
+        context_slot=101,
+        tick_arrays=(tick_array,),
+        cpi_account_order=(tick_array.address,),
+    )
+    result = run_raydium_clmm_swap_replay(
+        pool,
+        observation,
+        snapshot,
+        amount_specified=amount_specified,
+        sqrt_price_limit_x64=sqrt_price_limit,
+        zero_for_one=False,
+        is_base_input=True,
+        block_timestamp=block_timestamp,
+        recent_epoch=recent_epoch,
+        base_fee_rate=base_fee_rate,
+        protocol_fee_rate=protocol_fee_rate,
+        fund_fee_rate=fund_fee_rate,
+    )
+    final_tick_array_bytes = encode_raydium_clmm_tick_array(result.tick_arrays[0])
+    final_observation_bytes = encode_raydium_clmm_observation_state(result.observation_state)
+    return {
+        "initial_pool_hex": initial_pool_bytes.hex(),
+        "initial_tick_array_hex": initial_tick_array_bytes.hex(),
+        "initial_observation_hex": initial_observation_bytes.hex(),
+        "amount_specified": amount_specified,
+        "sqrt_price_limit_x64": str(sqrt_price_limit),
+        "zero_for_one": False,
+        "is_base_input": True,
+        "block_timestamp": block_timestamp,
+        "trade_fee_rate": base_fee_rate,
+        "protocol_fee_rate": protocol_fee_rate,
+        "fund_fee_rate": fund_fee_rate,
+        "expected": {
+            "amount_0": result.settlement.amount_0,
+            "amount_1": result.settlement.amount_1,
+            "trade_fee_0": result.settlement.trade_fee_0,
+            "trade_fee_1": result.settlement.trade_fee_1,
+            "tick": result.pool.tick_current,
+            "sqrt_price_x64": str(result.pool.sqrt_price_x64),
+            "liquidity": str(result.pool.liquidity),
+            "remaining_amount": result.fee_state.amount_specified_remaining,
+            "pool_hex": result.pool.account_data.hex(),
+            "tick_array_hex": final_tick_array_bytes.hex(),
+            "observation_hex": final_observation_bytes.hex(),
+        },
+    }
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -991,6 +1157,7 @@ def build_vectors() -> dict:
         "observation_updates": observation_update_vectors(),
         "observation_serialization": observation_serialization_vector(),
         "account_serialization": account_serialization_vectors(),
+        "swap_replay": swap_replay_vector(),
     }
 
 
