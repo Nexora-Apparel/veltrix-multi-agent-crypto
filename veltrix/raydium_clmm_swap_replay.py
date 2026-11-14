@@ -175,8 +175,8 @@ def run_raydium_clmm_swap_replay(
         raise RaydiumClmmSwapReplayError("recent epoch must fit u64")
     if isinstance(max_inner_iterations, bool) or not isinstance(max_inner_iterations, int) or max_inner_iterations <= 0:
         raise RaydiumClmmSwapReplayError("max_inner_iterations must be a positive integer")
-    if observation_state.pool_id != pool.pool_address:
-        raise RaydiumClmmSwapReplayError("ObservationState does not belong to the active PoolState")
+    if observation_state.pool_id != pool.pool_address or observation_state.address != pool.observation_key:
+        raise RaydiumClmmSwapReplayError("ObservationState identity does not match PoolState.pool_id/observation_key")
 
     try:
         queue, first_array_contains_pool_tick = initialize_raydium_tick_array_queue(
@@ -345,7 +345,7 @@ def run_raydium_clmm_swap_replay(
             last_iteration,
             zero_for_one=zero_for_one,
         )
-    except (RaydiumPoolPostSwapFinalizationError, Exception) as exc:
+    except Exception as exc:
         raise RaydiumClmmSwapReplayError(f"post-swap settlement/finalization failed: {exc}") from exc
 
     return RaydiumClmmSwapReplayResult(
