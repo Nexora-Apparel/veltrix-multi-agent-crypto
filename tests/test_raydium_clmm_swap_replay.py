@@ -1,6 +1,7 @@
 """Single-array source-order regression for the complete Raydium swap orchestrator."""
 from dataclasses import replace
 import hashlib
+import pytest
 
 from solders.pubkey import Pubkey
 
@@ -28,7 +29,7 @@ from veltrix.raydium_clmm_swap_replay import run_raydium_clmm_swap_replay
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
 
-def fixture():
+def fixture(zero_for_one=False):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -54,8 +55,8 @@ def fixture():
         mint_decimals_1=6,
         tick_spacing=10,
         liquidity=1_000_000,
-        sqrt_price_x64=1 << 64,
-        tick_current=0,
+        sqrt_price_x64=get_sqrt_price_at_tick(10 if zero_for_one else 0),
+        tick_current=10 if zero_for_one else 0,
         status=0,
         fee_on=0,
         seed_index=0,
@@ -73,7 +74,7 @@ def fixture():
     ticks = []
     for index in range(60):
         tick_index = index * pool.tick_spacing
-        if index == 1:
+        if index == (0 if zero_for_one else 1):
             ticks.append(RaydiumClmmTick(
                 tick_index=tick_index,
                 liquidity_net=500,
@@ -134,15 +135,16 @@ def fixture():
     return pool, observation, snapshot
 
 
-def test_single_array_swap_replay_crosses_tick_and_settles_atomically():
-    pool, observation, snapshot = fixture()
+@pytest.mark.parametrize("zero_for_one", [False, True])
+def test_single_array_swap_replay_crosses_tick_and_settles_atomically(zero_for_one):
+    pool, observation, snapshot = fixture(zero_for_one)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
         snapshot,
         amount_specified=1_000_000,
-        sqrt_price_limit_x64=get_sqrt_price_at_tick(10),
-        zero_for_one=False,
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(0 if zero_for_one else 10),
+        zero_for_one=zero_for_one,
         is_base_input=True,
         block_timestamp=1_700_000_000,
         recent_epoch=2,
@@ -155,20 +157,21 @@ def test_single_array_swap_replay_crosses_tick_and_settles_atomically():
     assert result.iterations[0].reached_initialized_tick is True
     assert result.iterations[0].crossed_tick is True
     assert result.iterations[0].swap_complete is True
-    assert result.pool.tick_current == 10
-    assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(10)
-    assert result.pool.liquidity == 1_000_500
+    target_tick = 0 if zero_for_one else 10
+    assert result.pool.tick_current == (target_tick - 1 if zero_for_one else target_tick)
+    assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(target_tick)
+    assert result.pool.liquidity == (999_500 if zero_for_one else 1_000_500)
     assert result.pool.recent_epoch == 2
     assert result.fee_state.amount_specified_remaining > 0
     assert result.settlement.amount_0 > 0
     assert result.settlement.amount_1 > 0
-    assert result.settlement.trade_fee_0 == 0
-    assert result.settlement.trade_fee_1 > 0
+    assert result.settlement.trade_fee_0 > 0 if zero_for_one else result.settlement.trade_fee_0 == 0
+    assert result.settlement.trade_fee_1 == 0 if zero_for_one else result.settlement.trade_fee_1 > 0
     assert result.observation_state.initialized is True
     assert result.observation_state.observations[0].block_timestamp == 1_700_000_000
     assert result.observation_state.observations[0].tick_cumulative == 0
-    updated_tick = result.tick_arrays[0].ticks[1]
-    assert updated_tick.fee_growth_outside_1_x64 > 0
+    updated_tick = result.tick_arrays[0].ticks[0 if zero_for_one else 1]
+    assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
     assert result.tick_arrays[0].recent_epoch == 2
     assert result.tick_arrays[0].data_sha256 == hashlib.sha256(
         encode_raydium_clmm_tick_array(result.tick_arrays[0])
