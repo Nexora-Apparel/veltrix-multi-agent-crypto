@@ -190,6 +190,17 @@ Repository inspection on `work/phase-9-raw-message-decoder` established the foll
 
 **Important limitation:** this is structural raw-byte-to-plan binding, not program-specific semantic transaction approval. The validator still consumes caller-supplied normalized account effects; it does not independently derive SPL Token/Token-2022 transfers, Jupiter route execution, pool/vault movements, authority effects or fee/output effects from verified account snapshots. ALT snapshots are structurally checked by the decoder but their RPC provenance is not yet authenticated by an internal fetcher. Do not enable signing. The next implementation must add strict semantic decoders and reconstruct account effects from provenance-checked, same-context account state.
 
+**Program-specific semantic decoder inventory (research only; not yet approved):**
+
+- The current order adapter is Jupiter Swap API V2 `/order` and locally restricts the router to `metis`. Jupiter's current V2 documentation distinguishes the Meta-Aggregator `/order` path (multiple routers) from the Metis-only Router `/build` path. This local Metis restriction must remain enforced; a provider route label is not a semantic proof of the compiled transaction.
+- The Jupiter V6 program candidate is `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4`. Jupiter's own `jup-ag/instruction-parser` repository publishes a V6 IDL and parser for route instruction families, including route, shared-account and exact-out variants. This is a starting specification, not yet an approved decoder for the exact V2 order payload.
+- The repository's Raydium AMM V4 and CPMM program IDs remain pool-inventory identifiers only. No Raydium swap-instruction semantic adapter has been accepted.
+- The Jupiter V6 route IDL contains many DEX variants, including variants with additional serialized fields. A parser must reject unsupported discriminators, variants, account layouts and invoked programs. It must not infer DEX identity from Jupiter's routePlan label or trust provider metadata as a substitute for the compiled instruction bytes.
+
+Reference specifications reviewed:
+- [Jupiter Swap API V2 architecture and routing paths](https://developers.jup.ag/docs/swap/index.md)
+- [Jupiter V6 instruction parser and IDL](https://github.com/jup-ag/instruction-parser)
+
 **Required implementation order before any signer work:**
 
 1. Extend the authorized intent contract to bind the exact raw message SHA-256 independently from the canonical manifest SHA-256; update canonical serialization, authorization and persistence tests.
