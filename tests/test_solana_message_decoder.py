@@ -240,3 +240,26 @@ def test_strict_base64_input():
     assert decode_unsigned_transaction(encoded).message_bytes == message
     with pytest.raises(SolanaMessageDecodeError, match="invalid_transaction_base64"):
         decode_unsigned_transaction(encoded + "!")
+
+
+def test_rejects_duplicate_keys_after_alt_resolution():
+    table = pubkey(7)
+    duplicate_address = pubkey(3)
+    evidence = snapshot(table, (duplicate_address, duplicate_address))
+    with pytest.raises(SolanaMessageDecodeError, match="duplicate_resolved_account_key"):
+        decode_unsigned_transaction(
+            transaction(v0_message(table)),
+            lookup_tables={b58(table): evidence},
+        )
+
+
+def test_rejects_message_without_instructions():
+    message = bytes([1, 0, 1]) + compact(2) + pubkey(1) + pubkey(2) + pubkey(9) + compact(0)
+    with pytest.raises(SolanaMessageDecodeError, match="instruction_count_out_of_range"):
+        decode_unsigned_transaction(transaction(message))
+
+
+def test_rejects_instruction_program_index_out_of_range():
+    message = legacy_message(instruction=compiled_instruction(program_index=9))
+    with pytest.raises(SolanaMessageDecodeError, match="program_account_index_out_of_range"):
+        decode_unsigned_transaction(transaction(message))
