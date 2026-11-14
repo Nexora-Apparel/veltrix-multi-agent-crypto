@@ -99,10 +99,9 @@ def test_rejects_malformed_or_unsupported_jupiter_route(program_id, data, reason
 
 
 def test_rejects_truncated_variant_payload():
+    data = bytes.fromhex("e517cb977ae3ad2a") + (1).to_bytes(4, "little") + b"\x11"
     with pytest.raises(JupiterInstructionDecodeError, match="truncated_instruction_data"):
-        decode_jupiter_v6_route_instruction(
-            JUPITER_V6_PROGRAM_ID, route_data(variant=17, variant_payload=b"")
-        )
+        decode_jupiter_v6_route_instruction(JUPITER_V6_PROGRAM_ID, data)
 
 
 def test_rejects_out_of_range_route_count_and_invalid_step_limit():
