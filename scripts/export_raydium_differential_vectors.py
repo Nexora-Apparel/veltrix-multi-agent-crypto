@@ -948,7 +948,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector() -> dict:
+def swap_replay_vector(zero_for_one: bool = False) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -975,8 +975,8 @@ def swap_replay_vector() -> dict:
         mint_decimals_1=6,
         tick_spacing=10,
         liquidity=1_000_000,
-        sqrt_price_x64=Q64,
-        tick_current=0,
+        sqrt_price_x64=get_sqrt_price_at_tick(10 if zero_for_one else 0),
+        tick_current=10 if zero_for_one else 0,
         status=0,
         fee_on=0,
         seed_index=0,
@@ -994,7 +994,7 @@ def swap_replay_vector() -> dict:
     ticks = []
     for index in range(RAYDIUM_TICK_ARRAY_SIZE):
         tick_index = index * pool.tick_spacing
-        if index == 1:
+        if index == (0 if zero_for_one else 1):
             ticks.append(RaydiumClmmTick(
                 tick_index=tick_index,
                 liquidity_net=500,
@@ -1051,7 +1051,7 @@ def swap_replay_vector() -> dict:
     )
 
     amount_specified = 1_000_000
-    sqrt_price_limit = get_sqrt_price_at_tick(10)
+    sqrt_price_limit = get_sqrt_price_at_tick(0 if zero_for_one else 10)
     block_timestamp = 1_700_000_000
     recent_epoch = 0  # host-side Solana Clock default used by the pinned Rust test harness
     base_fee_rate = 3_000
@@ -1074,7 +1074,7 @@ def swap_replay_vector() -> dict:
         snapshot,
         amount_specified=amount_specified,
         sqrt_price_limit_x64=sqrt_price_limit,
-        zero_for_one=False,
+        zero_for_one=zero_for_one,
         is_base_input=True,
         block_timestamp=block_timestamp,
         recent_epoch=recent_epoch,
@@ -1090,7 +1090,7 @@ def swap_replay_vector() -> dict:
         "initial_observation_hex": initial_observation_bytes.hex(),
         "amount_specified": amount_specified,
         "sqrt_price_limit_x64": str(sqrt_price_limit),
-        "zero_for_one": False,
+        "zero_for_one": zero_for_one,
         "is_base_input": True,
         "block_timestamp": block_timestamp,
         "trade_fee_rate": base_fee_rate,
@@ -1158,7 +1158,7 @@ def build_vectors() -> dict:
         "observation_updates": observation_update_vectors(),
         "observation_serialization": observation_serialization_vector(),
         "account_serialization": account_serialization_vectors(),
-        "swap_replay": swap_replay_vector(),
+        "swap_replays": [swap_replay_vector(False), swap_replay_vector(True)],
     }
 
 
