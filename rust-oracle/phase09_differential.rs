@@ -6,7 +6,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use raydium_clmm::states::{tick_spacing_index_from_tick, AmmConfig, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
 use anchor_lang::prelude::Pubkey;
+use anchor_lang::solana_program::account_info::AccountInfo;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::str::FromStr;
 use anchor_lang::Discriminator;
 use serde_json::Value;
 
@@ -911,19 +913,62 @@ fn assert_swap_replay_fixture(fixture: &Value) {
     }
     let mut observation_ref = observation_cell.borrow_mut();
 
-    let result = swap_internal(
-        &amm_config,
-        &mut pool_ref,
-        &mut tick_array_queue,
-        &mut observation_ref,
-        None,
-        fixture["amount_specified"].as_u64().unwrap(),
-        parse_u128(&fixture["sqrt_price_limit_x64"]),
-        fixture["zero_for_one"].as_bool().unwrap(),
-        fixture["is_base_input"].as_bool().unwrap(),
-        fixture["block_timestamp"].as_u64().unwrap() as u32,
-    )
-    .expect("pinned Raydium swap_internal execution");
+    let (result, final_bitmap_extension_bytes) =
+        if let Some(initial_extension_hex) = fixture["initial_bitmap_extension_hex"].as_str() {
+            let extension_key = Pubkey::from_str(
+                fixture["bitmap_extension_address"].as_str().unwrap(),
+            )
+            .expect("valid canonical bitmap-extension address");
+            let extension_owner =
+                Pubkey::from_str(fixture["program_id"].as_str().unwrap())
+                    .expect("valid Raydium program id");
+            let mut extension_lamports = 1u64;
+            let mut extension_data = decode_hex_bytes(initial_extension_hex);
+            assert_eq!(
+                &extension_data[..8],
+                TickArrayBitmapExtension::DISCRIMINATOR
+            );
+            let extension_info = AccountInfo::new(
+                &extension_key,
+                false,
+                true,
+                &mut extension_lamports,
+                &mut extension_data,
+                &extension_owner,
+                false,
+                0,
+            );
+            let result = swap_internal(
+                &amm_config,
+                &mut pool_ref,
+                &mut tick_array_queue,
+                &mut observation_ref,
+                Some(&extension_info),
+                fixture["amount_specified"].as_u64().unwrap(),
+                parse_u128(&fixture["sqrt_price_limit_x64"]),
+                fixture["zero_for_one"].as_bool().unwrap(),
+                fixture["is_base_input"].as_bool().unwrap(),
+                fixture["block_timestamp"].as_u64().unwrap() as u32,
+            )
+            .expect("pinned Raydium swap_internal execution with bitmap extension");
+            drop(extension_info);
+            (result, Some(extension_data))
+        } else {
+            let result = swap_internal(
+                &amm_config,
+                &mut pool_ref,
+                &mut tick_array_queue,
+                &mut observation_ref,
+                None,
+                fixture["amount_specified"].as_u64().unwrap(),
+                parse_u128(&fixture["sqrt_price_limit_x64"]),
+                fixture["zero_for_one"].as_bool().unwrap(),
+                fixture["is_base_input"].as_bool().unwrap(),
+                fixture["block_timestamp"].as_u64().unwrap() as u32,
+            )
+            .expect("pinned Raydium swap_internal execution");
+            (result, None)
+        };
 
     let expected = &fixture["expected"];
     assert_eq!(result.amount_0, expected["amount_0"].as_u64().unwrap());
@@ -984,4 +1029,16 @@ fn assert_swap_replay_fixture(fixture: &Value) {
         &decode_hex_bytes(expected["observation_hex"].as_str().unwrap()),
         "final ObservationState",
     );
+
+    match final_bitmap_extension_bytes {
+        Some(actual) => {
+            let expected_extension = decode_hex_bytes(expected["bitmap_extension_hex"].as_str().unwrap());
+            assert_account_bytes_equal(
+                &actual,
+                &expected_extension,
+                "final TickArrayBitmapExtension",
+            );
+        }
+        None => assert!(expected["bitmap_extension_hex"].is_null()),
+    }
 }
