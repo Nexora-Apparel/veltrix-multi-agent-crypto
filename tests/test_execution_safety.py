@@ -761,7 +761,7 @@ def test_transaction_validator_rejects_duplicate_instruction_accounts():
     intent = make_intent()
     plan = make_plan(intent)
     instructions = (
-        replace(plan.instructions[0], accounts=("wallet-in", "wallet-in", "pool-vault")),
+        replace(plan.instructions[0], accounts=(WALLET_IN, WALLET_IN, POOL_VAULT)),
         plan.instructions[1],
     )
     tampered = replace(plan, instructions=instructions, message_hash="0" * 64)
