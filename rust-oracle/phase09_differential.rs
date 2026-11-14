@@ -723,6 +723,62 @@ fn python_reward_update_vectors_match_pinned_raydium_pool_state() {
     }
 }
 
+
+#[test]
+fn python_multiple_reward_slots_update_match_pinned_raydium_pool_state() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let fixture = &vectors["multiple_reward_update"];
+    let mut pool = PoolState::default();
+    pool.liquidity = fixture["liquidity"].as_u64().expect("pool liquidity") as u128;
+    for index in 0..3 {
+        let initial = &fixture["initial_rewards"][index];
+        pool.reward_infos[index] = RewardInfo {
+            reward_state: initial["reward_state"].as_u64().unwrap() as u8,
+            open_time: parse_u64(&initial["open_time"]),
+            end_time: parse_u64(&initial["end_time"]),
+            last_update_time: parse_u64(&initial["last_update_time"]),
+            emissions_per_second_x64: parse_u128(&initial["emissions_per_second_x64"]),
+            reward_total_emitted: parse_u64(&initial["reward_total_emitted"]),
+            reward_claimed: parse_u64(&initial["reward_claimed"]),
+            token_mint: parse_pubkey(&initial["token_mint"]),
+            token_vault: parse_pubkey(&initial["token_vault"]),
+            authority: parse_pubkey(&initial["authority"]),
+            reward_growth_global_x64: parse_u128(&initial["reward_growth_global_x64"]),
+        };
+    }
+    pool.update_reward_infos(parse_u64(&fixture["timestamp"]))
+        .expect("pinned PoolState::update_reward_infos across three initialized slots");
+    for index in 0..3 {
+        let actual = &pool.reward_infos[index];
+        // Copy packed zero-copy fields into aligned locals before assertions.
+        let actual_state = actual.reward_state;
+        let actual_last_update = actual.last_update_time;
+        let actual_total_emitted = actual.reward_total_emitted;
+        let actual_growth = actual.reward_growth_global_x64;
+        let expected = &fixture["expected_rewards"][index];
+        assert_eq!(
+            actual_state,
+            expected["reward_state"].as_u64().unwrap() as u8,
+            "reward slot {index} state"
+        );
+        assert_eq!(
+            actual_last_update,
+            parse_u64(&expected["last_update_time"]),
+            "reward slot {index} timestamp"
+        );
+        assert_eq!(
+            actual_total_emitted,
+            parse_u64(&expected["reward_total_emitted"]),
+            "reward slot {index} emitted amount"
+        );
+        assert_eq!(
+            actual_growth,
+            parse_u128(&expected["reward_growth_global_x64"]),
+            "reward slot {index} growth"
+        );
+    }
+}
+
 #[test]
 fn python_observation_update_vectors_match_pinned_raydium_rust() {
     let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
