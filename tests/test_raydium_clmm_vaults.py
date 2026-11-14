@@ -184,15 +184,6 @@ def fetch(values=None, **kwargs):
 def test_fetches_both_vaults_at_or_after_the_pool_and_simulation_slot():
     values = fixture()
     result = fetch(values)
-
-def test_fetch_honors_the_cpi_tick_snapshot_minimum_context_slot():
-    values = fixture(slot=600)
-    result = fetch(values, minimum_context_slot=550)
-    session = values[4]
-    assert result.context_slot == 600
-    assert session.calls[-1]["params"][1]["minContextSlot"] == 550
-
-
     assert result.execution_ready is False
     assert result.context_slot == 501
     assert result.simulation_context_slot == 500
@@ -202,6 +193,14 @@ def test_fetch_honors_the_cpi_tick_snapshot_minimum_context_slot():
     assert all(item.token_authority == values[7] for item in result.vaults)
     request = next(call for call in values[4].calls if call["method"] == "getMultipleAccounts")
     assert request["params"][1]["minContextSlot"] == 500
+
+
+def test_fetch_honors_the_cpi_tick_snapshot_minimum_context_slot():
+    values = fixture(slot=600)
+    result = fetch(values, minimum_context_slot=550)
+    session = values[4]
+    assert result.context_slot == 600
+    assert session.calls[-1]["params"][1]["minContextSlot"] == 550
 
 
 def test_rejects_nonclassic_token_program_vault():
