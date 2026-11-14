@@ -1095,7 +1095,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     extension_raw = None
     snapshot_extension = None
     if bitmap_extension:
-        extension_address = derive_raydium_clmm_tick_array_bitmap_extension_address(pool.pool_address)
+        extension_address = derive_raydium_tick_array_bitmap_extension_address(pool.pool_address)
         positive = [[0] * 8 for _ in range(14)]
         negative = [[0] * 8 for _ in range(14)]
         positive[0][0] |= 1  # first positive extension bit => TickArrayState start 307200
