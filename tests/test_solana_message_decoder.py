@@ -253,10 +253,10 @@ def test_rejects_duplicate_keys_after_alt_resolution():
         )
 
 
-def test_rejects_message_without_instructions():
+def test_decodes_structurally_valid_message_with_no_instructions():
     message = bytes([1, 0, 1]) + compact(2) + pubkey(1) + pubkey(2) + pubkey(9) + compact(0)
-    with pytest.raises(SolanaMessageDecodeError, match="instruction_count_out_of_range"):
-        decode_unsigned_transaction(transaction(message))
+    decoded = decode_unsigned_transaction(transaction(message))
+    assert decoded.instructions == ()
 
 
 def test_rejects_instruction_program_index_out_of_range():
