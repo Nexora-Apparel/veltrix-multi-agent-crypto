@@ -64,6 +64,27 @@ class SolanaAccountStateSnapshot:
             raise SolanaAccountSnapshotError("account_not_in_snapshot") from None
         return self.accounts[index]
 
+    def lookup_table_snapshots(self, addresses: tuple[str, ...] | list[str]):
+        """Adapt ALT account bytes from this exact context into decoder inputs."""
+        from .solana_message_decoder import AddressLookupTableSnapshot
+
+        if not isinstance(addresses, (tuple, list)) or not addresses:
+            raise SolanaAccountSnapshotError("lookup_table_address_list_invalid")
+        snapshots = {}
+        for address in addresses:
+            account = self.account(address)
+            if account is None:
+                raise SolanaAccountSnapshotError("lookup_table_account_missing")
+            snapshots[account.address] = AddressLookupTableSnapshot(
+                address=account.address,
+                owner=account.owner,
+                account_data=account.data,
+                context_slot=self.context_slot,
+            )
+        if len(snapshots) != len(addresses):
+            raise SolanaAccountSnapshotError("duplicate_lookup_table_address")
+        return snapshots
+
 
 class SolanaAccountSnapshotProvider:
     """Fetch a bounded account set atomically from one RPC context slot."""
