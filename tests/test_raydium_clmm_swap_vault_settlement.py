@@ -158,6 +158,16 @@ def test_expected_post_swap_vault_balances_apply_exact_directional_transfer(zero
 def test_actual_post_swap_vault_snapshot_reconciles_against_expected_amounts():
     p = pool()
     tick_snapshot, before = snapshots(p)
+
+def test_pre_swap_vault_snapshot_must_not_precede_the_cpi_tick_snapshot():
+    p = pool()
+    tick_snapshot, before = snapshots(p)
+    stale_before = replace(before, context_slot=tick_snapshot.context_slot - 1)
+    handoff = loop_settlement(p, tick_snapshot, zero_for_one=True)
+    with pytest.raises(RaydiumSwapVaultSettlementError, match="tick-array snapshot"):
+        apply_raydium_clmm_swap_vault_settlement(stale_before, handoff)
+
+
     handoff = loop_settlement(p, tick_snapshot, zero_for_one=True)
     expected = apply_raydium_clmm_swap_vault_settlement(before, handoff).expected_post_state
     after = replace(expected, context_slot=102)
