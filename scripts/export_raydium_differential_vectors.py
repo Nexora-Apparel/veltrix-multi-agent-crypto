@@ -17,6 +17,7 @@ from veltrix.raydium_clmm_dynamic_fee import (
     compute_total_fee_rate,
 )
 from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_CLMM_PROGRAM_ID,
     RAYDIUM_POOL_STATE_LENGTH,
     RaydiumClmmDynamicFeeInfo,
     RaydiumClmmPoolState,
