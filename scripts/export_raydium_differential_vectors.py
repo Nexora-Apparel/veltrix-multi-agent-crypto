@@ -35,6 +35,7 @@ from veltrix.raydium_clmm_observation import (
     RaydiumClmmObservationState,
     apply_raydium_observation_update,
     derive_raydium_clmm_observation_address,
+    encode_raydium_clmm_observation_state,
 )
 
 
@@ -653,6 +654,47 @@ def observation_update_vectors() -> list[dict]:
     return vectors
 
 
+def observation_serialization_vector() -> dict:
+    """Export a nontrivial ObservationState account image for Rust byte parity."""
+    pool_id = str(Pubkey.new_unique())
+    observation_address, _ = derive_raydium_clmm_observation_address(pool_id)
+    zero_padding = bytes(32)
+    observations = [RaydiumClmmObservation(0, 0, zero_padding) for _ in range(100)]
+    observations[0] = RaydiumClmmObservation(1_700_000_001, -123456789, zero_padding)
+    observations[7] = RaydiumClmmObservation(1_700_000_015, 987654321, zero_padding)
+    observations[99] = RaydiumClmmObservation(0xFFFFFFFF, -(1 << 63) + 17, zero_padding)
+    state = RaydiumClmmObservationState(
+        address=observation_address,
+        initialized=True,
+        recent_epoch=0x0102030405060708,
+        observation_index=99,
+        pool_id=pool_id,
+        observations=tuple(observations),
+        padding=zero_padding,
+        data_sha256="0" * 64,
+    )
+    encoded = encode_raydium_clmm_observation_state(state)
+    return {
+        "state": {
+            "initialized": state.initialized,
+            "recent_epoch": state.recent_epoch,
+            "observation_index": state.observation_index,
+            "pool_id": state.pool_id,
+            "observations": [
+                {
+                    "index": index,
+                    "block_timestamp": observation.block_timestamp,
+                    "tick_cumulative": observation.tick_cumulative,
+                }
+                for index, observation in enumerate(state.observations)
+                if observation.block_timestamp or observation.tick_cumulative
+            ],
+        },
+        "serialized_hex": encoded.hex(),
+        "serialized_length": len(encoded),
+    }
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -697,6 +739,7 @@ def build_vectors() -> dict:
         "pool_finalization": pool_finalization_vectors(),
         "tick_array_bitmap": tick_array_bitmap_vectors(),
         "observation_updates": observation_update_vectors(),
+        "observation_serialization": observation_serialization_vector(),
     }
 
 
