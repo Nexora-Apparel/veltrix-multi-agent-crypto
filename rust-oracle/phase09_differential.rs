@@ -5,7 +5,7 @@ use raydium_clmm::instructions::swap::{swap_internal, SwapState};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use raydium_clmm::states::{tick_spacing_index_from_tick, AmmConfig, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
-use anchor_lang::prelude::{Clock, Pubkey, Sysvar};
+use anchor_lang::prelude::{Clock, Pubkey, SolanaSysvar};
 use anchor_lang::Discriminator;
 use serde_json::Value;
 
