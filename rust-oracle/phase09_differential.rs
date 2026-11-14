@@ -5,7 +5,8 @@ use raydium_clmm::instructions::swap::{swap_internal, SwapState};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use raydium_clmm::states::{tick_spacing_index_from_tick, AmmConfig, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
-use anchor_lang::prelude::{Clock, Pubkey, SolanaSysvar};
+use anchor_lang::prelude::Pubkey;
+use std::time::{SystemTime, UNIX_EPOCH};
 use anchor_lang::Discriminator;
 use serde_json::Value;
 
@@ -855,7 +856,11 @@ fn python_tick_array_bitmap_extension_serialization_matches_pinned_raydium_bytes
 
 #[test]
 fn python_single_array_swap_replay_matches_pinned_raydium_swap_internal() {
-    let runtime_epoch = Clock::get().expect("Clock sysvar available in pinned Rust harness").epoch;
+    let runtime_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after Unix epoch")
+        .as_secs()
+        / (2 * 24 * 3600);
     let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
     let fixture = &vectors["swap_replay"];
     let pool_bytes = decode_hex_bytes(fixture["initial_pool_hex"].as_str().unwrap());
