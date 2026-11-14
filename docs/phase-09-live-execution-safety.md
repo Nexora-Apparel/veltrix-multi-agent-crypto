@@ -140,7 +140,7 @@ See `docs/phase-09-operator-checklist.md` for the future manual safety checklist
 - [ ] Post-merge CI passes on main.
 - [ ] Independent security review signs off the exact diff and threat model.
 
-The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Raw serialized Solana transaction decoding, a real signer, RPC submission and settlement reconciliation remain intentionally absent. Therefore Stage 09 safety controls are implemented, but live execution and final release are not complete or enabled.
+The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Structural raw legacy/v0 message decoding and ALT resolution are now implemented in the Stage 09.4 workstream, but program-specific semantic instruction decoding, account-effect reconstruction, and integration with the safety validator remain incomplete. A real signer, RPC submission adapter and settlement reconciler remain absent. Therefore Stage 09 safety controls are implemented in part, but live execution and final release are not complete or enabled.
 
 
 ### 09.4 — raw unsigned Solana message decoding (implementation in review)
