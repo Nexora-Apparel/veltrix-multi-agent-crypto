@@ -147,10 +147,16 @@ def test_rejects_unsupported_token_transfer_shapes(program, accounts, data, reas
         decode_classic_token_transfer(program, accounts, data)
 
 
-def test_rejects_zero_transfer_amount():
-    with pytest.raises(SplTokenDecodeError, match="token_transfer_amount_invalid"):
-        decode_classic_token_transfer(
-            SPL_TOKEN_PROGRAM_ID,
-            (key(1), key(2), key(4)),
-            b"\x03" + bytes(8),
-        )
+def test_parser_preserves_wire_valid_zero_amount_and_u8_decimals():
+    transfer = decode_classic_token_transfer(
+        SPL_TOKEN_PROGRAM_ID,
+        (key(1), key(1), key(4)),
+        b"\x03" + bytes(8),
+    )
+    assert transfer.amount == 0
+    assert transfer.source == transfer.destination
+
+    mint = decode_classic_token_mint(
+        key(3), SPL_TOKEN_PROGRAM_ID, mint_data(decimals=255)
+    )
+    assert mint.decimals == 255
