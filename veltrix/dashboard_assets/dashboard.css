@@ -22,27 +22,41 @@
 
 .access-gate{position:fixed;z-index:20;inset:0;display:grid;place-items:center;padding:22px;background:#070507ed;backdrop-filter:blur(18px)}.access-panel{width:min(100%,360px);padding:27px 22px;background:#1b141a;border:1px solid #523344;border-radius:25px;box-shadow:0 25px 90px #000b}.access-mark{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:#42172b;color:#ff7ba8;font-weight:850;font-size:20px;margin-bottom:18px}.access-panel h2{font-size:25px;margin:0}.access-panel p:not(.eyebrow){font-size:12px;color:var(--muted);margin:8px 0 16px}.access-panel input{width:100%;padding:14px;border-radius:13px;border:1px solid #49303c;background:#0e0a0e;color:var(--text);font:14px inherit}.access-panel button{width:100%;margin-top:10px;padding:13px;border:0;border-radius:13px;background:#a92557;color:white;font-weight:750}.access-panel small{display:block;min-height:16px;margin-top:9px;color:var(--red);font-size:11px}
 
-/* Floating stardust: independent, slow-moving particles over the burgundy atmosphere */
-.ambient .particle{position:absolute;left:var(--x);top:var(--y);z-index:0;width:3px;height:3px;border-radius:50%;background:#ff9abc;box-shadow:0 0 7px 2px rgba(240,45,117,.42),0 0 18px rgba(240,45,117,.24);opacity:0;animation:veltrix-particle-float var(--duration) ease-in-out var(--delay) infinite;will-change:transform,opacity}
-.ambient .particle:nth-child(3n){background:#e6b4d0;box-shadow:0 0 7px 2px rgba(190,116,164,.36),0 0 17px rgba(190,116,164,.2)}
-.ambient .particle.star{width:0;height:0;background:transparent;box-shadow:none;border-radius:0}
-.ambient .particle.star:before,.ambient .particle.star:after{content:"";position:absolute;left:50%;top:50%;display:block;transform:translate(-50%,-50%);border-radius:3px;background:rgba(255,174,207,.92);box-shadow:0 0 8px 1px rgba(240,45,117,.48)}
-.ambient .particle.star:before{width:2px;height:11px}
-.ambient .particle.star:after{width:11px;height:2px}
-@keyframes veltrix-particle-float{0%{opacity:0;transform:translate3d(0,20px,0) scale(.55)}16%{opacity:.72}48%{opacity:.48;transform:translate3d(var(--drift),-30px,0) scale(1)}82%{opacity:.65}100%{opacity:0;transform:translate3d(var(--drift),-78px,0) scale(.45)}}
-.ambient .p1{--x:8%;--y:68%;--drift:18px;--duration:14s;--delay:-4s}
-.ambient .p2{--x:17%;--y:29%;--drift:-13px;--duration:17s;--delay:-11s}
-.ambient .p3{--x:27%;--y:78%;--drift:12px;--duration:12s;--delay:-7s}
-.ambient .p4{--x:36%;--y:43%;--drift:-17px;--duration:19s;--delay:-15s}
-.ambient .p5{--x:46%;--y:88%;--drift:14px;--duration:15s;--delay:-2s}
-.ambient .p6{--x:55%;--y:23%;--drift:-12px;--duration:13s;--delay:-9s}
-.ambient .p7{--x:64%;--y:69%;--drift:19px;--duration:18s;--delay:-13s}
-.ambient .p8{--x:73%;--y:38%;--drift:-15px;--duration:16s;--delay:-6s}
-.ambient .p9{--x:82%;--y:82%;--drift:12px;--duration:14s;--delay:-10s}
-.ambient .p10{--x:91%;--y:28%;--drift:-18px;--duration:20s;--delay:-17s}
-.ambient .p11{--x:12%;--y:91%;--drift:15px;--duration:18s;--delay:-8s}
-.ambient .p12{--x:31%;--y:15%;--drift:-11px;--duration:15s;--delay:-12s}
-.ambient .p13{--x:69%;--y:12%;--drift:17px;--duration:17s;--delay:-5s}
-.ambient .p14{--x:88%;--y:61%;--drift:-14px;--duration:13s;--delay:-3s}
-.ambient .p15{--x:43%;--y:57%;--drift:10px;--duration:21s;--delay:-18s}
-.ambient .p16{--x:96%;--y:92%;--drift:-12px;--duration:16s;--delay:-14s}
+
+/* Full-screen flowing stardust: layered particles drift continuously across the ambient field */
+.ambient .particle{position:absolute;left:var(--x);top:var(--y);z-index:0;width:var(--size,3px);height:var(--size,3px);border-radius:50%;background:#ff9abc;box-shadow:0 0 8px 2px rgba(240,45,117,.52),0 0 22px rgba(240,45,117,.3);opacity:var(--alpha,.78);animation:veltrix-stardust-drift var(--duration,24s) ease-in-out var(--delay,0s) infinite alternate;will-change:transform}
+.ambient .particle:nth-child(3n){background:#e6b4d0;box-shadow:0 0 8px 2px rgba(190,116,164,.45),0 0 20px rgba(190,116,164,.25)}
+.ambient .particle:nth-child(4n){filter:blur(.35px);opacity:.55}
+.ambient .particle.star{width:0;height:0;background:transparent;box-shadow:none;border-radius:0;filter:none}
+.ambient .particle.star:before,.ambient .particle.star:after{content:"";position:absolute;left:50%;top:50%;display:block;transform:translate(-50%,-50%);border-radius:4px;background:rgba(255,184,214,.96);box-shadow:0 0 9px 2px rgba(240,45,117,.56),0 0 23px rgba(240,45,117,.28)}
+.ambient .particle.star:before{width:var(--ray,2px);height:var(--star-size,14px)}
+.ambient .particle.star:after{width:var(--star-size,14px);height:var(--ray,2px)}
+@keyframes veltrix-stardust-drift{0%{transform:translate3d(0,0,0) scale(.86)}50%{transform:translate3d(var(--dx),var(--dy),0) scale(1.12)}100%{transform:translate3d(calc(var(--dx)*-.72),calc(var(--dy)*-.72),0) scale(.94)}}
+.ambient .p1{--x:5%;--y:70%;--dx:105px;--dy:-125px;--duration:26s;--delay:-8s;--size:3px}
+.ambient .p2{--x:14%;--y:26%;--dx:-82px;--dy:148px;--duration:32s;--delay:-17s;--size:2px}
+.ambient .p3{--x:25%;--y:78%;--dx:92px;--dy:-170px;--duration:22s;--delay:-11s;--star-size:16px}
+.ambient .p4{--x:34%;--y:43%;--dx:-125px;--dy:110px;--duration:35s;--delay:-25s;--size:4px}
+.ambient .p5{--x:45%;--y:88%;--dx:120px;--dy:-145px;--duration:28s;--delay:-4s;--size:2px}
+.ambient .p6{--x:54%;--y:20%;--dx:-105px;--dy:165px;--duration:24s;--delay:-14s;--star-size:19px}
+.ambient .p7{--x:64%;--y:68%;--dx:145px;--dy:-95px;--duration:33s;--delay:-21s;--size:3px}
+.ambient .p8{--x:73%;--y:36%;--dx:-135px;--dy:145px;--duration:29s;--delay:-7s;--size:2px}
+.ambient .p9{--x:83%;--y:82%;--dx:95px;--dy:-180px;--duration:25s;--delay:-19s;--star-size:15px}
+.ambient .p10{--x:94%;--y:25%;--dx:-155px;--dy:130px;--duration:37s;--delay:-29s;--size:3px}
+.ambient .p11{--x:10%;--y:92%;--dx:150px;--dy:-115px;--duration:31s;--delay:-13s;--size:2px}
+.ambient .p12{--x:29%;--y:13%;--dx:-95px;--dy:185px;--duration:27s;--delay:-20s;--star-size:17px}
+.ambient .p13{--x:68%;--y:10%;--dx:125px;--dy:155px;--duration:34s;--delay:-5s;--size:3px}
+.ambient .p14{--x:89%;--y:60%;--dx:-145px;--dy:-120px;--duration:23s;--delay:-16s;--size:2px}
+.ambient .p15{--x:42%;--y:57%;--dx:110px;--dy:175px;--duration:38s;--delay:-31s;--star-size:20px}
+.ambient .p16{--x:97%;--y:94%;--dx:-165px;--dy:-145px;--duration:30s;--delay:-23s;--size:3px}
+.ambient .p17{--x:3%;--y:39%;--dx:170px;--dy:115px;--duration:36s;--delay:-18s;--size:2px}
+.ambient .p18{--x:19%;--y:54%;--dx:-115px;--dy:-165px;--duration:25s;--delay:-9s;--star-size:13px}
+.ambient .p19{--x:38%;--y:8%;--dx:135px;--dy:180px;--duration:33s;--delay:-27s;--size:4px}
+.ambient .p20{--x:58%;--y:91%;--dx:-125px;--dy:-155px;--duration:29s;--delay:-12s;--size:2px}
+.ambient .p21{--x:77%;--y:15%;--dx:105px;--dy:195px;--duration:39s;--delay:-34s;--star-size:18px}
+.ambient .p22{--x:92%;--y:43%;--dx:-175px;--dy:105px;--duration:28s;--delay:-15s;--size:3px}
+.ambient .p23{--x:7%;--y:15%;--dx:145px;--dy:185px;--duration:41s;--delay:-30s;--size:2px}
+.ambient .p24{--x:51%;--y:39%;--dx:-155px;--dy:-175px;--duration:32s;--delay:-22s;--star-size:14px}
+.ambient .p25{--x:86%;--y:93%;--dx:-125px;--dy:-190px;--duration:35s;--delay:-26s;--size:2px}
+.ambient .p26{--x:24%;--y:94%;--dx:155px;--dy:-165px;--duration:27s;--delay:-6s;--size:3px}
+.ambient .p27{--x:61%;--y:54%;--dx:175px;--dy:125px;--duration:40s;--delay:-33s;--star-size:16px}
+.ambient .p28{--x:98%;--y:8%;--dx:-155px;--dy:175px;--duration:31s;--delay:-19s;--size:2px}
