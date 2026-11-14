@@ -4,7 +4,20 @@
 **Pinned source commit:** `6d7a0f82d2f293c553c69aaf943377367c6c4cc6`  
 **Primary source:** `programs/amm/src/instructions/swap.rs`, `swap_internal`  
 **Reference range:** lines 501–830 at the pinned commit  
-**Status:** specification only; no transaction-level replay is implemented by this document.
+**Status:** the Python orchestrator is implemented in `veltrix/raydium_clmm_swap_replay.py`. One controlled single-array scenario is differentially verified against upstream Rust; this document remains the required source-order specification, not execution authorization.
+
+## Current implementation and verified subset
+
+The Python composition lives in `veltrix/raydium_clmm_swap_replay.py`. It composes the canonical primitives in the ordering above and returns immutable final state only after settlement and PoolState finalization succeed.
+
+Verified single-array scenario:
+- One initialized liquidity tick at tick 10; one CPI-ordered TickArrayState; no bitmap extension.
+- One-for-zero, exact-input, fee-on-input, with a price limit at the initialized tick.
+- Pre-swap PoolState reward/epoch update, price/fee iteration, boundary tick crossing, tick-array persistence, ObservationState first write, token amount/fee settlement, and PoolState finalization.
+- [Pinned Rust oracle run #43609398854](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43609398854): **17 passed, 0 failed**. The single-array test invokes upstream `swap_internal` and compares amounts, fees, final tick/price/liquidity, and final account bytes.
+- The two runtime-derived `recent_epoch` fields are normalized to the pinned upstream `cfg(test)` epoch calculation; all other compared bytes must match exactly.
+
+Not yet verified as end-to-end scenarios: multi-array traversal, bitmap-extension mutation, dynamic-fee-active swaps, FIFO boundary orders, exact-output, zero-for-one, empty-array bitmap flips, initialized reward accrual, and token-vault balance reconciliation.
 
 ## Required execution order
 
