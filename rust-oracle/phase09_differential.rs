@@ -656,7 +656,7 @@ fn python_reward_update_vectors_match_pinned_raydium_pool_state() {
     for fixture in vectors["reward_updates"].as_array().expect("reward update fixtures") {
         let initial = &fixture["initial"];
         let mut pool = PoolState::default();
-        pool.liquidity = parse_u128(&fixture["liquidity"].to_string());
+        pool.liquidity = fixture["liquidity"].as_u64().expect("pool liquidity") as u128;
         pool.reward_infos[0] = RewardInfo {
             reward_state: initial["reward_state"].as_u64().unwrap() as u8,
             open_time: parse_u64(&initial["open_time"]),
