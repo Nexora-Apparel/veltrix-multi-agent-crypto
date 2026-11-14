@@ -243,3 +243,17 @@ Added `veltrix/solana_account_snapshot.py` and focused tests.
 
 
 The same-context snapshot now also exposes an explicit adapter that converts requested account bytes into the raw-message decoder's `AddressLookupTableSnapshot` objects while preserving the snapshot's single RPC context slot. The adapter does not bypass the raw ALT parser: canonical ALT owner, metadata, deactivation, index, and warm-up checks remain enforced by `decode_unsigned_transaction`.
+
+
+### 09.5 — classic SPL Token wire decoder (parse-only milestone)
+
+Added `veltrix/spl_token_decoder.py` and adversarial tests.
+
+- Decodes only the classic SPL Token 165-byte Account layout and 82-byte Mint layout, including COption authority/delegate fields, state, native reserve, delegated amount, supply and decimals.
+- Decodes only classic SPL Token `Transfer` (instruction tag 3) and `TransferChecked` (tag 12), with exact instruction-data lengths and exact single-authority account layouts.
+- Rejects Token-2022, extended account layouts, multisig signer layouts, frozen/uninitialized accounts, unsupported instruction tags, malformed option tags, source/destination aliasing, and zero-value transfers.
+- Every decoded transfer result is marked `execution_approved=false`.
+
+The implementation follows the SPL Token interface's published base layouts and instruction packing. Token-2022 is intentionally not accepted: although its base account structures and common instruction encodings overlap, its extension model changes transfer behavior and may require extra accounts (including transfer hooks and transfer fees). Those paths need dedicated extension-aware adapters. See the upstream SPL Token interface and Token-2022 design references: `solana-program/token/interface/src/state.rs`, `solana-program/token/interface/src/instruction.rs`, and the Token-2022 extension documentation.
+
+**Not yet an account-effect reconstructor.** These decoders do not yet bind inner-CPI instructions to their parent Jupiter/DEX invocation, prove the authority/signature path, account for Token-2022 fees/hooks, or calculate verified pre/post account deltas. They are parse-only primitives and are not wired as an execution approval path. No signing or submission behavior is added.
