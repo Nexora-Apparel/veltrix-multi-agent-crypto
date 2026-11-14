@@ -950,7 +950,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0, multi_array: bool = False, empty_array_after_order: bool = False, bitmap_extension: bool = False) -> dict:
+def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000, dynamic_fee_enabled: bool = False, fifo_order_amount: int = 0, multi_array: bool = False, empty_array_after_order: bool = False, bitmap_extension: bool = False, active_reward: bool = False) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -963,6 +963,21 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     bitmap = [0] * 16
     bitmap[8] = 0 if bitmap_extension else (3 if multi_array else 1)
     base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
+    reward_infos = [RaydiumClmmRewardInfo() for _ in range(3)]
+    if active_reward:
+        reward_infos[0] = RaydiumClmmRewardInfo(
+            reward_state=1,
+            open_time=1_000,
+            end_time=2_000,
+            last_update_time=1_000,
+            emissions_per_second_x64=Q64,
+            reward_total_emitted=0,
+            reward_claimed=0,
+            token_mint=str(Pubkey.new_unique()),
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            reward_growth_global_x64=0,
+        )
     dynamic_fee_info = (
         RaydiumClmmDynamicFeeInfo(
             filter_period=60,
@@ -1002,6 +1017,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         account_data_sha256=hashlib.sha256(base_pool_bytes).hexdigest(),
         tick_array_bitmap=tuple(bitmap),
         dynamic_fee_info=dynamic_fee_info,
+        reward_infos=tuple(reward_infos),
         account_data=base_pool_bytes,
     )
     initial_pool_bytes = encode_raydium_clmm_pool_state(pool)
@@ -1159,6 +1175,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "fifo_order_amount": fifo_order_amount,
         "multi_array": multi_array,
         "bitmap_extension": bitmap_extension,
+        "active_reward": active_reward,
         "program_id": RAYDIUM_CLMM_PROGRAM_ID,
         "bitmap_extension_address": extension_address,
         "initial_bitmap_extension_hex": extension_raw.hex() if extension_raw is not None else None,
@@ -1240,6 +1257,7 @@ def build_vectors() -> dict:
             swap_replay_vector(False, True, 1_000_000, False, 0, True),
             swap_replay_vector(False, True, 1_000_000, False, 100, False, True),
             swap_replay_vector(False, True, 1_000_000_000_000_000_000, False, 100, False, False, True),
+            swap_replay_vector(False, True, 1_000_000, False, 0, False, False, False, True),
         ],
     }
 
