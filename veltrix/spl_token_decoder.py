@@ -147,8 +147,6 @@ def decode_classic_token_mint(
     initialized = account_data[45]
     if initialized != 1:
         raise SplTokenDecodeError("token_mint_not_initialized")
-    if decimals > 38:
-        raise SplTokenDecodeError("token_mint_decimals_out_of_range")
     freeze_authority = _option_pubkey(account_data, 46, "token_freeze_authority_invalid")
     return ClassicSplTokenMint(
         address=address,
@@ -188,8 +186,6 @@ def decode_classic_token_transfer(
         source, mint, destination, authority = accounts
         amount = int.from_bytes(instruction_data[1:9], "little")
         decimals = instruction_data[9]
-        if decimals > 38:
-            raise SplTokenDecodeError("token_transfer_decimals_out_of_range")
         name = "TransferChecked"
     else:
         raise SplTokenDecodeError("token_instruction_not_supported")
@@ -199,9 +195,7 @@ def decode_classic_token_transfer(
     authority = _canonical_key(authority, "token_transfer_authority_invalid")
     if mint is not None:
         mint = _canonical_key(mint, "token_transfer_mint_invalid")
-    if source == destination:
-        raise SplTokenDecodeError("token_transfer_source_destination_alias")
-    if amount <= 0 or amount > _U64_MAX:
+    if amount > _U64_MAX:
         raise SplTokenDecodeError("token_transfer_amount_invalid")
     return ClassicSplTokenTransfer(
         instruction_name=name,
