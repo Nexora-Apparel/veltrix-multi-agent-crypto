@@ -31,7 +31,7 @@ def pubkey(byte: int) -> bytes:
 
 def b58(raw: bytes) -> str:
     alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    zeros = len(raw) - len(raw.lstrip(b"\\x00"))
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
     value = int.from_bytes(raw, "big")
     encoded = ""
     while value:
@@ -51,7 +51,7 @@ def legacy_message(*, instruction: bytes | None = None) -> bytes:
     return bytes([1, 0, 1]) + compact(2) + keys + pubkey(9) + instructions
 
 
-def compiled_instruction(program_index: int = 1, accounts: bytes = b"\\x00", data: bytes = b"\\x01\\x02") -> bytes:
+def compiled_instruction(program_index: int = 1, accounts: bytes = b"\x00", data: bytes = b"\x01\x02") -> bytes:
     return bytes([program_index]) + compact(len(accounts)) + accounts + compact(len(data)) + data
 
 
@@ -71,17 +71,17 @@ def alt_data(addresses: tuple[bytes, ...], *, last_extended_slot: int = 10, star
     return metadata + b"".join(addresses)
 
 
-def v0_message(table_key: bytes, *, writable: bytes = b"\\x00", readonly: bytes = b"\\x01") -> bytes:
+def v0_message(table_key: bytes, *, writable: bytes = b"\x00", readonly: bytes = b"\x01") -> bytes:
     # Two static keys; two addresses loaded from one table.
     return (
-        b"\\x80"
+        b"\x80"
         + bytes([1, 0, 1])
         + compact(2)
         + pubkey(1)
         + pubkey(2)
         + pubkey(9)
         + compact(1)
-        + compiled_instruction(program_index=1, accounts=b"\\x00\\x02\\x03")
+        + compiled_instruction(program_index=1, accounts=b"\x00\x02\x03")
         + compact(1)
         + table_key
         + compact(len(writable))
@@ -110,7 +110,7 @@ def test_decodes_unsigned_legacy_message_and_hashes_exact_message():
     assert decoded.static_account_keys == (b58(pubkey(1)), b58(pubkey(2)))
     assert decoded.instructions[0].program_id == b58(pubkey(2))
     assert decoded.instructions[0].accounts == (b58(pubkey(1)),)
-    assert decoded.instructions[0].data == b"\\x01\\x02"
+    assert decoded.instructions[0].data == b"\x01\x02"
 
 
 def test_decodes_v0_and_resolves_loaded_writable_then_readonly_addresses():
@@ -132,13 +132,13 @@ def test_decodes_v0_and_resolves_loaded_writable_then_readonly_addresses():
     "raw,reason",
     [
         (b"", "transaction_size_out_of_range"),
-        (b"\\x81", "truncated_compact_length"),
+        (b"\x81", "truncated_compact_length"),
         (compact(1) + bytes(64), "missing_message"),
         (compact(2) + bytes(128) + legacy_message(), "signature_count_header_mismatch"),
-        (transaction(bytes([1, 0, 1]) + compact(1) + pubkey(1) + pubkey(9) + compact(0)), "invalid_required_signer_count"),
-        (transaction(legacy_message() + b"\\x00"), "trailing_message_bytes"),
-        (transaction(b"\\x81" + bytes(40)), "unsupported_message_version"),
-        (transaction(legacy_message(), signature_count=1)[:-1], "truncated_message"),
+        (transaction(bytes([2, 0, 0]) + compact(1) + pubkey(1) + pubkey(9) + compact(0), signature_count=2), "invalid_required_signer_count"),
+        (transaction(legacy_message() + b"\x00"), "trailing_message_bytes"),
+        (transaction(b"\x81" + bytes(40)), "unsupported_message_version"),
+        (transaction(legacy_message(), signature_count=1)[:-1], "truncated_compact_length"),
     ],
 )
 def test_rejects_malformed_or_unsupported_messages(raw, reason):
@@ -148,14 +148,14 @@ def test_rejects_malformed_or_unsupported_messages(raw, reason):
 
 
 def test_rejects_nonzero_signature_slot():
-    raw = compact(1) + b"\\x01" + bytes(63) + legacy_message()
+    raw = compact(1) + b"\x01" + bytes(63) + legacy_message()
     with pytest.raises(SolanaMessageDecodeError, match="signed_transaction_not_accepted"):
         decode_unsigned_transaction(raw)
 
 
 def test_rejects_noncanonical_compact_length():
     # Compact-u16 value 1 encoded in two bytes.
-    raw = b"\\x81\\x00" + bytes(64) + legacy_message()
+    raw = b"\x81\x00" + bytes(64) + legacy_message()
     with pytest.raises(SolanaMessageDecodeError, match="noncanonical_compact_length"):
         decode_unsigned_transaction(raw)
 
@@ -222,9 +222,9 @@ def test_rejects_program_id_loaded_from_alt():
     table = pubkey(7)
     # Program index 2 points at the first loaded key rather than a static key.
     message = (
-        b"\\x80" + bytes([1, 0, 1]) + compact(2) + pubkey(1) + pubkey(2)
+        b"\x80" + bytes([1, 0, 1]) + compact(2) + pubkey(1) + pubkey(2)
         + pubkey(9) + compact(1) + compiled_instruction(program_index=2, accounts=b"")
-        + compact(1) + table + compact(1) + b"\\x00" + compact(0)
+        + compact(1) + table + compact(1) + b"\x00" + compact(0)
     )
     evidence = snapshot(table, (pubkey(3),))
     with pytest.raises(SolanaMessageDecodeError, match="program_id_must_be_static"):
