@@ -211,8 +211,6 @@ def decode_jupiter_v6_route_instruction(
         output_index = reader.uint(1)
         if percent > 100:
             raise JupiterInstructionDecodeError("route_percent_out_of_range")
-        if input_index == output_index:
-            raise JupiterInstructionDecodeError("route_step_input_output_alias")
         steps.append(JupiterRouteStep(
             swap_variant=variant_name,
             swap_variant_index=variant_index,
@@ -228,7 +226,7 @@ def decode_jupiter_v6_route_instruction(
     platform_fee_bps = reader.uint(1)
     if amount <= 0 or quoted_amount <= 0:
         raise JupiterInstructionDecodeError("route_amount_must_be_positive")
-    if slippage_bps > 10_000 or platform_fee_bps > 100:
+    if slippage_bps > 10_000:
         raise JupiterInstructionDecodeError("route_fee_or_slippage_out_of_range")
     reader.finish()
 
