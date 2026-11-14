@@ -105,5 +105,17 @@
       <small id="last-updated">Waiting for data</small>
     </section>
   </div>
+
+  <div class="access-gate" id="access-gate" hidden>
+    <section class="access-panel" role="dialog" aria-modal="true" aria-labelledby="access-title">
+      <div class="access-mark">V</div>
+      <p class="eyebrow">SECURE DASHBOARD</p>
+      <h2 id="access-title">Access required</h2>
+      <p>Enter the dashboard access token. It is kept only for this browser tab.</p>
+      <input id="access-token" type="password" autocomplete="off" placeholder="Dashboard token">
+      <button id="access-submit" type="button">Unlock dashboard</button>
+      <small id="access-error" role="status"></small>
+    </section>
+  </div>
 </body>
 </html>
