@@ -177,6 +177,16 @@ Repository inspection on `work/phase-9-raw-message-decoder` established the foll
 - The Stage 09.4 decoder separately computes `DecodedSolanaTransaction.message_sha256` from the exact raw message bytes. That value is not yet an authorization field checked by `TransactionValidator`.
 - Do not rename or silently repurpose the existing manifest hash. Add a distinct intent-bound raw-message commitment and verify it against the exact decoded bytes. The normalized manifest commitment must remain a separate domain.
 
+**09.5 implementation progress — separate commitment field added (not yet decoder-integrated):**
+
+- `ExecutionIntent.expected_raw_message_sha256` is now a required, validated field included in the canonical intent payload and therefore in the operator-authorization intent hash.
+- `UnsignedTransactionPlan.raw_message_sha256` is a separate field from `message_hash`; the raw digest is included in the canonical manifest payload, while `message_hash` retains its existing normalized-manifest meaning.
+- `TransactionValidator` rejects a plan whose raw digest differs from the intent-bound raw digest.
+- `SimulationReceipt` now carries the raw-message digest separately, and `SimulationGate` requires it to match the plan.
+- Adversarial tests cover raw-digest substitution independently from normalized-manifest hash substitution.
+
+**Important limitation:** this change establishes a separate commitment domain, but the plan field is still supplied to the validator; the current pipeline does not yet decode transaction bytes internally and prove that the supplied digest equals `DecodedSolanaTransaction.message_sha256`. The next implementation must make the pipeline accept exact unsigned transaction bytes and ALT snapshots, decode them internally, and compare the resulting message digest and ordered instruction data against the plan. Until that is implemented and tested, this is not semantic transaction approval and must not be used to authorize signing.
+
 **Required implementation order before any signer work:**
 
 1. Extend the authorized intent contract to bind the exact raw message SHA-256 independently from the canonical manifest SHA-256; update canonical serialization, authorization and persistence tests.
