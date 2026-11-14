@@ -1226,6 +1226,8 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         "active_reward": active_reward,
         "program_id": RAYDIUM_CLMM_PROGRAM_ID,
         "pool_address": pool.pool_address,
+        "pool_vault_0": pool.token_vault_0,
+        "pool_vault_1": pool.token_vault_1,
         "vault_token_program_id": CLASSIC_SPL_TOKEN_PROGRAM_ID,
         "initial_vault_0_hex": vault_0.account_data.hex(),
         "initial_vault_1_hex": vault_1.account_data.hex(),
