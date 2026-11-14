@@ -302,31 +302,6 @@ class TransactionValidator:
         _digest(plan.raw_message_sha256, "raw_message_sha256")
         if not hmac_compare(plan.raw_message_sha256, intent.expected_raw_message_sha256):
             raise ExecutionGateError("raw_message_not_bound_to_authorized_intent")
-        if not isinstance(plan.raw_transaction_bytes, bytes) or not plan.raw_transaction_bytes:
-            raise ExecutionGateError("raw_transaction_bytes_missing")
-        try:
-            decoded = decode_unsigned_transaction(
-                plan.raw_transaction_bytes,
-                lookup_tables=lookup_tables,
-            )
-        except SolanaMessageDecodeError:
-            raise ExecutionGateError("raw_transaction_decode_failed") from None
-        if not hmac_compare(decoded.message_sha256, plan.raw_message_sha256):
-            raise ExecutionGateError("raw_transaction_digest_mismatch")
-        if decoded.fee_payer != intent.wallet_public_key:
-            raise ExecutionGateError("raw_transaction_fee_payer_mismatch")
-        if decoded.recent_blockhash != plan.recent_blockhash:
-            raise ExecutionGateError("raw_transaction_blockhash_mismatch")
-        if len(decoded.instructions) != len(plan.instructions):
-            raise ExecutionGateError("raw_transaction_instruction_count_mismatch")
-        for decoded_instruction, planned_instruction in zip(decoded.instructions, plan.instructions):
-            if (
-                decoded_instruction.program_id != planned_instruction.program_id
-                or decoded_instruction.accounts != planned_instruction.accounts
-                or decoded_instruction.data_sha256 != planned_instruction.data_hash
-            ):
-                raise ExecutionGateError("raw_transaction_instruction_binding_mismatch")
-
         allowed_programs = set(policy.allowed_program_ids) & set(intent.expected_program_ids)
         swap_count = 0
         compute_budget_count = 0
@@ -353,6 +328,30 @@ class TransactionValidator:
             if len(set(instruction.accounts)) != len(instruction.accounts):
                 raise ExecutionGateError("duplicate_instruction_account")
             _digest(instruction.data_hash, "instruction_data_hash")
+        if not isinstance(plan.raw_transaction_bytes, bytes) or not plan.raw_transaction_bytes:
+            raise ExecutionGateError("raw_transaction_bytes_missing")
+        try:
+            decoded = decode_unsigned_transaction(
+                plan.raw_transaction_bytes,
+                lookup_tables=lookup_tables,
+            )
+        except SolanaMessageDecodeError:
+            raise ExecutionGateError("raw_transaction_decode_failed") from None
+        if not hmac_compare(decoded.message_sha256, plan.raw_message_sha256):
+            raise ExecutionGateError("raw_transaction_digest_mismatch")
+        if decoded.fee_payer != intent.wallet_public_key:
+            raise ExecutionGateError("raw_transaction_fee_payer_mismatch")
+        if decoded.recent_blockhash != plan.recent_blockhash:
+            raise ExecutionGateError("raw_transaction_blockhash_mismatch")
+        if len(decoded.instructions) != len(plan.instructions):
+            raise ExecutionGateError("raw_transaction_instruction_count_mismatch")
+        for decoded_instruction, planned_instruction in zip(decoded.instructions, plan.instructions):
+            if (
+                decoded_instruction.program_id != planned_instruction.program_id
+                or decoded_instruction.accounts != planned_instruction.accounts
+                or decoded_instruction.data_sha256 != planned_instruction.data_hash
+            ):
+                raise ExecutionGateError("raw_transaction_instruction_binding_mismatch")
         if swap_count != 1:
             raise ExecutionGateError("expected_exactly_one_swap_instruction")
         if compute_budget_count > 2:
