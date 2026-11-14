@@ -968,7 +968,11 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     )
     observation_address, _ = derive_raydium_clmm_observation_address(str(pool_address))
     bitmap = [0] * 16
-    bitmap[8] = 0 if bitmap_extension else (3 if multi_array else 1)
+    if bitmap_extension and negative_bitmap_extension:
+        raise ValueError("positive and negative bitmap-extension cases are mutually exclusive")
+    if negative_bitmap_extension and not zero_for_one:
+        raise ValueError("negative bitmap-extension traversal requires zero_for_one")
+    bitmap[8] = 0 if (bitmap_extension or negative_bitmap_extension) else (3 if multi_array else 1)
     base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
     reward_infos = [RaydiumClmmRewardInfo() for _ in range(3)]
     if active_reward:
@@ -1001,7 +1005,7 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         if dynamic_fee_enabled
         else RaydiumClmmDynamicFeeInfo()
     )
-    current_tick = 307_200 if bitmap_extension else (-307_200 if negative_bitmap_extension else (590 if multi_array else (10 if zero_for_one else 0)))
+    current_tick = 307_200 if bitmap_extension else (-307_201 if negative_bitmap_extension else (590 if multi_array else (10 if zero_for_one else 0)))
     pool = RaydiumClmmPoolState(
         pool_address=str(pool_address),
         bump=bump,
