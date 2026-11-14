@@ -173,3 +173,27 @@ def test_rejects_account_lookup_outside_snapshot():
     snapshot = provider(session).fetch_snapshot([key(1)])
     with pytest.raises(SolanaAccountSnapshotError, match="account_not_in_snapshot"):
         snapshot.account(key(2))
+
+def test_converts_alt_bytes_from_same_rpc_context_for_raw_message_decoder():
+    from veltrix.solana_message_decoder import ALT_PROGRAM_ID
+
+    session = Session(
+        Response({"result": key(9)}),
+        Response({"result": {"context": {"slot": 777}, "value": [account(ALT_PROGRAM_ID, b"raw-alt") ]}}),
+    )
+    snapshot = provider(session).fetch_snapshot([key(1)])
+    adapted = snapshot.lookup_table_snapshots([key(1)])
+    assert adapted[key(1)].address == key(1)
+    assert adapted[key(1)].owner == ALT_PROGRAM_ID
+    assert adapted[key(1)].account_data == b"raw-alt"
+    assert adapted[key(1)].context_slot == 777
+
+
+def test_alt_snapshot_adapter_rejects_addresses_outside_context():
+    session = Session(
+        Response({"result": key(9)}),
+        Response({"result": {"context": {"slot": 777}, "value": [account(key(8))]}}),
+    )
+    snapshot = provider(session).fetch_snapshot([key(1)])
+    with pytest.raises(SolanaAccountSnapshotError, match="account_not_in_snapshot"):
+        snapshot.lookup_table_snapshots([key(2)])
