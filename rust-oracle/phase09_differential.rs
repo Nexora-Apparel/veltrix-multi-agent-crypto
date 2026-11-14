@@ -930,8 +930,9 @@ fn python_single_array_swap_replay_matches_pinned_raydium_swap_internal() {
 
     let mut expected_pool_bytes = decode_hex_bytes(expected["pool_hex"].as_str().unwrap());
     let mut expected_tick_array_bytes = decode_hex_bytes(expected["tick_array_hex"].as_str().unwrap());
-    // swap_internal refreshes both recent_epoch fields from Clock::get(); the
-    // Python fixture uses epoch zero, so normalize only these two environmental
+    // swap_internal refreshes both recent_epoch fields through the pinned
+    // cfg(test) get_recent_epoch() system-time calculation; the Python fixture
+    // uses epoch zero, so normalize only these two environmental
     // u64 fields to the epoch observed by the pinned Rust harness.
     expected_pool_bytes[1088..1096].copy_from_slice(&runtime_epoch.to_le_bytes());
     expected_tick_array_bytes[10125..10133].copy_from_slice(&runtime_epoch.to_le_bytes());
