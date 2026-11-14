@@ -251,7 +251,7 @@ Added `veltrix/spl_token_decoder.py` and adversarial tests.
 
 - Decodes only the classic SPL Token 165-byte Account layout and 82-byte Mint layout, including COption authority/delegate fields, state, native reserve, delegated amount, supply and decimals.
 - Decodes only classic SPL Token `Transfer` (instruction tag 3) and `TransferChecked` (tag 12), with exact instruction-data lengths and exact single-authority account layouts.
-- Rejects Token-2022, extended account layouts, multisig signer layouts, frozen/uninitialized accounts, unsupported instruction tags, malformed option tags, source/destination aliasing, and zero-value transfers.
+- Rejects Token-2022, extended account layouts, multisig signer layouts, frozen/uninitialized accounts, unsupported instruction tags and malformed option tags. It preserves wire-valid u8 decimal values and zero-amount encodings without treating them as approved transfers.
 - Every decoded transfer result is marked `execution_approved=false`.
 
 The implementation follows the SPL Token interface's published base layouts and instruction packing. Token-2022 is intentionally not accepted: although its base account structures and common instruction encodings overlap, its extension model changes transfer behavior and may require extra accounts (including transfer hooks and transfer fees). Those paths need dedicated extension-aware adapters. See the upstream SPL Token interface and Token-2022 design references: `solana-program/token/interface/src/state.rs`, `solana-program/token/interface/src/instruction.rs`, and the Token-2022 extension documentation.
