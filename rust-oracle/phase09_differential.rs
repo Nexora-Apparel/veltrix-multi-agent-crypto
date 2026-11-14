@@ -21,6 +21,22 @@ fn parse_u64(value: &Value) -> u64 {
     value.as_u64().expect("valid u64 vector value")
 }
 
+fn parse_i128(value: &Value) -> i128 {
+    value
+        .as_str()
+        .expect("i128 vector values are encoded as decimal strings")
+        .parse::<i128>()
+        .expect("valid i128 decimal")
+}
+
+fn parse_pubkey(value: &Value) -> Pubkey {
+    value
+        .as_str()
+        .expect("public key string")
+        .parse::<Pubkey>()
+        .expect("valid public key")
+}
+
 #[test]
 fn python_tick_math_vectors_match_pinned_raydium_rust() {
     let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
@@ -682,5 +698,139 @@ fn python_observation_account_serialization_matches_pinned_raydium_bytes() {
         rust_bytes,
         python_bytes,
         "ObservationState account bytes differ from Python serializer"
+    );
+}
+
+
+#[test]
+fn python_pool_state_account_serialization_matches_pinned_raydium_bytes() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let vector = &vectors["account_serialization"]["pool_state"];
+    let mut state = PoolState::default();
+    state.bump = [vector["bump"].as_u64().expect("pool bump") as u8];
+    state.amm_config = parse_pubkey(&vector["amm_config"]);
+    state.owner = parse_pubkey(&vector["pool_creator"]);
+    state.token_mint_0 = parse_pubkey(&vector["token_mint_0"]);
+    state.token_mint_1 = parse_pubkey(&vector["token_mint_1"]);
+    state.token_vault_0 = parse_pubkey(&vector["token_vault_0"]);
+    state.token_vault_1 = parse_pubkey(&vector["token_vault_1"]);
+    state.observation_key = parse_pubkey(&vector["observation_key"]);
+    state.mint_decimals_0 = vector["mint_decimals_0"].as_u64().unwrap() as u8;
+    state.mint_decimals_1 = vector["mint_decimals_1"].as_u64().unwrap() as u8;
+    state.tick_spacing = vector["tick_spacing"].as_u64().unwrap() as u16;
+    state.liquidity = parse_u128(&vector["liquidity"]);
+    state.sqrt_price_x64 = parse_u128(&vector["sqrt_price_x64"]);
+    state.tick_current = vector["tick_current"].as_i64().unwrap() as i32;
+    state.fee_growth_global_0_x64 = parse_u128(&vector["fee_growth_global_0_x64"]);
+    state.fee_growth_global_1_x64 = parse_u128(&vector["fee_growth_global_1_x64"]);
+    state.protocol_fees_token_0 = parse_u64(&vector["protocol_fees_token_0"]);
+    state.protocol_fees_token_1 = parse_u64(&vector["protocol_fees_token_1"]);
+    state.status = vector["status"].as_u64().unwrap() as u8;
+    state.fee_on = vector["fee_on"].as_u64().unwrap() as u8;
+    state.seed_index = vector["seed_index"].as_u64().unwrap().to_le_bytes()[..2]
+        .try_into()
+        .expect("u16 seed index bytes");
+    state.fund_fees_token_0 = parse_u64(&vector["fund_fees_token_0"]);
+    state.fund_fees_token_1 = parse_u64(&vector["fund_fees_token_1"]);
+    for (index, word) in vector["tick_array_bitmap"].as_array().unwrap().iter().enumerate() {
+        state.tick_array_bitmap[index] = word.as_u64().expect("bitmap word");
+    }
+    let mut rewards = std::array::from_fn(|_| RewardInfo::default());
+    for (index, reward) in vector["reward_infos"].as_array().unwrap().iter().enumerate() {
+        rewards[index].reward_state = reward["reward_state"].as_u64().unwrap() as u8;
+        rewards[index].open_time = parse_u64(&reward["open_time"]);
+        rewards[index].end_time = parse_u64(&reward["end_time"]);
+        rewards[index].last_update_time = parse_u64(&reward["last_update_time"]);
+        rewards[index].emissions_per_second_x64 = parse_u128(&reward["emissions_per_second_x64"]);
+        rewards[index].reward_total_emitted = parse_u64(&reward["reward_total_emitted"]);
+        rewards[index].reward_claimed = parse_u64(&reward["reward_claimed"]);
+        rewards[index].token_mint = parse_pubkey(&reward["token_mint"]);
+        rewards[index].token_vault = parse_pubkey(&reward["token_vault"]);
+        rewards[index].authority = parse_pubkey(&reward["authority"]);
+        rewards[index].reward_growth_global_x64 = parse_u128(&reward["reward_growth_global_x64"]);
+    }
+    state.reward_infos = rewards;
+    state.dynamic_fee_info = dynamic_info(&vector["dynamic_fee_info"]);
+
+    let mut rust_bytes = Vec::with_capacity(PoolState::LEN);
+    rust_bytes.extend_from_slice(PoolState::DISCRIMINATOR);
+    rust_bytes.extend_from_slice(bytemuck::bytes_of(&state));
+    let python_bytes = decode_hex_bytes(vector["serialized_hex"].as_str().unwrap());
+    assert_eq!(rust_bytes.len(), vector["serialized_length"].as_u64().unwrap() as usize);
+    assert_eq!(rust_bytes.len(), PoolState::LEN);
+    assert_eq!(rust_bytes, python_bytes, "PoolState bytes differ from Python serializer");
+}
+
+#[test]
+fn python_tick_array_state_account_serialization_matches_pinned_raydium_bytes() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let vector = &vectors["account_serialization"]["tick_array_state"];
+    let mut ticks = std::array::from_fn(|_| TickState::default());
+    for (index, tick) in vector["ticks"].as_array().unwrap().iter().enumerate() {
+        let mut state = TickState::default();
+        state.tick = tick["tick_index"].as_i64().unwrap() as i32;
+        state.liquidity_net = parse_i128(&tick["liquidity_net"]);
+        state.liquidity_gross = parse_u128(&tick["liquidity_gross"]);
+        state.fee_growth_outside_0_x64 = parse_u128(&tick["fee_growth_outside_0_x64"]);
+        state.fee_growth_outside_1_x64 = parse_u128(&tick["fee_growth_outside_1_x64"]);
+        let rewards = tick["reward_growths_outside_x64"].as_array().unwrap();
+        state.reward_growths_outside_x64 = [
+            parse_u128(&rewards[0]),
+            parse_u128(&rewards[1]),
+            parse_u128(&rewards[2]),
+        ];
+        state.order_phase = parse_u64(&tick["order_phase"]);
+        state.orders_amount = parse_u64(&tick["orders_amount"]);
+        state.part_filled_orders_remaining = parse_u64(&tick["part_filled_orders_remaining"]);
+        state.unfilled_ratio_x64 = parse_u128(&tick["unfilled_ratio_x64"]);
+        ticks[index] = state;
+    }
+    let padding_bytes = decode_hex_bytes(vector["padding_hex"].as_str().unwrap());
+    let mut padding = [0u8; 107];
+    padding.copy_from_slice(&padding_bytes);
+    let state = TickArrayState {
+        pool_id: parse_pubkey(&vector["pool_id"]),
+        start_tick_index: vector["start_tick_index"].as_i64().unwrap() as i32,
+        ticks,
+        initialized_tick_count: vector["initialized_tick_count"].as_u64().unwrap() as u8,
+        recent_epoch: parse_u64(&vector["recent_epoch"]),
+        padding,
+    };
+    let mut rust_bytes = Vec::with_capacity(TickArrayState::LEN);
+    rust_bytes.extend_from_slice(TickArrayState::DISCRIMINATOR);
+    rust_bytes.extend_from_slice(bytemuck::bytes_of(&state));
+    let python_bytes = decode_hex_bytes(vector["serialized_hex"].as_str().unwrap());
+    assert_eq!(rust_bytes.len(), vector["serialized_length"].as_u64().unwrap() as usize);
+    assert_eq!(rust_bytes.len(), TickArrayState::LEN);
+    assert_eq!(rust_bytes, python_bytes, "TickArrayState bytes differ from Python serializer");
+}
+
+#[test]
+fn python_tick_array_bitmap_extension_serialization_matches_pinned_raydium_bytes() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let vector = &vectors["account_serialization"]["tick_array_bitmap_extension"];
+    let mut positive = [[0u64; 8]; 14];
+    let mut negative = [[0u64; 8]; 14];
+    for row in 0..14 {
+        for word in 0..8 {
+            positive[row][word] = vector["positive_bitmaps"][row][word].as_u64().unwrap();
+            negative[row][word] = vector["negative_bitmaps"][row][word].as_u64().unwrap();
+        }
+    }
+    let state = TickArrayBitmapExtension {
+        pool_id: parse_pubkey(&vector["pool_id"]),
+        positive_tick_array_bitmap: positive,
+        negative_tick_array_bitmap: negative,
+    };
+    let mut rust_bytes = Vec::with_capacity(TickArrayBitmapExtension::LEN);
+    rust_bytes.extend_from_slice(TickArrayBitmapExtension::DISCRIMINATOR);
+    rust_bytes.extend_from_slice(bytemuck::bytes_of(&state));
+    let python_bytes = decode_hex_bytes(vector["serialized_hex"].as_str().unwrap());
+    assert_eq!(rust_bytes.len(), vector["serialized_length"].as_u64().unwrap() as usize);
+    assert_eq!(rust_bytes.len(), TickArrayBitmapExtension::LEN);
+    assert_eq!(
+        rust_bytes,
+        python_bytes,
+        "TickArrayBitmapExtension bytes differ from Python serializer"
     );
 }
