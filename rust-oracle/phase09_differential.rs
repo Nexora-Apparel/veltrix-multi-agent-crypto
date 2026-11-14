@@ -928,29 +928,30 @@ fn assert_swap_replay_fixture(fixture: &Value) {
                 &extension_data[..8],
                 TickArrayBitmapExtension::DISCRIMINATOR
             );
-            let extension_info = AccountInfo::new(
-                &extension_key,
-                false,
-                true,
-                &mut extension_lamports,
-                &mut extension_data,
-                &extension_owner,
-                false,
-            );
-            let result = swap_internal(
-                &amm_config,
-                &mut pool_ref,
-                &mut tick_array_queue,
-                &mut observation_ref,
-                Some(&extension_info),
-                fixture["amount_specified"].as_u64().unwrap(),
-                parse_u128(&fixture["sqrt_price_limit_x64"]),
-                fixture["zero_for_one"].as_bool().unwrap(),
-                fixture["is_base_input"].as_bool().unwrap(),
-                fixture["block_timestamp"].as_u64().unwrap() as u32,
-            )
-            .expect("pinned Raydium swap_internal execution with bitmap extension");
-            drop(extension_info);
+            let result = {
+                let extension_info = AccountInfo::new(
+                    &extension_key,
+                    false,
+                    true,
+                    &mut extension_lamports,
+                    &mut extension_data,
+                    &extension_owner,
+                    false,
+                );
+                swap_internal(
+                    &amm_config,
+                    &mut pool_ref,
+                    &mut tick_array_queue,
+                    &mut observation_ref,
+                    Some(&extension_info),
+                    fixture["amount_specified"].as_u64().unwrap(),
+                    parse_u128(&fixture["sqrt_price_limit_x64"]),
+                    fixture["zero_for_one"].as_bool().unwrap(),
+                    fixture["is_base_input"].as_bool().unwrap(),
+                    fixture["block_timestamp"].as_u64().unwrap() as u32,
+                )
+                .expect("pinned Raydium swap_internal execution with bitmap extension")
+            };
             (result, Some(extension_data))
         } else {
             let result = swap_internal(
