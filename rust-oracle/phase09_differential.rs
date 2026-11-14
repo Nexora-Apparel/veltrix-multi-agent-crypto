@@ -940,7 +940,9 @@ fn assert_swap_replay_fixture(fixture: &Value) {
     // uses epoch zero, so normalize only these two environmental
     // u64 fields to the epoch observed by the pinned Rust harness.
     expected_pool_bytes[1088..1096].copy_from_slice(&runtime_epoch.to_le_bytes());
-    expected_tick_array_bytes[10125..10133].copy_from_slice(&runtime_epoch.to_le_bytes());
+    if fixture["normalize_tick_array_epoch"].as_bool().unwrap() {
+        expected_tick_array_bytes[10125..10133].copy_from_slice(&runtime_epoch.to_le_bytes());
+    }
     assert_account_bytes_equal(
         &final_pool_bytes,
         &expected_pool_bytes,
