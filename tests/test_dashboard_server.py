@@ -68,6 +68,8 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         assert "data-screen=\"agents\"" in page
         assert "data-screen=\"wallet\"" in page
         assert "id=\"search-open\"" in page
+        assert "id=\"access-token\"" in page
+        assert "Unlock dashboard" in page
 
         request = Request(
             base + "/assets/dashboard.js",
