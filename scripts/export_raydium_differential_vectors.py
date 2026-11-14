@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -14,7 +15,14 @@ from veltrix.raydium_clmm_dynamic_fee import (
     update_volatility_accumulator,
     compute_total_fee_rate,
 )
-from veltrix.raydium_clmm_pool_state import RaydiumClmmDynamicFeeInfo, RaydiumClmmPoolState
+from veltrix.raydium_clmm_pool_state import (
+    RAYDIUM_POOL_STATE_LENGTH,
+    RaydiumClmmDynamicFeeInfo,
+    RaydiumClmmPoolState,
+    RaydiumClmmRewardInfo,
+    derive_raydium_clmm_pool_address,
+    encode_raydium_clmm_pool_state,
+)
 from veltrix.raydium_clmm_fee_accounting import RaydiumFeeAccountingState
 from veltrix.raydium_clmm_dynamic_fee import RaydiumDynamicFeeSwapState
 from veltrix.raydium_clmm_swap_inner_iteration import RaydiumClmmSwapInnerIterationResult
@@ -22,9 +30,16 @@ from veltrix.raydium_clmm_pool_post_swap_finalization import finalize_raydium_po
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
     _flip_bitmap,
+    encode_raydium_tick_array_bitmap_extension,
 )
 from veltrix.raydium_clmm_limit_orders import RaydiumLimitOrderMatch
-from veltrix.raydium_clmm_tick_arrays import RaydiumClmmTick
+from veltrix.raydium_clmm_tick_arrays import (
+    RAYDIUM_TICK_ARRAY_SIZE,
+    RaydiumClmmTick,
+    RaydiumClmmTickArray,
+    derive_raydium_clmm_tick_array_address,
+    encode_raydium_clmm_tick_array,
+)
 from veltrix.raydium_clmm_tick_math import Q64
 from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
 from veltrix.raydium_clmm_tick_crossing import RaydiumRewardGrowth, cross_tick_and_apply_liquidity
@@ -695,6 +710,240 @@ def observation_serialization_vector() -> dict:
     }
 
 
+def account_serialization_vectors() -> dict:
+    """Export nontrivial PoolState, TickArrayState and bitmap-extension account bytes."""
+    program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
+    config = Pubkey.new_unique()
+    mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
+    pool_address, bump = Pubkey.find_program_address(
+        [b"pool", bytes(config), bytes(mint_0), bytes(mint_1)],
+        program,
+    )
+    creator = Pubkey.new_unique()
+    vault_0, vault_1 = Pubkey.new_unique(), Pubkey.new_unique()
+    observation = Pubkey.new_unique()
+    base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
+    dynamic = RaydiumClmmDynamicFeeInfo(
+        filter_period=60,
+        decay_period=3600,
+        reduction_factor=5000,
+        dynamic_fee_control=1000,
+        max_volatility_accumulator=10000,
+        tick_spacing_index_reference=-5,
+        volatility_reference=100,
+        volatility_accumulator=200,
+        last_update_timestamp=123456789,
+        padding=bytes(46),
+    )
+    reward_mint, reward_vault, reward_authority = (
+        Pubkey.new_unique(), Pubkey.new_unique(), Pubkey.new_unique()
+    )
+    rewards = (
+        RaydiumClmmRewardInfo(
+            reward_state=1,
+            open_time=10,
+            end_time=100,
+            last_update_time=20,
+            emissions_per_second_x64=1 << 64,
+            reward_total_emitted=500,
+            reward_claimed=100,
+            token_mint=str(reward_mint),
+            token_vault=str(reward_vault),
+            authority=str(reward_authority),
+            reward_growth_global_x64=1 << 65,
+        ),
+        RaydiumClmmRewardInfo(),
+        RaydiumClmmRewardInfo(),
+    )
+    pool = RaydiumClmmPoolState(
+        pool_address=str(pool_address),
+        bump=bump,
+        amm_config=str(config),
+        pool_creator=str(creator),
+        token_mint_0=str(mint_0),
+        token_mint_1=str(mint_1),
+        token_vault_0=str(vault_0),
+        token_vault_1=str(vault_1),
+        observation_key=str(observation),
+        mint_decimals_0=6,
+        mint_decimals_1=9,
+        tick_spacing=10,
+        liquidity=123456789012345,
+        sqrt_price_x64=1 << 64,
+        tick_current=-120,
+        status=0,
+        fee_on=2,
+        seed_index=0,
+        account_data_sha256=hashlib.sha256(base_pool_bytes).hexdigest(),
+        fee_growth_global_0_x64=1 << 80,
+        fee_growth_global_1_x64=1 << 81,
+        protocol_fees_token_0=12345,
+        protocol_fees_token_1=67890,
+        fund_fees_token_0=111,
+        fund_fees_token_1=222,
+        tick_array_bitmap=tuple(
+            [0x0123456789ABCDEF, 0xFEDCBA9876543210] + [0] * 14
+        ),
+        dynamic_fee_info=dynamic,
+        reward_infos=rewards,
+        account_data=base_pool_bytes,
+    )
+    pool_bytes = encode_raydium_clmm_pool_state(pool)
+    pool_vector = {
+        "bump": pool.bump,
+        "amm_config": pool.amm_config,
+        "pool_creator": pool.pool_creator,
+        "token_mint_0": pool.token_mint_0,
+        "token_mint_1": pool.token_mint_1,
+        "token_vault_0": pool.token_vault_0,
+        "token_vault_1": pool.token_vault_1,
+        "observation_key": pool.observation_key,
+        "mint_decimals_0": pool.mint_decimals_0,
+        "mint_decimals_1": pool.mint_decimals_1,
+        "tick_spacing": pool.tick_spacing,
+        "liquidity": str(pool.liquidity),
+        "sqrt_price_x64": str(pool.sqrt_price_x64),
+        "tick_current": pool.tick_current,
+        "fee_growth_global_0_x64": str(pool.fee_growth_global_0_x64),
+        "fee_growth_global_1_x64": str(pool.fee_growth_global_1_x64),
+        "protocol_fees_token_0": pool.protocol_fees_token_0,
+        "protocol_fees_token_1": pool.protocol_fees_token_1,
+        "status": pool.status,
+        "fee_on": pool.fee_on,
+        "seed_index": pool.seed_index,
+        "tick_array_bitmap": list(pool.tick_array_bitmap),
+        "fund_fees_token_0": pool.fund_fees_token_0,
+        "fund_fees_token_1": pool.fund_fees_token_1,
+        "dynamic_fee_info": {
+            "filter_period": dynamic.filter_period,
+            "decay_period": dynamic.decay_period,
+            "reduction_factor": dynamic.reduction_factor,
+            "dynamic_fee_control": dynamic.dynamic_fee_control,
+            "max_volatility_accumulator": dynamic.max_volatility_accumulator,
+            "tick_spacing_index_reference": dynamic.tick_spacing_index_reference,
+            "volatility_reference": dynamic.volatility_reference,
+            "volatility_accumulator": dynamic.volatility_accumulator,
+            "last_update_timestamp": dynamic.last_update_timestamp,
+        },
+        "reward_infos": [
+            {
+                "reward_state": reward.reward_state,
+                "open_time": reward.open_time,
+                "end_time": reward.end_time,
+                "last_update_time": reward.last_update_time,
+                "emissions_per_second_x64": str(reward.emissions_per_second_x64),
+                "reward_total_emitted": reward.reward_total_emitted,
+                "reward_claimed": reward.reward_claimed,
+                "token_mint": reward.token_mint,
+                "token_vault": reward.token_vault,
+                "authority": reward.authority,
+                "reward_growth_global_x64": str(reward.reward_growth_global_x64),
+            }
+            for reward in rewards
+        ],
+        "serialized_hex": pool_bytes.hex(),
+        "serialized_length": len(pool_bytes),
+    }
+
+    tick_pool = str(Pubkey.new_unique())
+    tick_spacing = 10
+    start_tick_index = -600
+    tick_array_address = derive_raydium_clmm_tick_array_address(
+        pool_address=tick_pool, start_tick_index=start_tick_index
+    )
+    ticks = []
+    for index in range(RAYDIUM_TICK_ARRAY_SIZE):
+        tick_index = start_tick_index + index * tick_spacing
+        if index == 17:
+            ticks.append(RaydiumClmmTick(
+                tick_index=tick_index,
+                liquidity_net=-321,
+                liquidity_gross=1000,
+                orders_amount=9,
+                part_filled_orders_remaining=3,
+                initialized=True,
+                fee_growth_outside_0_x64=1 << 80,
+                fee_growth_outside_1_x64=1 << 81,
+                reward_growths_outside_x64=(1 << 64, 2 << 64, 3 << 64),
+                order_phase=4,
+                unfilled_ratio_x64=1 << 63,
+            ))
+        else:
+            ticks.append(RaydiumClmmTick(
+                tick_index=tick_index,
+                liquidity_net=0,
+                liquidity_gross=0,
+                orders_amount=0,
+                part_filled_orders_remaining=0,
+                initialized=False,
+            ))
+    tick_array = RaydiumClmmTickArray(
+        address=tick_array_address,
+        pool_address=tick_pool,
+        start_tick_index=start_tick_index,
+        tick_spacing=tick_spacing,
+        initialized_tick_count=1,
+        recent_epoch=0x0102030405060708,
+        ticks=tuple(ticks),
+        data_sha256="0" * 64,
+        padding=bytes((index * 3) % 256 for index in range(107)),
+    )
+    tick_array_bytes = encode_raydium_clmm_tick_array(tick_array)
+    tick_array_vector = {
+        "pool_id": tick_pool,
+        "start_tick_index": start_tick_index,
+        "tick_spacing": tick_spacing,
+        "initialized_tick_count": tick_array.initialized_tick_count,
+        "recent_epoch": tick_array.recent_epoch,
+        "padding_hex": tick_array.padding.hex(),
+        "ticks": [
+            {
+                "tick_index": tick.tick_index,
+                "liquidity_net": str(tick.liquidity_net),
+                "liquidity_gross": str(tick.liquidity_gross),
+                "fee_growth_outside_0_x64": str(tick.fee_growth_outside_0_x64),
+                "fee_growth_outside_1_x64": str(tick.fee_growth_outside_1_x64),
+                "reward_growths_outside_x64": [str(value) for value in tick.reward_growths_outside_x64],
+                "order_phase": tick.order_phase,
+                "orders_amount": tick.orders_amount,
+                "part_filled_orders_remaining": tick.part_filled_orders_remaining,
+                "unfilled_ratio_x64": str(tick.unfilled_ratio_x64),
+            }
+            for tick in tick_array.ticks
+        ],
+        "serialized_hex": tick_array_bytes.hex(),
+        "serialized_length": len(tick_array_bytes),
+    }
+
+    bitmap_pool = str(Pubkey.new_unique())
+    positive = [[0] * 8 for _ in range(14)]
+    negative = [[0] * 8 for _ in range(14)]
+    positive[0][0] = 1
+    positive[13][7] = 0xFFFFFFFFFFFFFFFF
+    negative[0][7] = 0x0123456789ABCDEF
+    negative[13][0] = 0xFEDCBA9876543210
+    extension = RaydiumClmmTickArrayBitmapExtension(
+        address=derive_raydium_tick_array_bitmap_extension_address(bitmap_pool),
+        pool_address=bitmap_pool,
+        positive_bitmaps=tuple(tuple(row) for row in positive),
+        negative_bitmaps=tuple(tuple(row) for row in negative),
+        data_sha256="0" * 64,
+    )
+    bitmap_bytes = encode_raydium_tick_array_bitmap_extension(extension)
+    bitmap_vector = {
+        "pool_id": bitmap_pool,
+        "positive_bitmaps": positive,
+        "negative_bitmaps": negative,
+        "serialized_hex": bitmap_bytes.hex(),
+        "serialized_length": len(bitmap_bytes),
+    }
+    return {
+        "pool_state": pool_vector,
+        "tick_array_state": tick_array_vector,
+        "tick_array_bitmap_extension": bitmap_vector,
+    }
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -740,6 +989,7 @@ def build_vectors() -> dict:
         "tick_array_bitmap": tick_array_bitmap_vectors(),
         "observation_updates": observation_update_vectors(),
         "observation_serialization": observation_serialization_vector(),
+        "account_serialization": account_serialization_vectors(),
     }
 
 
