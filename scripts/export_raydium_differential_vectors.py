@@ -1053,7 +1053,7 @@ def swap_replay_vector() -> dict:
     amount_specified = 1_000_000
     sqrt_price_limit = get_sqrt_price_at_tick(10)
     block_timestamp = 1_700_000_000
-    recent_epoch = 2
+    recent_epoch = 0  # host-side Solana Clock default used by the pinned Rust test harness
     base_fee_rate = 3_000
     protocol_fee_rate = 1_000
     fund_fee_rate = 500
