@@ -8,8 +8,8 @@ use raydium_clmm::states::{tick_spacing_index_from_tick, AmmConfig, DynamicFeeIn
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::Discriminator;
 use serde_json::Value;
-use solana_program::clock::Clock;
-use solana_program::program_stubs::{set_syscall_stubs, SyscallStubs};
+use anchor_lang::solana_program::clock::Clock;
+use anchor_lang::solana_program::program_stubs::{set_syscall_stubs, SyscallStubs};
 
 const PYTHON_VECTORS: &str = include_str!("phase09_python_vectors.json");
 
