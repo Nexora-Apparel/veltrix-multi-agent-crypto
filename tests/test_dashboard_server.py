@@ -63,7 +63,7 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         )
         page = urlopen(request).read().decode("utf-8")
         assert "VELTRIX" in page
-        assert "PAPER LIVE" in page
+        assert "PAPER MODE" in page
         assert "data-screen=\"trades\"" in page
         assert "data-screen=\"agents\"" in page
         assert "data-screen=\"wallet\"" in page
@@ -73,7 +73,18 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
             base + "/assets/dashboard.js",
             headers={"Authorization": "Bearer " + token},
         )
-        assert urlopen(request).status == 200
+        dashboard_js = urlopen(request).read().decode("utf-8")
+        assert "renderAgents" in dashboard_js
+        assert "Agent identities recorded" in dashboard_js
+        assert "Scout" not in dashboard_js
+
+        request = Request(
+            base + "/assets/dashboard.css",
+            headers={"Authorization": "Bearer " + token},
+        )
+        stylesheet = urlopen(request).read().decode("utf-8")
+        assert "--bg:#090609" in stylesheet
+        assert ".bottom-nav" in stylesheet
 
         write = Request(
             base + "/api/overview",
