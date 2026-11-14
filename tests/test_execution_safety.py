@@ -120,7 +120,7 @@ def live_policy():
         max_slippage_bps=100,
         max_priority_fee_base_units=50,
         max_market_data_age_ms=5_000,
-        allowed_program_ids=("swap-program", "compute-budget-program"),
+        allowed_program_ids=(SWAP_PROGRAM, COMPUTE_PROGRAM),
     )
 
 
@@ -176,7 +176,8 @@ def _make_plan_for_intent(intent):
             AccountEffect(WALLET, "fee_payer", None, WALLET, -10),
         ),
         message_hash="0" * 64,
-        raw_message_sha256="e" * 64,
+        raw_message_sha256=hashlib.sha256(_raw_message()).hexdigest(),
+        raw_transaction_bytes=_raw_transaction(),
     )
     return replace(plan, message_hash=plan.computed_message_hash())
 
