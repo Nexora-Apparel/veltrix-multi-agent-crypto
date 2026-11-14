@@ -406,8 +406,11 @@ def update_raydium_pool_reward_infos(
             time_delta = max(0, latest_timestamp - reward.last_update_time)
             if time_delta == 0:
                 continue
-            reward_delta_numerator = time_delta * reward.emissions_per_second_x64
-            reward_delta = (reward_delta_numerator + q64 - 1) // q64
+            # Match U128::mul_div_ceil: the product is evaluated in a
+            # 256-bit intermediate, then the divided result is checked as u128.
+            reward_delta = (
+                time_delta * reward.emissions_per_second_x64 + q64 - 1
+            ) // q64
             if reward_delta > u128_max:
                 reward_delta = 0
             growth_delta = (time_delta * reward.emissions_per_second_x64) // pool.liquidity
