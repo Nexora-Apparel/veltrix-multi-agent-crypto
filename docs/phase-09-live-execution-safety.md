@@ -211,3 +211,19 @@ Reference specifications reviewed:
 6. Run exact-head CI and obtain independent review of the semantic decoders and threat model.
 
 **Release status:** Stage 09.5 is not complete. No production-ready semantic swap decoder or authoritative account-effect reconstruction is present. The current validator's normalized-manifest hash must not be mistaken for a raw-message commitment. Phantom signing, transaction submission, broadcasting and Mainnet execution remain disabled.
+
+
+### 09.5 — Jupiter V6 route-data decoder (structural milestone only)
+
+Added `veltrix/jupiter_v6_instruction_decoder.py` with adversarial coverage in
+`tests/test_jupiter_v6_instruction_decoder.py`.
+
+- Pins the Jupiter V6 program address and the Anchor route-family discriminators for `route`, `shared_accounts_route`, `exact_out_route`, and `shared_accounts_exact_out_route`.
+- Parses the Borsh route-step vector and the `Swap` enum using the variant ordering and serialized fields from the Jupiter instruction-parser IDL.
+- Handles the route ID on shared-account variants, exact-in/exact-out amount fields, slippage and platform-fee fields, enum payloads, and the optional `WhirlpoolSwapV2.remainingAccountsInfo` field.
+- Rejects wrong program IDs, unsupported discriminators, unknown enum ordinals, truncated payloads, noncanonical bool/option/side values, invalid vector bounds, invalid amounts/slippage, and trailing bytes.
+- The returned object explicitly marks `semantic_coverage="jupiter_outer_instruction_only"` and `execution_approved=false`.
+
+**This is not a semantic swap approval.** The decoder is not yet wired into `TransactionValidator`; it does not validate the Jupiter account-meta layout, CPI inner instructions, nested DEX instruction bytes, token-program behavior, mint/vault relationships, or resulting account effects. The parser's decoded route enum is not proof that any DEX variant is safe. No caller-supplied routePlan metadata is used as a substitute for transaction bytes. No signing or submission behavior is added.
+
+Specification source inspected through GitHub: `jup-ag/instruction-parser/src/idl/jupiter.ts`, blob `4273e9f0f34a3d4d29e035fe37e88d6c80b634b5`. The repository's IDL is a wire-layout reference only; a separate version/deployment compatibility check and independent DEX adapters remain required.
