@@ -158,7 +158,7 @@
     document.querySelectorAll("[data-range]").forEach(x=>x.classList.toggle("selected",x===b));
     renderChart();
   }));
-  $("refresh").addEventListener("click",refresh);
+
   $("search-open").addEventListener("click",()=>{$("search-sheet").hidden=false;$("search-input").focus();});
   $("search-close").addEventListener("click",()=>{$("search-sheet").hidden=true;});
   $("search-input").addEventListener("input",e=>renderSearch(e.target.value));
