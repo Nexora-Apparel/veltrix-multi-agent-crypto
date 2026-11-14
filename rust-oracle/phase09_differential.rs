@@ -512,7 +512,7 @@ fn python_default_tick_array_bitmap_vectors_match_pinned_raydium_pool_state() {
         }
         assert_eq!(
             TickArrayState::tick_count(spacing),
-            60,
+            60 * spacing as i32,
             "tick-array size mismatch for spacing {spacing}"
         );
 
