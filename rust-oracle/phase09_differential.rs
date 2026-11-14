@@ -929,7 +929,7 @@ fn python_tick_array_bitmap_extension_serialization_matches_pinned_raydium_bytes
 
 
 #[test]
-fn python_single_array_swap_replay_matches_pinned_raydium_swap_internal() {
+fn python_swap_replay_fixtures_match_pinned_raydium_swap_internal() {
     let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
     for fixture in vectors["swap_replays"].as_array().expect("swap replay fixtures") {
         assert_swap_replay_fixture(fixture);
