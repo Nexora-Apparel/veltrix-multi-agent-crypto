@@ -120,7 +120,7 @@ Implemented in `veltrix/emergency_stop.py` and `veltrix/submission_coordinator.p
 
 ### Current Stage 09 boundary
 
-The Stage 09 implementation is a safety-gate kernel, not a live trading release. Runtime environment construction still resolves to PAPER and rejects truthy or malformed `LIVE_TRADING`. The live-risk approval state is not produced by the existing risk pipeline. The raw Solana message decoder, signer adapter, submission adapter and settlement reconciliation are intentionally not implemented. Existing Phase 09 Raydium/Devnet draft branches remain isolated and unmerged.
+The Stage 09 implementation is a safety-gate kernel, not a live trading release. Runtime environment construction still resolves to PAPER and rejects truthy or malformed `LIVE_TRADING`. The live-risk approval state is not produced by the existing risk pipeline. The raw Solana message decoder and byte-to-manifest binding are implemented in the Stage 09.4/09.5 workstream. Program-specific semantic decoding, provenance-verified account-state acquisition, effect reconstruction, signer adapter, submission adapter and settlement reconciliation remain intentionally absent. Existing Phase 09 Raydium/Devnet draft branches remain isolated and unmerged.
 
 See `docs/phase-09-operator-checklist.md` for the future manual safety checklist. It does not request or require the user to expose any wallet secret.
 
@@ -140,7 +140,7 @@ See `docs/phase-09-operator-checklist.md` for the future manual safety checklist
 - [ ] Post-merge CI passes on main.
 - [ ] Independent security review signs off the exact diff and threat model.
 
-The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Structural raw legacy/v0 message decoding and ALT resolution are now implemented in the Stage 09.4 workstream, but program-specific semantic instruction decoding, account-effect reconstruction, and integration with the safety validator remain incomplete. A real signer, RPC submission adapter and settlement reconciler remain absent. Therefore Stage 09 safety controls are implemented in part, but live execution and final release are not complete or enabled.
+The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Structural raw legacy/v0 message decoding, ALT resolution, exact raw-message intent commitment and byte-to-manifest instruction parity are implemented in the Stage 09.4/09.5 workstream. Program-specific semantic instruction decoding and independently derived account-effect reconstruction remain incomplete. A real signer, RPC submission adapter and settlement reconciler remain absent. Therefore Stage 09 safety controls are implemented in part, but live execution and final release are not complete or enabled.
 
 
 ### 09.4 — raw unsigned Solana message decoding (implementation in review)
