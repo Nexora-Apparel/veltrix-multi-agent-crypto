@@ -1,8 +1,10 @@
 //! Differential assertions against the exact upstream Raydium CLMM Rust source.
 //! The Python workflow exporter writes the same input vectors used by the Python implementation.
 use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
-use raydium_clmm::instructions::swap::SwapState;
-use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
+use raydium_clmm::instructions::swap::{swap_internal, SwapState};
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use raydium_clmm::states::{tick_spacing_index_from_tick, AmmConfig, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::Discriminator;
 use serde_json::Value;
@@ -832,5 +834,92 @@ fn python_tick_array_bitmap_extension_serialization_matches_pinned_raydium_bytes
         rust_bytes,
         python_bytes,
         "TickArrayBitmapExtension bytes differ from Python serializer"
+    );
+}
+
+
+#[test]
+fn python_single_array_swap_replay_matches_pinned_raydium_swap_internal() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let fixture = &vectors["swap_replay"];
+    let pool_bytes = decode_hex_bytes(fixture["initial_pool_hex"].as_str().unwrap());
+    let tick_array_bytes = decode_hex_bytes(fixture["initial_tick_array_hex"].as_str().unwrap());
+    let observation_bytes = decode_hex_bytes(fixture["initial_observation_hex"].as_str().unwrap());
+    assert_eq!(pool_bytes.len(), PoolState::LEN);
+    assert_eq!(tick_array_bytes.len(), TickArrayState::LEN);
+    assert_eq!(observation_bytes.len(), ObservationState::LEN);
+    assert_eq!(&pool_bytes[..8], PoolState::DISCRIMINATOR);
+    assert_eq!(&tick_array_bytes[..8], TickArrayState::DISCRIMINATOR);
+    assert_eq!(&observation_bytes[..8], ObservationState::DISCRIMINATOR);
+
+    let pool_state = bytemuck::pod_read_unaligned::<PoolState>(&pool_bytes[8..]);
+    let tick_array_state =
+        bytemuck::pod_read_unaligned::<TickArrayState>(&tick_array_bytes[8..]);
+    let observation_state =
+        bytemuck::pod_read_unaligned::<ObservationState>(&observation_bytes[8..]);
+
+    let amm_config = AmmConfig {
+        trade_fee_rate: fixture["trade_fee_rate"].as_u64().unwrap() as u32,
+        protocol_fee_rate: fixture["protocol_fee_rate"].as_u64().unwrap() as u32,
+        fund_fee_rate: fixture["fund_fee_rate"].as_u64().unwrap() as u32,
+        tick_spacing: 10,
+        ..AmmConfig::default()
+    };
+
+    let pool_cell = RefCell::new(pool_state);
+    let tick_array_cell = RefCell::new(tick_array_state);
+    let observation_cell = RefCell::new(observation_state);
+    let mut pool_ref = pool_cell.borrow_mut();
+    let mut tick_array_queue = VecDeque::new();
+    tick_array_queue.push_back(tick_array_cell.borrow_mut());
+    let mut observation_ref = observation_cell.borrow_mut();
+
+    let result = swap_internal(
+        &amm_config,
+        &mut pool_ref,
+        &mut tick_array_queue,
+        &mut observation_ref,
+        None,
+        fixture["amount_specified"].as_u64().unwrap(),
+        parse_u128(&fixture["sqrt_price_limit_x64"]),
+        fixture["zero_for_one"].as_bool().unwrap(),
+        fixture["is_base_input"].as_bool().unwrap(),
+        fixture["block_timestamp"].as_u64().unwrap() as u32,
+    )
+    .expect("pinned Raydium swap_internal execution");
+
+    let expected = &fixture["expected"];
+    assert_eq!(result.amount_0, expected["amount_0"].as_u64().unwrap());
+    assert_eq!(result.amount_1, expected["amount_1"].as_u64().unwrap());
+    assert_eq!(result.trade_fee_0, expected["trade_fee_0"].as_u64().unwrap());
+    assert_eq!(result.trade_fee_1, expected["trade_fee_1"].as_u64().unwrap());
+    assert_eq!(result.tick, expected["tick"].as_i64().unwrap() as i32);
+    assert_eq!(result.sqrt_price_x64, parse_u128(&expected["sqrt_price_x64"]));
+    assert_eq!(result.liquidity, parse_u128(&expected["liquidity"]));
+
+    let mut final_pool_bytes = PoolState::DISCRIMINATOR.to_vec();
+    final_pool_bytes.extend_from_slice(bytemuck::bytes_of(&*pool_ref));
+    let mut final_tick_array_bytes = TickArrayState::DISCRIMINATOR.to_vec();
+    {
+        let final_tick_array = tick_array_cell.borrow();
+        final_tick_array_bytes.extend_from_slice(bytemuck::bytes_of(&*final_tick_array));
+    }
+    let mut final_observation_bytes = ObservationState::DISCRIMINATOR.to_vec();
+    final_observation_bytes.extend_from_slice(bytemuck::bytes_of(&*observation_ref));
+
+    assert_eq!(
+        final_pool_bytes,
+        decode_hex_bytes(expected["pool_hex"].as_str().unwrap()),
+        "final PoolState bytes differ from Python replay"
+    );
+    assert_eq!(
+        final_tick_array_bytes,
+        decode_hex_bytes(expected["tick_array_hex"].as_str().unwrap()),
+        "final TickArrayState bytes differ from Python replay"
+    );
+    assert_eq!(
+        final_observation_bytes,
+        decode_hex_bytes(expected["observation_hex"].as_str().unwrap()),
+        "final ObservationState bytes differ from Python replay"
     );
 }
