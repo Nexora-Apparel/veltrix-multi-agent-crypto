@@ -1127,6 +1127,9 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
         context_slot=101,
         tick_arrays=tuple(tick_arrays),
         cpi_account_order=tuple(array.address for array in tick_arrays) + ((extension_address,) if extension_address else ()),
+        bitmap_extension_address=extension_address,
+        bitmap_extension_sha256=extension_digest,
+        bitmap_extension=snapshot_extension,
     )
     result = run_raydium_clmm_swap_replay(
         pool,
