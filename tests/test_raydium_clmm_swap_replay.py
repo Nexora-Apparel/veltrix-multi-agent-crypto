@@ -135,17 +135,28 @@ def fixture(zero_for_one=False):
     return pool, observation, snapshot
 
 
-@pytest.mark.parametrize("zero_for_one", [False, True])
-def test_single_array_swap_replay_crosses_tick_and_settles_atomically(zero_for_one):
+@pytest.mark.parametrize(
+    ("zero_for_one", "is_base_input", "amount_specified"),
+    [
+        (False, True, 1_000_000),
+        (True, True, 1_000_000),
+        (False, False, 100),
+    ],
+)
+def test_single_array_swap_replay_matches_direction_and_amount_mode(
+    zero_for_one,
+    is_base_input,
+    amount_specified,
+):
     pool, observation, snapshot = fixture(zero_for_one)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
         snapshot,
-        amount_specified=1_000_000,
+        amount_specified=amount_specified,
         sqrt_price_limit_x64=get_sqrt_price_at_tick(0 if zero_for_one else 10),
         zero_for_one=zero_for_one,
-        is_base_input=True,
+        is_base_input=is_base_input,
         block_timestamp=1_700_000_000,
         recent_epoch=2,
         base_fee_rate=3_000,
@@ -153,26 +164,45 @@ def test_single_array_swap_replay_crosses_tick_and_settles_atomically(zero_for_o
         fund_fee_rate=500,
     )
 
-    assert len(result.iterations) == 1
-    assert result.iterations[0].reached_initialized_tick is True
-    assert result.iterations[0].crossed_tick is True
-    assert result.iterations[0].swap_complete is True
-    target_tick = 0 if zero_for_one else 10
-    assert result.pool.tick_current == (target_tick - 1 if zero_for_one else target_tick)
-    assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(target_tick)
-    assert result.pool.liquidity == (999_500 if zero_for_one else 1_000_500)
+    assert result.iterations
+    assert result.iterations[-1].swap_complete is True
     assert result.pool.recent_epoch == 2
-    assert result.fee_state.amount_specified_remaining > 0
     assert result.settlement.amount_0 > 0
     assert result.settlement.amount_1 > 0
-    assert result.settlement.trade_fee_0 > 0 if zero_for_one else result.settlement.trade_fee_0 == 0
-    assert result.settlement.trade_fee_1 == 0 if zero_for_one else result.settlement.trade_fee_1 > 0
     assert result.observation_state.initialized is True
     assert result.observation_state.observations[0].block_timestamp == 1_700_000_000
     assert result.observation_state.observations[0].tick_cumulative == 0
+
+    if is_base_input:
+        target_tick = 0 if zero_for_one else 10
+        assert result.iterations[-1].reached_initialized_tick is True
+        assert result.iterations[-1].crossed_tick is True
+        assert result.pool.tick_current == (target_tick - 1 if zero_for_one else target_tick)
+        assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(target_tick)
+        assert result.pool.liquidity == (999_500 if zero_for_one else 1_000_500)
+        assert result.fee_state.amount_specified_remaining > 0
+        assert result.tick_arrays[0].recent_epoch == 2
+    else:
+        assert result.iterations[-1].reached_initialized_tick is False
+        assert result.iterations[-1].crossed_tick is False
+        assert result.fee_state.amount_specified_remaining == 0
+        assert result.settlement.amount_0 == amount_specified
+        assert result.pool.liquidity == 1_000_000
+        assert result.tick_arrays[0].recent_epoch == 1
+
+    if zero_for_one:
+        assert result.settlement.trade_fee_0 > 0
+        assert result.settlement.trade_fee_1 == 0
+    else:
+        assert result.settlement.trade_fee_0 == 0
+        assert result.settlement.trade_fee_1 > 0
+
     updated_tick = result.tick_arrays[0].ticks[0 if zero_for_one else 1]
-    assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
-    assert result.tick_arrays[0].recent_epoch == 2
+    if is_base_input:
+        assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
+    else:
+        assert updated_tick.liquidity_gross == 1000
+
     assert result.tick_arrays[0].data_sha256 == hashlib.sha256(
         encode_raydium_clmm_tick_array(result.tick_arrays[0])
     ).hexdigest()
