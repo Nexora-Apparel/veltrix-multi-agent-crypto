@@ -563,70 +563,86 @@ fn python_positive_negative_bitmap_extension_vectors_match_pinned_raydium_extens
 }
 
 
-#[test]
-fn observation_update_edge_transitions_match_pinned_raydium_rust() {
-    // First write initializes the ring without advancing its index.
-    let mut first = ObservationState::default();
-    first.update(100, 10);
-    let first_initialized = first.initialized;
-    let first_index = first.observation_index;
-    let first_timestamp = first.observations[0].block_timestamp;
-    let first_cumulative = first.observations[0].tick_cumulative;
-    assert!(first_initialized);
-    assert_eq!(first_index, 0);
-    assert_eq!(first_timestamp, 100);
-    assert_eq!(first_cumulative, 0);
+fn observation_state_from_vector(case: &Value) -> ObservationState {
+    let initial = &case["initial"];
+    let mut state = ObservationState::default();
+    state.initialized = initial["initialized"].as_bool().expect("initialized flag");
+    state.recent_epoch = initial["recent_epoch"].as_u64().expect("recent epoch");
+    state.observation_index = initial["observation_index"].as_u64().expect("observation index") as u16;
+    state.pool_id = initial["pool_id"]
+        .as_str()
+        .expect("pool public key")
+        .parse::<Pubkey>()
+        .expect("valid pool public key");
+    for observation in initial["observations"].as_array().expect("initial observations") {
+        let index = observation["index"].as_u64().expect("observation slot") as usize;
+        state.observations[index].block_timestamp =
+            observation["block_timestamp"].as_u64().expect("observation timestamp") as u32;
+        state.observations[index].tick_cumulative =
+            observation["tick_cumulative"].as_i64().expect("observation cumulative");
+    }
+    state
+}
 
-    // The 14-second update is ignored; exactly 15 seconds advances the ring.
-    first.update(114, 2);
-    let cadence_index = first.observation_index;
-    assert_eq!(cadence_index, 0);
-    first.update(115, 2);
-    let cadence_index = first.observation_index;
-    let cadence_timestamp = first.observations[1].block_timestamp;
-    let cadence_cumulative = first.observations[1].tick_cumulative;
-    assert_eq!(cadence_index, 1);
-    assert_eq!(cadence_timestamp, 115);
-    assert_eq!(cadence_cumulative, 30);
-
-    // Ring wrap and i64 cumulative addition use Rust wrapping semantics.
-    let mut wrap = ObservationState::default();
-    wrap.initialized = true;
-    wrap.observation_index = 99;
-    wrap.observations[99].block_timestamp = 100;
-    wrap.observations[99].tick_cumulative = i64::MAX - 2;
-    wrap.update(115, 1);
-    let wrap_index = wrap.observation_index;
-    let wrap_timestamp = wrap.observations[0].block_timestamp;
-    let wrap_cumulative = wrap.observations[0].tick_cumulative;
-    assert_eq!(wrap_index, 0);
-    assert_eq!(wrap_timestamp, 115);
-    assert_eq!(wrap_cumulative, i64::MIN + 12);
-
-    // Backward timestamps saturate elapsed time to zero and do not advance.
-    let mut backwards = ObservationState::default();
-    backwards.initialized = true;
-    backwards.observation_index = 4;
-    backwards.observations[4].block_timestamp = 100;
-    backwards.observations[4].tick_cumulative = 77;
-    backwards.update(90, 9);
-    let backwards_index = backwards.observation_index;
-    let backwards_timestamp = backwards.observations[4].block_timestamp;
-    let backwards_cumulative = backwards.observations[4].tick_cumulative;
-    assert_eq!(backwards_index, 4);
-    assert_eq!(backwards_timestamp, 100);
-    assert_eq!(backwards_cumulative, 77);
-
-    // The full valid input-domain product fits in i64; cumulative addition
-    // remains wrapping, but multiplication itself does not saturate here.
-    let mut max_domain = ObservationState::default();
-    max_domain.initialized = true;
-    max_domain.observation_index = 0;
-    max_domain.observations[0].block_timestamp = 0;
-    max_domain.update(u32::MAX, i32::MAX);
-    let max_domain_cumulative = max_domain.observations[1].tick_cumulative;
+fn assert_observation_snapshot(state: &ObservationState, expected: &Value, name: &str) {
+    let actual_initialized = state.initialized;
+    let actual_recent_epoch = state.recent_epoch;
+    let actual_observation_index = state.observation_index;
+    let actual_pool_id = state.pool_id;
     assert_eq!(
-        max_domain_cumulative,
-        i64::from(i32::MAX) * i64::from(u32::MAX)
+        actual_initialized,
+        expected["initialized"].as_bool().expect("expected initialized"),
+        "initialized mismatch for {name}"
     );
+    assert_eq!(
+        actual_recent_epoch,
+        expected["recent_epoch"].as_u64().expect("expected recent epoch"),
+        "recent epoch mismatch for {name}"
+    );
+    assert_eq!(
+        actual_observation_index,
+        expected["observation_index"].as_u64().expect("expected observation index") as u16,
+        "observation index mismatch for {name}"
+    );
+    if let Some(pool_id) = expected["pool_id"].as_str() {
+        assert_eq!(actual_pool_id, pool_id.parse::<Pubkey>().expect("expected pool public key"));
+    }
+    for observation in expected["observations"].as_array().expect("expected observations") {
+        let index = observation["index"].as_u64().expect("expected observation slot") as usize;
+        let actual = state.observations[index];
+        let actual_timestamp = actual.block_timestamp;
+        let actual_cumulative = actual.tick_cumulative;
+        assert_eq!(
+            actual_timestamp,
+            observation["block_timestamp"].as_u64().expect("expected timestamp") as u32,
+            "observation timestamp mismatch for {name} at slot {index}"
+        );
+        assert_eq!(
+            actual_cumulative,
+            observation["tick_cumulative"].as_i64().expect("expected cumulative"),
+            "observation cumulative mismatch for {name} at slot {index}"
+        );
+    }
+}
+
+#[test]
+fn python_observation_update_vectors_match_pinned_raydium_rust() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let cases = vectors["observation_updates"]
+        .as_array()
+        .expect("Python ObservationState update vectors");
+    assert_eq!(cases.len(), 4);
+
+    for case in cases {
+        let name = case["name"].as_str().expect("scenario name");
+        let mut state = observation_state_from_vector(case);
+        assert_observation_snapshot(&state, &case["initial"], name);
+
+        for update in case["updates"].as_array().expect("ObservationState updates") {
+            let timestamp = update["block_timestamp"].as_u64().expect("block timestamp") as u32;
+            let tick = update["tick"].as_i64().expect("tick") as i32;
+            state.update(timestamp, tick);
+            assert_observation_snapshot(&state, &update["expected"], name);
+        }
+    }
 }
