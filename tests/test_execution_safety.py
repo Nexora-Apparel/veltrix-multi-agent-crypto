@@ -39,9 +39,74 @@ from veltrix.submission_coordinator import (
 
 NOW_MS = 1_000_000
 KEY = b"execution-safety-test-key-32-bytes!!"
-WALLET = "wallet-public-key"
-INPUT_MINT = "input-mint"
-OUTPUT_MINT = "output-mint"
+
+
+def _pubkey(byte):
+    return bytes([byte]) * 32
+
+
+def _b58(raw):
+    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    zeros = len(raw) - len(raw.lstrip(b"\\x00"))
+    value = int.from_bytes(raw, "big")
+    encoded = ""
+    while value:
+        value, remainder = divmod(value, 58)
+        encoded = alphabet[remainder] + encoded
+    return "1" * zeros + (encoded or ("" if zeros else "1"))
+
+
+def _compact(value):
+    result = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            result.append(byte | 0x80)
+        else:
+            result.append(byte)
+            return bytes(result)
+
+
+def _compiled(program_index, account_indices, data):
+    return (
+        bytes([program_index])
+        + _compact(len(account_indices))
+        + bytes(account_indices)
+        + _compact(len(data))
+        + data
+    )
+
+
+def _raw_message():
+    # Static keys: fee payer, token accounts, pool vault, swap program, compute program.
+    keys = (_pubkey(1), _pubkey(5), _pubkey(6), _pubkey(7), _pubkey(2), _pubkey(8))
+    return (
+        bytes([1, 0, 2])
+        + _compact(len(keys))
+        + b"".join(keys)
+        + _pubkey(9)
+        + _compact(2)
+        + _compiled(4, (1, 2, 3), b"swap")
+        + _compiled(5, (0,), b"compute")
+    )
+
+
+def _raw_transaction():
+    message = _raw_message()
+    return _compact(1) + bytes(64) + message
+
+
+import hashlib
+
+WALLET = _b58(_pubkey(1))
+INPUT_MINT = _b58(_pubkey(3))
+OUTPUT_MINT = _b58(_pubkey(4))
+WALLET_IN = _b58(_pubkey(5))
+WALLET_OUT = _b58(_pubkey(6))
+POOL_VAULT = _b58(_pubkey(7))
+SWAP_PROGRAM = _b58(_pubkey(2))
+COMPUTE_PROGRAM = _b58(_pubkey(8))
 
 
 def live_policy():
@@ -74,8 +139,8 @@ def _make_base_intent():
         max_slippage_bps=100,
         max_priority_fee_base_units=40,
         expires_at_ms=NOW_MS + 10_000,
-        allowed_accounts=("wallet-in", "wallet-out", "pool-vault", "fee-payer"),
-        expected_program_ids=("swap-program", "compute-budget-program"),
+        allowed_accounts=(WALLET_IN, WALLET_OUT, POOL_VAULT, WALLET),
+        expected_program_ids=(SWAP_PROGRAM, COMPUTE_PROGRAM),
     )
 
 
@@ -91,24 +156,24 @@ def _make_plan_for_intent(intent):
         expected_output_base_units=950,
         slippage_bps=75,
         priority_fee_base_units=10,
-        recent_blockhash="recent-blockhash",
+        recent_blockhash=_b58(_pubkey(9)),
         blockhash_expires_at_ms=NOW_MS + 4_000,
         instructions=(
             InstructionPlan(
-                "swap-program", "SWAP",
-                ("wallet-in", "wallet-out", "pool-vault"),
-                "a" * 64,
+                SWAP_PROGRAM, "SWAP",
+                (WALLET_IN, WALLET_OUT, POOL_VAULT),
+                hashlib.sha256(b"swap").hexdigest(),
             ),
             InstructionPlan(
-                "compute-budget-program", "COMPUTE_BUDGET",
-                ("fee-payer",), "b" * 64,
+                COMPUTE_PROGRAM, "COMPUTE_BUDGET",
+                (WALLET,), hashlib.sha256(b"compute").hexdigest(),
             ),
         ),
         account_effects=(
-            AccountEffect("wallet-in", "wallet_input", INPUT_MINT, WALLET, -1_000),
-            AccountEffect("wallet-out", "wallet_output", OUTPUT_MINT, WALLET, 950),
-            AccountEffect("pool-vault", "pool_vault", INPUT_MINT, "pool-owner", 1_000),
-            AccountEffect("fee-payer", "fee_payer", None, WALLET, -10),
+            AccountEffect(WALLET_IN, "wallet_input", INPUT_MINT, WALLET, -1_000),
+            AccountEffect(WALLET_OUT, "wallet_output", OUTPUT_MINT, WALLET, 950),
+            AccountEffect(POOL_VAULT, "pool_vault", INPUT_MINT, "pool-owner", 1_000),
+            AccountEffect(WALLET, "fee_payer", None, WALLET, -10),
         ),
         message_hash="0" * 64,
         raw_message_sha256="e" * 64,
@@ -118,7 +183,7 @@ def _make_plan_for_intent(intent):
 
 def make_intent():
     base = _make_base_intent()
-    return replace(base, expected_message_hash=_make_plan_for_intent(base).message_hash)
+    plan = _make_plan_for_intent(base)\n    return replace(base, expected_message_hash=plan.message_hash, expected_raw_message_sha256=plan.raw_message_sha256)
 
 
 def make_plan(intent=None):
