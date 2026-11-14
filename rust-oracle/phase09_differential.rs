@@ -667,6 +667,20 @@ fn python_observation_update_vectors_match_pinned_raydium_rust() {
     }
 }
 
+
+fn assert_account_bytes_equal(actual: &[u8], expected: &[u8], account: &str) {
+    assert_eq!(actual.len(), expected.len(), "{account} account byte length mismatch");
+    if let Some(offset) = actual.iter().zip(expected).position(|(left, right)| left != right) {
+        let start = offset.saturating_sub(8);
+        let end = (offset + 16).min(actual.len());
+        panic!(
+            "{account} account byte mismatch at offset {offset}: actual={:?}, expected={:?}",
+            &actual[start..end],
+            &expected[start..end]
+        );
+    }
+}
+
 fn decode_hex_bytes(value: &str) -> Vec<u8> {
     assert_eq!(value.len() % 2, 0, "hex payload must have an even length");
     (0..value.len())
@@ -907,19 +921,19 @@ fn python_single_array_swap_replay_matches_pinned_raydium_swap_internal() {
     let mut final_observation_bytes = ObservationState::DISCRIMINATOR.to_vec();
     final_observation_bytes.extend_from_slice(bytemuck::bytes_of(&*observation_ref));
 
-    assert_eq!(
-        final_pool_bytes,
-        decode_hex_bytes(expected["pool_hex"].as_str().unwrap()),
-        "final PoolState bytes differ from Python replay"
+    assert_account_bytes_equal(
+        &final_pool_bytes,
+        &decode_hex_bytes(expected["pool_hex"].as_str().unwrap()),
+        "final PoolState",
     );
-    assert_eq!(
-        final_tick_array_bytes,
-        decode_hex_bytes(expected["tick_array_hex"].as_str().unwrap()),
-        "final TickArrayState bytes differ from Python replay"
+    assert_account_bytes_equal(
+        &final_tick_array_bytes,
+        &decode_hex_bytes(expected["tick_array_hex"].as_str().unwrap()),
+        "final TickArrayState",
     );
-    assert_eq!(
-        final_observation_bytes,
-        decode_hex_bytes(expected["observation_hex"].as_str().unwrap()),
-        "final ObservationState bytes differ from Python replay"
+    assert_account_bytes_equal(
+        &final_observation_bytes,
+        &decode_hex_bytes(expected["observation_hex"].as_str().unwrap()),
+        "final ObservationState",
     );
 }
