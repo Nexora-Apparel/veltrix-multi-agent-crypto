@@ -488,9 +488,11 @@ def test_execution_audit_hash_chain_detects_offline_tampering(tmp_path):
     )
     store.fail("intent-tamper", occurred_at_ms=NOW_MS + 2, reason_code="gate_failed")
     audit = ExecutionAuditStore(store.database_path)
-    events = audit.events("intent-tamper")
+    all_events = audit.events()
+    events = [event for event in all_events if event["intent_id"] == "intent-tamper"]
     assert len(events) == 2
-    assert events[1]["previous_event_hash"] == events[0]["event_hash"]
+    # The audit hash chain is global across intents, not partitioned per intent.
+    assert all_events[2]["previous_event_hash"] == all_events[1]["event_hash"]
 
     with sqlite3.connect(store.database_path) as db:
         db.execute("DROP TRIGGER execution_audit_no_update")
