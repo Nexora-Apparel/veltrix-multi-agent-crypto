@@ -4,6 +4,7 @@ use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
 use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
 use anchor_lang::prelude::Pubkey;
+use anchor_lang::AccountSerialize;
 use serde_json::Value;
 
 const PYTHON_VECTORS: &str = include_str!("phase09_python_vectors.json");
@@ -563,8 +564,7 @@ fn python_positive_negative_bitmap_extension_vectors_match_pinned_raydium_extens
 }
 
 
-fn observation_state_from_vector(case: &Value) -> ObservationState {
-    let initial = &case["initial"];
+fn observation_state_from_initial(initial: &Value) -> ObservationState {
     let mut state = ObservationState::default();
     state.initialized = initial["initialized"].as_bool().expect("initialized flag");
     state.recent_epoch = initial["recent_epoch"].as_u64().expect("recent epoch");
@@ -635,7 +635,7 @@ fn python_observation_update_vectors_match_pinned_raydium_rust() {
 
     for case in cases {
         let name = case["name"].as_str().expect("scenario name");
-        let mut state = observation_state_from_vector(case);
+        let mut state = observation_state_from_initial(&case["initial"]);
         assert_observation_snapshot(&state, &case["initial"], name);
 
         for update in case["updates"].as_array().expect("ObservationState updates") {
@@ -645,4 +645,40 @@ fn python_observation_update_vectors_match_pinned_raydium_rust() {
             assert_observation_snapshot(&state, &update["expected"], name);
         }
     }
+}
+
+fn decode_hex_bytes(value: &str) -> Vec<u8> {
+    assert_eq!(value.len() % 2, 0, "hex payload must have an even length");
+    (0..value.len())
+        .step_by(2)
+        .map(|offset| {
+            u8::from_str_radix(&value[offset..offset + 2], 16)
+                .expect("valid hexadecimal byte")
+        })
+        .collect()
+}
+
+#[test]
+fn python_observation_account_serialization_matches_pinned_raydium_bytes() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    let vector = &vectors["observation_serialization"];
+    let state = observation_state_from_initial(&vector["state"]);
+    assert_observation_snapshot(&state, &vector["state"], "serialization fixture");
+
+    let mut rust_bytes = Vec::new();
+    state
+        .try_serialize(&mut rust_bytes)
+        .expect("pinned Raydium ObservationState account serialization");
+    let python_bytes = decode_hex_bytes(
+        vector["serialized_hex"].as_str().expect("Python serialized hex"),
+    );
+    assert_eq!(
+        rust_bytes.len(),
+        vector["serialized_length"].as_u64().expect("serialized length") as usize
+    );
+    assert_eq!(
+        rust_bytes,
+        python_bytes,
+        "ObservationState account bytes differ from Python serializer"
+    );
 }
