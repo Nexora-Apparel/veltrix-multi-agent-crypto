@@ -69,6 +69,7 @@ def _canonical_json(value: dict) -> bytes:
 class ExecutionIntent:
     intent_id: str
     expected_message_hash: str
+    expected_raw_message_sha256: str
     chain: str
     wallet_public_key: str
     input_mint: str
@@ -88,6 +89,7 @@ class ExecutionIntent:
             if not isinstance(value, str) or not value or value.strip() != value:
                 raise ExecutionGateError(f"invalid_{name}")
         _digest(self.expected_message_hash, "expected_message_hash")
+        _digest(self.expected_raw_message_sha256, "expected_raw_message_sha256")
         if self.input_mint == self.output_mint:
             raise ExecutionGateError("identical_input_output_mints")
         for name in ("input_base_units", "requested_exposure_base_units", "minimum_output_base_units", "expires_at_ms"):
@@ -109,6 +111,7 @@ class ExecutionIntent:
         return _canonical_json({
             "intent_id": self.intent_id,
             "expected_message_hash": self.expected_message_hash,
+            "expected_raw_message_sha256": self.expected_raw_message_sha256,
             "chain": self.chain,
             "wallet_public_key": self.wallet_public_key,
             "input_mint": self.input_mint,
@@ -168,6 +171,7 @@ class UnsignedTransactionPlan:
     instructions: tuple[InstructionPlan, ...]
     account_effects: tuple[AccountEffect, ...]
     message_hash: str
+    raw_message_sha256: str
 
     def canonical_payload(self) -> bytes:
         return _canonical_json({
@@ -234,6 +238,7 @@ class SimulationReceipt:
     intent_id: str
     chain: str
     message_hash: str
+    raw_message_sha256: str
     succeeded: bool
     slot: int
     simulated_at_ms: int
@@ -286,6 +291,9 @@ class TransactionValidator:
             raise ExecutionGateError("transaction_manifest_hash_mismatch")
         if not hmac_compare(plan.message_hash, intent.expected_message_hash):
             raise ExecutionGateError("transaction_not_bound_to_authorized_intent")
+        _digest(plan.raw_message_sha256, "raw_message_sha256")
+        if not hmac_compare(plan.raw_message_sha256, intent.expected_raw_message_sha256):
+            raise ExecutionGateError("raw_message_not_bound_to_authorized_intent")
 
         allowed_programs = set(policy.allowed_program_ids) & set(intent.expected_program_ids)
         swap_count = 0
@@ -455,6 +463,9 @@ class SimulationGate:
             raise ExecutionGateError("simulation_scope_mismatch")
         if receipt.message_hash != plan.message_hash:
             raise ExecutionGateError("simulation_message_mismatch")
+        _digest(receipt.raw_message_sha256, "simulation_raw_message_sha256")
+        if not hmac_compare(receipt.raw_message_sha256, plan.raw_message_sha256):
+            raise ExecutionGateError("simulation_raw_message_mismatch")
         _integer(receipt.slot, "simulation_slot", minimum=1)
         stamp = _integer(receipt.simulated_at_ms, "simulation_timestamp", minimum=1)
         age = now_ms - stamp
