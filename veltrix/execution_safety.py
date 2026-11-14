@@ -255,7 +255,10 @@ class SimulationReceipt:
 
 
 class TransactionValidator:
-    """Validate a normalized unsigned instruction/effect manifest, not raw bytes."""
+    """Bind a normalized manifest to exact decoded unsigned bytes, then apply safety policy.
+
+This still does not independently derive program-specific account effects.
+"""
 
     @staticmethod
     def validate(
