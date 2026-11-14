@@ -4,7 +4,7 @@ use raydium_clmm::libraries::{liquidity_math, swap_math, tick_math};
 use raydium_clmm::instructions::swap::SwapState;
 use raydium_clmm::states::{tick_spacing_index_from_tick, DynamicFeeInfo, PoolState, RewardInfo, TickArrayBitmapExtension, TickArrayState, TickState, ObservationState};
 use anchor_lang::prelude::Pubkey;
-use anchor_lang::AccountSerialize;
+use anchor_lang::Discriminator;
 use serde_json::Value;
 
 const PYTHON_VECTORS: &str = include_str!("phase09_python_vectors.json");
@@ -667,10 +667,10 @@ fn python_observation_account_serialization_matches_pinned_raydium_bytes() {
     let state = observation_state_from_initial(&vector["state"]);
     assert_observation_snapshot(&state, &vector["state"], "serialization fixture");
 
-    let mut rust_bytes = Vec::new();
-    state
-        .try_serialize(&mut rust_bytes)
-        .expect("pinned Raydium ObservationState account serialization");
+    let mut rust_bytes = Vec::with_capacity(ObservationState::LEN);
+    rust_bytes.extend_from_slice(ObservationState::DISCRIMINATOR);
+    rust_bytes.extend_from_slice(bytemuck::bytes_of(&state));
+    assert_eq!(rust_bytes.len(), ObservationState::LEN);
     let python_bytes = decode_hex_bytes(
         vector["serialized_hex"].as_str().expect("Python serialized hex"),
     );
