@@ -29,6 +29,7 @@ from veltrix.raydium_clmm_swap_inner_iteration import RaydiumClmmSwapInnerIterat
 from veltrix.raydium_clmm_pool_post_swap_finalization import finalize_raydium_pool_after_swap
 from veltrix.raydium_clmm_tick_array_mutation import (
     RaydiumClmmTickArrayBitmapExtension,
+    derive_raydium_tick_array_bitmap_extension_address,
     _flip_bitmap,
     encode_raydium_tick_array_bitmap_extension,
 )
