@@ -306,7 +306,7 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, account_effects=plan.account_effects[:-1], message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
 
-    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash", "fee_credit", "fee_limit", "missing_fee_effect"}:
+    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash", "fee_credit", "fee_limit", "missing_fee_effect", "raw_message_hash"}:
         intent = replace(intent, expected_message_hash=plan.message_hash)
     with pytest.raises(ExecutionGateError, match=reason):
         TransactionValidator.validate(intent, plan, live_policy(), now_ms=NOW_MS)
