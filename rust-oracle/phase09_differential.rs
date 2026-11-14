@@ -903,7 +903,6 @@ fn assert_swap_replay_fixture(fixture: &Value) {
     };
 
     let pool_cell = RefCell::new(pool_state);
-    let tick_array_cell = RefCell::new(tick_array_state);
     let observation_cell = RefCell::new(observation_state);
     let mut pool_ref = pool_cell.borrow_mut();
     let mut tick_array_queue = VecDeque::new();
