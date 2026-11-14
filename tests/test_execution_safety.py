@@ -63,6 +63,7 @@ def _make_base_intent():
     return ExecutionIntent(
         intent_id="intent-0001",
         expected_message_hash="0" * 64,
+        expected_raw_message_sha256="e" * 64,
         chain="solana-devnet",
         wallet_public_key=WALLET,
         input_mint=INPUT_MINT,
@@ -110,6 +111,7 @@ def _make_plan_for_intent(intent):
             AccountEffect("fee-payer", "fee_payer", None, WALLET, -10),
         ),
         message_hash="0" * 64,
+        raw_message_sha256="e" * 64,
     )
     return replace(plan, message_hash=plan.computed_message_hash())
 
@@ -151,6 +153,7 @@ def make_simulation(intent=None, plan=None, **overrides):
         "intent_id": intent.intent_id,
         "chain": intent.chain,
         "message_hash": plan.message_hash,
+        "raw_message_sha256": plan.raw_message_sha256,
         "succeeded": True,
         "slot": 123,
         "simulated_at_ms": NOW_MS,
@@ -252,6 +255,7 @@ def test_default_environment_policy_cannot_enter_live_pipeline(tmp_path):
         ("authority_change", "authority_or_delegate_change"),
         ("wallet_delta", "wallet_input_delta_mismatch"),
         ("message_hash", "transaction_manifest_hash_mismatch"),
+        ("raw_message_hash", "raw_message_not_bound_to_authorized_intent"),
         ("authorized_intent_substitution", "transaction_not_bound_to_authorized_intent"),
         ("stale_blockhash", "blockhash_stale_or_unbounded"),
         ("fee_credit", "fee_payer_delta_not_debit"),
@@ -280,6 +284,9 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, message_hash=plan.computed_message_hash())
     elif mutation == "message_hash":
         plan = replace(plan, message_hash="f" * 64)
+    elif mutation == "raw_message_hash":
+        plan = replace(plan, raw_message_sha256="f" * 64, message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
     elif mutation == "authorized_intent_substitution":
         plan = replace(plan, recent_blockhash="substituted-blockhash", message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
@@ -332,6 +339,7 @@ def test_risk_gate_rejects_missing_stale_or_over_limit_evidence(overrides, reaso
         ({"output_base_units": 951}, "simulated_output_mismatch"),
         ({"fee_base_units": 51}, "simulated_fee_limit_exceeded"),
         ({"message_hash": "f" * 64}, "simulation_message_mismatch"),
+        ({"raw_message_sha256": "f" * 64}, "simulation_raw_message_mismatch"),
     ],
 )
 def test_simulation_gate_rejects_failed_stale_or_mismatched_receipts(overrides, reason):
