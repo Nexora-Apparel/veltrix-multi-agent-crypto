@@ -21,19 +21,35 @@ _ROUTE_DISCRIMINATORS = {
     bytes.fromhex("b0d169a89a7d453e"): ("shared_accounts_exact_out_route", True, True),
 }
 
-# Variant ordinals and payload fields are pinned to the Swap enum in
+# Variant ordinals are pinned to the Swap enum in
 # jup-ag/instruction-parser/src/idl/jupiter.ts (blob
-# 4273e9f0f34a3d4d29e035fe37e88d6c80b634b5).
-# Fields: u8, bool, u32, u64, side(enum u8), remaining_accounts_info.
-_SWAP_VARIANTS = (
-    (), (), (), (), (), (), (), (), ("bool",), (), (), (), ("side",), (),
-    (), ("side",), ("side",), ("bool",), ("bool",), (), (), ("bool",), (),
-    ("bool",), ("side",), (), (), (), (), (), (), (), (), (), (), (), (),
-    (), (), (), (), (), (), ("u32",), (), (), (), (), (), (), (), (),
-    ("u8", "bool", "bool"), ("u8", "u8", "u32", "u32"),
-    ("u8", "u32"), ("u8", "u32"), (), ("bool", "remaining_accounts_info"),
-    (), (), (), (), (), ("bool",), (), (), (), ("bool",),
-)
+# 4273e9f0f34a3d4d29e035fe37e88d6c80b634b5). Unlisted variants have no
+# serialized fields in that IDL. This describes wire shape, not DEX support.
+_SWAP_VARIANT_FIELDS = {
+    "Crema": ("bool",),
+    "Serum": ("side",),
+    "Aldrin": ("side",),
+    "AldrinV2": ("side",),
+    "Whirlpool": ("bool",),
+    "Invariant": ("bool",),
+    "DeltaFi": ("bool",),
+    "MarcoPolo": ("bool",),
+    "Dradex": ("side",),
+    "Openbook": ("side",),
+    "Phoenix": ("side",),
+    "Symmetry": ("u64", "u64"),
+    "StakeDexSwapViaStake": ("u32",),
+    "OpenBookV2": ("side",),
+    "StakeDexPrefundWithdrawStakeAndDepositStake": ("u32",),
+    "Clone": ("u8", "bool", "bool"),
+    "SanctumS": ("u8", "u8", "u32", "u32"),
+    "SanctumSAddLiquidity": ("u8", "u32"),
+    "SanctumSRemoveLiquidity": ("u8", "u32"),
+    "WhirlpoolSwapV2": ("bool", "remaining_accounts_info"),
+    "Obric": ("bool",),
+    "FoxClaimPartial": ("bool",),
+    "SolFi": ("bool",),
+}
 _SWAP_VARIANT_NAMES = (
     "Saber", "SaberAddDecimalsDeposit", "SaberAddDecimalsWithdraw",
     "TokenSwap", "Sencha", "Step", "Cropper", "Raydium", "Crema",
@@ -136,10 +152,10 @@ def _read_remaining_accounts_info(reader: _Reader) -> tuple[tuple[int, int], ...
 
 def _read_swap_variant(reader: _Reader) -> tuple[int, str, tuple[int | bool, ...]]:
     index = reader.uint(1)
-    if index >= len(_SWAP_VARIANT_NAMES) or index >= len(_SWAP_VARIANTS):
+    if index >= len(_SWAP_VARIANT_NAMES):
         raise JupiterInstructionDecodeError("unknown_jupiter_swap_variant")
     args: list[int | bool] = []
-    for field in _SWAP_VARIANTS[index]:
+    for field in _SWAP_VARIANT_FIELDS.get(_SWAP_VARIANT_NAMES[index], ()):
         if field == "bool":
             args.append(reader.boolean())
         elif field == "u8":
