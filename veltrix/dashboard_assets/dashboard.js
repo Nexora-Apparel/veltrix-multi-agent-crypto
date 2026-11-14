@@ -12,7 +12,7 @@
   async function api(path){
     const token=sessionStorage.getItem(tokenKey)||"";
     const response=await fetch(path,{headers:token?{Authorization:"Bearer "+token}:{},cache:"no-store"});
-    if(response.status===401) throw new Error("Dashboard access token required.");
+    if(response.status===401){ $("access-gate").hidden=false; throw new Error("Dashboard access token required."); }
     if(!response.ok) throw new Error("Dashboard request failed ("+response.status+").");
     return response.json();
   }
@@ -171,6 +171,12 @@
     renderChart();
   }));
 
+  $("access-submit").addEventListener("click",()=>{
+    const token=$("access-token").value.trim();
+    if(token.length<32){$("access-error").textContent="Token must contain at least 32 characters.";return;}
+    sessionStorage.setItem(tokenKey,token);$("access-error").textContent="";refresh();
+  });
+  $("access-token").addEventListener("keydown",e=>{if(e.key==="Enter")$("access-submit").click();});
   $("search-open").addEventListener("click",()=>{$("search-sheet").hidden=false;$("search-input").focus();});
   $("search-close").addEventListener("click",()=>{$("search-sheet").hidden=true;});
   $("search-input").addEventListener("input",e=>renderSearch(e.target.value));
