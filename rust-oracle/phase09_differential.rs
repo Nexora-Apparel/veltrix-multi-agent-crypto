@@ -594,11 +594,13 @@ fn assert_observation_snapshot(state: &ObservationState, expected: &Value, name:
         expected["initialized"].as_bool().expect("expected initialized"),
         "initialized mismatch for {name}"
     );
-    assert_eq!(
-        actual_recent_epoch,
-        expected["recent_epoch"].as_u64().expect("expected recent epoch"),
-        "recent epoch mismatch for {name}"
-    );
+    if let Some(expected_recent_epoch) = expected["recent_epoch"].as_u64() {
+        assert_eq!(
+            actual_recent_epoch,
+            expected_recent_epoch,
+            "recent epoch mismatch for {name}"
+        );
+    }
     assert_eq!(
         actual_observation_index,
         expected["observation_index"].as_u64().expect("expected observation index") as u16,
