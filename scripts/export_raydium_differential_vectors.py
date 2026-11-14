@@ -1352,6 +1352,99 @@ def reward_update_vectors() -> list[dict]:
     return vectors
 
 
+
+def multiple_reward_update_vector() -> dict:
+    """Export one pool with all three reward slots initialized simultaneously."""
+    rewards = (
+        RaydiumClmmRewardInfo(
+            reward_state=1,
+            open_time=100,
+            end_time=200,
+            last_update_time=110,
+            emissions_per_second_x64=Q64,
+            reward_total_emitted=5,
+            reward_claimed=1,
+            token_mint=str(Pubkey.new_unique()),
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            reward_growth_global_x64=9,
+        ),
+        RaydiumClmmRewardInfo(
+            reward_state=2,
+            open_time=50,
+            end_time=140,
+            last_update_time=120,
+            emissions_per_second_x64=2 * Q64,
+            reward_total_emitted=100,
+            reward_claimed=10,
+            token_mint=str(Pubkey.new_unique()),
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            reward_growth_global_x64=11,
+        ),
+        RaydiumClmmRewardInfo(
+            reward_state=3,
+            open_time=100,
+            end_time=200,
+            last_update_time=110,
+            emissions_per_second_x64=Q64,
+            reward_total_emitted=(1 << 64) - 1,
+            reward_claimed=0,
+            token_mint=str(Pubkey.new_unique()),
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            reward_growth_global_x64=13,
+        ),
+    )
+    pool = RaydiumClmmPoolState(
+        pool_address=str(Pubkey.new_unique()),
+        bump=1,
+        amm_config=str(Pubkey.new_unique()),
+        pool_creator=str(Pubkey.new_unique()),
+        token_mint_0=str(Pubkey.new_unique()),
+        token_mint_1=str(Pubkey.new_unique()),
+        token_vault_0=str(Pubkey.new_unique()),
+        token_vault_1=str(Pubkey.new_unique()),
+        observation_key=str(Pubkey.new_unique()),
+        mint_decimals_0=6,
+        mint_decimals_1=6,
+        tick_spacing=10,
+        liquidity=1_000,
+        sqrt_price_x64=1 << 64,
+        tick_current=0,
+        status=0,
+        fee_on=0,
+        seed_index=0,
+        account_data_sha256="0" * 64,
+        reward_infos=rewards,
+    )
+    updated = update_raydium_pool_reward_infos(
+        pool, current_timestamp=150, recent_epoch=7
+    )
+
+    def encode_reward(reward: RaydiumClmmRewardInfo) -> dict:
+        return {
+            "reward_state": reward.reward_state,
+            "open_time": reward.open_time,
+            "end_time": reward.end_time,
+            "last_update_time": reward.last_update_time,
+            "emissions_per_second_x64": str(reward.emissions_per_second_x64),
+            "reward_total_emitted": reward.reward_total_emitted,
+            "reward_claimed": reward.reward_claimed,
+            "token_mint": reward.token_mint,
+            "token_vault": reward.token_vault,
+            "authority": reward.authority,
+            "reward_growth_global_x64": str(reward.reward_growth_global_x64),
+        }
+
+    return {
+        "liquidity": pool.liquidity,
+        "timestamp": 150,
+        "initial_rewards": [encode_reward(reward) for reward in rewards],
+        "expected_rewards": [encode_reward(reward) for reward in updated.reward_infos],
+    }
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -1399,6 +1492,7 @@ def build_vectors() -> dict:
         "observation_serialization": observation_serialization_vector(),
         "account_serialization": account_serialization_vectors(),
         "reward_updates": reward_update_vectors(),
+        "multiple_reward_update": multiple_reward_update_vector(),
         "swap_replays": [
             swap_replay_vector(False, True, 1_000_000),
             swap_replay_vector(True, True, 1_000_000),
