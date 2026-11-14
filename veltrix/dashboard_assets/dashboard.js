@@ -33,9 +33,11 @@
   }
   function renderClose(item){
     const row=element("article","close-row");
-    const avatar=element("div","token-avatar",(item.symbol||item.token||"?").replace(/[^a-z0-9]/gi,"").slice(0,4).toUpperCase()||"?");
+    const market=allMarkets.find(m=>m.mint===item.token)||{};
+    const symbol=item.symbol||market.symbol;
+    const avatar=element("div","token-avatar",(symbol||item.token||"?").replace(/[^a-z0-9]/gi,"").slice(0,4).toUpperCase()||"?");
     const main=element("div","close-main");
-    main.append(element("b","",item.symbol?"$"+item.symbol.replace(/^\$/,""):short(item.token)),element("small","", "Closed · "+date(item.created_at_iso)));
+    main.append(element("b","",symbol?"$"+symbol.replace(/^\$/,""):short(item.token)),element("small","", "Closed · "+date(item.created_at_iso)));
     const profit=element("div","close-profit",signed(item.realized_pnl));
     const pct=Number(item.realized_pnl_pct);
     if(Number.isFinite(pct)&&item.realized_pnl_pct!==undefined) profit.append(element("small","",(pct>0?"+":"")+number(pct)+"%"));
@@ -81,9 +83,11 @@
     const host=$("all-trades");host.replaceChildren();
     if(!allTrades.length){host.append(element("div","empty-state","No paper fills recorded."));return;}
     allTrades.slice(0,100).forEach(t=>{
+      const market=allMarkets.find(m=>m.mint===t.token)||{};
+      const symbol=t.symbol||market.symbol;
       const value=t.side==="SELL"?signed(t.realized_pnl):money(t.notional);
       const detail=(t.side||"FILL")+" · "+date(t.created_at_iso)+" · "+number(t.price,8);
-      host.append(recordRow(t.symbol?"$"+t.symbol:short(t.token),detail,value,"Fee "+money(t.fee_usd),t.side==="SELL"?(Number(t.realized_pnl)>=0):null));
+      host.append(recordRow(symbol?"$"+symbol:short(t.token),detail,value,"Fee "+money(t.fee_usd),t.side==="SELL"?(Number(t.realized_pnl)>=0):null));
     });
   }
   function renderAgents(){
