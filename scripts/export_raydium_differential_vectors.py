@@ -40,6 +40,7 @@ from veltrix.raydium_clmm_tick_arrays import (
     RaydiumClmmTick,
     RaydiumClmmTickArray,
     RaydiumClmmTickArraySnapshot,
+    RaydiumClmmTickArrayBitmapExtension as SnapshotBitmapExtension,
     derive_raydium_clmm_tick_array_address,
     encode_raydium_clmm_tick_array,
 )
