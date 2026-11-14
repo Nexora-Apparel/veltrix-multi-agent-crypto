@@ -491,9 +491,9 @@ fn python_pool_post_swap_finalization_vectors_match_pinned_raydium_pool_state() 
 fn python_default_tick_array_bitmap_vectors_match_pinned_raydium_pool_state() {
     let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
     let cases = vectors["tick_array_bitmap"].as_array().expect("default bitmap vectors");
-    assert_eq!(cases.len(), 5);
+    assert_eq!(cases.len(), 11, "five default-bitmap and six extension-bitmap fixtures are required");
 
-    for case in cases {
+    for case in cases.iter().take(5) {
         let spacing = case["tick_spacing"].as_u64().unwrap() as u16;
         let start_index = case["start_index"].as_i64().unwrap() as i32;
         let mut pool = PoolState::default();
