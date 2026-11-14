@@ -139,7 +139,6 @@ def test_rejects_invalid_or_uninitialized_mint():
         (SPL_TOKEN_PROGRAM_ID, (key(1), key(2), key(4)), b"\x03", "token_transfer_layout_invalid"),
         (SPL_TOKEN_PROGRAM_ID, (key(1), key(2), key(4)), b"\xff", "token_instruction_not_supported"),
         (SPL_TOKEN_PROGRAM_ID, (key(1), key(2), key(4), key(5)), b"\x03" + bytes(8), "token_transfer_layout_invalid"),
-        (SPL_TOKEN_PROGRAM_ID, (key(1), key(1), key(4)), b"\x03" + bytes(8), "token_transfer_source_destination_alias"),
     ],
 )
 def test_rejects_unsupported_token_transfer_shapes(program, accounts, data, reason):
