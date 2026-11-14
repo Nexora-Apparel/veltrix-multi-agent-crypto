@@ -182,10 +182,13 @@ Repository inspection on `work/phase-9-raw-message-decoder` established the foll
 - `ExecutionIntent.expected_raw_message_sha256` is now a required, validated field included in the canonical intent payload and therefore in the operator-authorization intent hash.
 - `UnsignedTransactionPlan.raw_message_sha256` is a separate field from `message_hash`; the raw digest is included in the canonical manifest payload, while `message_hash` retains its existing normalized-manifest meaning.
 - `TransactionValidator` rejects a plan whose raw digest differs from the intent-bound raw digest.
-- `SimulationReceipt` now carries the raw-message digest separately, and `SimulationGate` requires it to match the plan.
-- Adversarial tests cover raw-digest substitution independently from normalized-manifest hash substitution.
+- `UnsignedTransactionPlan` now carries the exact serialized unsigned transaction bytes separately from its canonical plan fields. The bytes themselves are not copied into the canonical manifest; the exact message SHA-256 is the commitment.
+- The validator invokes the Stage 09.4 wire decoder itself, accepts caller-supplied raw ALT snapshots for v0, and verifies the decoder's exact message SHA-256, fee payer, recent blockhash, instruction count, ordered program IDs, ordered account keys and instruction-data hashes against the plan.
+- Unknown/unapproved program IDs and account policy violations are rejected before instruction parity can be used to legitimize a caller-mutated manifest.
+- `SimulationReceipt` carries the raw-message digest separately, and `SimulationGate` requires it to match the plan.
+- Adversarial tests cover raw-digest substitution, serialized-byte tampering and duplicate account rejection independently from normalized-manifest hash substitution.
 
-**Important limitation:** this change establishes a separate commitment domain, but the plan field is still supplied to the validator; the current pipeline does not yet decode transaction bytes internally and prove that the supplied digest equals `DecodedSolanaTransaction.message_sha256`. The next implementation must make the pipeline accept exact unsigned transaction bytes and ALT snapshots, decode them internally, and compare the resulting message digest and ordered instruction data against the plan. Until that is implemented and tested, this is not semantic transaction approval and must not be used to authorize signing.
+**Important limitation:** this is structural raw-byte-to-plan binding, not program-specific semantic transaction approval. The validator still consumes caller-supplied normalized account effects; it does not independently derive SPL Token/Token-2022 transfers, Jupiter route execution, pool/vault movements, authority effects or fee/output effects from verified account snapshots. ALT snapshots are structurally checked by the decoder but their RPC provenance is not yet authenticated by an internal fetcher. Do not enable signing. The next implementation must add strict semantic decoders and reconstruct account effects from provenance-checked, same-context account state.
 
 **Required implementation order before any signer work:**
 
