@@ -948,7 +948,7 @@ def account_serialization_vectors() -> dict:
     }
 
 
-def swap_replay_vector(zero_for_one: bool = False) -> dict:
+def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, amount_specified: int = 1_000_000) -> dict:
     """Run one deterministic Python swap replay for the pinned Rust swap_internal oracle."""
     program = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
     config = Pubkey.new_unique()
@@ -1050,7 +1050,6 @@ def swap_replay_vector(zero_for_one: bool = False) -> dict:
         data_sha256=hashlib.sha256(initial_observation_bytes).hexdigest(),
     )
 
-    amount_specified = 1_000_000
     sqrt_price_limit = get_sqrt_price_at_tick(0 if zero_for_one else 10)
     block_timestamp = 1_700_000_000
     recent_epoch = 0  # host-side Solana Clock default used by the pinned Rust test harness
@@ -1075,7 +1074,7 @@ def swap_replay_vector(zero_for_one: bool = False) -> dict:
         amount_specified=amount_specified,
         sqrt_price_limit_x64=sqrt_price_limit,
         zero_for_one=zero_for_one,
-        is_base_input=True,
+        is_base_input=is_base_input,
         block_timestamp=block_timestamp,
         recent_epoch=recent_epoch,
         base_fee_rate=base_fee_rate,
@@ -1091,11 +1090,12 @@ def swap_replay_vector(zero_for_one: bool = False) -> dict:
         "amount_specified": amount_specified,
         "sqrt_price_limit_x64": str(sqrt_price_limit),
         "zero_for_one": zero_for_one,
-        "is_base_input": True,
+        "is_base_input": is_base_input,
         "block_timestamp": block_timestamp,
         "trade_fee_rate": base_fee_rate,
         "protocol_fee_rate": protocol_fee_rate,
         "fund_fee_rate": fund_fee_rate,
+        "normalize_tick_array_epoch": any(item.reached_initialized_tick for item in result.iterations),
         "expected": {
             "amount_0": result.settlement.amount_0,
             "amount_1": result.settlement.amount_1,
@@ -1158,7 +1158,11 @@ def build_vectors() -> dict:
         "observation_updates": observation_update_vectors(),
         "observation_serialization": observation_serialization_vector(),
         "account_serialization": account_serialization_vectors(),
-        "swap_replays": [swap_replay_vector(False), swap_replay_vector(True)],
+        "swap_replays": [
+            swap_replay_vector(False, True, 1_000_000),
+            swap_replay_vector(True, True, 1_000_000),
+            swap_replay_vector(False, False, 100),
+        ],
     }
 
 
