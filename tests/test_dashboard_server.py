@@ -64,6 +64,9 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         page = urlopen(request).read().decode("utf-8")
         assert "VELTRIX" in page
         assert "PAPER" in page
+        assert "device-time" not in page
+        assert "system-indicators" not in page
+        assert "brand-island" not in page
         assert "data-screen=\"trades\"" in page
         assert "data-screen=\"agents\"" in page
         assert "data-screen=\"wallet\"" in page
