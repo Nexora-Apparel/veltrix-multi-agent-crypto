@@ -116,7 +116,7 @@ def test_rejects_out_of_range_route_count_and_invalid_step_limit():
 def test_decodes_whirlpool_swap_v2_option_none_and_some():
     absent = decode_jupiter_v6_route_instruction(
         JUPITER_V6_PROGRAM_ID,
-        route_data(variant=47, variant_payload=b"\\x01\\x00"),
+        route_data(variant=47, variant_payload=b"\x01\x00"),
     )
     assert absent.route_plan[0].variant_args == (True, False, 0, 0)
 
@@ -124,7 +124,7 @@ def test_decodes_whirlpool_swap_v2_option_none_and_some():
         JUPITER_V6_PROGRAM_ID,
         route_data(
             variant=47,
-            variant_payload=b"\\x00\\x01" + (1).to_bytes(4, "little") + b"\\x00\\x02",
+            variant_payload=b"\x00\x01" + (1).to_bytes(4, "little") + b"\x00\x02",
         ),
     )
     assert present.route_plan[0].variant_args == (False, True, 1, 2)
@@ -134,5 +134,5 @@ def test_rejects_noncanonical_whirlpool_option_tag():
     with pytest.raises(JupiterInstructionDecodeError, match="noncanonical_option_tag"):
         decode_jupiter_v6_route_instruction(
             JUPITER_V6_PROGRAM_ID,
-            route_data(variant=47, variant_payload=b"\\x01\\x02"),
+            route_data(variant=47, variant_payload=b"\x01\x02"),
         )
