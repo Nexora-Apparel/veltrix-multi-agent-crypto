@@ -33,7 +33,7 @@ class SolanaMessageDecodeError(ValueError):
 def _b58encode(raw: bytes) -> str:
     if not isinstance(raw, bytes):
         raise SolanaMessageDecodeError("invalid_public_key_bytes")
-    zeros = len(raw) - len(raw.lstrip(b"\\x00"))
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
     number = int.from_bytes(raw, "big")
     encoded = ""
     while number:
@@ -52,7 +52,7 @@ def _b58decode(value: str) -> bytes:
             raise SolanaMessageDecodeError("invalid_lookup_table_address")
         number = number * 58 + digit
     body = number.to_bytes((number.bit_length() + 7) // 8, "big") if number else b""
-    return b"\\x00" * (len(value) - len(value.lstrip("1"))) + body
+    return b"\x00" * (len(value) - len(value.lstrip("1"))) + body
 
 
 def _read_compact_u16(data: bytes, offset: int) -> tuple[int, int]:
