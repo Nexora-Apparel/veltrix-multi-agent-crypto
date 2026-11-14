@@ -976,11 +976,13 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
     base_pool_bytes = bytes(RAYDIUM_POOL_STATE_LENGTH)
     reward_infos = [RaydiumClmmRewardInfo() for _ in range(3)]
     if active_reward:
+        # Exercise all three PoolState reward slots during the actual upstream
+        # swap_internal pre-swap reward update: one opening, one ended, one capped.
         reward_infos[0] = RaydiumClmmRewardInfo(
             reward_state=1,
-            open_time=1_000,
-            end_time=2_000,
-            last_update_time=1_000,
+            open_time=1_699_999_000,
+            end_time=1_700_000_100,
+            last_update_time=1_699_999_900,
             emissions_per_second_x64=Q64,
             reward_total_emitted=0,
             reward_claimed=0,
@@ -988,6 +990,32 @@ def swap_replay_vector(zero_for_one: bool = False, is_base_input: bool = True, a
             token_vault=str(Pubkey.new_unique()),
             authority=str(Pubkey.new_unique()),
             reward_growth_global_x64=0,
+        )
+        reward_infos[1] = RaydiumClmmRewardInfo(
+            reward_state=2,
+            open_time=1_699_999_000,
+            end_time=1_699_999_950,
+            last_update_time=1_699_999_900,
+            emissions_per_second_x64=2 * Q64,
+            reward_total_emitted=100,
+            reward_claimed=10,
+            token_mint=str(Pubkey.new_unique()),
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            reward_growth_global_x64=11,
+        )
+        reward_infos[2] = RaydiumClmmRewardInfo(
+            reward_state=3,
+            open_time=1_699_999_000,
+            end_time=1_700_000_100,
+            last_update_time=1_699_999_900,
+            emissions_per_second_x64=Q64,
+            reward_total_emitted=(1 << 64) - 1,
+            reward_claimed=0,
+            token_mint=str(Pubkey.new_unique()),
+            token_vault=str(Pubkey.new_unique()),
+            authority=str(Pubkey.new_unique()),
+            reward_growth_global_x64=13,
         )
     dynamic_fee_info = (
         RaydiumClmmDynamicFeeInfo(
