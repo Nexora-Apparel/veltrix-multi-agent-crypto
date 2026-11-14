@@ -57,8 +57,11 @@
     const recent=$("recent-closes");recent.replaceChildren();
     if(!closes.length) recent.append(element("div","empty-state","No settled paper closes yet."));
     else closes.slice(0,5).forEach(t=>recent.append(renderClose(t)));
-    const last=allConsensus[0];
-    $("latest-activity").textContent=last ? "Latest consensus · "+(last.status||"Recorded").replaceAll("_"," ") : "Paper trading · Solana";
+    const latestPosition=allPositions[0];
+    const latestMarket=latestPosition ? (allMarkets.find(m=>m.mint===latestPosition.token)||{}) : {};
+    const latestSymbol=latestPosition && (latestPosition.symbol||latestMarket.symbol);
+    $("activity-line").hidden=!latestPosition;
+    if(latestPosition) $("latest-activity").textContent="Bought "+(latestSymbol?"$"+latestSymbol:short(latestPosition.token))+" · open paper position";
     $("wallet-equity").textContent=money(a.equity_usd);
     $("wallet-return").textContent=number(a.total_return_pct)+"% total return";
     $("cash").textContent=money(a.cash_usd);
