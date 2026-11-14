@@ -30,7 +30,7 @@ from veltrix.raydium_clmm_swap_replay import run_raydium_clmm_swap_replay
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
 
-def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
+def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0, multi_array=False):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -40,8 +40,9 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
     )
     observation_key, _ = derive_raydium_clmm_observation_address(str(pool_key))
     bitmap = [0] * 16
-    bitmap[8] = 1  # default bitmap bit 512 represents TickArrayState start index 0
+    bitmap[8] = 3 if multi_array else 1
     pool_base = bytes(RAYDIUM_POOL_STATE_LENGTH)
+    current_tick = 590 if multi_array else (10 if zero_for_one else 0)
     pool = RaydiumClmmPoolState(
         pool_address=str(pool_key),
         bump=bump,
@@ -56,8 +57,8 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
         mint_decimals_1=6,
         tick_spacing=10,
         liquidity=1_000_000,
-        sqrt_price_x64=get_sqrt_price_at_tick(10 if zero_for_one else 0),
-        tick_current=10 if zero_for_one else 0,
+        sqrt_price_x64=get_sqrt_price_at_tick(current_tick),
+        tick_current=current_tick,
         status=0,
         fee_on=0,
         seed_index=0,
@@ -88,44 +89,51 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
         account_data_sha256=hashlib.sha256(pool_bytes).hexdigest(),
     )
 
-    ticks = []
-    for index in range(60):
-        tick_index = index * pool.tick_spacing
-        if index == (0 if zero_for_one else 1):
-            ticks.append(RaydiumClmmTick(
-                tick_index=tick_index,
-                liquidity_net=500,
-                liquidity_gross=1000,
-                orders_amount=fifo_order_amount,
-                part_filled_orders_remaining=0,
-                initialized=True,
-                order_phase=0,
-                unfilled_ratio_x64=(1 << 64) if fifo_order_amount else 0,
-            ))
-        else:
-            ticks.append(RaydiumClmmTick(
-                tick_index=tick_index,
-                liquidity_net=0,
-                liquidity_gross=0,
-                orders_amount=0,
-                part_filled_orders_remaining=0,
-                initialized=False,
-            ))
-    array = RaydiumClmmTickArray(
-        address=derive_raydium_clmm_tick_array_address(
-            pool_address=pool.pool_address,
-            start_tick_index=0,
-        ),
-        pool_address=pool.pool_address,
-        start_tick_index=0,
-        tick_spacing=pool.tick_spacing,
-        initialized_tick_count=1,
-        recent_epoch=1,
-        ticks=tuple(ticks),
-        data_sha256="0" * 64,
+    array_specs = (
+        [(0, 58, 0, 100, 0), (600, 0, 500, 1000, 0)]
+        if multi_array
+        else [(0, 0 if zero_for_one else 1, 500, 1000, fifo_order_amount)]
     )
-    array_bytes = encode_raydium_clmm_tick_array(array)
-    array = replace(array, data_sha256=hashlib.sha256(array_bytes).hexdigest())
+    arrays = []
+    for start_tick_index, initialized_slot, liquidity_net, liquidity_gross, order_amount in array_specs:
+        ticks = []
+        for index in range(60):
+            tick_index = start_tick_index + index * pool.tick_spacing
+            if index == initialized_slot:
+                ticks.append(RaydiumClmmTick(
+                    tick_index=tick_index,
+                    liquidity_net=liquidity_net,
+                    liquidity_gross=liquidity_gross,
+                    orders_amount=order_amount,
+                    part_filled_orders_remaining=0,
+                    initialized=True,
+                    order_phase=0,
+                    unfilled_ratio_x64=(1 << 64) if order_amount else 0,
+                ))
+            else:
+                ticks.append(RaydiumClmmTick(
+                    tick_index=tick_index,
+                    liquidity_net=0,
+                    liquidity_gross=0,
+                    orders_amount=0,
+                    part_filled_orders_remaining=0,
+                    initialized=False,
+                ))
+        array = RaydiumClmmTickArray(
+            address=derive_raydium_clmm_tick_array_address(
+                pool_address=pool.pool_address,
+                start_tick_index=start_tick_index,
+            ),
+            pool_address=pool.pool_address,
+            start_tick_index=start_tick_index,
+            tick_spacing=pool.tick_spacing,
+            initialized_tick_count=1,
+            recent_epoch=1,
+            ticks=tuple(ticks),
+            data_sha256="0" * 64,
+        )
+        raw = encode_raydium_clmm_tick_array(array)
+        arrays.append(replace(array, data_sha256=hashlib.sha256(raw).hexdigest()))
 
     snapshot = RaydiumClmmTickArraySnapshot(
         route_message_sha256="a" * 64,
@@ -135,8 +143,8 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
         cluster="devnet",
         genesis_hash="fixture-genesis",
         context_slot=101,
-        tick_arrays=(array,),
-        cpi_account_order=(array.address,),
+        tick_arrays=tuple(arrays),
+        cpi_account_order=tuple(array.address for array in arrays),
     )
     observation = RaydiumClmmObservationState(
         address=observation_key,
@@ -155,13 +163,14 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
 
 
 @pytest.mark.parametrize(
-    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount"),
+    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount", "multi_array"),
     [
-        (False, True, 1_000_000, False, 0),
-        (True, True, 1_000_000, False, 0),
-        (False, False, 100, False, 0),
-        (False, True, 1_000_000, True, 0),
-        (False, True, 1_000_000, False, 100),
+        (False, True, 1_000_000, False, 0, False),
+        (True, True, 1_000_000, False, 0, False),
+        (False, False, 100, False, 0, False),
+        (False, True, 1_000_000, True, 0, False),
+        (False, True, 1_000_000, False, 100, False),
+        (False, True, 1_000_000, False, 0, True),
     ],
 )
 def test_single_array_swap_replay_matches_direction_and_amount_mode(
@@ -170,14 +179,15 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     amount_specified,
     dynamic_fee_enabled,
     fifo_order_amount,
+    multi_array,
 ):
-    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount)
+    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount, multi_array)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
         snapshot,
         amount_specified=amount_specified,
-        sqrt_price_limit_x64=get_sqrt_price_at_tick(0 if zero_for_one else 10),
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(600 if multi_array else (0 if zero_for_one else 10)),
         zero_for_one=zero_for_one,
         is_base_input=is_base_input,
         block_timestamp=1_700_000_000,
@@ -197,7 +207,17 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     assert result.observation_state.observations[0].block_timestamp == 1_700_000_000
     assert result.observation_state.observations[0].tick_cumulative == 0
 
-    if is_base_input:
+    if multi_array:
+        assert result.iterations[-1].reached_initialized_tick is True
+        assert result.iterations[-1].crossed_tick is True
+        assert result.pool.tick_current == 600
+        assert result.pool.sqrt_price_x64 == get_sqrt_price_at_tick(600)
+        assert result.pool.liquidity == 1_000_500
+        assert result.tick_arrays[0].recent_epoch == 1
+        assert result.tick_arrays[1].recent_epoch == 2
+        assert result.tick_arrays[0].ticks[58].tick_index == 580
+        assert result.tick_arrays[1].ticks[0].fee_growth_outside_1_x64 > 0
+    elif is_base_input:
         target_tick = 0 if zero_for_one else 10
         assert result.iterations[-1].reached_initialized_tick is True
         assert result.iterations[-1].crossed_tick is True
@@ -221,8 +241,8 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
         assert result.settlement.trade_fee_0 == 0
         assert result.settlement.trade_fee_1 > 0
 
-    updated_tick = result.tick_arrays[0].ticks[0 if zero_for_one else 1]
-    if is_base_input:
+    updated_tick = result.tick_arrays[1].ticks[0] if multi_array else result.tick_arrays[0].ticks[0 if zero_for_one else 1]
+    if is_base_input and not multi_array:
         assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
     else:
         assert updated_tick.liquidity_gross == 1000
@@ -232,11 +252,10 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
         assert updated_tick.part_filled_orders_remaining == 0
         assert updated_tick.unfilled_ratio_x64 == 0
 
-    assert result.tick_arrays[0].data_sha256 == hashlib.sha256(
-        encode_raydium_clmm_tick_array(result.tick_arrays[0])
-    ).hexdigest()
+    for array in result.tick_arrays:
+        assert array.data_sha256 == hashlib.sha256(encode_raydium_clmm_tick_array(array)).hexdigest()
     assert result.pool.account_data_sha256 == hashlib.sha256(
         result.pool.account_data
     ).hexdigest()
-    assert result.consumed_tick_array_addresses == (result.tick_arrays[0].address,)
-    assert result.selected_tick_array_addresses == (result.tick_arrays[0].address,)
+    assert result.consumed_tick_array_addresses == tuple(array.address for array in result.tick_arrays)
+    assert result.selected_tick_array_addresses == tuple(array.address for array in result.tick_arrays)
