@@ -240,3 +240,6 @@ Added `veltrix/solana_account_snapshot.py` and focused tests.
 - The snapshot is immutable and exposes exact account bytes to future program-specific decoders.
 
 **Trust boundary:** this is RPC transport/provider provenance, not a cryptographic proof that the RPC operator is honest. It is not yet wired into `TransactionValidator`, ALT acquisition, Jupiter CPI decoding, simulation receipts or account-effect reconstruction. A future integration must bind the exact snapshot hash and context slot to the intent/plan/simulation, reject stale or mismatched state, and derive effects from decoded instructions plus these exact account bytes. No signing or submission behavior is added.
+
+
+The same-context snapshot now also exposes an explicit adapter that converts requested account bytes into the raw-message decoder's `AddressLookupTableSnapshot` objects while preserving the snapshot's single RPC context slot. The adapter does not bypass the raw ALT parser: canonical ALT owner, metadata, deactivation, index, and warm-up checks remain enforced by `decode_unsigned_transaction`.
