@@ -1,4 +1,4 @@
-"""Single-array source-order regression for the complete Raydium swap orchestrator."""
+"""Source-order and multi-array regressions for the complete Raydium swap orchestrator."""
 from dataclasses import replace
 import hashlib
 import pytest
