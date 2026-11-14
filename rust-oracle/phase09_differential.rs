@@ -856,13 +856,18 @@ fn python_tick_array_bitmap_extension_serialization_matches_pinned_raydium_bytes
 
 #[test]
 fn python_single_array_swap_replay_matches_pinned_raydium_swap_internal() {
+    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
+    for fixture in vectors["swap_replays"].as_array().expect("swap replay fixtures") {
+        assert_swap_replay_fixture(fixture);
+    }
+}
+
+fn assert_swap_replay_fixture(fixture: &Value) {
     let runtime_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock after Unix epoch")
         .as_secs()
         / (2 * 24 * 3600);
-    let vectors: Value = serde_json::from_str(PYTHON_VECTORS).expect("valid Python vector JSON");
-    let fixture = &vectors["swap_replay"];
     let pool_bytes = decode_hex_bytes(fixture["initial_pool_hex"].as_str().unwrap());
     let tick_array_bytes = decode_hex_bytes(fixture["initial_tick_array_hex"].as_str().unwrap());
     let observation_bytes = decode_hex_bytes(fixture["initial_observation_hex"].as_str().unwrap());
