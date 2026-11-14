@@ -564,7 +564,7 @@ fn python_positive_negative_bitmap_extension_vectors_match_pinned_raydium_extens
 
 
 #[test]
-fn python_observation_update_transitions_match_pinned_raydium_rust() {
+fn observation_update_edge_transitions_match_pinned_raydium_rust() {
     // First write initializes the ring without advancing its index.
     let mut first = ObservationState::default();
     first.update(100, 10);
