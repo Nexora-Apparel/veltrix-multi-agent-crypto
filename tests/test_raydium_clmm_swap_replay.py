@@ -239,7 +239,7 @@ def test_swap_replay_matches_direction_and_amount_mode(
         observation,
         snapshot,
         amount_specified=amount_specified,
-        sqrt_price_limit_x64=get_sqrt_price_at_tick(307_210 if bitmap_extension else (-307_210 if negative_bitmap_extension else (600 if multi_array else (0 if zero_for_one else 10))),
+        sqrt_price_limit_x64=get_sqrt_price_at_tick(307_210 if bitmap_extension else (-307_210 if negative_bitmap_extension else (600 if multi_array else (0 if zero_for_one else 10)))),
         zero_for_one=zero_for_one,
         is_base_input=is_base_input,
         block_timestamp=1_700_000_000,
