@@ -227,3 +227,16 @@ Added `veltrix/jupiter_v6_instruction_decoder.py` with adversarial coverage in
 **This is not a semantic swap approval.** The decoder is not yet wired into `TransactionValidator`; it does not validate the Jupiter account-meta layout, CPI inner instructions, nested DEX instruction bytes, token-program behavior, mint/vault relationships, or resulting account effects. The parser's decoded route enum is not proof that any DEX variant is safe. No caller-supplied routePlan metadata is used as a substitute for transaction bytes. No signing or submission behavior is added.
 
 Specification source inspected through GitHub: `jup-ag/instruction-parser/src/idl/jupiter.ts`, blob `4273e9f0f34a3d4d29e035fe37e88d6c80b634b5`. The repository's IDL is a wire-layout reference only; a separate version/deployment compatibility check and independent DEX adapters remain required.
+
+
+### 09.5 — same-context account-state acquisition (provenance primitive only)
+
+Added `veltrix/solana_account_snapshot.py` and focused tests.
+
+- Fetches up to 100 canonical account addresses through one `getMultipleAccounts` call and records the returned context slot for the entire ordered account set.
+- Requires HTTPS, rejects redirects and URL-embedded credentials, checks the RPC `getGenesisHash` against an explicitly configured expected cluster genesis hash, and uses an explicit `confirmed` or `finalized` commitment.
+- Supports `minContextSlot`, validates the response count/slot and every account's owner, lamports, executable flag, rent epoch, space and strict base64 data; missing required accounts and duplicate requested addresses fail closed.
+- Computes a per-account data hash and deterministic account-state evidence hash over the RPC origin, cluster, commitment, slot, ordered addresses and account metadata/data hashes. URL query credentials are not included in the recorded endpoint origin.
+- The snapshot is immutable and exposes exact account bytes to future program-specific decoders.
+
+**Trust boundary:** this is RPC transport/provider provenance, not a cryptographic proof that the RPC operator is honest. It is not yet wired into `TransactionValidator`, ALT acquisition, Jupiter CPI decoding, simulation receipts or account-effect reconstruction. A future integration must bind the exact snapshot hash and context slot to the intent/plan/simulation, reject stale or mismatched state, and derive effects from decoded instructions plus these exact account bytes. No signing or submission behavior is added.
