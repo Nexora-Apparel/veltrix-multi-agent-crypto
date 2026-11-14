@@ -185,6 +185,7 @@ def fetch_raydium_clmm_vault_snapshot(
     pool_checks: tuple[RaydiumClmmPoolRouteCheck, ...],
     simulation: SimulationEvidence,
     rpc_adapter: SolanaRpcSimulationAdapter,
+    minimum_context_slot: int | None = None,
 ) -> RaydiumClmmVaultSnapshot:
     """Fetch both pool vaults and verify their token-account mint/authority/PDA roles."""
     if not isinstance(pool_evidence, DexPoolEvidenceSnapshot):
@@ -198,6 +199,12 @@ def fetch_raydium_clmm_vault_snapshot(
         raise RaydiumClmmVaultError("Solana RPC simulation evidence is required")
     if not isinstance(rpc_adapter, SolanaRpcSimulationAdapter):
         raise RaydiumClmmVaultError("provider-pinned Solana RPC adapter is required")
+    if minimum_context_slot is not None and (
+        isinstance(minimum_context_slot, bool)
+        or not isinstance(minimum_context_slot, int)
+        or minimum_context_slot < 0
+    ):
+        raise RaydiumClmmVaultError("minimum vault context slot must be a non-negative integer")
     if (
         simulation.message_sha256 != pool_evidence.route_message_sha256
         or simulation.response_id != pool_evidence.simulation_response_id
@@ -233,7 +240,7 @@ def fetch_raydium_clmm_vault_snapshot(
     if not expected:
         raise RaydiumClmmVaultError("Raydium pool checks contain no vault accounts")
 
-    minimum_slot = max(simulation.context_slot, pool_evidence.context_slot)
+    minimum_slot = max(simulation.context_slot, pool_evidence.context_slot, minimum_context_slot or 0)
     snapshot = rpc_adapter.fetch_account_snapshot(tuple(sorted(expected)), min_context_slot=minimum_slot)
     if (
         snapshot.provider_id != simulation.provider_id
