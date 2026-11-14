@@ -30,6 +30,12 @@ from veltrix.raydium_clmm_limit_orders import match_raydium_limit_order
 from veltrix.raydium_clmm_tick_crossing import RaydiumRewardGrowth, cross_tick_and_apply_liquidity
 from veltrix.raydium_clmm_swap_step_math import compute_swap_step
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
+from veltrix.raydium_clmm_observation import (
+    RaydiumClmmObservation,
+    RaydiumClmmObservationState,
+    apply_raydium_observation_update,
+    derive_raydium_clmm_observation_address,
+)
 
 
 SWAP_CASES = (
@@ -533,6 +539,120 @@ def tick_array_bitmap_vectors() -> list[dict]:
         })
     return cases
 
+def observation_update_vectors() -> list[dict]:
+    """Export Python-generated ObservationState transitions for the pinned Rust oracle."""
+    pool_id = str(Pubkey.new_unique())
+    observation_address, _ = derive_raydium_clmm_observation_address(pool_id)
+    zero_padding = bytes(32)
+
+    def make_state(
+        *,
+        initialized: bool,
+        observation_index: int,
+        recent_epoch: int = 123,
+        overrides: tuple[tuple[int, int, int], ...] = (),
+    ) -> RaydiumClmmObservationState:
+        observations = [RaydiumClmmObservation(0, 0, zero_padding) for _ in range(100)]
+        for index, timestamp, cumulative in overrides:
+            observations[index] = RaydiumClmmObservation(timestamp, cumulative, zero_padding)
+        return RaydiumClmmObservationState(
+            address=observation_address,
+            initialized=initialized,
+            recent_epoch=recent_epoch,
+            observation_index=observation_index,
+            pool_id=pool_id,
+            observations=tuple(observations),
+            padding=zero_padding,
+            data_sha256="0" * 64,
+        )
+
+    scenarios = (
+        {
+            "name": "first_write_then_14_15_second_cadence",
+            "state": make_state(initialized=False, observation_index=0),
+            "updates": (
+                (100, 10),
+                (114, 2),
+                (115, 2),
+            ),
+        },
+        {
+            "name": "ring_wrap_and_i64_cumulative_wrap",
+            "state": make_state(
+                initialized=True,
+                observation_index=99,
+                overrides=((99, 100, (1 << 63) - 3),),
+            ),
+            "updates": ((115, 1),),
+        },
+        {
+            "name": "backward_timestamp_noop",
+            "state": make_state(
+                initialized=True,
+                observation_index=4,
+                overrides=((4, 100, 77),),
+            ),
+            "updates": ((90, 9),),
+        },
+        {
+            "name": "maximum_valid_timestamp_tick_product",
+            "state": make_state(
+                initialized=True,
+                observation_index=0,
+                overrides=((0, 0, 0),),
+            ),
+            "updates": ((0xFFFFFFFF, 0x7FFFFFFF),),
+        },
+    )
+
+    vectors = []
+    for scenario in scenarios:
+        state = scenario["state"]
+        initial = {
+            "initialized": state.initialized,
+            "recent_epoch": state.recent_epoch,
+            "observation_index": state.observation_index,
+            "pool_id": state.pool_id,
+            "observations": [
+                {
+                    "index": index,
+                    "block_timestamp": observation.block_timestamp,
+                    "tick_cumulative": observation.tick_cumulative,
+                }
+                for index, observation in enumerate(state.observations)
+                if observation.block_timestamp or observation.tick_cumulative
+            ],
+        }
+        updates = []
+        for timestamp, tick in scenario["updates"]:
+            state = apply_raydium_observation_update(
+                state, block_timestamp=timestamp, tick=tick
+            )
+            updates.append({
+                "block_timestamp": timestamp,
+                "tick": tick,
+                "expected": {
+                    "initialized": state.initialized,
+                    "observation_index": state.observation_index,
+                    "observations": [
+                        {
+                            "index": index,
+                            "block_timestamp": observation.block_timestamp,
+                            "tick_cumulative": observation.tick_cumulative,
+                        }
+                        for index, observation in enumerate(state.observations)
+                        if observation.block_timestamp or observation.tick_cumulative
+                    ],
+                },
+            })
+        vectors.append({
+            "name": scenario["name"],
+            "initial": initial,
+            "updates": updates,
+        })
+    return vectors
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -576,6 +696,7 @@ def build_vectors() -> dict:
         "tick_crossing": tick_crossing_vectors(),
         "pool_finalization": pool_finalization_vectors(),
         "tick_array_bitmap": tick_array_bitmap_vectors(),
+        "observation_updates": observation_update_vectors(),
     }
 
 
