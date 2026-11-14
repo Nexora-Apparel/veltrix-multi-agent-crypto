@@ -673,37 +673,47 @@ fn python_reward_update_vectors_match_pinned_raydium_pool_state() {
         pool.update_reward_infos(parse_u64(&fixture["timestamp"]))
             .expect("pinned PoolState::update_reward_infos");
         let actual = &pool.reward_infos[0];
+        // RewardInfo is a packed zero-copy account type. Copy each field into
+        // aligned locals before assert macros take references to the values.
+        let actual_reward_state = actual.reward_state;
+        let actual_open_time = actual.open_time;
+        let actual_end_time = actual.end_time;
+        let actual_last_update_time = actual.last_update_time;
+        let actual_emissions = actual.emissions_per_second_x64;
+        let actual_total_emitted = actual.reward_total_emitted;
+        let actual_claimed = actual.reward_claimed;
+        let actual_mint = actual.token_mint;
+        let actual_vault = actual.token_vault;
+        let actual_authority = actual.authority;
+        let actual_growth = actual.reward_growth_global_x64;
         let expected = &fixture["expected"];
         assert_eq!(
-            actual.reward_state,
+            actual_reward_state,
             expected["reward_state"].as_u64().unwrap() as u8,
             "{} reward state",
             fixture["name"].as_str().unwrap()
         );
-        assert_eq!(actual.open_time, parse_u64(&expected["open_time"]));
-        assert_eq!(actual.end_time, parse_u64(&expected["end_time"]));
+        assert_eq!(actual_open_time, parse_u64(&expected["open_time"]));
+        assert_eq!(actual_end_time, parse_u64(&expected["end_time"]));
         assert_eq!(
-            actual.last_update_time,
+            actual_last_update_time,
             parse_u64(&expected["last_update_time"]),
             "{} last update time",
             fixture["name"].as_str().unwrap()
         );
+        assert_eq!(actual_emissions, parse_u128(&expected["emissions_per_second_x64"]));
         assert_eq!(
-            actual.emissions_per_second_x64,
-            parse_u128(&expected["emissions_per_second_x64"])
-        );
-        assert_eq!(
-            actual.reward_total_emitted,
+            actual_total_emitted,
             parse_u64(&expected["reward_total_emitted"]),
             "{} total emitted",
             fixture["name"].as_str().unwrap()
         );
-        assert_eq!(actual.reward_claimed, parse_u64(&expected["reward_claimed"]));
-        assert_eq!(actual.token_mint, parse_pubkey(&expected["token_mint"]));
-        assert_eq!(actual.token_vault, parse_pubkey(&expected["token_vault"]));
-        assert_eq!(actual.authority, parse_pubkey(&expected["authority"]));
+        assert_eq!(actual_claimed, parse_u64(&expected["reward_claimed"]));
+        assert_eq!(actual_mint, parse_pubkey(&expected["token_mint"]));
+        assert_eq!(actual_vault, parse_pubkey(&expected["token_vault"]));
+        assert_eq!(actual_authority, parse_pubkey(&expected["authority"]));
         assert_eq!(
-            actual.reward_growth_global_x64,
+            actual_growth,
             parse_u128(&expected["reward_growth_global_x64"]),
             "{} reward growth",
             fixture["name"].as_str().unwrap()
