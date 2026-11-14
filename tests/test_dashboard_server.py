@@ -63,7 +63,11 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         )
         page = urlopen(request).read().decode("utf-8")
         assert "VELTRIX" in page
-        assert "SIMULATION ONLY" in page
+        assert "PAPER LIVE" in page
+        assert "data-screen=\"trades\"" in page
+        assert "data-screen=\"agents\"" in page
+        assert "data-screen=\"wallet\"" in page
+        assert "id=\"search-open\"" in page
 
         request = Request(
             base + "/assets/dashboard.js",
