@@ -22,6 +22,11 @@ from .execution_policy import (
 )
 from .emergency_stop import SQLiteEmergencyStop
 from .submission_coordinator import ExecutionState, SubmissionCoordinator
+from .solana_message_decoder import (
+    AddressLookupTableSnapshot,
+    SolanaMessageDecodeError,
+    decode_unsigned_transaction,
+)
 
 
 _HEX_256 = re.compile(r"^[0-9a-f]{64}$")
@@ -69,6 +74,7 @@ def _canonical_json(value: dict) -> bytes:
 class ExecutionIntent:
     intent_id: str
     expected_message_hash: str
+    expected_raw_message_sha256: str
     chain: str
     wallet_public_key: str
     input_mint: str
@@ -88,6 +94,7 @@ class ExecutionIntent:
             if not isinstance(value, str) or not value or value.strip() != value:
                 raise ExecutionGateError(f"invalid_{name}")
         _digest(self.expected_message_hash, "expected_message_hash")
+        _digest(self.expected_raw_message_sha256, "expected_raw_message_sha256")
         if self.input_mint == self.output_mint:
             raise ExecutionGateError("identical_input_output_mints")
         for name in ("input_base_units", "requested_exposure_base_units", "minimum_output_base_units", "expires_at_ms"):
@@ -109,6 +116,7 @@ class ExecutionIntent:
         return _canonical_json({
             "intent_id": self.intent_id,
             "expected_message_hash": self.expected_message_hash,
+            "expected_raw_message_sha256": self.expected_raw_message_sha256,
             "chain": self.chain,
             "wallet_public_key": self.wallet_public_key,
             "input_mint": self.input_mint,
@@ -168,6 +176,8 @@ class UnsignedTransactionPlan:
     instructions: tuple[InstructionPlan, ...]
     account_effects: tuple[AccountEffect, ...]
     message_hash: str
+    raw_message_sha256: str
+    raw_transaction_bytes: bytes
 
     def canonical_payload(self) -> bytes:
         return _canonical_json({
@@ -183,6 +193,7 @@ class UnsignedTransactionPlan:
             "priority_fee_base_units": self.priority_fee_base_units,
             "recent_blockhash": self.recent_blockhash,
             "blockhash_expires_at_ms": self.blockhash_expires_at_ms,
+            "raw_message_sha256": self.raw_message_sha256,
             "instructions": [
                 {
                     "program_id": item.program_id,
@@ -234,6 +245,7 @@ class SimulationReceipt:
     intent_id: str
     chain: str
     message_hash: str
+    raw_message_sha256: str
     succeeded: bool
     slot: int
     simulated_at_ms: int
@@ -243,7 +255,10 @@ class SimulationReceipt:
 
 
 class TransactionValidator:
-    """Validate a normalized unsigned instruction/effect manifest, not raw bytes."""
+    """Bind a normalized manifest to exact decoded unsigned bytes, then apply safety policy.
+
+This still does not independently derive program-specific account effects.
+"""
 
     @staticmethod
     def validate(
@@ -252,6 +267,7 @@ class TransactionValidator:
         policy: ExecutionPolicy,
         *,
         now_ms: int,
+        lookup_tables: dict[str, AddressLookupTableSnapshot] | None = None,
     ) -> None:
         if policy.mode is not ExecutionMode.LIVE:
             raise ExecutionGateError("paper_only_policy")
@@ -286,7 +302,9 @@ class TransactionValidator:
             raise ExecutionGateError("transaction_manifest_hash_mismatch")
         if not hmac_compare(plan.message_hash, intent.expected_message_hash):
             raise ExecutionGateError("transaction_not_bound_to_authorized_intent")
-
+        _digest(plan.raw_message_sha256, "raw_message_sha256")
+        if not hmac_compare(plan.raw_message_sha256, intent.expected_raw_message_sha256):
+            raise ExecutionGateError("raw_message_not_bound_to_authorized_intent")
         allowed_programs = set(policy.allowed_program_ids) & set(intent.expected_program_ids)
         swap_count = 0
         compute_budget_count = 0
@@ -313,6 +331,30 @@ class TransactionValidator:
             if len(set(instruction.accounts)) != len(instruction.accounts):
                 raise ExecutionGateError("duplicate_instruction_account")
             _digest(instruction.data_hash, "instruction_data_hash")
+        if not isinstance(plan.raw_transaction_bytes, bytes) or not plan.raw_transaction_bytes:
+            raise ExecutionGateError("raw_transaction_bytes_missing")
+        try:
+            decoded = decode_unsigned_transaction(
+                plan.raw_transaction_bytes,
+                lookup_tables=lookup_tables,
+            )
+        except SolanaMessageDecodeError:
+            raise ExecutionGateError("raw_transaction_decode_failed") from None
+        if not hmac_compare(decoded.message_sha256, plan.raw_message_sha256):
+            raise ExecutionGateError("raw_transaction_digest_mismatch")
+        if decoded.fee_payer != intent.wallet_public_key:
+            raise ExecutionGateError("raw_transaction_fee_payer_mismatch")
+        if decoded.recent_blockhash != plan.recent_blockhash:
+            raise ExecutionGateError("raw_transaction_blockhash_mismatch")
+        if len(decoded.instructions) != len(plan.instructions):
+            raise ExecutionGateError("raw_transaction_instruction_count_mismatch")
+        for decoded_instruction, planned_instruction in zip(decoded.instructions, plan.instructions):
+            if (
+                decoded_instruction.program_id != planned_instruction.program_id
+                or decoded_instruction.accounts != planned_instruction.accounts
+                or decoded_instruction.data_sha256 != planned_instruction.data_hash
+            ):
+                raise ExecutionGateError("raw_transaction_instruction_binding_mismatch")
         if swap_count != 1:
             raise ExecutionGateError("expected_exactly_one_swap_instruction")
         if compute_budget_count > 2:
@@ -455,6 +497,9 @@ class SimulationGate:
             raise ExecutionGateError("simulation_scope_mismatch")
         if receipt.message_hash != plan.message_hash:
             raise ExecutionGateError("simulation_message_mismatch")
+        _digest(receipt.raw_message_sha256, "simulation_raw_message_sha256")
+        if not hmac_compare(receipt.raw_message_sha256, plan.raw_message_sha256):
+            raise ExecutionGateError("simulation_raw_message_mismatch")
         _integer(receipt.slot, "simulation_slot", minimum=1)
         stamp = _integer(receipt.simulated_at_ms, "simulation_timestamp", minimum=1)
         age = now_ms - stamp
@@ -528,6 +573,7 @@ class ExecutionSafetyPipeline:
         risk: RiskSnapshot,
         simulation: SimulationReceipt,
         authorization: OperatorAuthorization | None,
+        lookup_tables: dict[str, AddressLookupTableSnapshot] | None = None,
     ) -> ExecutionPreparation:
         now_ms = self.clock_ms()
         _integer(now_ms, "clock", minimum=1)
@@ -556,7 +602,9 @@ class ExecutionSafetyPipeline:
             except Exception:
                 raise ExecutionGateError("emergency_stop_unavailable") from None
 
-            TransactionValidator.validate(intent, plan, self.policy, now_ms=now_ms)
+            TransactionValidator.validate(
+                intent, plan, self.policy, now_ms=now_ms, lookup_tables=lookup_tables
+            )
             self.coordinator.transition(
                 intent.intent_id, expected_state=ExecutionState.CREATED,
                 next_state=ExecutionState.VALIDATED, occurred_at_ms=now_ms,

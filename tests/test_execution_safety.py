@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import sqlite3
 import re
+import hashlib
 
 import pytest
 
@@ -39,9 +40,72 @@ from veltrix.submission_coordinator import (
 
 NOW_MS = 1_000_000
 KEY = b"execution-safety-test-key-32-bytes!!"
-WALLET = "wallet-public-key"
-INPUT_MINT = "input-mint"
-OUTPUT_MINT = "output-mint"
+
+
+def _pubkey(byte):
+    return bytes([byte]) * 32
+
+
+def _b58(raw):
+    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
+    value = int.from_bytes(raw, "big")
+    encoded = ""
+    while value:
+        value, remainder = divmod(value, 58)
+        encoded = alphabet[remainder] + encoded
+    return "1" * zeros + (encoded or ("" if zeros else "1"))
+
+
+def _compact(value):
+    result = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            result.append(byte | 0x80)
+        else:
+            result.append(byte)
+            return bytes(result)
+
+
+def _compiled(program_index, account_indices, data):
+    return (
+        bytes([program_index])
+        + _compact(len(account_indices))
+        + bytes(account_indices)
+        + _compact(len(data))
+        + data
+    )
+
+
+def _raw_message():
+    # Static keys: fee payer, token accounts, pool vault, swap program, compute program.
+    keys = (_pubkey(1), _pubkey(5), _pubkey(6), _pubkey(7), _pubkey(2), _pubkey(8))
+    return (
+        bytes([1, 0, 2])
+        + _compact(len(keys))
+        + b"".join(keys)
+        + _pubkey(9)
+        + _compact(2)
+        + _compiled(4, (1, 2, 3), b"swap")
+        + _compiled(5, (0,), b"compute")
+    )
+
+
+def _raw_transaction():
+    message = _raw_message()
+    return _compact(1) + bytes(64) + message
+
+
+WALLET = _b58(_pubkey(1))
+INPUT_MINT = _b58(_pubkey(3))
+OUTPUT_MINT = _b58(_pubkey(4))
+WALLET_IN = _b58(_pubkey(5))
+WALLET_OUT = _b58(_pubkey(6))
+POOL_VAULT = _b58(_pubkey(7))
+SWAP_PROGRAM = _b58(_pubkey(2))
+COMPUTE_PROGRAM = _b58(_pubkey(8))
 
 
 def live_policy():
@@ -55,7 +119,7 @@ def live_policy():
         max_slippage_bps=100,
         max_priority_fee_base_units=50,
         max_market_data_age_ms=5_000,
-        allowed_program_ids=("swap-program", "compute-budget-program"),
+        allowed_program_ids=(SWAP_PROGRAM, COMPUTE_PROGRAM),
     )
 
 
@@ -63,6 +127,7 @@ def _make_base_intent():
     return ExecutionIntent(
         intent_id="intent-0001",
         expected_message_hash="0" * 64,
+        expected_raw_message_sha256="e" * 64,
         chain="solana-devnet",
         wallet_public_key=WALLET,
         input_mint=INPUT_MINT,
@@ -73,8 +138,8 @@ def _make_base_intent():
         max_slippage_bps=100,
         max_priority_fee_base_units=40,
         expires_at_ms=NOW_MS + 10_000,
-        allowed_accounts=("wallet-in", "wallet-out", "pool-vault", "fee-payer"),
-        expected_program_ids=("swap-program", "compute-budget-program"),
+        allowed_accounts=(WALLET_IN, WALLET_OUT, POOL_VAULT, WALLET),
+        expected_program_ids=(SWAP_PROGRAM, COMPUTE_PROGRAM),
     )
 
 
@@ -90,33 +155,36 @@ def _make_plan_for_intent(intent):
         expected_output_base_units=950,
         slippage_bps=75,
         priority_fee_base_units=10,
-        recent_blockhash="recent-blockhash",
+        recent_blockhash=_b58(_pubkey(9)),
         blockhash_expires_at_ms=NOW_MS + 4_000,
         instructions=(
             InstructionPlan(
-                "swap-program", "SWAP",
-                ("wallet-in", "wallet-out", "pool-vault"),
-                "a" * 64,
+                SWAP_PROGRAM, "SWAP",
+                (WALLET_IN, WALLET_OUT, POOL_VAULT),
+                hashlib.sha256(b"swap").hexdigest(),
             ),
             InstructionPlan(
-                "compute-budget-program", "COMPUTE_BUDGET",
-                ("fee-payer",), "b" * 64,
+                COMPUTE_PROGRAM, "COMPUTE_BUDGET",
+                (WALLET,), hashlib.sha256(b"compute").hexdigest(),
             ),
         ),
         account_effects=(
-            AccountEffect("wallet-in", "wallet_input", INPUT_MINT, WALLET, -1_000),
-            AccountEffect("wallet-out", "wallet_output", OUTPUT_MINT, WALLET, 950),
-            AccountEffect("pool-vault", "pool_vault", INPUT_MINT, "pool-owner", 1_000),
-            AccountEffect("fee-payer", "fee_payer", None, WALLET, -10),
+            AccountEffect(WALLET_IN, "wallet_input", INPUT_MINT, WALLET, -1_000),
+            AccountEffect(WALLET_OUT, "wallet_output", OUTPUT_MINT, WALLET, 950),
+            AccountEffect(POOL_VAULT, "pool_vault", INPUT_MINT, "pool-owner", 1_000),
+            AccountEffect(WALLET, "fee_payer", None, WALLET, -10),
         ),
         message_hash="0" * 64,
+        raw_message_sha256=hashlib.sha256(_raw_message()).hexdigest(),
+        raw_transaction_bytes=_raw_transaction(),
     )
     return replace(plan, message_hash=plan.computed_message_hash())
 
 
 def make_intent():
     base = _make_base_intent()
-    return replace(base, expected_message_hash=_make_plan_for_intent(base).message_hash)
+    plan = _make_plan_for_intent(base)
+    return replace(base, expected_message_hash=plan.message_hash, expected_raw_message_sha256=plan.raw_message_sha256)
 
 
 def make_plan(intent=None):
@@ -151,6 +219,7 @@ def make_simulation(intent=None, plan=None, **overrides):
         "intent_id": intent.intent_id,
         "chain": intent.chain,
         "message_hash": plan.message_hash,
+        "raw_message_sha256": plan.raw_message_sha256,
         "succeeded": True,
         "slot": 123,
         "simulated_at_ms": NOW_MS,
@@ -252,6 +321,8 @@ def test_default_environment_policy_cannot_enter_live_pipeline(tmp_path):
         ("authority_change", "authority_or_delegate_change"),
         ("wallet_delta", "wallet_input_delta_mismatch"),
         ("message_hash", "transaction_manifest_hash_mismatch"),
+        ("raw_message_hash", "raw_message_not_bound_to_authorized_intent"),
+        ("raw_transaction_tamper", "raw_transaction_digest_mismatch"),
         ("authorized_intent_substitution", "transaction_not_bound_to_authorized_intent"),
         ("stale_blockhash", "blockhash_stale_or_unbounded"),
         ("fee_credit", "fee_payer_delta_not_debit"),
@@ -280,6 +351,12 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, message_hash=plan.computed_message_hash())
     elif mutation == "message_hash":
         plan = replace(plan, message_hash="f" * 64)
+    elif mutation == "raw_message_hash":
+        plan = replace(plan, raw_message_sha256="f" * 64, message_hash="0" * 64)
+        plan = replace(plan, message_hash=plan.computed_message_hash())
+    elif mutation == "raw_transaction_tamper":
+        tampered = plan.raw_transaction_bytes[:-1] + bytes([plan.raw_transaction_bytes[-1] ^ 1])
+        plan = replace(plan, raw_transaction_bytes=tampered)
     elif mutation == "authorized_intent_substitution":
         plan = replace(plan, recent_blockhash="substituted-blockhash", message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
@@ -299,7 +376,7 @@ def test_transaction_validator_rejects_adversarial_manifests(mutation, reason):
         plan = replace(plan, account_effects=plan.account_effects[:-1], message_hash="0" * 64)
         plan = replace(plan, message_hash=plan.computed_message_hash())
 
-    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash", "fee_credit", "fee_limit", "missing_fee_effect"}:
+    if mutation in {"unknown_program", "unexpected_account", "authority_change", "wallet_delta", "stale_blockhash", "fee_credit", "fee_limit", "missing_fee_effect", "raw_message_hash"}:
         intent = replace(intent, expected_message_hash=plan.message_hash)
     with pytest.raises(ExecutionGateError, match=reason):
         TransactionValidator.validate(intent, plan, live_policy(), now_ms=NOW_MS)
@@ -332,6 +409,7 @@ def test_risk_gate_rejects_missing_stale_or_over_limit_evidence(overrides, reaso
         ({"output_base_units": 951}, "simulated_output_mismatch"),
         ({"fee_base_units": 51}, "simulated_fee_limit_exceeded"),
         ({"message_hash": "f" * 64}, "simulation_message_mismatch"),
+        ({"raw_message_sha256": "f" * 64}, "simulation_raw_message_mismatch"),
     ],
 )
 def test_simulation_gate_rejects_failed_stale_or_mismatched_receipts(overrides, reason):
@@ -488,9 +566,11 @@ def test_execution_audit_hash_chain_detects_offline_tampering(tmp_path):
     )
     store.fail("intent-tamper", occurred_at_ms=NOW_MS + 2, reason_code="gate_failed")
     audit = ExecutionAuditStore(store.database_path)
-    events = audit.events("intent-tamper")
+    all_events = audit.events()
+    events = [event for event in all_events if event["intent_id"] == "intent-tamper"]
     assert len(events) == 2
-    assert events[1]["previous_event_hash"] == events[0]["event_hash"]
+    # The audit hash chain is global across intents, not partitioned per intent.
+    assert all_events[2]["previous_event_hash"] == all_events[1]["event_hash"]
 
     with sqlite3.connect(store.database_path) as db:
         db.execute("DROP TRIGGER execution_audit_no_update")
@@ -681,7 +761,7 @@ def test_transaction_validator_rejects_duplicate_instruction_accounts():
     intent = make_intent()
     plan = make_plan(intent)
     instructions = (
-        replace(plan.instructions[0], accounts=("wallet-in", "wallet-in", "pool-vault")),
+        replace(plan.instructions[0], accounts=(WALLET_IN, WALLET_IN, POOL_VAULT)),
         plan.instructions[1],
     )
     tampered = replace(plan, instructions=instructions, message_hash="0" * 64)

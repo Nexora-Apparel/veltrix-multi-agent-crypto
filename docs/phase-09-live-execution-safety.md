@@ -120,7 +120,7 @@ Implemented in `veltrix/emergency_stop.py` and `veltrix/submission_coordinator.p
 
 ### Current Stage 09 boundary
 
-The Stage 09 implementation is a safety-gate kernel, not a live trading release. Runtime environment construction still resolves to PAPER and rejects truthy or malformed `LIVE_TRADING`. The live-risk approval state is not produced by the existing risk pipeline. The raw Solana message decoder, signer adapter, submission adapter and settlement reconciliation are intentionally not implemented. Existing Phase 09 Raydium/Devnet draft branches remain isolated and unmerged.
+The Stage 09 implementation is a safety-gate kernel, not a live trading release. Runtime environment construction still resolves to PAPER and rejects truthy or malformed `LIVE_TRADING`. The live-risk approval state is not produced by the existing risk pipeline. The raw Solana message decoder and byte-to-manifest binding are implemented in the Stage 09.4/09.5 workstream. Program-specific semantic decoding, provenance-verified account-state acquisition, effect reconstruction, signer adapter, submission adapter and settlement reconciliation remain intentionally absent. Existing Phase 09 Raydium/Devnet draft branches remain isolated and unmerged.
 
 See `docs/phase-09-operator-checklist.md` for the future manual safety checklist. It does not request or require the user to expose any wallet secret.
 
@@ -140,4 +140,120 @@ See `docs/phase-09-operator-checklist.md` for the future manual safety checklist
 - [ ] Post-merge CI passes on main.
 - [ ] Independent security review signs off the exact diff and threat model.
 
-The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Raw serialized Solana transaction decoding, a real signer, RPC submission and settlement reconciliation remain intentionally absent. Therefore Stage 09 safety controls are implemented, but live execution and final release are not complete or enabled.
+The safety kernel can prepare an auditable AUTHORIZED record but cannot sign or submit. Structural raw legacy/v0 message decoding, ALT resolution, exact raw-message intent commitment and byte-to-manifest instruction parity are implemented in the Stage 09.4/09.5 workstream. Program-specific semantic instruction decoding and independently derived account-effect reconstruction remain incomplete. A real signer, RPC submission adapter and settlement reconciler remain absent. Therefore Stage 09 safety controls are implemented in part, but live execution and final release are not complete or enabled.
+
+
+### 09.4 — raw unsigned Solana message decoding (implementation in review)
+
+Added `veltrix/solana_message_decoder.py` and focused adversarial coverage in
+`tests/test_solana_message_decoder.py`.
+
+- Parses the serialized transaction signature vector and legacy/v0 message wire format directly; does not accept a caller-normalized instruction manifest as its source of truth.
+- Requires signature-slot count to match the message header and every signature slot to remain zero. Already-signed transactions are rejected.
+- Enforces canonical compact-u16 lengths, bounded transaction/instruction/lookup counts, exact message consumption, valid signer/read-only header relationships, static fee-payer presence, and in-range compiled instruction indices.
+- Reconstructs v0 account ordering as static keys, all loaded writable addresses, then all loaded readonly addresses. Program IDs must resolve to static keys.
+- Resolves each ALT only from a caller-supplied raw account snapshot whose address matches the message key and whose owner is the canonical Address Lookup Table program. It parses the 56-byte metadata prefix, rejects uninitialized/deactivated tables, out-of-range/duplicate indices, snapshots preceding the last extension, and same-slot addresses that have not completed warm-up.
+- Commits to exact message bytes and full transaction bytes with SHA-256; exposes ordered instruction program IDs, account indices/keys, raw data and per-instruction data hashes.
+- No RPC fetcher, signer, submitter, broadcaster, token-program decoder, swap-program decoder, or account-effect inference is included in this module.
+
+This is a structural wire decoder and ALT resolver, not a complete semantic transaction approval. Program-specific instruction decoding, account-state provenance verification, exact effect reconstruction, and integration with `TransactionValidator` remain separate acceptance gates. Exact-head GitHub Actions run `43544982357` passed: `compileall` succeeded and pytest reported **929 passed, 5 skipped**. The five skipped tests are the repository's live-provider smoke tests; no external live-provider evidence was produced.
+
+
+
+### 09.5 — semantic transaction binding audit (in progress)
+
+Repository inspection on `work/phase-9-raw-message-decoder` established the following implementation boundary:
+
+- The current order path is `JupiterSwapV2OrderAdapter` in `veltrix/jupiter_order.py`. Its configured preflight permits only the Jupiter `metis` router; alternate Jupiter routers are explicitly withheld pending independent semantic decoders.
+- The adapter validates the returned unsigned v0 envelope, taker/fee-payer, mint pair, amounts, fee fields and Jupiter route-plan metadata. The route plan is provider metadata; it is not a decoded proof of the compiled instruction semantics or resulting token-account mutations.
+- `veltrix/providers/solana_liquidity_reader.py` identifies Raydium AMM V4 (`675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`) and Raydium CPMM (`CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`) for pool inventory. That reader's pool-state layouts do not constitute swap-instruction decoders. Its UNCX lock reader is not a swap adapter.
+- Classic SPL Token and Token-2022 program IDs appear in the liquidity reader for token-account inventory/custody checks. Their presence does not establish that execution instructions are semantically decoded.
+- No repository implementation was found that decodes the exact Jupiter/DEX compiled swap instructions and independently reconstructs their token-account, authority, pool-vault, fee and output effects from verified account state. The supported transaction-program set is therefore not yet certified for execution.
+
+**Critical hash-domain distinction:**
+
+- `ExecutionIntent.expected_message_hash` is currently compared by `TransactionValidator` to `UnsignedTransactionPlan.message_hash`.
+- `UnsignedTransactionPlan.computed_message_hash()` hashes the canonical JSON payload of the normalized plan (instructions and caller-supplied effects). It is not the SHA-256 of serialized Solana message bytes.
+- The Stage 09.4 decoder separately computes `DecodedSolanaTransaction.message_sha256` from the exact raw message bytes. That value is not yet an authorization field checked by `TransactionValidator`.
+- Do not rename or silently repurpose the existing manifest hash. Add a distinct intent-bound raw-message commitment and verify it against the exact decoded bytes. The normalized manifest commitment must remain a separate domain.
+
+**09.5 implementation progress — separate commitment field added (not yet decoder-integrated):**
+
+- `ExecutionIntent.expected_raw_message_sha256` is now a required, validated field included in the canonical intent payload and therefore in the operator-authorization intent hash.
+- `UnsignedTransactionPlan.raw_message_sha256` is a separate field from `message_hash`; the raw digest is included in the canonical manifest payload, while `message_hash` retains its existing normalized-manifest meaning.
+- `TransactionValidator` rejects a plan whose raw digest differs from the intent-bound raw digest.
+- `UnsignedTransactionPlan` now carries the exact serialized unsigned transaction bytes separately from its canonical plan fields. The bytes themselves are not copied into the canonical manifest; the exact message SHA-256 is the commitment.
+- The validator invokes the Stage 09.4 wire decoder itself, accepts caller-supplied raw ALT snapshots for v0, and verifies the decoder's exact message SHA-256, fee payer, recent blockhash, instruction count, ordered program IDs, ordered account keys and instruction-data hashes against the plan.
+- Unknown/unapproved program IDs and account policy violations are rejected before instruction parity can be used to legitimize a caller-mutated manifest.
+- `SimulationReceipt` carries the raw-message digest separately, and `SimulationGate` requires it to match the plan.
+- Adversarial tests cover raw-digest substitution, serialized-byte tampering and duplicate account rejection independently from normalized-manifest hash substitution.
+
+**Important limitation:** this is structural raw-byte-to-plan binding, not program-specific semantic transaction approval. The validator still consumes caller-supplied normalized account effects; it does not independently derive SPL Token/Token-2022 transfers, Jupiter route execution, pool/vault movements, authority effects or fee/output effects from verified account snapshots. ALT snapshots are structurally checked by the decoder but their RPC provenance is not yet authenticated by an internal fetcher. Do not enable signing. The next implementation must add strict semantic decoders and reconstruct account effects from provenance-checked, same-context account state.
+
+**Program-specific semantic decoder inventory (research only; not yet approved):**
+
+- The current order adapter is Jupiter Swap API V2 `/order` and locally restricts the router to `metis`. Jupiter's current V2 documentation distinguishes the Meta-Aggregator `/order` path (multiple routers) from the Metis-only Router `/build` path. This local Metis restriction must remain enforced; a provider route label is not a semantic proof of the compiled transaction.
+- The Jupiter V6 program candidate is `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4`. Jupiter's own `jup-ag/instruction-parser` repository publishes a V6 IDL and parser for route instruction families, including route, shared-account and exact-out variants. This is a starting specification, not yet an approved decoder for the exact V2 order payload.
+- The repository's Raydium AMM V4 and CPMM program IDs remain pool-inventory identifiers only. No Raydium swap-instruction semantic adapter has been accepted.
+- The Jupiter V6 route IDL contains many DEX variants, including variants with additional serialized fields. A parser must reject unsupported discriminators, variants, account layouts and invoked programs. It must not infer DEX identity from Jupiter's routePlan label or trust provider metadata as a substitute for the compiled instruction bytes.
+
+Reference specifications reviewed:
+- [Jupiter Swap API V2 architecture and routing paths](https://developers.jup.ag/docs/swap/index.md)
+- [Jupiter V6 instruction parser and IDL](https://github.com/jup-ag/instruction-parser)
+
+**Required implementation order before any signer work:**
+
+1. Extend the authorized intent contract to bind the exact raw message SHA-256 independently from the canonical manifest SHA-256; update canonical serialization, authorization and persistence tests.
+2. Build a strict semantic decoder registry. Unknown program IDs, instruction discriminators, account layouts and unsupported route variants must reject.
+3. Derive the normalized instruction plan and account effects only from decoded bytes plus independently verified, same-context account snapshots. Never accept caller-provided effects as authoritative.
+4. Bind the decoder output, exact raw message hash, ordered program/account keys and account-state commitments to the intent; then pass the derived plan through the existing `TransactionValidator` without weakening any existing checks.
+5. Add adversarial tests for wrong mint/vault/pool, amount and destination mismatches, authority/delegate changes, unexpected token transfers, fee/slippage mismatch, account aliasing, stale or inconsistent state, unknown programs and unsupported instructions.
+6. Run exact-head CI and obtain independent review of the semantic decoders and threat model.
+
+**Release status:** Stage 09.5 is not complete. No production-ready semantic swap decoder or authoritative account-effect reconstruction is present. The current validator's normalized-manifest hash must not be mistaken for a raw-message commitment. Phantom signing, transaction submission, broadcasting and Mainnet execution remain disabled.
+
+
+### 09.5 — Jupiter V6 route-data decoder (structural milestone only)
+
+Added `veltrix/jupiter_v6_instruction_decoder.py` with adversarial coverage in
+`tests/test_jupiter_v6_instruction_decoder.py`.
+
+- Pins the Jupiter V6 program address and the Anchor route-family discriminators for `route`, `shared_accounts_route`, `exact_out_route`, and `shared_accounts_exact_out_route`.
+- Parses the Borsh route-step vector and the `Swap` enum using the variant ordering and serialized fields from the Jupiter instruction-parser IDL.
+- Handles the route ID on shared-account variants, exact-in/exact-out amount fields, slippage and platform-fee fields, enum payloads, and the optional `WhirlpoolSwapV2.remainingAccountsInfo` field.
+- Rejects wrong program IDs, unsupported discriminators, unknown enum ordinals, truncated payloads, noncanonical bool/option/side values, invalid vector bounds, invalid amounts/slippage, and trailing bytes.
+- The returned object explicitly marks `semantic_coverage="jupiter_outer_instruction_only"` and `execution_approved=false`.
+
+**This is not a semantic swap approval.** The decoder is not yet wired into `TransactionValidator`; it does not validate the Jupiter account-meta layout, CPI inner instructions, nested DEX instruction bytes, token-program behavior, mint/vault relationships, or resulting account effects. The parser's decoded route enum is not proof that any DEX variant is safe. No caller-supplied routePlan metadata is used as a substitute for transaction bytes. No signing or submission behavior is added.
+
+Specification source inspected through GitHub: `jup-ag/instruction-parser/src/idl/jupiter.ts`, blob `4273e9f0f34a3d4d29e035fe37e88d6c80b634b5`. The repository's IDL is a wire-layout reference only; a separate version/deployment compatibility check and independent DEX adapters remain required.
+
+
+### 09.5 — same-context account-state acquisition (provenance primitive only)
+
+Added `veltrix/solana_account_snapshot.py` and focused tests.
+
+- Fetches up to 100 canonical account addresses through one `getMultipleAccounts` call and records the returned context slot for the entire ordered account set.
+- Requires HTTPS, rejects redirects and URL-embedded credentials, checks the RPC `getGenesisHash` against an explicitly configured expected cluster genesis hash, and uses an explicit `confirmed` or `finalized` commitment.
+- Supports `minContextSlot`, validates the response count/slot and every account's owner, lamports, executable flag, rent epoch, space and strict base64 data; missing required accounts and duplicate requested addresses fail closed.
+- Computes a per-account data hash and deterministic account-state evidence hash over the RPC origin, cluster, commitment, slot, ordered addresses and account metadata/data hashes. URL query credentials are not included in the recorded endpoint origin.
+- The snapshot is immutable and exposes exact account bytes to future program-specific decoders.
+
+**Trust boundary:** this is RPC transport/provider provenance, not a cryptographic proof that the RPC operator is honest. It is not yet wired into `TransactionValidator`, ALT acquisition, Jupiter CPI decoding, simulation receipts or account-effect reconstruction. A future integration must bind the exact snapshot hash and context slot to the intent/plan/simulation, reject stale or mismatched state, and derive effects from decoded instructions plus these exact account bytes. No signing or submission behavior is added.
+
+
+The same-context snapshot now also exposes an explicit adapter that converts requested account bytes into the raw-message decoder's `AddressLookupTableSnapshot` objects while preserving the snapshot's single RPC context slot. The adapter does not bypass the raw ALT parser: canonical ALT owner, metadata, deactivation, index, and warm-up checks remain enforced by `decode_unsigned_transaction`.
+
+
+### 09.5 — classic SPL Token wire decoder (parse-only milestone)
+
+Added `veltrix/spl_token_decoder.py` and adversarial tests.
+
+- Decodes only the classic SPL Token 165-byte Account layout and 82-byte Mint layout, including COption authority/delegate fields, state, native reserve, delegated amount, supply and decimals.
+- Decodes only classic SPL Token `Transfer` (instruction tag 3) and `TransferChecked` (tag 12), with exact instruction-data lengths and exact single-authority account layouts.
+- Rejects Token-2022, extended account layouts, multisig signer layouts, frozen/uninitialized accounts, unsupported instruction tags and malformed option tags. It preserves wire-valid u8 decimal values and zero-amount encodings without treating them as approved transfers.
+- Every decoded transfer result is marked `execution_approved=false`.
+
+The implementation follows the SPL Token interface's published base layouts and instruction packing. Token-2022 is intentionally not accepted: although its base account structures and common instruction encodings overlap, its extension model changes transfer behavior and may require extra accounts (including transfer hooks and transfer fees). Those paths need dedicated extension-aware adapters. See the upstream SPL Token interface and Token-2022 design references: `solana-program/token/interface/src/state.rs`, `solana-program/token/interface/src/instruction.rs`, and the Token-2022 extension documentation.
+
+**Not yet an account-effect reconstructor.** These decoders do not yet bind inner-CPI instructions to their parent Jupiter/DEX invocation, prove the authority/signature path, account for Token-2022 fees/hooks, or calculate verified pre/post account deltas. They are parse-only primitives and are not wired as an execution approval path. No signing or submission behavior is added.
