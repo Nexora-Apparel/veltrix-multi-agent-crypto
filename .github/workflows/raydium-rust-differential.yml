@@ -7,6 +7,7 @@ on:
       - "veltrix/raydium_clmm_swap_step_math.py"
       - "veltrix/raydium_clmm_dynamic_fee.py"
       - "veltrix/raydium_clmm_pool_state.py"
+      - "veltrix/raydium_clmm_observation.py"
       - "veltrix/raydium_clmm_limit_orders.py"
       - "veltrix/raydium_clmm_tick_arrays.py"
       - "veltrix/raydium_clmm_tick_array_mutation.py"
@@ -65,7 +66,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          work-dir: reference/raydium-clmm
+          workspaces: reference/raydium-clmm -> reference/raydium-clmm/target
 
       - name: Run pinned Rust differential oracle
         env:
