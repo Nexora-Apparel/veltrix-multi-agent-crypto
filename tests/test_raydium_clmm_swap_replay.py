@@ -30,7 +30,7 @@ from veltrix.raydium_clmm_swap_replay import run_raydium_clmm_swap_replay
 from veltrix.raydium_clmm_tick_math import get_sqrt_price_at_tick
 
 
-def fixture(zero_for_one=False, dynamic_fee_enabled=False):
+def fixture(zero_for_one=False, dynamic_fee_enabled=False, fifo_order_amount=0):
     program = Pubkey.from_string(RAYDIUM_CLMM_PROGRAM_ID)
     config = Pubkey.new_unique()
     mint_0, mint_1 = sorted((Pubkey.new_unique(), Pubkey.new_unique()), key=bytes)
@@ -96,9 +96,11 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False):
                 tick_index=tick_index,
                 liquidity_net=500,
                 liquidity_gross=1000,
-                orders_amount=0,
+                orders_amount=fifo_order_amount,
                 part_filled_orders_remaining=0,
                 initialized=True,
+                order_phase=0,
+                unfilled_ratio_x64=(1 << 64) if fifo_order_amount else 0,
             ))
         else:
             ticks.append(RaydiumClmmTick(
@@ -153,12 +155,13 @@ def fixture(zero_for_one=False, dynamic_fee_enabled=False):
 
 
 @pytest.mark.parametrize(
-    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled"),
+    ("zero_for_one", "is_base_input", "amount_specified", "dynamic_fee_enabled", "fifo_order_amount"),
     [
-        (False, True, 1_000_000, False),
-        (True, True, 1_000_000, False),
-        (False, False, 100, False),
-        (False, True, 1_000_000, True),
+        (False, True, 1_000_000, False, 0),
+        (True, True, 1_000_000, False, 0),
+        (False, False, 100, False, 0),
+        (False, True, 1_000_000, True, 0),
+        (False, True, 1_000_000, False, 100),
     ],
 )
 def test_single_array_swap_replay_matches_direction_and_amount_mode(
@@ -166,8 +169,9 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
     is_base_input,
     amount_specified,
     dynamic_fee_enabled,
+    fifo_order_amount,
 ):
-    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled)
+    pool, observation, snapshot = fixture(zero_for_one, dynamic_fee_enabled, fifo_order_amount)
     result = run_raydium_clmm_swap_replay(
         pool,
         observation,
@@ -222,6 +226,11 @@ def test_single_array_swap_replay_matches_direction_and_amount_mode(
         assert updated_tick.fee_growth_outside_0_x64 > 0 if zero_for_one else updated_tick.fee_growth_outside_1_x64 > 0
     else:
         assert updated_tick.liquidity_gross == 1000
+    if fifo_order_amount:
+        assert updated_tick.order_phase == 1
+        assert updated_tick.orders_amount == 0
+        assert updated_tick.part_filled_orders_remaining == 0
+        assert updated_tick.unfilled_ratio_x64 == 0
 
     assert result.tick_arrays[0].data_sha256 == hashlib.sha256(
         encode_raydium_clmm_tick_array(result.tick_arrays[0])
