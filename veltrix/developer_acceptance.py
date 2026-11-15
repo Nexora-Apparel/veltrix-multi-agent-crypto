@@ -14,7 +14,7 @@ from .providers.factory import (
     build_funding_graph_providers,
     build_holder_inventory_providers,
 )
-from .providers.launch import build_launch_origin_resolvers
+from .launch_origin import build_launch_origin_resolvers
 from .providers.signed_roots import SignedDeveloperRootProvider
 
 
