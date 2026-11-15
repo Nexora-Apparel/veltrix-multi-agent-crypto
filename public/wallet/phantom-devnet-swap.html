@@ -711,6 +711,32 @@
   function serializeTransactionMessage(tx) {
     return tx instanceof solanaWeb3.Transaction?tx.compileMessage().serialize():tx.message.serialize();
   }
+  function describeLegacyMessageDelta(reviewedWireBytes,signedWireBytes) {
+    const changes=[];
+    try {
+      const before=solanaWeb3.Transaction.from(Uint8Array.from(reviewedWireBytes)).compileMessage();
+      const after=solanaWeb3.Transaction.from(Uint8Array.from(signedWireBytes)).compileMessage();
+      const beforeHeader=before.header,afterHeader=after.header;
+      for(const key of ["numRequiredSignatures","numReadonlySignedAccounts","numReadonlyUnsignedAccounts"]) {
+        if(beforeHeader[key]!==afterHeader[key]) changes.push("header."+key);
+      }
+      if(before.recentBlockhash!==after.recentBlockhash) changes.push("recentBlockhash");
+      const beforeKeys=before.accountKeys.map(key=>key.toBase58());
+      const afterKeys=after.accountKeys.map(key=>key.toBase58());
+      if(JSON.stringify(beforeKeys)!==JSON.stringify(afterKeys)) changes.push("accountKeys");
+      if(before.instructions.length!==after.instructions.length) changes.push("instructionCount");
+      const count=Math.min(before.instructions.length,after.instructions.length);
+      for(let i=0;i<count;i++) {
+        const a=before.instructions[i],b=after.instructions[i];
+        if(a.programIdIndex!==b.programIdIndex) changes.push("instruction["+i+"].programId");
+        if(JSON.stringify(a.accounts)!==JSON.stringify(b.accounts)) changes.push("instruction["+i+"].accounts");
+        if(a.data!==b.data) changes.push("instruction["+i+"].data");
+      }
+    } catch(error) {
+      changes.push("message-decode-unavailable");
+    }
+    return changes.length?changes.slice(0,8).join(", "):"serialized-message-bytes-differ";
+  }
   function assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes) {
     if(!(reviewedMessageBytes instanceof Uint8Array)||!(signedMessageBytes instanceof Uint8Array)) {
       fail("reviewed or Phantom-signed message bytes are unavailable");
@@ -722,7 +748,8 @@
       const byteLabel=value=>value===undefined?"EOF":"0x"+value.toString(16).padStart(2,"0");
       fail("Phantom modified the reviewed message before submission; signed transaction was not broadcast. First differing message byte "+
         index+" (reviewed "+byteLabel(reviewedMessageBytes[index])+", Phantom "+byteLabel(signedMessageBytes[index])+
-        "; lengths "+reviewedMessageBytes.length+"/"+signedMessageBytes.length+")");
+        "; lengths "+reviewedMessageBytes.length+"/"+signedMessageBytes.length+
+        "); changed fields: "+describeLegacyMessageDelta(reviewedMessageBytes,signedMessageBytes));
     }
     return true;
   }
