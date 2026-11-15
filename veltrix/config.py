@@ -49,6 +49,7 @@ class Settings:
     goplus_access_token: str = os.getenv("GOPLUS_ACCESS_TOKEN", "")
     helius_api_key: str = os.getenv("HELIUS_API_KEY", "")
     alchemy_api_key: str = os.getenv("ALCHEMY_API_KEY", "")
+    etherscan_api_key: str = os.getenv("ETHERSCAN_API_KEY", "")
     solana_rpc_url: str = os.getenv("SOLANA_RPC_URL", "")
     jupiter_taker_public_key: str = os.getenv("JUPITER_TAKER_PUBLIC_KEY", DEFAULT_JUPITER_TAKER_PUBLIC_KEY)
     solana_liquidity_pool_rpc_url: str = os.getenv("SOLANA_LIQUIDITY_POOL_RPC_URL", "")
