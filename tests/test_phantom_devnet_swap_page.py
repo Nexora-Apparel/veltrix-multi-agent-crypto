@@ -52,6 +52,9 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
     assert "verifySignatures:true" in sign_test
     assert "submitted:false,broadcast:false" in sign_test
+    assert "refreshQuoteForReview" in source
+    assert "if (gateResult?.refreshed) return gateResult" in sign_test
+    assert "FRESH QUOTE READY" in source
     assert "sendRawTransaction" not in sign_test
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
     assert "EXECUTION_RELEASE_ENABLED !== true" in execute
