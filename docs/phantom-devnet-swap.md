@@ -51,10 +51,14 @@ If any freshness condition changes, the page rejects the old transaction and req
 
 ## Submission and settlement verification
 
-- Phantom's `signAndSendTransaction` is called only after the final freshness gate passes and only from the user's explicit button click.
+- Phantom's `signTransaction` is called only after the final freshness gate passes and only from the user's explicit button click.
+- This KMS compatibility path accepts legacy transactions only and rejects all v0/ALT messages before opening Phantom.
+- After Phantom signs, the browser serializes the signed transaction, verifies the signature, and compares the signed message bytes against the immutable reviewed message. Any Phantom-added/removed/reordered instruction (including ComputeBudget changes), account-key mutation, blockhash change or fee-payer change is rejected before broadcast.
+- The browser submits the exact signed bytes through the canonical Devnet RPC using `sendRawTransaction`; it does not delegate signing and submission together to Phantom's `signAndSendTransaction`.
 - The wallet owner must inspect and approve the transaction in Phantom. The page cannot approve on the user's behalf.
 - Immediately before opening Phantom, the page copies the serialized reviewed message and records its byte length and SHA-256 digest. This immutable evidence is retained in the in-flight review state before the wallet provider receives the transaction object.
 - The page waits for Devnet confirmation, retrieves the confirmed legacy transaction, and records its serialized message length and SHA-256 digest.
+- Confirmed message bytes must exactly equal the immutable reviewed message bytes. A semantic-only match is not sufficient for this exact-byte execution path; any difference is `CONFIRMED_BUT_UNVERIFIED` and must not be retried.
 - The expected semantic message is decoded directly from the immutable pre-approval message bytes using a strict legacy-message parser. It is never reconstructed from the mutable transaction object passed to Phantom. Exact message bytes produce `CONFIRMED_EXACT_MATCH`. If serialized bytes differ, the page records the first differing byte and compares the complete normalized legacy message: header, fee payer/signer policy, ordered account keys, recent blockhash, instruction count/order, program indexes, account indexes and instruction data. It also rechecks the exact CPMM input and minimum output.
 - Only if every normalized field and the signer/fee-payer/CPMM policy match may the page classify the result as `CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH`. This remains a confirmed on-chain swap and is displayed with a diagnostic warning; it is not reported as a failed transaction.
 - Any semantic difference is classified `CONFIRMED_BUT_UNVERIFIED`; no retry is offered and the signature must be inspected. A transaction with a non-null on-chain execution error is `FAILED_ON_CHAIN`; an ambiguous submission remains `SUBMISSION_STATUS_UNKNOWN`.
