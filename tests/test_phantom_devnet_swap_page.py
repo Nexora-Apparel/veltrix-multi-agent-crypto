@@ -467,6 +467,12 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
 
 
 
+def test_builder_minimum_output_error_reflects_configured_slippage():
+    source = (ROOT / "scripts/build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
+    assert 'fail("configured slippage produces a zero minimum output")' in source
+    assert "calculated 1% slippage floor is zero" not in source
+
+
 def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reserve():
     source = PAGE.read_text(encoding="utf-8")
     assert "temporaryWsolFundingLamports:rentFunding" in source
