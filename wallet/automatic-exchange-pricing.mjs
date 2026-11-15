@@ -70,7 +70,9 @@ export function calculateFeeBreakdown({
     const rate = Number(platformFeeConfig.rateBps);
     const recipient = platformFeeConfig.recipient;
     if (!Number.isInteger(rate) || rate < 1 || rate > 500 ||
-        typeof recipient !== "string" || recipient.trim().length < 32 ||
+        typeof recipient !== "string" ||
+        !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(recipient) ||
+        recipient === "11111111111111111111111111111111" ||
         platformFeeConfig.instructionVerified !== true) {
       fail("platform fee requires an explicit bounded rate, recipient and independently verified transaction instruction");
     }
