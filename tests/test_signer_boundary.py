@@ -33,8 +33,8 @@ def signed_response(**overrides):
     values = {
         "intent_id": "intent-001",
         "signer_public_key": "PublicKeyExample",
-        "chain": "solana",
-        "network": "devnet",
+        "chain": Chain.SOLANA,
+        "network": Network.DEVNET,
         "policy_hash": "a" * 64,
         "message_sha256": hashlib.sha256(b"serialized-solana-message").hexdigest(),
         "signed_transaction": b"opaque-signed-transaction",
