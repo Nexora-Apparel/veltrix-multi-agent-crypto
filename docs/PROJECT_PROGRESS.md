@@ -140,7 +140,7 @@ The following stages are marked complete because their implementation PRs are me
 - PR #13 proposes a no-card/$0 architecture using GitHub Actions standard hosted Linux runners, Turso Free and Cloudflare Pages/Workers.
 - PRs #14–#18 cover a disposable Turso DB-API probe, adapter, bounded orchestration and fencing hardening.
 - PRs #19–#22 specify/integrate a fenced one-shot pipeline. PR #22 remains open/draft.
-- PR #22's description reports remote Turso conformance run `42912477053` with five suites passing against a disposable database. This audit records that as a claim in the PR description; the workflow artifact/log was not independently re-downloaded in this pass.
+- Remote Turso conformance is independently verified from Actions run `42912477053` on `main`, commit `2d2618e` (full SHA `2d26187e5be3192cad0fda6c062e5f2bfeb034e5`): the dedicated disposable database identity check passed and all five DB-API/schema/orchestration/worker/pipeline conformance suites passed (**5 passed in 325.57s**). A separate successful run `42964334567` also exercised the integrated H1.1/H2/H3 branch at `dbdbabf18deece50e4f76075b0c0aec26f3de6a1`. This verifies the disposable Turso conformance path, not a production migration or deployment.
 - No production database migration or Cloudflare production deployment is established. SQLite remains the documented default/rollback source. The $0/no-card constraint remains a project requirement.
 
 ### Stage 09.3 — signer boundary
@@ -183,7 +183,7 @@ The runbook requires nine production read-only acceptance artifacts:
 | Developer holdings/funding | Required | Required | Required |
 | Launch bundle | Required | Required | Required |
 
-- **Current evidence record: 0/9 verified.** No successful production acceptance artifact was collected in this audit.
+- **Current evidence record: 0/9 verified.** Actions history was inspected, not merely PR descriptions. Liquidity workflow runs on the Stage 5 branches either skipped the actual finalized-state reader because required registries/RPC configuration/sample tokens were incomplete, or failed the preflight. For example, runs `43724610264` and `43725136999` concluded successfully at the job level but all three chain readers were skipped and no evidence artifact was uploaded. Latest run `43752387729` failed all three chain preflights; the actual readers were skipped and no artifacts were produced. A green workflow conclusion with a skipped reader is not acceptance. No developer/launch-bundle manual acceptance run was found in the 51 manual-dispatch runs returned by the Actions history query.
 - Solana liquidity acceptance must cover both UNCX Raydium AMM V4 and Raydium Burn & Earn CPMM. The exact deployed program hash and complete registry must be operator-pinned; no hash should be guessed.
 - Base and BSC require two independent finalized RPCs and complete factory/locker registries.
 - Developer evidence requires complete holder inventory, funding ancestry and independently reviewed signed root-identity methodology. A connector existing in code does not certify its data.
@@ -191,7 +191,7 @@ The runbook requires nine production read-only acceptance artifacts:
 - The nine-artifact aggregator must not promote trust, capability flags or execution permission.
 - Capability flags must remain false until all required chains pass and independent review is recorded.
 
-The GitHub connector tools available during this audit can inspect PR-triggered workflow runs but do not expose a complete repository Actions history or repository secret/variable inventory. Therefore this audit does not claim that production secrets are configured or missing. Secret values must never be copied into this ledger.
+The Actions run-history API was queried (6,578 total runs reported; the latest 100 plus the manual-dispatch run set were inspected), and the relevant Stage 5 run jobs/logs/artifact lists were checked. The GitHub connector does not expose repository secret/variable inventory. Workflow logs establish that specific required configuration was missing or incomplete at the time of those runs, but this audit does not infer the current state of every repository secret. Secret values must never be copied into this ledger.
 
 ## 5. Phantom / Devnet integration track
 
@@ -292,3 +292,4 @@ For every task:
 |---|---|---|---|
 | 2026-11-15 | Initial repository-wide audit and progress baseline | `main` baseline `6158a5995c7f241a7c1ba56dc20161c3fd7e4fa2`; PR heads listed above | Inspected repository metadata, stage documentation, merged/open/closed PR inventory, exact-head CI runs and failure logs. No application source code changed in this audit. Initial ledger created. |
 | 2026-11-15 | Recursive source/test/workflow inventory | `main` ledger commit `d54e4881ec93f676312cb5f6175f5424f194b069`; tree complete at subsequent ledger revision | Confirmed 213 tracked paths: 92 `veltrix/`, 86 tests, 12 docs, 16 workflow files. Reviewed main CI and key manual acceptance/preflight workflow triggers. No cron trigger found in the inspected main workflows; external schedulers and secret presence remain not checked. |
+| 2026-11-15 | Full Actions history and production acceptance audit | Actions runs `42912477053`, `42964334567`, `43724610264`, `43725136999`, `43752387729`; latest ledger CI `43754460265` | Confirmed Turso H3 disposable-database conformance: 5 passed in 325.57s. Confirmed Stage 5 liquidity workflow runs with reader steps skipped or preflight failures and no artifacts; 0/9 production evidence remains verified. Latest progress-ledger push CI completed successfully. |
