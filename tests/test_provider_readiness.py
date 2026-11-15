@@ -90,7 +90,8 @@ def test_liquidity_readiness_names_missing_chain_specific_snapshot_readers():
     assert all(any("RPC endpoints" in item and "separate" in item
                    for item in row.blockers) for row in rows.values())
     assert any("runtime hash" in item for item in rows["base"].blockers)
-    assert any("deployed program hashes" in item for item in rows["solana"].blockers)
+    assert any("UNCX V4 TokenLock and Raydium Burn & Earn CPMM program hashes" in item
+               for item in rows["solana"].blockers)
 
 
 def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit_trust():
@@ -117,7 +118,7 @@ def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
     row = next(row for row in report.claims
                if row.chain == "solana" and row.claim == "liquidity_lock")
     assert not row.configured
-    assert any("Raydium AMM V4 and CPMM executable SHA-256 hashes are required" in item
+    assert any("Raydium AMM V4, CPMM and Burn & Earn locking executable SHA-256 hashes are required" in item
                for item in row.blockers)
     assert any("Solana supported-AMM registry completeness attestation is missing" in item
                for item in row.blockers)
@@ -127,7 +128,7 @@ def test_solana_readiness_exposes_missing_cpmm_locker_adapter():
     report = build_provider_readiness(settings())
     row = next(row for row in report.claims
                if row.chain == "solana" and row.claim == "liquidity_lock")
-    assert any("no source-verifiable UNCX CPMM locker adapter exists" in item
+    assert any("Raydium Burn & Earn CPMM lock-state PDA, fee-NFT authority and LP-vault reconciliation must pass live acceptance" in item
                for item in row.blockers)
 
 
