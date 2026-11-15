@@ -1534,11 +1534,7 @@
     status("FRESH QUOTE READY. Review the updated output, automatic protection, expiry and fee breakdown. Run the sign-only test again only after reviewing the new terms.","warning");
     return {refreshed:true,reason};
   }
-  async function finalPreSignFreshnessGate(reviewStartedAtMs = Date.now()) {
-    if (!prepared || !provider || !wallet) throw new Error("No prepared transaction or connected Phantom wallet.");
-    if (!Number.isSafeInteger(reviewStartedAtMs) || reviewStartedAtMs - prepared.preparedAt > 15000) {
-      return await refreshQuoteForReview("Final review expired after 15 seconds.");
-    }
+  async function finalPreSignFreshnessGate() {
     if (prepared.walletAddress !== wallet.toBase58() ||
         !provider.publicKey || !provider.publicKey.equals(wallet) ||
         prepared.txs.length !== 1 || prepared.reviewedBytes.length !== 1) {
@@ -1621,7 +1617,7 @@
       inputMint: SOL, outputMint: USDC,
       liquidityUsd: freshLiquidityMetrics.liquidityUsd, tradeUsd: freshLiquidityMetrics.tradeUsd,
       volatilityBps: freshVolatilityBps, routeHops: 1
-    }, Date.now(), reviewStartedAtMs);
+    }, Date.now());
     if (freshness.action !== "continue_exact_review") {
       return await refreshQuoteForReview("Quote protection requires a new review: " + freshness.reason);
     }
@@ -1664,12 +1660,11 @@
     }
     if (prepared.signingTestStarted) throw new Error("Phantom signing compatibility test is already running.");
     if (prepared.signingValidatedAt) throw new Error("Phantom legacy signing has already been verified for this reviewed transaction.");
-    const reviewStartedAtMs = Date.now();
     prepared.signingTestStarted = true;
     setBusy(true);
     try {
       status("Running final Devnet freshness and exact-byte checks before a sign-only Phantom compatibility test…","muted");
-      const gateResult = await finalPreSignFreshnessGate(reviewStartedAtMs);
+      const gateResult = await finalPreSignFreshnessGate();
       if (gateResult?.refreshed) return gateResult;
       const finalTx = assertExactReviewedBytes(prepared.txs[0],prepared.reviewedBytes[0]);
       const reviewedMessageBytes = transactionMessageBytesFromWire(prepared.reviewedBytes[0]);
