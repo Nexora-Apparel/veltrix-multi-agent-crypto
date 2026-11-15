@@ -134,19 +134,21 @@
     return p;
   }
   function detectWalletCapabilities(p) {
-    if(!p || typeof p.signAndSendTransaction!=="function") return {legacy:false,reason:"signAndSendTransaction unavailable"};
+    if(!p || typeof p.signTransaction!=="function") return {legacy:false,v0:false,reason:"Phantom signTransaction is unavailable"};
     const advertised=p.supportedTransactionVersions;
-    if(advertised instanceof Set) return {legacy:advertised.has("legacy"),v0:advertised.has(0)||advertised.has("0"),source:"provider-advertised"};
-    if(Array.isArray(advertised)) return {legacy:advertised.includes("legacy"),v0:advertised.includes(0)||advertised.includes("0"),source:"provider-advertised"};
-    if(advertised==null) return {legacy:true,v0:false,source:"legacy fallback; v0 capability not advertised"};
-    return {legacy:false,v0:false,reason:"unrecognized transaction-version capability declaration"};
+    if(advertised instanceof Set && !advertised.has("legacy")) return {legacy:false,v0:false,reason:"Phantom does not advertise legacy transaction support"};
+    if(Array.isArray(advertised) && !advertised.includes("legacy")) return {legacy:false,v0:false,reason:"Phantom does not advertise legacy transaction support"};
+    // KMS-backed Phantom accounts in the observed Android log reject v0 messages
+    // when the provider is not supplied with resolved ALT accounts. This execution
+    // path deliberately uses legacy messages with no address lookup tables.
+    return {legacy:true,v0:false,source:advertised==null?"legacy-compatible provider fallback":"legacy-only signing boundary"};
   }
   async function connect() {
     provider = getProvider();
     const result = await provider.connect();
     wallet = result.publicKey;
     walletCapabilities=detectWalletCapabilities(provider);
-    if(!walletCapabilities.legacy&&!walletCapabilities.v0) throw new Error("Connected Phantom wallet exposes no supported transaction version.");
+    if(!walletCapabilities.legacy) throw new Error("Connected Phantom wallet does not expose the required legacy signTransaction capability. v0/ALT signing is disabled on this Devnet test path.");
     const genesis = await connection.getGenesisHash();
     if (genesis !== GENESIS) throw new Error("RPC is not canonical Solana Devnet. Signing disabled.");
     $("wallet").textContent = wallet.toBase58();
@@ -593,6 +595,15 @@
   function serializeTransactionMessage(tx) {
     return tx instanceof solanaWeb3.Transaction?tx.compileMessage().serialize():tx.message.serialize();
   }
+  function assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes) {
+    if(!(reviewedMessageBytes instanceof Uint8Array)||!(signedMessageBytes instanceof Uint8Array)) {
+      fail("reviewed or Phantom-signed message bytes are unavailable");
+    }
+    if(!bytesEqual(reviewedMessageBytes,signedMessageBytes)) {
+      fail("Phantom modified the reviewed message before submission; signed transaction was not broadcast");
+    }
+    return true;
+  }
   function accountDataBytes(info, label) {
     if (!info || !Array.isArray(info.data) || info.data[1] !== "base64") fail(label + " account data missing/not base64");
     const raw = Uint8Array.from(atob(info.data[0]), ch => ch.charCodeAt(0));
@@ -998,12 +1009,13 @@
       logs:(value.logs||[]).slice(-60)};
   }
   async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes) {
-    if(!(tx instanceof solanaWeb3.Transaction) && (!(tx instanceof solanaWeb3.VersionedTransaction)||tx.message.version!==0)) fail("only legacy or v0 Phantom transactions are supported");
+    if(!(tx instanceof solanaWeb3.Transaction)) fail("Phantom KMS-safe execution requires a legacy transaction with no address lookup tables");
     const message=normalizedTransactionMessage(tx);
     if(!bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)) fail("direct CPMM transaction differs from exact reviewed bytes");
     assertUnsignedSingleSigner(tx);
     if(reviewedBytes.length>1232) fail("transaction exceeds Solana packet-size limit");
-    const resolvedInfo=tx instanceof solanaWeb3.VersionedTransaction ? await resolveV0Accounts(message) : await resolveLegacyAccounts(message);
+    const resolvedInfo=await resolveLegacyAccounts(message);
+    if(message.addressTableLookups.length!==0) fail("legacy transaction unexpectedly contains address lookup tables");
     const policy=decodeDirectCpmmPolicy(message,resolvedInfo.resolved,quote);
     const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo);
     if(accountPresence.inputAtaPresent) fail("temporary WSOL account unexpectedly exists before signing");
@@ -1243,7 +1255,7 @@
 
     const built=await raydium.cpmm.swap({
       poolInfo,poolKeys,inputAmount,swapResult,slippage:slippageBps/10000,baseIn,
-      txVersion:walletCapabilities.v0?TxVersion.V0:TxVersion.LEGACY,
+      txVersion:TxVersion.LEGACY,
       ownerInfo:{wallet,useSOLBalance:true}
     });
     if (!built || !built.transaction || typeof built.transaction.serialize!=="function") {
@@ -1253,31 +1265,26 @@
       fail("Raydium SDK did not return a serializable transaction");
     }
     let tx;
-    if(walletCapabilities.v0) {
-      if(!(built.transaction instanceof solanaWeb3.VersionedTransaction)||built.transaction.message.version!==0) {
-        fail("Phantom advertised v0 support but the SDK did not return a v0 transaction");
-      }
-      tx=built.transaction;
-      assertUnsignedSingleSigner(tx);
-    } else {
-      if(typeof built.transaction.compileMessage!=="function"||typeof built.transaction.setSigners!=="function") {
-        fail("Raydium SDK did not return a compatible legacy transaction");
-      }
-      const freshBlockhash=await connection.getLatestBlockhash("confirmed");
-      built.transaction.feePayer=wallet;
-      built.transaction.recentBlockhash=freshBlockhash.blockhash;
-      const sdkMessage=built.transaction.compileMessage();
-      if(sdkMessage.header.numRequiredSignatures!==1||!sdkMessage.accountKeys[0].equals(wallet)) {
-        fail("SDK transaction requires an unexpected signer or fee payer");
-      }
-      if(built.transaction.signatures.some(item=>item.signature!==null)) fail("SDK unexpectedly returned a signed transaction");
-      built.transaction.setSigners(wallet);
-      try {
-        const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
-        tx=solanaWeb3.Transaction.from(sdkBytes);
-      } catch { fail("Raydium SDK did not return a compatible legacy transaction"); }
-      assertUnsignedSingleSigner(tx);
+    if(built.transaction instanceof solanaWeb3.VersionedTransaction) {
+      fail("Phantom KMS compatibility policy prohibits v0 transactions and address lookup tables on this path");
     }
+    if(typeof built.transaction.compileMessage!=="function"||typeof built.transaction.setSigners!=="function") {
+      fail("Raydium SDK did not return a compatible legacy transaction");
+    }
+    const freshBlockhash=await connection.getLatestBlockhash("confirmed");
+    built.transaction.feePayer=wallet;
+    built.transaction.recentBlockhash=freshBlockhash.blockhash;
+    const sdkMessage=built.transaction.compileMessage();
+    if(sdkMessage.header.numRequiredSignatures!==1||!sdkMessage.accountKeys[0].equals(wallet)) {
+      fail("SDK transaction requires an unexpected signer or fee payer");
+    }
+    if(built.transaction.signatures.some(item=>item.signature!==null)) fail("SDK unexpectedly returned a signed transaction");
+    built.transaction.setSigners(wallet);
+    try {
+      const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
+      tx=solanaWeb3.Transaction.from(sdkBytes);
+    } catch { fail("Raydium SDK did not return a compatible legacy transaction"); }
+    assertUnsignedSingleSigner(tx);
     const message=normalizedTransactionMessage(tx);
     if(message.header.numRequiredSignatures!==1||!message.staticAccountKeys[0].equals(wallet)) {
       fail("SDK transaction fee payer or signer policy mismatch");
@@ -1467,13 +1474,12 @@
   }
   async function execute() {
     if (busy) return;
-    if (!provider || !wallet || typeof provider.signAndSendTransaction !== "function") {
-      throw new Error("Connected Phantom provider does not support user-approved transaction submission.");
+    if (!provider || !wallet || typeof provider.signTransaction !== "function") {
+      throw new Error("Connected Phantom provider does not support manual signTransaction approval.");
     }
     walletCapabilities=detectWalletCapabilities(provider);
-    const preparedIsV0=prepared?.txs?.[0] instanceof solanaWeb3.VersionedTransaction;
-    if(preparedIsV0?!walletCapabilities.v0:!walletCapabilities.legacy) {
-      throw new Error("Connected Phantom provider does not advertise support for the prepared transaction version.");
+    if(!walletCapabilities.legacy || !prepared || !(prepared.txs?.[0] instanceof solanaWeb3.Transaction)) {
+      throw new Error("Only a legacy transaction with no address lookup tables is eligible for Phantom signing.");
     }
     if (!prepared || prepared.executionStarted) throw new Error("No unused audited transaction is available. Build a fresh quote.");
     prepared.executionStarted = true;
@@ -1481,6 +1487,7 @@
     const reviewed = prepared;
     let signature = null;
     let approvalRequested = false;
+    let submissionAttempted = false;
     try {
       status("Rechecking wallet, Devnet funding, blockhash, pool quote, transaction version, resolved account set and exact bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
@@ -1498,12 +1505,27 @@
       }
       status("Final audit passed. Phantom is opening its transaction approval screen. Review the transaction there before approving.","warning");
       approvalRequested = true;
-      // Phantom's injected provider accepts SendOptions as its second argument;
-      // it resolves v0 lookup-table references as part of its native send flow.
-      const approval=await provider.signAndSendTransaction(finalTx,{
-        preflightCommitment:"confirmed",maxRetries:3
+      // Ask Phantom only to sign. The application broadcasts the exact signed
+      // bytes itself after verifying that Phantom did not rewrite the reviewed
+      // message (for example by injecting an unreviewed ComputeBudget instruction).
+      const signedTx=await provider.signTransaction(finalTx);
+      if(!(signedTx instanceof solanaWeb3.Transaction)) {
+        throw new Error("Phantom returned an unsupported signed transaction type; nothing was broadcast.");
+      }
+      const signedMessageBytes=Uint8Array.from(serializeTransactionMessage(signedTx));
+      assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
+      let signedWireBytes;
+      try {
+        signedWireBytes=Uint8Array.from(signedTx.serialize({requireAllSignatures:true,verifySignatures:true}));
+      } catch(error) {
+        throw new Error("Phantom signature verification failed; nothing was broadcast. "+(error?.message||String(error)));
+      }
+      if(signedWireBytes.length>1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit; nothing was broadcast.");
+      status("Phantom signed the exact reviewed transaction. Broadcasting those unchanged signed bytes to Devnet…","warning");
+      submissionAttempted=true;
+      signature=await connection.sendRawTransaction(signedWireBytes,{
+        skipPreflight:false,preflightCommitment:"confirmed",maxRetries:3
       });
-      signature = approval && typeof approval.signature === "string" ? approval.signature : approval;
       if (typeof signature !== "string" || b58decode(signature).length !== 64) {
         throw new Error("Phantom returned an invalid transaction signature. Check wallet activity before retrying.");
       }
@@ -1565,10 +1587,13 @@
         status((error.message || String(error)) + "\nThe transaction failed on Solana. Do not retry automatically; inspect the signature and wallet activity.","warning");
       } else if ((error.message || "").includes("CONFIRMED_BUT_UNVERIFIED")) {
         status((error.message || String(error)) + "\nThe transaction is confirmed but not fully verified. Do not retry; inspect the signature and wallet activity.","warning");
-      } else if ((error.message || "").includes("SUBMISSION_STATUS_UNKNOWN") || signature || approvalRequested) {
+      } else if (submissionAttempted || signature || (error.message || "").includes("SUBMISSION_STATUS_UNKNOWN")) {
         status("SUBMISSION_STATUS_UNKNOWN: " + (error.message || String(error)) +
           "\nDo not retry; inspect Phantom activity and the Devnet signature" +
           (signature ? ": " + signature : " before building another transaction."),"warning");
+      } else if (approvalRequested) {
+        reviewed.executionStarted=false;
+        status("Phantom signing did not produce a broadcast transaction. No Devnet submission was attempted. "+(error.message||String(error)),"warning");
       } else {
         reviewed.executionStarted = false;
         status(error.message || String(error),"warning");
@@ -1585,6 +1610,7 @@
       decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,
       findDirectCpmmInstructionIndex,replaceDirectCpmmData,normalizedTransactionMessage,normalizeConfirmedMessage,normalizeReviewedLegacyMessageBytes,normalizeReviewedMessageBytes,
       compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,
+      detectWalletCapabilities,assertSignedMessageUnchanged,
       validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       parseSolAmountToLamports,parseSlippageBps,
