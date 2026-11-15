@@ -64,6 +64,7 @@ class HeliusSolanaFundingGraphProvider:
             query = {
                 "direction": "in",
                 "sortOrder": "asc",
+                "commitment": "finalized",
                 "limit": self.page_size,
                 "solMode": "merged",
                 "filters": {"slot": {"lte": finalized_slot}},
