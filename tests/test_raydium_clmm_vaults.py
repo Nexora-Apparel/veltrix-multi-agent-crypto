@@ -6,6 +6,7 @@ import json
 import struct
 
 import pytest
+import veltrix.raydium_clmm_vaults as vault_module
 from solders.pubkey import Pubkey
 from solders.signature import Signature
 
@@ -20,6 +21,7 @@ from veltrix.raydium_clmm_vaults import (
     fetch_raydium_clmm_vault_snapshot,
     ExpectedRaydiumVaultDelta,
     verify_finalized_raydium_clmm_vault_settlement,
+    verify_finalized_raydium_clmm_vault_settlement_from_rpc,
 )
 from veltrix.simulation_gate import SimulationEvidence
 from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter, ConfirmedTransactionEvidence
@@ -441,4 +443,59 @@ def test_rejects_finalized_vault_settlement_without_token_program_cpis():
                 ExpectedRaydiumVaultDelta(values[6], -50),
             ),
             provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+
+def test_from_rpc_fetches_finalized_transaction_then_post_finality_vault_snapshot(monkeypatch):
+    values = fixture(slot=801)
+    evidence = finalized_settlement_evidence(values)
+    events = []
+    minimum_slots = []
+
+    def fetch_transaction(self, signature):
+        events.append(("transaction", signature))
+        return evidence
+
+    original_fetch_snapshot = vault_module.fetch_raydium_clmm_vault_snapshot
+
+    def fetch_snapshot(*args, **kwargs):
+        events.append(("vaults", kwargs.get("minimum_context_slot")))
+        minimum_slots.append(kwargs.get("minimum_context_slot"))
+        return original_fetch_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(SolanaRpcSimulationAdapter, "fetch_finalized_transaction", fetch_transaction)
+    monkeypatch.setattr(vault_module, "fetch_raydium_clmm_vault_snapshot", fetch_snapshot)
+    result = verify_finalized_raydium_clmm_vault_settlement_from_rpc(
+        evidence.signature,
+        pool_evidence=values[0],
+        pool_checks=values[1],
+        simulation=values[2],
+        rpc_adapter=values[3],
+        expected_deltas=(
+            ExpectedRaydiumVaultDelta(values[5], 100),
+            ExpectedRaydiumVaultDelta(values[6], -50),
+        ),
+    )
+    assert events == [("transaction", evidence.signature), ("vaults", evidence.slot)]
+    assert minimum_slots == [evidence.slot]
+    assert result.finalized_slot == evidence.slot
+    assert result.execution_ready is False
+
+
+def test_rejects_vault_snapshot_older_than_finalized_transaction_slot():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    stale_snapshot = dataclasses.replace(snapshot, context_slot=799)
+    with pytest.raises(RaydiumClmmVaultError, match="older than the finalized transaction slot"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values),
+            vault_snapshot=stale_snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary",
+            cluster="mainnet-beta",
+            genesis_hash="genesis",
         )
