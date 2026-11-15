@@ -1,4 +1,4 @@
-name: Hosting integration mergeability probe
+name: Build complete hosting integration branch
 on:
   push:
     branches:
@@ -9,30 +9,43 @@ permissions:
   contents: write
 
 jobs:
-  merge-probe:
+  compose:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Build a two-parent reconciliation commit from current main and PR 22
+      - name: Compose reviewed worker, Pages and ledger branches on current main
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main work/h1.1-h2-h3-clean
+          git fetch origin main work/hosting-integration-reconcile-20261115 work/hosting-cloudflare-implementation-20261115 work/serverless-hosting-audit-20261115
+
           set +e
-          merge_output="$(git merge-tree --write-tree origin/main origin/work/h1.1-h2-h3-clean 2>&1)"
-          merge_status=$?
+          first_output="$(git merge-tree --write-tree origin/work/hosting-integration-reconcile-20261115 origin/work/hosting-cloudflare-implementation-20261115 2>&1)"
+          first_status=$?
           set -e
-          printf '%s\n' "$merge_output"
-          tree_sha="$(printf '%s\n' "$merge_output" | head -n 1)"
-          if ! [[ "$tree_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "merge-tree did not return a valid tree SHA" >&2
+          printf '%s\n' "$first_output"
+          if [ "$first_status" -ne 0 ]; then
+            echo "Worker + Cloudflare integration needs manual conflict resolution." >&2
             exit 1
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          merge_commit="$(printf '%s\n' "Reconcile H1.1/H2/H3 with current main (merge status $merge_status)" | git commit-tree "$tree_sha" -p origin/main -p origin/work/h1.1-h2-h3-clean)"
-          echo "Reconciliation commit: $merge_commit"
-          git push origin "$merge_commit:refs/heads/work/hosting-integration-reconcile-20261115"
+          first_tree="$(printf '%s\n' "$first_output" | head -n 1)"
+          [[ "$first_tree" =~ ^[0-9a-f]{40}$ ]]
+          first_commit="$(printf '%s\n' "Combine reconciled Turso pipeline and Cloudflare Pages runtime" | git commit-tree "$first_tree" -p origin/work/hosting-integration-reconcile-20261115 -p origin/work/hosting-cloudflare-implementation-20261115)"
+
+          set +e
+          second_output="$(git merge-tree --write-tree "$first_commit" origin/work/serverless-hosting-audit-20261115 2>&1)"
+          second_status=$?
+          set -e
+          printf '%s\n' "$second_output"
+          if [ "$second_status" -ne 0 ]; then
+            echo "Progress ledger integration needs manual conflict resolution." >&2
+            exit 1
+          fi
+          second_tree="$(printf '%s\n' "$second_output" | head -n 1)"
+          [[ "$second_tree" =~ ^[0-9a-f]{40}$ ]]
+          final_commit="$(printf '%s\n' "Assemble complete hosting foundation from reviewed branches" | git commit-tree "$second_tree" -p "$first_commit" -p origin/work/serverless-hosting-audit-20261115)"
+          echo "Final hosting commit: $final_commit"
+          git push origin "$final_commit:refs/heads/work/hosting-complete-20261115"
