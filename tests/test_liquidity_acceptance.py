@@ -83,3 +83,14 @@ def test_acceptance_sample_passes_only_when_all_configured_lockers_are_exercised
         ),
     )
     assert liquidity_acceptance._locker_sample_blockers(batch) == []
+
+
+
+def test_acceptance_sample_normalizes_evm_locker_address_case():
+    from types import SimpleNamespace
+    batch = SimpleNamespace(
+        chain="base",
+        deployments=(SimpleNamespace(address="0xAbCd"),),
+        positions=(SimpleNamespace(locker_address="0xabcd"),),
+    )
+    assert liquidity_acceptance._locker_sample_blockers(batch) == []
