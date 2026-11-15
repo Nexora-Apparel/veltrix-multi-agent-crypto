@@ -880,3 +880,108 @@ def test_simulation_rejects_mixing_explicit_and_automatic_account_capture():
             observed_account_addresses=(intent.fee_payer,),
             capture_all_non_program_accounts=True,
         )
+
+
+
+class FinalizedTransactionSession:
+    def __init__(self, result, *, genesis="test-genesis"):
+        self.result = result
+        self.genesis = genesis
+        self.calls = []
+
+    def post(self, endpoint, *, json, headers, timeout, allow_redirects):
+        self.calls.append(json)
+        if json["method"] == "getGenesisHash":
+            result = self.genesis
+        elif json["method"] == "getTransaction":
+            result = self.result
+        else:
+            raise AssertionError(json["method"])
+        return FakeResponse({"jsonrpc": "2.0", "id": json["id"], "result": result})
+
+
+def finalized_transaction_fixture():
+    signature = str(Signature.new_unique())
+    raydium_program = str(Pubkey.new_unique())
+    token_program = TOKEN_PROGRAM
+    payer = str(Pubkey.new_unique())
+    vault = str(Pubkey.new_unique())
+    return signature, {
+        "slot": 700,
+        "blockTime": 1_700_000_000,
+        "transaction": {
+            "signatures": [signature],
+            "message": {
+                "accountKeys": [raydium_program, payer, vault, token_program],
+                "instructions": [
+                    {"programIdIndex": 0, "accounts": [1, 2], "data": "1"}
+                ],
+            },
+        },
+        "meta": {
+            "err": None,
+            "innerInstructions": [
+                {
+                    "index": 0,
+                    "instructions": [
+                        {"programIdIndex": 3, "accounts": [2], "data": "1"}
+                    ],
+                }
+            ],
+            "preTokenBalances": [
+                {"accountIndex": 2, "mint": str(Pubkey.new_unique()), "uiTokenAmount": {"amount": "100"}}
+            ],
+            "postTokenBalances": [
+                {"accountIndex": 2, "mint": str(Pubkey.new_unique()), "uiTokenAmount": {"amount": "90"}}
+            ],
+            "logMessages": ["Program log: swap", "Program log: success"],
+            "loadedAddresses": {"writable": [], "readonly": []},
+        },
+    }
+
+
+def test_fetches_finalized_transaction_and_resolves_token_cpi_program_ids():
+    signature, payload = finalized_transaction_fixture()
+    session = FinalizedTransactionSession(payload)
+    evidence = adapter(session).fetch_finalized_transaction(signature, minimum_slot=650)
+    assert evidence.signature == signature
+    assert evidence.slot == 700
+    assert evidence.provider_id == "rpc-primary"
+    assert evidence.cluster == "mainnet-beta"
+    assert evidence.genesis_hash == "test-genesis"
+    assert evidence.top_level_program_ids == (payload["transaction"]["message"]["accountKeys"][0],)
+    assert evidence.inner_program_ids == (TOKEN_PROGRAM,)
+    assert evidence.inner_instructions_present is True
+    assert len(evidence.pre_token_balances_json) > 0
+    assert evidence.logs[-1] == "Program log: success"
+    request = next(call for call in session.calls if call["method"] == "getTransaction")
+    assert request["params"][1] == {
+        "encoding": "json",
+        "commitment": "finalized",
+        "maxSupportedTransactionVersion": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda p: {**p, "slot": 649}, "below the required minimum"),
+        (lambda p: {**p, "meta": {**p["meta"], "err": {"InstructionError": [0, "Custom"]}},}, "execution failure"),
+        (lambda p: {**p, "meta": {**p["meta"], "innerInstructions": None}}, "omitted inner-instruction"),
+        (lambda p: {**p, "transaction": {**p["transaction"], "signatures": ["wrong"]}}, "signature does not match"),
+    ],
+)
+def test_rejects_unfinalized_failed_or_incomplete_transaction_evidence(mutate, message):
+    signature, payload = finalized_transaction_fixture()
+    with pytest.raises(SolanaRpcAdapterError, match=message):
+        adapter(FinalizedTransactionSession(mutate(payload))).fetch_finalized_transaction(
+            signature, minimum_slot=650
+        )
+
+
+def test_rejects_missing_finalized_transaction_and_wrong_genesis():
+    signature, _ = finalized_transaction_fixture()
+    with pytest.raises(SolanaRpcAdapterError, match="not yet available"):
+        adapter(FinalizedTransactionSession(None)).fetch_finalized_transaction(signature)
+    with pytest.raises(SolanaRpcAdapterError, match="genesis hash"):
+        adapter(FinalizedTransactionSession({}, genesis="wrong")).fetch_finalized_transaction(signature)
