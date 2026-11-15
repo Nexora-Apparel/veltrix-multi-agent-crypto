@@ -392,12 +392,12 @@ def base58_encode(raw):
 
 
 def test_verifies_finalized_pool_vault_balance_deltas_against_token_cpis():
-    values = fixture()
+    values = fixture(slot=801)
     snapshot = fetch(values)
     evidence = finalized_settlement_evidence(values)
     result = verify_finalized_raydium_clmm_vault_settlement(
         evidence,
-        vaults=snapshot.vaults,
+        vault_snapshot=snapshot,
         expected_deltas=(
             ExpectedRaydiumVaultDelta(values[5], 100),
             ExpectedRaydiumVaultDelta(values[6], -50),
@@ -415,12 +415,12 @@ def test_verifies_finalized_pool_vault_balance_deltas_against_token_cpis():
 
 
 def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
-    values = fixture()
+    values = fixture(slot=801)
     snapshot = fetch(values)
     with pytest.raises(RaydiumClmmVaultError, match="exact expected deltas"):
         verify_finalized_raydium_clmm_vault_settlement(
             finalized_settlement_evidence(values, amount_a=101),
-            vaults=snapshot.vaults,
+            vault_snapshot=snapshot,
             expected_deltas=(
                 ExpectedRaydiumVaultDelta(values[5], 100),
                 ExpectedRaydiumVaultDelta(values[6], -50),
@@ -430,7 +430,7 @@ def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
 
 
 def test_rejects_finalized_vault_settlement_without_token_program_cpis():
-    values = fixture()
+    values = fixture(slot=801)
     snapshot = fetch(values)
     with pytest.raises(RaydiumClmmVaultError, match="no classic SPL Token"):
         verify_finalized_raydium_clmm_vault_settlement(
