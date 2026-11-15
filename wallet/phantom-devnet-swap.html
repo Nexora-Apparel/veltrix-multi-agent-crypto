@@ -32,7 +32,9 @@
   <section class="panel">
     <label for="amount">Swap amount (SOL)</label>
     <input id="amount" inputmode="decimal" value="0.001" autocomplete="off">
-    <div class="tiny">One-time Devnet test amount: 0.001 SOL. If the wallet is short, the page requests test SOL from the Devnet faucet automatically. Price impact must be 2% or less.</div>
+    <label for="slippage">Maximum slippage (%)</label>
+    <input id="slippage" inputmode="decimal" type="number" min="0" max="99.99" step="0.01" value="1.00" autocomplete="off">
+    <div class="tiny">Enter any positive SOL amount supported by your wallet and the pool. Slippage is configurable from 0% to 99.99%. Price impact is displayed for information; there is no universal 2% rejection threshold. Devnet only.</div>
     <button id="quote" class="secondary" disabled>Get fresh quote</button>
   </section>
   <section class="panel hidden" id="review">
@@ -56,7 +58,7 @@
     <div class="row"><span>Temporary WSOL funding (returned rent included)</span><span class="value" id="temporaryFundingValue">—</span></div>
     <div class="row"><span>Devnet SOL required (faucet top-up)</span><strong class="value" id="requiredBalanceValue">—</strong></div>
     <p class="muted tiny">The temporary wrapped-SOL account must be funded before it is closed, so its full temporary funding amount must be available during execution. Its rent reserve is returned in the same transaction. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
-    <p class="muted warning">The next button opens Phantom approval for this exact 0.001 SOL Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
+    <p class="muted warning">The next button opens Phantom approval for this exact reviewed Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
     <button id="execute" disabled>Review and approve in Phantom</button>
   </section>
   <section class="panel"><div id="status" class="muted">Connect Phantom from the Phantom in-app browser. This page never asks for a recovery phrase, seed phrase or private key.</div></section>
@@ -70,8 +72,7 @@
   const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
     const SOL = "So11111111111111111111111111111111111111112";
   const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-  const TEST_LAMPORTS = 1000000;
-  const MAX_IMPACT = 2;
+  const U64_MAX = (1n << 64n) - 1n;
   const ALLOWED = new Set([
     "DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd",
     "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
@@ -104,12 +105,29 @@
     const scale = 10n ** BigInt(decimals);
     return (n / scale).toString() + "." + (n % scale).toString().padStart(decimals,"0");
   }
+  function parseSolAmountToLamports(value) {
+    const match = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,9}))?$/.exec(String(value).trim());
+    if (!match) throw new Error("Enter a positive SOL amount with no more than 9 decimal places.");
+    const whole = BigInt(match[1]);
+    const fraction = BigInt((match[2] || "").padEnd(9,"0") || "0");
+    const lamports = whole * 1000000000n + fraction;
+    if (lamports <= 0n || lamports > U64_MAX) throw new Error("SOL input must be greater than zero and fit Solana's u64 lamport amount.");
+    return lamports;
+  }
+  function parseSlippageBps(value) {
+    const match = /^(0|[1-9][0-9]?)(?:\.([0-9]{1,2}))?$/.exec(String(value).trim());
+    if (!match) throw new Error("Slippage must be between 0 and 99.99%, with at most 2 decimal places.");
+    const bps = BigInt(match[1]) * 100n + BigInt((match[2] || "").padEnd(2,"0") || "0");
+    if (bps >= 10000n) throw new Error("Slippage must be below 100% so the minimum output remains positive.");
+    return Number(bps);
+  }
   function setBusy(value) {
     busy = value;
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
     $("execute").disabled = value || !prepared || !!prepared.executionStarted;
     $("amount").disabled = value;
+    $("slippage").disabled = value;
   }
   function getProvider() {
     const p = window.phantom && window.phantom.solana ? window.phantom.solana : window.solana;
@@ -386,7 +404,7 @@
       return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
     } catch { return "unavailable"; }
   }
-  async function reconcileConfirmedTransaction(chainTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence) {
+  async function reconcileConfirmedTransaction(chainTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence,expectedInputRaw) {
     if(!chainTx) throw new Error("SUBMISSION_STATUS_UNKNOWN: confirmed signature transaction details are not yet available.");
     if(!chainTx.meta) throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC transaction metadata is missing.");
     if(chainTx.meta.err) throw new Error("FAILED_ON_CHAIN: Solana recorded an execution error: "+JSON.stringify(chainTx.meta.err));
@@ -420,7 +438,7 @@
     const cpmmInstructions=confirmedMessage.compiledInstructions.filter(ix=>confirmedKeys[ix.programIdIndex]===CPMM);
     if(cpmmInstructions.length!==1) semanticDifferences.push("directCpmmInstructionCount");
     else {
-      try { decodeCpmmSwapData(cpmmInstructions[0].data,BigInt(String(expectedMinimumRaw))); }
+      try { decodeCpmmSwapData(cpmmInstructions[0].data,BigInt(String(expectedMinimumRaw)),BigInt(String(expectedInputRaw))); }
       catch { semanticDifferences.push("directCpmmInputOrMinimumOutput"); }
     }
     const sumWalletUsdc=(rows)=>{
@@ -447,6 +465,7 @@
       confirmedMessageSha256:await sha256Hex(confirmedBytes),
       firstByteDifference:firstByteDifference(reviewedMessageBytes,confirmedBytes),
       semanticDifferences:[...new Set(semanticDifferences)],
+      expectedInputRaw:String(expectedInputRaw),
       actualOutputRaw
     };
     if(semanticDifferences.length) {
@@ -692,8 +711,10 @@
     const inputAta = keys[1], outputAta = keys[3], authority = keys[5], config = keys[16];
     const vaultIn = keys[7], vaultOut = keys[8], observation = keys[9];
     const minOut = BigInt(String(quote.otherAmountThreshold));
-    if (setup.data.length !== 9 || setup.data[0] !== 5 || readU64(setup.data,1) !== BigInt(TEST_LAMPORTS)) fail("wrapped-SOL setup amount/tag mismatch");
-    if (route.data.length !== 17 || route.data[0] !== 0 || readU64(route.data,1) !== BigInt(TEST_LAMPORTS) ||
+    const expectedInput = BigInt(String(quote.inputAmount));
+    if (expectedInput <= 0n || expectedInput > U64_MAX) fail("router input amount is outside the u64 lamport range");
+    if (setup.data.length !== 9 || setup.data[0] !== 5 || readU64(setup.data,1) !== expectedInput) fail("wrapped-SOL setup amount/tag mismatch");
+    if (route.data.length !== 17 || route.data[0] !== 0 || readU64(route.data,1) !== expectedInput ||
         readU64(route.data,9) !== minOut || minOut <= 0n) fail("router route amount/minimum mismatch");
     if (cleanup.data.length !== 1 || cleanup.data[0] !== 6) fail("wrapped-SOL cleanup tag mismatch");
     if (cuPrice.data.length !== 9 || cuPrice.data[0] !== 3 || readU64(cuPrice.data,1) > 1000000n) fail("compute-unit price invalid");
@@ -814,12 +835,12 @@
         ataAccounts.join("|")!==[wallet.toBase58(),swapAccounts[5],wallet.toBase58(),USDC,SYSTEM,TOKEN].join("|"))) {
       fail("Devnet USDC associated-token-account creation mismatch");
     }
-    const decoded=decodeCpmmSwapData(swap.data,BigInt(String(quote.otherAmountThreshold)));
+    const decoded=decodeCpmmSwapData(swap.data,BigInt(String(quote.otherAmountThreshold)),BigInt(String(quote.inputAmount)));
     if (swapAccounts.length!==13 || swapAccounts[0]!==wallet.toBase58() ||
         swapAccounts[3]!==POOL || swapAccounts[4]===swapAccounts[5] ||
         swapAccounts[8]!==TOKEN || swapAccounts[9]!==TOKEN ||
         swapAccounts[10]!==SOL || swapAccounts[11]!==USDC) fail("direct CPMM account ordering/identity mismatch");
-    if (decoded.amountIn!==BigInt(TEST_LAMPORTS) || decoded.minimumAmountOut<=0n ||
+    if (decoded.amountIn!==BigInt(String(quote.inputAmount)) || decoded.minimumAmountOut<=0n ||
         decoded.minimumAmountOut!==BigInt(String(quote.otherAmountThreshold))) {
       fail("direct CPMM input or reviewed minimum-output mismatch");
     }
@@ -844,7 +865,7 @@
       programs,authority,config,pool,inputAta,outputAta,vaultIn,vaultOut,observation,
       inputMint,outputMint,inputTokenProgram,outputTokenProgram,
       temporaryInput:true,createsOutputAta,temporaryWsolFundingLamports:rentFunding,
-      amountIn:decoded.amountIn,minOut:decoded.minimumAmountOut
+      inputAmount:decoded.amountIn,amountIn:decoded.amountIn,minOut:decoded.minimumAmountOut
     };
   }
   function validateDirectCpmmAtaShape(policy,accountPresence) {
@@ -901,7 +922,7 @@
     if(!eventLine) fail("direct CPMM swap event missing");
     const event=Uint8Array.from(atob(eventLine.slice("Program data: ".length)),ch=>ch.charCodeAt(0));
     if(event.length<72 || b58encode(event.slice(8,40))!==POOL ||
-       readU64(event,56)!==BigInt(TEST_LAMPORTS)) fail("direct CPMM swap event pool/input mismatch");
+       readU64(event,56)!==policy.inputAmount) fail("direct CPMM swap event pool/input mismatch");
     const actualOutput=readU64(event,64);
     if(actualOutput<policy.minOut) fail("direct CPMM actual output is below reviewed minimum");
     const inner=[];
@@ -940,7 +961,7 @@
           const source=info.source, destination=info.destination, mint=info.mint;
           const authority=info.authority, amount=BigInt(String(info.tokenAmount?.amount));
           if(source===policy.inputAta && destination===policy.vaultIn && mint===SOL &&
-             authority===wallet.toBase58() && amount===BigInt(TEST_LAMPORTS)) transferProofs.push("input");
+             authority===wallet.toBase58() && amount===policy.inputAmount) transferProofs.push("input");
           else if(source===policy.vaultOut && destination===policy.outputAta && mint===USDC &&
              authority===policy.authority && amount===actualOutput) transferProofs.push("output");
           else fail("direct CPMM transferChecked source/destination/mint/authority/amount mismatch");
@@ -989,13 +1010,13 @@
       temporaryWsolFundingLamports:policy.temporaryWsolFundingLamports.toString(),
       directCpmm:"verified",runtime};
   }
-  function decodeCpmmSwapData(data, expectedMinimum=0n) {
+  function decodeCpmmSwapData(data, expectedMinimum=0n, expectedInput=null) {
     const discriminator = Uint8Array.from([143,190,90,218,196,30,51,222]);
     if (!(data instanceof Uint8Array) || data.length !== 24 || !equalBytes(data.slice(0,8),discriminator)) {
       fail("CPMM SwapBaseInput discriminator/length mismatch");
     }
     const amountIn = readU64(data,8), minimumAmountOut = readU64(data,16);
-    if (amountIn !== BigInt(TEST_LAMPORTS) || minimumAmountOut !== BigInt(expectedMinimum)) {
+    if ((expectedInput!==null && amountIn !== BigInt(expectedInput)) || minimumAmountOut !== BigInt(expectedMinimum)) {
       fail("CPMM exact-input or inner-minimum semantics changed");
     }
     return {amountIn,minimumAmountOut};
@@ -1018,7 +1039,7 @@
     const cpmm = all.filter(item => programOf(item.ix) === CPMM);
     if (cpmm.length !== 1 || cpmm[0].outerIndex !== 1) fail("expected exactly one CPMM CPI under the router route");
     const cpi = cpmm[0].ix, cpiData = b58decode(cpi.data || "");
-    decodeCpmmSwapData(cpiData);
+    decodeCpmmSwapData(cpiData,policy.minOut,policy.inputAmount);
     const expectedCpmm = [wallet.toBase58(),policy.authority,policy.config,POOL,policy.inputAta,policy.outputAta,
       policy.vaultIn,policy.vaultOut,TOKEN,TOKEN,SOL,USDC,policy.observation];
     if (names(cpi).join("|") !== expectedCpmm.join("|")) fail("CPMM CPI account order/identity mismatch");
@@ -1048,7 +1069,7 @@
               lamports <= 0n || lamports > 10000000n || space !== 165n || ownerProgram !== TOKEN) fail("System CreateAccount outside ATA rent policy");
         } else if (tag === 2) {
           if (data.length !== 12 || accts.join("|") !== [wallet.toBase58(),policy.inputAta].join("|") ||
-              readU64(data,4) !== BigInt(TEST_LAMPORTS)) fail("System transfer is not exact wrapped-SOL funding");
+              readU64(data,4) !== policy.inputAmount) fail("System transfer is not exact wrapped-SOL funding");
         } else fail("disallowed System Program CPI tag " + tag);
       } else if (program === TOKEN || program === TOKEN_2022) {
         if (!data.length) fail("empty SPL Token CPI data");
@@ -1069,7 +1090,7 @@
             if (mintName !== (source === policy.inputAta ? SOL : USDC)) fail("TransferChecked mint mismatch");
           }
           if (authorityName !== wallet.toBase58() && authorityName !== policy.authority) fail("SPL transfer authority mismatch");
-          if (source === policy.inputAta && destination === policy.vaultIn && amount === BigInt(TEST_LAMPORTS)) transferProofs.push("input");
+          if (source === policy.inputAta && destination === policy.vaultIn && amount === policy.inputAmount) transferProofs.push("input");
           else if (source === policy.vaultOut && destination === policy.outputAta && amount >= policy.minOut) transferProofs.push("output");
           else fail("unexpected SPL transfer source/destination/amount");
         } else if (tag === 21) {
@@ -1087,8 +1108,9 @@
     if (!accountPresence.inputAtaPresent && !createdAtas.has(policy.inputAta)) fail("missing WSOL ATA is not created by inspected CPI");
     if (!accountPresence.outputAtaPresent && !createdAtas.has(policy.outputAta)) fail("missing USDC ATA is not created by inspected CPI");
 
-    const actualOutputLine = (value.logs || []).find(line => /1000000 -> [0-9]+/.test(line));
-    const match = actualOutputLine && actualOutputLine.match(/1000000 -> ([0-9]+)/);
+    const inputLogPattern = new RegExp("(?:^|\\s)" + policy.inputAmount.toString() + " -> ([0-9]+)");
+    const actualOutputLine = (value.logs || []).find(line => inputLogPattern.test(line));
+    const match = actualOutputLine && actualOutputLine.match(inputLogPattern);
     if (!match) fail("simulation did not expose the CPMM actual output");
     const actualOutput = BigInt(match[1]);
     if (actualOutput < policy.minOut) fail("simulated output is below reviewed outer minimum");
@@ -1168,12 +1190,8 @@
   async function prepareQuote() {
     if (!wallet) throw new Error("Connect Phantom first.");
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
-    const amount = Number($("amount").value);
-    if (!Number.isFinite(amount) || Math.round(amount * 1e9) !== TEST_LAMPORTS) {
-      throw new Error("This isolated test is fixed at exactly 0.001 SOL (1,000,000 lamports).");
-    }
-    const lamports = Math.floor(amount * 1e9);
-    if (lamports !== TEST_LAMPORTS) throw new Error("This one-time Devnet test uses exactly 0.001 SOL.");
+    const lamports = parseSolAmountToLamports($("amount").value);
+    const slippageBps = parseSlippageBps($("slippage").value);
     await refreshBalance();
     const tokenBalanceBefore = await tokenBalanceRaw();
 
@@ -1206,12 +1224,14 @@
     if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) throw new Error("Live CPMM quote output is zero.");
     const spotOutput=inputAmount.mul(reserveOut).div(reserveIn);
     const impact=Number(spotOutput.sub(swapResult.outputAmount).toString())/Number(spotOutput.toString())*100;
-    if (!Number.isFinite(impact) || impact<0 || impact>MAX_IMPACT) throw new Error("Direct CPMM price impact exceeds the 2% safety ceiling.");
-    const minimumOut=swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
-    if (minimumOut.lte(new BN(0))) throw new Error("Computed 1% slippage floor is zero.");
+    if (!Number.isFinite(impact)) throw new Error("Direct CPMM price impact could not be calculated.");
+    const minimumOut=swapResult.outputAmount.mul(new BN(String(10000-slippageBps))).div(new BN(10000));
+    if (minimumOut.lte(new BN(0)) || minimumOut.gt(swapResult.outputAmount)) {
+      throw new Error("Configured slippage produces an invalid minimum output.");
+    }
 
     const built=await raydium.cpmm.swap({
-      poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,
+      poolInfo,poolKeys,inputAmount,swapResult,slippage:slippageBps/10000,baseIn,
       txVersion:walletCapabilities.v0?TxVersion.V0:TxVersion.LEGACY,
       ownerInfo:{wallet,useSOLBalance:true}
     });
@@ -1255,18 +1275,17 @@
       ? (await resolveV0Accounts(tx.message)).resolved : message.staticAccountKeys;
     const cpmmIndex=findDirectCpmmInstructionIndex(tx,buildResolvedKeys);
     if(cpmmIndex<0) fail("SDK-built transaction does not contain a direct CPMM instruction");
-    const cpmmData=new Uint8Array(tx.instructions[cpmmIndex].data);
+    const cpmmData=new Uint8Array(tx instanceof solanaWeb3.Transaction ? tx.instructions[cpmmIndex].data : tx.message.compiledInstructions[cpmmIndex].data);
     if(cpmmData.length!==24 || [...cpmmData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("")!==CPMM_SWAP_DISC ||
        readU64(cpmmData,8)!==BigInt(lamports)) fail("SDK CPMM instruction discriminator/input mismatch");
     const q={inputMint:SOL,outputMint:USDC,inputAmount:String(lamports),
       outputAmount:swapResult.outputAmount.toString(),otherAmountThreshold:"0",
-      priceImpactPct:impact,routePlan:[{poolId:POOL}]};
-    // Canonicalize the transaction minimum from the final quoted raw output.
-    // Never trust an SDK-provided threshold or a separately retained value.
+      priceImpactPct:impact,slippageBps,routePlan:[{poolId:POOL}]};
+    // Encode the user's configured minimum directly into the CPMM instruction.
     const quotedRawCanonical=BigInt(q.outputAmount);
-    const minimumRawCanonical=quotedRawCanonical*9900n/10000n;
+    const minimumRawCanonical=quotedRawCanonical*BigInt(10000-slippageBps)/10000n;
     if(minimumRawCanonical<=0n || minimumRawCanonical>quotedRawCanonical) {
-      fail("computed 1% minimum output is invalid for the final quote");
+      fail("configured slippage produces an invalid minimum output");
     }
     for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumRawCanonical>>BigInt(i*8))&255n);
     if(tx instanceof solanaWeb3.Transaction) tx.instructions[cpmmIndex].data=Uint8Array.from(cpmmData);
@@ -1296,18 +1315,18 @@
       totalDebitLamports:totalDebitLamports.toString(),
       requiredBalanceLamports:requiredBalanceLamports.toString(),
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
-      preparedAt:Date.now(),walletAddress:wallet.toBase58(),semanticAudit};
+      preparedAt:Date.now(),walletAddress:wallet.toBase58(),slippageBps,semanticAudit};
     $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
     const quotedRaw=BigInt(q.outputAmount);
     const minimumRaw=BigInt(q.otherAmountThreshold);
     if(minimumRaw<=0n || minimumRaw>quotedRaw) fail("minimum output must be positive and cannot exceed the quoted output");
-    const expectedFloor=quotedRaw*9900n/10000n;
-    if(minimumRaw!==expectedFloor) fail("minimum output does not match the exact 1% slippage floor (quoted_raw="+quotedRaw.toString()+", minimum_raw="+minimumRaw.toString()+", expected_minimum_raw="+expectedFloor.toString()+").");
+    const expectedFloor=quotedRaw*BigInt(10000-slippageBps)/10000n;
+    if(minimumRaw!==expectedFloor) fail("minimum output does not match configured slippage (quoted_raw="+quotedRaw.toString()+", minimum_raw="+minimumRaw.toString()+", slippage_bps="+slippageBps+", expected_minimum_raw="+expectedFloor.toString()+").");
     $("outputValue").textContent=fmtFixedRaw(quotedRaw,6)+" USDC";
     $("outputRawValue").textContent=quotedRaw.toString()+" raw units";
     $("minimumValue").textContent=fmtFixedRaw(minimumRaw,6)+" USDC";
     $("minimumRawValue").textContent=minimumRaw.toString()+" raw units";
-    $("slippageValue").textContent="100 bps (1.00%)";
+    $("slippageValue").textContent=slippageBps+" bps ("+(slippageBps/100).toFixed(2)+"%)";
     $("impactValue").textContent=impact.toFixed(3)+"%";
     $("poolsValue").textContent="1 direct CPMM pool";
     $("transactionFormatValue").textContent=tx instanceof solanaWeb3.VersionedTransaction?"Versioned v0":"Legacy";
@@ -1405,9 +1424,8 @@
     // CPMM reserves can move between review and approval. The transaction's
     // encoded 1% minimum is the actual execution bound: permit market movement
     // only while a fresh quote still clears that exact on-chain minimum.
-    if (!Number.isFinite(freshImpact) || freshImpact < 0 || freshImpact > MAX_IMPACT ||
-        freshOutputRaw < reviewedMinimum) {
-      invalidatePrepared("Fresh pool quote no longer clears the reviewed 1% minimum or the 2% impact ceiling. Build a fresh transaction.");
+    if (!Number.isFinite(freshImpact) || freshOutputRaw < reviewedMinimum) {
+      invalidatePrepared("Fresh pool quote no longer clears the reviewed minimum output. Build a fresh transaction.");
       throw new Error("Pre-sign quote freshness check failed: fresh output=" + freshOutputRaw.toString() +
         ", reviewed minimum=" + reviewedMinimum.toString() +
         ", fresh impact=" + freshImpact.toFixed(6) + "%.");
@@ -1498,7 +1516,7 @@
       }
       try {
         reconciliation=await reconcileConfirmedTransaction(
-          chainTx,reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence
+          chainTx,reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence,reviewed.quote.inputAmount
         );
       } catch (reconciliationError) {
         throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
@@ -1510,8 +1528,9 @@
         await new Promise(resolve=>setTimeout(resolve,2000));
       }
       const received = finalUsdcBalance - BigInt(reviewed.tokenBalanceBefore);
-      if (received < BigInt(reviewed.quote.otherAmountThreshold)) {
-        throw new Error("CONFIRMED_BUT_UNVERIFIED: transaction finalized, but the observed Devnet USDC balance increase is below the reviewed minimum. Signature: " + signature);
+      if (received < BigInt(reviewed.quote.otherAmountThreshold) ||
+          received.toString() !== reconciliation.diagnostics.actualOutputRaw) {
+        throw new Error("CONFIRMED_BUT_UNVERIFIED: observed Devnet USDC balance increase does not match the reconciled transaction output or is below the reviewed minimum. Signature: " + signature);
       }
       prepared = null;
       $("review").classList.add("hidden");
@@ -1554,8 +1573,9 @@
       compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,
       validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
+      parseSolAmountToLamports,parseSlippageBps,
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
-        ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,ALT_PROGRAM,TEST_LAMPORTS}
+        ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,ALT_PROGRAM,U64_MAX}
     };
   }
   if (window.phantom && window.phantom.solana) {
@@ -1576,6 +1596,9 @@
   }
   $("amount").addEventListener("input", () => {
     if (prepared) invalidatePrepared("Amount changed. Request a new quote; the previous review was invalidated.");
+  });
+  $("slippage").addEventListener("input", () => {
+    if (prepared) invalidatePrepared("Slippage changed. Request a new quote; the previous review was invalidated.");
   });
   $("connect").addEventListener("click", async () => {
     setBusy(true); try { await connect(); } catch(e) { status(e.message || String(e),"warning"); } finally { setBusy(false); }
