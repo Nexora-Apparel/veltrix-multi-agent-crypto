@@ -47,8 +47,12 @@ def evaluate_stage5_artifacts(*, liquidity, developer, launch_bundle):
 
         if liq.get("reader_acceptance") != "PASS":
             blockers.append(f"{chain}: liquidity reader acceptance did not pass")
-        if not isinstance(liq.get("locker_position_count"), int) or liq["locker_position_count"] < 1:
+        if (not isinstance(liq.get("locker_position_count"), int)
+                or isinstance(liq.get("locker_position_count"), bool)
+                or liq["locker_position_count"] < 1):
             blockers.append(f"{chain}: liquidity artifact contains no decoded locker positions")
+        if not liq.get("evidence_id"):
+            blockers.append(f"{chain}: liquidity evidence ID is missing")
         positions = _address_set(liq.get("locker_position_programs"), chain)
         deployments = _address_set(
             [row.get("address") for row in liq.get("locker_deployments", []) if isinstance(row, dict)],
@@ -63,6 +67,12 @@ def evaluate_stage5_artifacts(*, liquidity, developer, launch_bundle):
             blockers.append(f"{chain}: developer evidence structural coverage did not pass")
         if dev.get("trust_ready") is not True:
             blockers.append(f"{chain}: developer evidence provider trust is incomplete")
+        for evidence_name, section in (
+            ("holder", "holder"), ("funding", "funding"),
+            ("developer root", "developer_roots"),
+        ):
+            if not (dev.get(section) or {}).get("evidence_id"):
+                blockers.append(f"{chain}: developer {evidence_name} evidence ID is missing")
 
         if bundle.get("reader_acceptance") != "PASS":
             blockers.append(f"{chain}: launch-bundle reader acceptance did not pass")
@@ -73,6 +83,8 @@ def evaluate_stage5_artifacts(*, liquidity, developer, launch_bundle):
             blockers.append(f"{chain}: launch-origin evidence is not trusted or token-bound")
         if index.get("coverage_complete") is not True or not index.get("supply_block_ref"):
             blockers.append(f"{chain}: launch-window or historical-supply coverage is incomplete")
+        if not index.get("evidence_id"):
+            blockers.append(f"{chain}: launch-bundle evidence ID is missing")
         if bundle_report.get("rejected"):
             blockers.append(f"{chain}: launch-bundle evidence contains rejected observations")
 
