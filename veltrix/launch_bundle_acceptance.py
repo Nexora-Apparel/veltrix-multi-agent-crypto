@@ -27,6 +27,21 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
     if indexer is None or resolver is None:
         raise ValueError("Launch indexer or launch-origin resolver is not configured")
 
+    expected_origin_provider = {
+        "solana": "helius-launch-origin",
+        "base": "base-rpc-launch-origin",
+        "bsc": "bsc-rpc-launch-origin",
+    }[chain]
+    expected_indexer_provider = {
+        "solana": "helius-launch",
+        "base": "base-rpc-launch",
+        "bsc": "bsc-rpc-launch",
+    }[chain]
+    expected_funding_provider = {
+        "solana": "helius-funder",
+        "base": "base-quote-funder",
+        "bsc": "bsc-quote-funder",
+    }[chain]
     origin = resolver.resolve(
         token_address, settings.launch_window_ms, now_ms=now_ms
     )
@@ -34,7 +49,8 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
             or not _same_token(chain, origin.token_address, token_address)
             or not origin.evidence_id
             or origin.window_end_ms != origin.launch_at_ms + settings.launch_window_ms
-            or origin.window_end_ms > now_ms):
+            or origin.window_end_ms > now_ms
+            or origin.provider != expected_origin_provider):
         raise ValueError("Launch-origin evidence is incomplete or not token-bound")
     trusted_origins = frozenset(settings.trusted_launch_origin_providers)
     origin_trusted = origin.provider in trusted_origins
@@ -60,6 +76,8 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
     trusted_launch = frozenset(settings.trusted_bundle_providers)
     trusted_funding = frozenset(settings.trusted_funding_providers)
     rejected = list(batch.rejected)
+    if batch.provider != expected_indexer_provider:
+        rejected.append("launch indexer provider identity does not match the chain adapter")
     if batch.provider not in trusted_launch:
         rejected.append("launch indexer provider is not explicitly trusted")
     if batch.chain != chain or not _same_token(chain, batch.token_address, token_address):
@@ -80,8 +98,8 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
             or batch.supply_observed_at_ms > now_ms
             or now_ms - batch.supply_observed_at_ms > settings.safety_evidence_max_age_ms):
         rejected.append("historical launch-time supply evidence is stale or invalid")
-    if not trusted_funding:
-        rejected.append("no explicitly trusted funding-trace provider is configured")
+    if expected_funding_provider not in trusted_funding:
+        rejected.append("chain-specific funding-trace provider is not explicitly trusted")
     for item in batch.observations:
         if item.funder_provider not in trusted_funding:
             rejected.append(f"funding trace for {item.wallet_address} is not trusted")
