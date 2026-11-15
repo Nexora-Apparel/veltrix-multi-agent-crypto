@@ -1564,7 +1564,7 @@
   async function refreshQuoteForReview(reason) {
     invalidatePrepared(reason + " Acquiring a fresh quote and rebuilding the review; no signing or submission will occur.");
     await prepareQuote();
-    status("FRESH QUOTE READY. Review the updated output, automatic protection, expiry and fee breakdown. Run the sign-only test again only after reviewing the new terms.","warning");
+    status("FRESH QUOTE READY. Review the updated output, protection and complete fee breakdown. Run the sign-only test again only after reviewing the new terms.","warning");
     return {refreshed:true,reason};
   }
   async function finalPreSignFreshnessGate() {
