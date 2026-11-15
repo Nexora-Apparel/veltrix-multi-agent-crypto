@@ -112,7 +112,7 @@ class LockerPositionSnapshot:
     locker_address: str
     position_id: str
     amount: int
-    unlock_at_ms: int
+    unlock_at_ms: int | None
     observed_at_ms: int
     owner: str
     evidence_ref: str
