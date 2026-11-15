@@ -110,6 +110,10 @@ class LockerPositionSnapshot:
     custody_token_mint: str | None = None
     custody_account_owner: str | None = None
     finalized_ref: str | None = None
+    permanent: bool = False
+    # Principal permanently locked can differ from total custody when a
+    # locker vault also holds claimable LP-denominated fees.
+    locked_amount: int | None = None
 
 
 @dataclass(frozen=True)
@@ -196,7 +200,8 @@ def _id_for(batch: LiquidityInventoryBatch) -> str:
         tuple(sorted((p.pool_address, p.lp_token_address, p.total_lp_supply,
                       p.locker_custody_amount) for p in batch.pools)),
         tuple(sorted((p.position_id, p.locker_address, p.lp_token_address,
-                      p.amount, p.unlock_at_ms, p.evidence_ref, p.finalized_ref) for p in batch.positions)),
+                      p.amount, p.unlock_at_ms, p.evidence_ref, p.finalized_ref,
+                      p.permanent, p.locked_amount) for p in batch.positions)),
         tuple(sorted((d.address, d.expected_code_hash, d.observed_code_hash,
                       d.abi_profile, d.provider, d.source_ref) for d in batch.deployments)),
     )
@@ -358,9 +363,21 @@ class LiquidityEvidenceAnalyzer:
                     or position.amount <= 0):
                 reasons.append("locker position amount is invalid")
                 continue
-            if (not isinstance(position.unlock_at_ms, int) or isinstance(position.unlock_at_ms, bool)
-                    or position.unlock_at_ms <= 0):
+            if not isinstance(position.permanent, bool):
+                reasons.append("locker permanent-lock flag is invalid")
+                continue
+            if position.permanent:
+                if position.unlock_at_ms is not None:
+                    reasons.append("permanent locker position must not claim a timed unlock")
+                    continue
+            elif (not isinstance(position.unlock_at_ms, int)
+                    or isinstance(position.unlock_at_ms, bool) or position.unlock_at_ms <= 0):
                 reasons.append("locker unlock timestamp is missing or invalid")
+                continue
+            locked_amount = position.amount if position.locked_amount is None else position.locked_amount
+            if (not isinstance(locked_amount, int) or isinstance(locked_amount, bool)
+                    or locked_amount <= 0 or locked_amount > position.amount):
+                reasons.append("locker principal amount is invalid")
                 continue
             if deployment is not None and not _same_address(chain, position.locker_address, deployment.address):
                 reasons.append("locker position address does not match pinned deployment")
@@ -377,13 +394,21 @@ class LiquidityEvidenceAnalyzer:
             recorded_custody = sum(item.amount for item in positions)
             if recorded_custody != pool.locker_custody_amount:
                 reasons.append("locker records do not reconcile to on-chain LP custody balance")
-            active = sum(item.amount for item in positions if item.unlock_at_ms > now_ms)
+            active = sum(
+                item.amount if item.locked_amount is None else item.locked_amount
+                for item in positions
+                if item.permanent or item.unlock_at_ms > now_ms
+            )
             if active > pool.total_lp_supply:
                 reasons.append("active locked LP exceeds pool LP total supply")
             per_pool_locked_pct.append((pool.pool_address, 100.0 * active / pool.total_lp_supply))
             if active > 0:
                 active_locked_pool_count += 1
-                unlocks = [item.unlock_at_ms for item in positions if item.amount > 0 and item.unlock_at_ms > now_ms]
+                unlocks = [
+                    item.unlock_at_ms for item in positions
+                    if item.amount > 0 and not item.permanent
+                    and item.unlock_at_ms > now_ms
+                ]
                 if unlocks:
                     earliest_unlock = min(earliest_unlock, min(unlocks)) if earliest_unlock else min(unlocks)
 
