@@ -66,11 +66,13 @@ async function main() {
   const mintA=poolInfo.mintA.address, mintB=poolInfo.mintB.address;
   if (![mintA,mintB].includes(WSOL) || ![mintA,mintB].includes(USDC)) fail("pool mint pair is not WSOL/Devnet USDC");
   const baseIn = mintA === WSOL;
+  const reserveIn = baseIn ? rpcData.baseReserve : rpcData.quoteReserve;
+  const reserveOut = baseIn ? rpcData.quoteReserve : rpcData.baseReserve;
   const inputAmount = new BN(String(INPUT));
   const swapResult = CurveCalculator.swapBaseInput(
     inputAmount,
-    baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
-    baseIn ? rpcData.quoteReserve : rpcData.baseReserve,
+    reserveIn,
+    reserveOut,
     rpcData.configInfo.tradeFeeRate,
     rpcData.configInfo.creatorFeeRate,
     rpcData.configInfo.protocolFeeRate,
@@ -78,6 +80,12 @@ async function main() {
     rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB
   );
   if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) fail("pool quote output is zero");
+  const spotOutput = inputAmount.mul(reserveOut).div(reserveIn);
+  if (!spotOutput || spotOutput.lte(new BN(0))) fail("pool spot output is zero");
+  const priceImpactPct = Number(spotOutput.sub(swapResult.outputAmount).toString()) /
+    Number(spotOutput.toString()) * 100;
+  if (!Number.isFinite(priceImpactPct)) fail("pool price impact could not be calculated");
+  // Price impact is recorded for visibility only; no universal threshold blocks the build.
   const minOut = swapResult.outputAmount.mul(new BN(String(10000-SLIPPAGE_BPS))).div(new BN(10000));
   if (minOut.lte(new BN(0))) fail("computed minimum output is zero");
   const built = await raydium.cpmm.swap({
@@ -164,6 +172,7 @@ async function main() {
     wallet:WALLET,pool:POOL,program:poolInfo.programId,
     input_mint:WSOL,output_mint:USDC,input_amount_lamports:String(INPUT),
     quoted_output_raw:swapResult.outputAmount.toString(),minimum_output_raw:minimumOut.toString(),actual_output_raw:actualOutput.toString(),
+    price_impact_pct:priceImpactPct,
     slippage_bps:SLIPPAGE_BPS,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
     unsigned_transaction_base64:Buffer.from(serialized).toString("base64"),
     static_account_keys:keys,instructions:ixSummary,
@@ -176,6 +185,7 @@ async function main() {
   fs.writeFileSync(OUT,JSON.stringify(evidence,null,2)+"\n");
   process.stdout.write(JSON.stringify({status:evidence.status,pool:POOL,input:String(INPUT),
     quoted_output_raw:evidence.quoted_output_raw,minimum_output_raw:evidence.minimum_output_raw,
+    price_impact_pct:evidence.price_impact_pct,
     instruction_programs:ixSummary.map(x=>x.programId),transaction_version:"legacy",serialized_size_bytes:serialized.length,alt_count:0,
     artifact:OUT,signed:false,submitted:false},null,2)+"\n");
 }
