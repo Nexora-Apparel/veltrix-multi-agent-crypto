@@ -1,0 +1,91 @@
+name: Deploy VELTRIX Cloudflare Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "veltrix/dashboard_assets/**"
+      - "package.json"
+      - "wrangler.toml"
+      - "scripts/build-pages.mjs"
+      - ".github/workflows/cloudflare-pages-deploy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-cloudflare-pages-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_READONLY_AUTH_TOKEN: ${{ secrets.TURSO_READONLY_AUTH_TOKEN }}
+      DASHBOARD_API_TOKEN: ${{ secrets.DASHBOARD_API_TOKEN }}
+      PROJECT_NAME: veltrix-multi-agent-crypto
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Require production deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TURSO_DATABASE_URL TURSO_READONLY_AUTH_TOKEN DASHBOARD_API_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required GitHub Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+          test "${#DASHBOARD_API_TOKEN}" -ge 32
+      - name: Install and build Pages bundle
+        run: |
+          npm install --ignore-scripts
+          npm run build:pages
+      - name: Ensure Pages project exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          projects="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects?per_page=100")"
+          if ! printf '%s' "$projects" | jq -e --arg name "$PROJECT_NAME" '.result[]? | select(.name == $name)' >/dev/null; then
+            curl --fail --silent --show-error --request POST \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "{\"name\":\"$PROJECT_NAME\",\"production_branch\":\"main\"}" >/dev/null
+          fi
+      - name: Bind production-only dashboard secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$TURSO_DATABASE_URL" | npx wrangler pages secret put TURSO_DATABASE_URL --project-name "$PROJECT_NAME" --env production
+          printf '%s' "$TURSO_READONLY_AUTH_TOKEN" | npx wrangler pages secret put TURSO_AUTH_TOKEN --project-name "$PROJECT_NAME" --env production
+          printf '%s' "$DASHBOARD_API_TOKEN" | npx wrangler pages secret put DASHBOARD_API_TOKEN --project-name "$PROJECT_NAME" --env production
+      - name: Deploy Pages assets and Functions
+        run: npx wrangler pages deploy dist --project-name "$PROJECT_NAME" --branch main --commit-hash "$GITHUB_SHA"
+      - name: Verify deployed dashboard and read-only API
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT_NAME")"
+          subdomain="$(printf '%s' "$project" | jq -r '.result.subdomain')"
+          test -n "$subdomain"
+          base="https://$subdomain"
+          curl --fail --silent --show-error "$base/" | grep -q "VELTRIX"
+          status="$(curl --silent --output /tmp/veltrix-health.json --write-out "%{http_code}" \
+            -H "Authorization: Bearer $DASHBOARD_API_TOKEN" "$base/api/health")"
+          test "$status" = "200"
+          jq -e '.database == "connected" and .database_read_only == true and .live_execution == false and (.missing_paper_tables | length == 0)' /tmp/veltrix-health.json >/dev/null
+          echo "Production Pages deployment and authenticated read-only Turso API verified at $base"
