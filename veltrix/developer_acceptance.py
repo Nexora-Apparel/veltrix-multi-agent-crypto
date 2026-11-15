@@ -78,7 +78,9 @@ def run_developer_acceptance(*, chain, token_address, settings,
         "root_provider_trusted": root.provider in trusted_roots,
         "holder_provider_trusted": holder.provider in trusted_holders,
         "funding_provider_trusted": funding.provider in trusted_funding,
-        "developer_claim_allowlist_configured": bool(settings.trusted_developer_providers),
+        "developer_claim_provider_trusted": (
+            "developer-graph-provider" in frozenset(settings.trusted_developer_providers)
+        ),
         "launch_origin_provider_trusted": origin_provider_trusted if chain in {"base", "bsc"} else True,
     }
     trust_ready = all(trust.values())
