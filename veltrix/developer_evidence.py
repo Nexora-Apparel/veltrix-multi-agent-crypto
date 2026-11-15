@@ -66,7 +66,8 @@ class DeveloperEvidenceOrchestrator:
         )
 
     def evaluate(self, *, chain, token_address, root_attestation,
-                 liquidity_evidence, launch_bundle, now_ms):
+                 liquidity_evidence, launch_bundle, now_ms,
+                 deployment_block=None):
         chain = str(chain).lower()
         holder = funding = None
         try:
@@ -109,7 +110,14 @@ class DeveloperEvidenceOrchestrator:
             funding_provider = self.funding_providers.get(chain)
             if holder_provider is None or funding_provider is None:
                 raise ValueError("independent holder and funding providers are required")
-            holder = holder_provider.fetch_snapshot(token_address)
+            if chain in {"base", "bsc"}:
+                if (not isinstance(deployment_block, int)
+                        or isinstance(deployment_block, bool)
+                        or deployment_block < 0):
+                    raise ValueError("EVM token deployment block is required for complete holder inventory")
+                holder = holder_provider.fetch_snapshot(token_address, deployment_block)
+            else:
+                holder = holder_provider.fetch_snapshot(token_address)
             if holder.provider not in self.trusted_holders:
                 raise ValueError("holder inventory provider is not trusted")
             funding = funding_provider.fetch_snapshot(
@@ -156,6 +164,7 @@ class DeveloperEvidenceOrchestrator:
             "holder_provider": getattr(holder, "provider", None),
             "holder_evidence_id": getattr(holder, "evidence_id", None),
             "holder_block_ref": getattr(holder, "block_ref", None),
+            "holder_deployment_block": deployment_block if chain in {"base", "bsc"} else None,
             "funding_provider": getattr(funding, "provider", None),
             "funding_evidence_id": getattr(funding, "evidence_id", None),
             "funding_block_ref": getattr(funding, "block_ref", None),
