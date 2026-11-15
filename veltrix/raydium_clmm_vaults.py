@@ -83,6 +83,7 @@ class RaydiumFinalizedVaultSettlement:
 def verify_finalized_raydium_clmm_vault_settlement(
     evidence: ConfirmedTransactionEvidence,
     *,
+    simulation: SimulationEvidence,
     vault_snapshot: RaydiumClmmVaultSnapshot,
     expected_deltas: tuple[ExpectedRaydiumVaultDelta, ...],
     provider_id: str,
@@ -92,6 +93,16 @@ def verify_finalized_raydium_clmm_vault_settlement(
     """Verify finalized Token Program CPI transfers against exact pool-vault balance deltas."""
     if not isinstance(evidence, ConfirmedTransactionEvidence):
         raise RaydiumClmmVaultError("finalized transaction evidence is required")
+    if not isinstance(simulation, SimulationEvidence):
+        raise RaydiumClmmVaultError("the exact successful simulation evidence is required")
+    if evidence.message_sha256 != simulation.message_sha256:
+        raise RaydiumClmmVaultError("finalized transaction message does not match the exact simulated message")
+    if (
+        evidence.provider_id != simulation.provider_id
+        or evidence.cluster != simulation.cluster
+        or evidence.genesis_hash != simulation.genesis_hash
+    ):
+        raise RaydiumClmmVaultError("finalized transaction provenance differs from the exact simulation")
     if evidence.inner_instructions_present is not True:
         raise RaydiumClmmVaultError("finalized transaction does not attest to captured inner instructions")
     if not isinstance(vault_snapshot, RaydiumClmmVaultSnapshot):
@@ -291,6 +302,7 @@ def verify_finalized_raydium_clmm_vault_settlement_from_rpc(
     )
     return verify_finalized_raydium_clmm_vault_settlement(
         evidence,
+        simulation=simulation,
         vault_snapshot=snapshot,
         expected_deltas=expected_deltas,
         provider_id=rpc_adapter.provider_id,
