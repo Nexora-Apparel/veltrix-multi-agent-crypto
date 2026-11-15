@@ -122,3 +122,29 @@ unimplemented; live execution remains disabled.
 The Phase 09.2 host verifier also rejects symlinked database directories,
 database files, environment files and SQLite WAL/SHM sidecars, and checks the
 paper owner's DAC write access independently of the dashboard's mount namespace.
+
+
+## Stage 09.3 — contract-only signer boundary (stacked after 09.2)
+
+The signer boundary contract is prepared in `veltrix/signer_boundary.py`, with
+regression coverage in `tests/test_signer_boundary.py`.
+
+- Immutable unsigned/signed envelopes bind intent, typed chain/network,
+  signer public key, exact unsigned-message SHA-256 digest and policy hash.
+- Chain/network values use the Stage 09.2 `Chain` and `Network` domain enums;
+  policy hashes must be canonical lowercase SHA-256 hex digests.
+- Response metadata must match the approved request. The protocol exposes only
+  `sign`; it defines no broadcast, submit, key-load or key-export method.
+- No signer implementation, key storage, cryptographic signing, signature
+  verification, wallet provider, submission or broadcast is added.
+
+**Critical limitation:** metadata equality does not prove the opaque signed
+transaction bytes contain the approved message, nor that the transaction
+signature verifies against those bytes. A chain-specific signed-byte decoder
+and cryptographic signature verifier are mandatory before any future
+submission path. This contract is not a signing authorization or execution
+release.
+
+This PR is stacked on the Stage 09.2 isolation branch. It remains draft and
+must not merge until PR #191's real-host isolation and provider-egress evidence
+are reviewed and accepted. Live execution remains disabled.
