@@ -89,8 +89,11 @@ jobs:
           test -n "$subdomain"
           base="https://$subdomain"
           curl --fail --silent --show-error "$base/" | grep -q "VELTRIX"
+          unauthenticated_status="$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" "$base/api/health")"
+          test "$unauthenticated_status" = "401"
+          jq -e '.error == "unauthorized"' /tmp/veltrix-unauthorized.json >/dev/null
           status="$(curl --silent --output /tmp/veltrix-health.json --write-out "%{http_code}" \
             -H "Authorization: Bearer $DASHBOARD_API_TOKEN" "$base/api/health")"
           test "$status" = "200"
-          jq -e '.database == "connected" and .database_read_only == true and .live_execution == false and (.missing_paper_tables | length == 0)' /tmp/veltrix-health.json >/dev/null
-          echo "Production Pages deployment and authenticated read-only Turso API verified at $base"
+          jq -e '.ok == true and .database == "connected" and .database_read_only == true and .paper_ledger_initialized == true and .live_execution == false and (.missing_paper_tables | length == 0)' /tmp/veltrix-health.json >/dev/null
+          echo "Production Pages deployment, public auth boundary and authenticated read-only Turso API verified at $base"
