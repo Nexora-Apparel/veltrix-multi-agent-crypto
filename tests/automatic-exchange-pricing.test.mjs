@@ -116,10 +116,11 @@ assert.equal((await evaluateFreshQuote(sealedWithExistingProtection, {
 }, 1_020_000, 1_018_001)).action, "refresh_and_re_review",
   "a signing review initiated after expiry must still be refreshed");
 assert.equal((await evaluateFreshQuote(snapshot, {
-  quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
+  quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: snapshot.minimumOutputRaw,
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint,
   liquidityUsd: 1, tradeUsd: 0.03, volatilityBps: 80, routeHops: 1
-}, 1_004_000)).action, "refresh_and_re_review", "liquidity/volatility deterioration must force a wider protection and fresh review");
+}, 1_004_000)).action, "continue_exact_review",
+  "changing risk telemetry must not restart review when live output still clears the fixed reviewed minimum");
 const tamperedSnapshot = {...snapshot, minimumOutputRaw: "1"};
 await assert.rejects(() => evaluateFreshQuote(tamperedSnapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
