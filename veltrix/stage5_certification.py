@@ -102,7 +102,7 @@ def evaluate_stage5_artifacts(*, liquidity, developer, launch_bundle):
         "evidence_complete": not blockers,
         "capability_certified": False,
         "manual_independent_review_required": True,
-        "capability_flags_must_remain_disabled_until_review": True,
+        "capability_flags_changed": False,
         "live_execution_enabled": False,
         "blockers": blockers,
         "evidence_ids": evidence,
