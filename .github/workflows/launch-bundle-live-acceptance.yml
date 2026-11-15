@@ -1,0 +1,84 @@
+name: Launch-bundle live read-only acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: Chain to validate
+        required: true
+        type: choice
+        options: [solana, base, bsc]
+      token_address:
+        description: Existing token with a fully elapsed launch window
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  launch-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TARGET_CHAIN: ${{ inputs.chain }}
+      TARGET_TOKEN: ${{ inputs.token_address }}
+      HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+      BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+      BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
+      ALCHEMY_QUOTE_TOKENS_BASE: ${{ vars.ALCHEMY_QUOTE_TOKENS_BASE }}
+      ALCHEMY_QUOTE_TOKENS_BSC: ${{ vars.ALCHEMY_QUOTE_TOKENS_BSC }}
+      TRUSTED_BUNDLE_PROVIDERS: ${{ vars.TRUSTED_BUNDLE_PROVIDERS }}
+      TRUSTED_FUNDING_PROVIDERS: ${{ vars.TRUSTED_FUNDING_PROVIDERS }}
+      TRUSTED_LAUNCH_ORIGIN_PROVIDERS: ${{ vars.TRUSTED_LAUNCH_ORIGIN_PROVIDERS }}
+      LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED: ${{ vars.LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED }}
+      LAUNCH_WINDOW_MS: "120000"
+      LAUNCH_INDEX_MAX_PAGES: "20"
+      LAUNCH_BLOCK_CHUNK_SIZE: "2000"
+      FUNDING_LOOKBACK_BLOCKS: "20000"
+      SAFETY_EVIDENCE_MAX_AGE_MS: "900000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check production configuration
+        shell: bash
+        run: |
+          missing=()
+          for name in TRUSTED_BUNDLE_PROVIDERS TRUSTED_FUNDING_PROVIDERS TRUSTED_LAUNCH_ORIGIN_PROVIDERS; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          case "$TARGET_CHAIN" in
+            solana)
+              [[ -n "$HELIUS_API_KEY" ]] || missing+=(HELIUS_API_KEY)
+              ;;
+            base)
+              [[ -n "$BASE_RPC_URL" ]] || missing+=(BASE_RPC_URL)
+              [[ -n "$ALCHEMY_QUOTE_TOKENS_BASE" ]] || missing+=(ALCHEMY_QUOTE_TOKENS_BASE)
+              ;;
+            bsc)
+              [[ -n "$BSC_RPC_URL" ]] || missing+=(BSC_RPC_URL)
+              [[ -n "$ALCHEMY_QUOTE_TOKENS_BSC" ]] || missing+=(ALCHEMY_QUOTE_TOKENS_BSC)
+              ;;
+          esac
+          if (( ${#missing[@]} )); then
+            printf '::error::Missing required launch-bundle configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run read-only launch-bundle acceptance
+        run: |
+          python -m veltrix.launch_bundle_acceptance \
+            --chain "$TARGET_CHAIN" \
+            --token-address "$TARGET_TOKEN" \
+            --output launch-bundle-acceptance.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-bundle-acceptance-${{ inputs.chain }}
+          path: launch-bundle-acceptance.json
+          if-no-files-found: warn
