@@ -128,8 +128,8 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
       !Number.isInteger(outputDecimals) || outputDecimals < 0 || outputDecimals > 18) {
     fail("input/output token decimals are missing or invalid");
   }
-  const tradeSizeRatio = Number(input.tradeUsd);
-  if (!Number.isFinite(tradeSizeRatio) || tradeSizeRatio <= 0) fail("trade-size/liquidity ratio is invalid");
+  const tradeUsd = Number(input.tradeUsd);
+  if (!Number.isFinite(tradeUsd) || tradeUsd <= 0) fail("trade USD value is invalid");
   const snapshot = {
     schema: "veltrix.quote.v1",
     network: "solana-devnet",
@@ -139,7 +139,7 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
     inputMint: String(input.inputMint || ""),
     outputMint: String(input.outputMint || ""),
     inputAmountRaw: inputAmount.toString(),
-    inputDecimals, outputDecimals, tradeSizeRatio,
+    inputDecimals, outputDecimals, tradeUsd,
     quotedOutputRaw: outputRaw.toString(),
     netOutputRaw: netOutputRaw.toString(),
     minimumOutputRaw,
@@ -177,7 +177,7 @@ export async function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now(
     quoteAgeMs: nowMs - freshQuote.quotedAtMs,
     quoteTtlMs: freshQuote.quoteTtlMs,
     liquidityUsd: freshQuote.liquidityUsd ?? snapshot.poolLiquidityUsd,
-    tradeUsd: freshQuote.tradeUsd ?? snapshot.tradeSizeRatio,
+    tradeUsd: freshQuote.tradeUsd ?? snapshot.tradeUsd,
     volatilityBps: freshQuote.volatilityBps ?? snapshot.volatilityBps,
     routeHops: freshQuote.routeHops ?? snapshot.routeHops
   });
