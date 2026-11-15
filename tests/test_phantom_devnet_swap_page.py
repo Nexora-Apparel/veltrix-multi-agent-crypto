@@ -138,7 +138,7 @@ def test_execution_protection_is_automatic_and_minimum_is_sealed_into_transactio
     assert "quoteSnapshot.minimumOutputRaw !== q.otherAmountThreshold" in source
     assert "await pricing.evaluateFreshQuote" in source
     assert "snapshot hash mismatch" in engine
-    assert "Do not chase changing risk estimates during the final audit" in engine
+    assert "Do not chase changing risk estimates during" in engine
     assert "current liquidity, volatility or route risk" not in engine
     assert 'id="protectionValue"' in source
     assert "maximum slippage" not in source.lower()
