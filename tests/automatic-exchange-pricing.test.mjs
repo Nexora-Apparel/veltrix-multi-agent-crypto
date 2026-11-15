@@ -106,6 +106,11 @@ await assert.rejects(() => evaluateFreshQuote(tamperedSnapshot, {
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
 }, 1_004_000), /snapshot hash mismatch/);
 await assert.rejects(() => createQuoteSnapshot({...base, outputDecimals: 99}, 1_002_000), /decimals/);
+await assert.rejects(() => createQuoteSnapshot({...base, outputDecimals: 8}, 1_002_000), /Devnet USDC output mint must use 6 decimals/);
+assert.throws(() => calculateFeeBreakdown({
+  dexFee: null, creatorFee: base.creatorFee, routeFee: base.routeFee,
+  networkFeeLamports: "5000", outputRaw: "10904"
+}), /must be explicitly itemized/);
 
 const reconciled = reconcileWalletBalanceChanges({
   inputSolBefore: "100000000", inputSolAfter: "94990000",
