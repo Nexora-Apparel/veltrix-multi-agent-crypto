@@ -1,0 +1,78 @@
+name: Raydium Devnet swap preflight
+
+on:
+  push:
+    branches: [work/devnet-raydium-swap-preflight]
+  pull_request:
+    paths:
+      - 'wallet/phantom-devnet-swap.html'
+      - 'package.json'
+      - 'scripts/build-devnet-cpmm-unsigned.mjs'
+      - 'tests/phantom_direct_cpmm_live_audit.mjs'
+      - 'tests/test_phantom_devnet_swap_page.py'
+      - 'docs/phantom-devnet-swap.md'
+      - 'veltrix/solana_devnet_swap_preflight.py'
+      - 'tests/test_solana_devnet_swap_preflight.py'
+      - 'veltrix/solana_devnet_ephemeral_swap.py'
+      - 'veltrix/solana_devnet_transaction_audit.py'
+      - 'veltrix/solana_v0_inspector.py'
+      - 'tests/fixtures/raydium_devnet_swap_v0_fixture.json'
+      - 'tests/test_solana_devnet_transaction_audit.py'
+      - 'tests/test_solana_devnet_ephemeral_swap.py'
+      - '.github/workflows/raydium-devnet-swap-preflight.yml'
+permissions:
+  contents: read
+
+jobs:
+  devnet-swap-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run isolated Devnet and Phantom safety tests
+        run: python -m pytest tests/test_solana_devnet_swap_preflight.py tests/test_solana_devnet_ephemeral_swap.py tests/test_phantom_devnet_swap_page.py -q
+      - name: Validate Phantom page JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("wallet/phantom-devnet-swap.html").read_text(encoding="utf-8")
+          script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+          Path("/tmp/phantom-devnet-swap.js").write_text(script, encoding="utf-8")
+          PY
+          node --check /tmp/phantom-devnet-swap.js
+          node tests/phantom_verifier_adversarial.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build and simulate a direct single-pool CPMM v0 transaction
+        run: |
+          npm install --no-audit --no-fund
+          mkdir -p artifacts
+          npm run devnet:cpmm:build
+          node tests/phantom_direct_cpmm_live_audit.mjs
+      - name: Upload exact-byte browser semantic audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-direct-cpmm-live-audit
+          path: artifacts/browser-direct-cpmm-audit.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload direct CPMM unsigned transaction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-devnet-cpmm-unsigned
+          path: artifacts/devnet-cpmm-unsigned.json
+          if-no-files-found: warn
+          retention-days: 14
