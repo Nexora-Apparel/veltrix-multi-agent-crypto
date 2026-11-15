@@ -6,7 +6,7 @@ import {
 
 const base = {
   quoteId: "devnet-quote-001", quotedAtMs: 1_000_000, quoteTtlMs: 8_000,
-  inputMint: "So11111111111111111111111111111111111111112",
+  inputMint: "SoFQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U111111112",
   outputMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
   inputAmountRaw: "5000000", inputDecimals: 9, outputDecimals: 6, quotedOutputRaw: "10904",
   liquidityUsd: 50_000, tradeUsd: 5, volatilityBps: 20, routeHops: 1,
@@ -49,7 +49,7 @@ const enabledPlatformFee = calculateFeeBreakdown({
   networkFeeLamports: "5000", outputRaw: "10904",
   platformFeeConfig: {
     enabled: true, rateBps: 50,
-    recipient: "11111111111111111111111111111111",
+    recipient: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",
     instructionVerified: true
   }
 });
@@ -64,14 +64,14 @@ assert.throws(() => calculateFeeBreakdown({
   networkFeeLamports: "5000", outputRaw: "1",
   platformFeeConfig: {
     enabled: true, rateBps: 50,
-    recipient: "11111111111111111111111111111111",
+    recipient: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",
     instructionVerified: true
   }
 }), /rounds to zero/);
 assert.throws(() => calculateFeeBreakdown({
   dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee, networkFeeLamports: "5000",
   outputRaw: "10904",
-  platformFeeConfig: { enabled: true, rateBps: 50, recipient: "11111111111111111111111111111111", instructionVerified: false }
+  platformFeeConfig: { enabled: true, rateBps: 50, recipient: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U", instructionVerified: false }
 }), /verified transaction instruction/);
 
 const snapshot = await createQuoteSnapshot(base, 1_002_000);
