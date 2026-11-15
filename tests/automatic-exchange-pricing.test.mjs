@@ -8,7 +8,7 @@ const base = {
   quoteId: "devnet-quote-001", quotedAtMs: 1_000_000, quoteTtlMs: 8_000,
   inputMint: "So11111111111111111111111111111111111111112",
   outputMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-  inputAmountRaw: "5000000", quotedOutputRaw: "10904",
+  inputAmountRaw: "5000000", inputDecimals: 9, outputDecimals: 6, quotedOutputRaw: "10904",
   liquidityUsd: 50_000, tradeUsd: 5, volatilityBps: 20, routeHops: 1,
   dexFee: { amountRaw: "15000", currency: "SOL", disclosure: "trade fee from on-chain CPMM quote" },
   creatorFee: { amountRaw: "0", currency: "SOL", disclosure: "creator fee from on-chain CPMM quote" },
@@ -55,22 +55,33 @@ const sameSnapshot = await createQuoteSnapshot(base, 1_002_000);
 assert.equal(snapshot.snapshotSha256, sameSnapshot.snapshotSha256, "canonical quote snapshots must hash deterministically");
 assert.equal(snapshot.minimumOutputRaw, calculateMinimumOutput(snapshot.quotedOutputRaw, snapshot.protectionBps));
 assert.equal(snapshot.network, "solana-devnet");
-assert.equal(evaluateFreshQuote(snapshot, {
+assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10900",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
-}, 1_004_000).action, "continue_exact_review");
-assert.equal(evaluateFreshQuote(snapshot, {
+}, 1_004_000)).action, "continue_exact_review");
+assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: (BigInt(snapshot.minimumOutputRaw) - 1n).toString(),
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
-}, 1_004_000).action, "refresh_and_re_review");
-assert.equal(evaluateFreshQuote(snapshot, {
+}, 1_004_000)).action, "refresh_and_re_review");
+assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
   inputAmountRaw: "4000000", inputMint: base.inputMint, outputMint: base.outputMint
-}, 1_004_000).action, "refresh_and_re_review");
-assert.equal(evaluateFreshQuote(snapshot, {
+}, 1_004_000)).action, "refresh_and_re_review");
+assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
-}, 1_009_000).action, "refresh_and_re_review");
+}, 1_009_000)).action, "refresh_and_re_review");
+assert.equal((await evaluateFreshQuote(snapshot, {
+  quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
+  inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint,
+  liquidityUsd: 1, tradeUsd: 0.03, volatilityBps: 80, routeHops: 1
+}, 1_004_000)).action, "refresh_and_re_review", "liquidity/volatility deterioration must force a wider protection and fresh review");
+const tamperedSnapshot = {...snapshot, minimumOutputRaw: "1"};
+await assert.rejects(() => evaluateFreshQuote(tamperedSnapshot, {
+  quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
+  inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
+}, 1_004_000), /snapshot hash mismatch/);
+assert.throws(() => createQuoteSnapshot({...base, outputDecimals: 99}, 1_002_000), /decimals/);
 
 const reconciled = reconcileWalletBalanceChanges({
   inputSolBefore: "100000000", inputSolAfter: "94990000",
