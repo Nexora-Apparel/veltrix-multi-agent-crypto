@@ -154,8 +154,7 @@ class LaunchStore:
 
     def record_candidate_in_transaction(self, candidate: SolanaCandidate, db: Any) -> None:
         """Persist a candidate on a caller-owned transaction connection."""
-        if not isinstance(candidate, SolanaCandidate):
-            raise TypeError("only validated SolanaCandidate values can be stored")
+        candidate = validate_candidate(candidate)
         if db is None or not callable(getattr(db, "execute", None)):
             raise TypeError("db must be an open database connection")
         sources = sorted(set(candidate.sources or (candidate.source,)))
