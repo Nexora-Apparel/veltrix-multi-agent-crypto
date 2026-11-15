@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import * as solanaWeb3 from "@solana/web3.js";
 import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 
 const html=fs.readFileSync(new URL("../wallet/phantom-devnet-swap.html",import.meta.url),"utf8");
