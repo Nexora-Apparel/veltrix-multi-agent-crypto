@@ -57,6 +57,7 @@ Run **Developer evidence structural acceptance** once per chain, selecting a pro
 - `TRUSTED_DEVELOPER_FUNDING_PROVIDERS`
 - `TRUSTED_DEVELOPER_PROVIDERS` — must explicitly include `developer-graph-provider`.
 - `TRUSTED_LAUNCH_ORIGIN_PROVIDERS` — required for Base and BSC deployment-block provenance.
+- `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` — keep `false` until all three developer acceptance artifacts pass and the root-identity methodology/provider evidence are independently reviewed; then set to `true`.
 
 The workflow reports structural completeness separately from provider trust and capability certification. It exits unsuccessfully if structural coverage or the exact provider trust allowlists are incomplete. A structural pass is not capability certification: independent review of root-identity methodology, source coverage, provider terms/limits and production evidence is still required.
 
@@ -68,8 +69,10 @@ Stage 5 can be marked complete only when all of the following are true:
 2. Developer evidence acceptance passes on Solana, Base and BSC.
 3. Every production RPC is independent where the reader requires independent endpoints, and all registries cover the declared AMM/locker scope.
 4. All executable hashes are measured from deployed finalized code and reviewed.
-5. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
-6. Provider readiness reports no unresolved Stage 5 blockers.
-7. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
+5. `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three liquidity runs and locker-profile coverage pass independent review.
+6. `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three developer runs and signed root methodology pass independent review.
+7. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
+8. Provider readiness reports no unresolved Stage 5 blockers.
+9. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
 
 Never place RPC URLs containing credentials, API keys, private keys or signed payload secrets in source files, issue comments or chat. Store them in GitHub Actions Secrets. Do not enable live trading as part of this stage; all acceptance workflows are read-only.
