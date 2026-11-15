@@ -51,7 +51,7 @@ export function calculateMinimumOutput(quotedOutputRaw, protectionBps) {
 }
 
 export function calculateFeeBreakdown({
-  dexFee, networkFeeLamports, routeFee, platformFeeConfig, outputRaw
+  dexFee, creatorFee, networkFeeLamports, routeFee, platformFeeConfig, outputRaw
 }) {
   const output = asBigInt(outputRaw, "outputRaw");
   if (output <= 0n) fail("outputRaw must be positive");
@@ -62,6 +62,7 @@ export function calculateFeeBreakdown({
     return { category: label, amountRaw: amount.toString(), currency: fee.currency, disclosure: fee.disclosure || "explicit" };
   };
   const dex = normalize(dexFee, "dex");
+  const creator = normalize(creatorFee, "creator");
   const route = normalize(routeFee, "route");
   const network = asBigInt(networkFeeLamports, "networkFeeLamports");
   const platform = { category: "platform", amountRaw: "0", currency: "output-token", recipient: null, enabled: false };
@@ -82,6 +83,7 @@ export function calculateFeeBreakdown({
   }
   return Object.freeze({
     dex: Object.freeze(dex),
+    creator: Object.freeze(creator),
     network: Object.freeze({ category: "network", amountRaw: network.toString(), currency: "SOL" }),
     route: Object.freeze(route),
     platform: Object.freeze(platform),
@@ -112,7 +114,7 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
   });
   const outputRaw = asBigInt(input.quotedOutputRaw, "quotedOutputRaw");
   const fees = calculateFeeBreakdown({
-    dexFee: input.dexFee, networkFeeLamports: input.networkFeeLamports,
+    dexFee: input.dexFee, creatorFee: input.creatorFee, networkFeeLamports: input.networkFeeLamports,
     routeFee: input.routeFee, platformFeeConfig: input.platformFeeConfig, outputRaw
   });
   const platformFee = BigInt(fees.platformFeeRaw);
