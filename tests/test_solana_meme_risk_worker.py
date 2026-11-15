@@ -207,7 +207,6 @@ def test_risk_worker_rejects_invalid_configuration(tmp_path, kwargs):
         )
 
 
-<<<<<<< origin/main
 
 def test_risk_worker_does_not_persist_raw_exception_text(tmp_path):
     clock = Clock(10_000)
@@ -222,7 +221,7 @@ def test_risk_worker_does_not_persist_raw_exception_text(tmp_path):
             (MINT,),
         ).fetchone()
     assert row[0] == "RuntimeError"
-=======
+
 def test_risk_worker_pipeline_fences_and_commits_report_with_job_state(tmp_path):
     launches, _, risk_store, _, worker, _ = setup_worker(tmp_path)
     orchestration = OrchestrationStore(str(launches.database_path))
@@ -261,4 +260,3 @@ def test_risk_worker_rejects_replaced_claim_after_collection(tmp_path):
         worker.run_once(context=context)
     assert risk_store.count(MINT) == 0
     assert worker.status()["processing"] == 1
->>>>>>> origin/work/h1.1-h2-h3-clean
