@@ -17,6 +17,7 @@ def settings(**overrides):
         liquidity_evidence_capability_certified=False,
         developer_evidence_capability_certified=False,
         launch_bundle_evidence_capability_certified=False,
+        launch_bundle_evidence_capability_certified=False,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -204,3 +205,33 @@ def test_launch_bundle_capability_requires_trusted_indexer_funder_origin_and_att
                if row.chain == "solana" and row.claim == "launch_bundle")
     assert row.configured and row.trusted and row.capability_complete
     assert row.eligible_to_attempt
+
+
+
+def test_launch_bundle_capability_attestation_requires_indexer_funder_and_origin_trust():
+    report = build_provider_readiness(settings(
+        helius_api_key="configured",
+        trusted_bundle_providers=("helius-launch",),
+        trusted_funding_providers=("helius-funder",),
+        trusted_launch_origin_providers=("helius-launch-origin",),
+        launch_bundle_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "launch_bundle")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
+
+
+def test_launch_bundle_capability_stays_disabled_without_manual_attestation():
+    report = build_provider_readiness(settings(
+        helius_api_key="configured",
+        trusted_bundle_providers=("helius-launch",),
+        trusted_funding_providers=("helius-funder",),
+        trusted_launch_origin_providers=("helius-launch-origin",),
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "launch_bundle")
+    assert row.configured and row.trusted
+    assert not row.capability_complete
+    assert any("LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED is false" in x
+               for x in row.blockers)
