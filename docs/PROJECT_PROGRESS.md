@@ -29,7 +29,7 @@ VELTRIX is a Solana-first, multi-chain token-intelligence and paper-trading rese
 | 7 | Paper trading | **Complete — merged** | Runtime is not certified as continuously active in production |
 | 8 | Read-only dashboard and analytics | **Complete — merged** | New mobile redesign PR has a failing current-head CI test and visual QA outstanding |
 | 09.1 | Fail-closed policy and operator authorization | **Complete — merged (PR #9)** | No live authorization |
-| 09.2 | Paper/dashboard process and wallet-observation isolation | **Incomplete — PRs #10/#23 open** | Real Linux host, systemd, UID/GID, mount, DB/WAL/SHM and egress evidence |
+| 09.2 | Paper/dashboard process and wallet-observation isolation | **Implementation under review — PR #191 open; host acceptance incomplete** | Exact-head CI plus real Linux host, systemd, UID/GID, mount, DAC, DB/WAL/SHM and egress evidence |
 | 09.3 | Isolated signer boundary | **Contract work only — PRs #11/#24 open** | Independent isolation and later signer implementation/review; no signer exists |
 | 09.4–09.5 | Transaction validation, simulation and semantics | **Partial — PRs #25/#26/#181/#182 and related branches** | Full semantic decoder/effect reconstruction, account-state provenance, independent review |
 | Devnet integration | Phantom + direct CPMM sign-only test | **Sign-only validation reported successful — PR #184 open** | No submission; resolve/record prior ALT-path KMS failure separately; release remains locked |
@@ -129,7 +129,7 @@ The following stages are marked complete because their implementation PRs are me
 
 ## 3. Stage 09 execution-safety work — current branch/PR state
 
-### PR #10 / #12 / #23 — Stage 09.2 host isolation
+### PR #10 / #12 / #23 / #191 — Stage 09.2 host isolation
 - PR #10 remains open/draft on `work/phase-9.2-wallet-isolation`.
 - PR #12 was merged into the PR #10 branch, not into `main`. It adds effective mount-namespace verification; its own description explicitly says no host has been provisioned or tested.
 - PR #23 is a clean integration branch from main, open/draft, head `0125749e25d85fe7145b58982987864f60f00ec3`. Its body records 719 passed / 5 skipped.
@@ -240,13 +240,14 @@ PR #188 is closed/unmerged and superseded by #189. PR #185 is a closed CI-verifi
 
 The next work is ordered by safety dependencies. Do not skip ahead to signing or execution.
 
-1. **Complete exact-head CI for PR #181 and PR #183.** Both regression defects have been fixed on their current heads; inspect complete pytest logs, verify pass/skip counts and update PR bodies/ledger only after successful runs. If either fails, fix the next failure and rerun.
+1. **Complete exact-head CI for PR #191 (Stage 09.2).** Inspect compileall, shell syntax, pytest and all skip counts. Fix any failure before moving this integration forward.
 2. **Complete PR #183 visual acceptance.** Run Android browser screenshot comparison after the Vercel quota reset; the code test pass alone is not visual acceptance.
 3. **Resolve redundant PR #186.** Its inspected code patches are already present identically in #187. Confirm there are no other unique changes, then mark #186 superseded/close it rather than merging duplicate code.
 4. **Prepare Stage 5 production evidence**: inspect required configuration names, confirm only presence/absence without exposing values, verify registry/hash sources and sample token eligibility, then run the nine manual read-only workflows. Record each artifact, chain, claim family, run ID, exact head, finalized slot/block, provider IDs and reviewer outcome. Do not claim a pass for a skipped workflow.
 5. **Complete Stage 09.5 semantic transaction validation**: bind Jupiter and invoked DEX/token instruction bytes, CPI parent/authority provenance, same-context account snapshots, token-account/vault effects and exact input/min-output/destination semantics. Unknown routes and unsupported programs must fail closed.
-6. **Finish Stage 09.2 host isolation** on a real Linux host, or formally choose and validate the zero-cost serverless alternative without pretending it satisfies systemd/mount namespace acceptance.
-7. **Independent security review and end-to-end release audit** across the exact candidate commit, policies, evidence, CI, host controls and disabled execution flags.
+6. **Finish Stage 09.2 host isolation** on a real Linux host, or formally choose and validate the zero-cost serverless alternative without pretending it satisfies systemd/mount namespace acceptance. Host setup and egress evidence remain external blockers.
+7. **Only after 09.2 host acceptance, advance the 09.3 signer-boundary contract review**; keep it contract-only and do not create a signer implementation.
+8. **Independent security review and end-to-end release audit** across the exact candidate commit, policies, evidence, CI, host controls and disabled execution flags.
 8. Keep the system paper-only. Do not create or enable a signer, submitter, broadcaster, mainnet execution or live-trading capability until the entire release gate has passed and the user explicitly authorizes that separate release.
 
 ## 9. Constraints and non-negotiable controls
@@ -294,4 +295,5 @@ For every task:
 | 2026-11-15 | Full Actions history and production acceptance audit | Actions runs `42912477053`, `42964334567`, `43724610264`, `43725136999`, `43752387729`; latest ledger CI `43754460265` | Confirmed Turso H3 disposable-database conformance: 5 passed in 325.57s. Confirmed Stage 5 liquidity workflow runs with reader steps skipped or preflight failures and no artifacts; 0/9 production evidence remains verified. Latest progress-ledger push CI completed successfully. |
 | 2026-11-15 | Stage 5 PR overlap review | PRs #186 and #187, exact changed-file patches | Confirmed #186's monitor/developer-evidence patches are identical to code already included in #187, with tests present in #187. #186 is redundant and should not be merged separately. |
 | 2026-11-15 | PR #181 audit-chain regression correction | `work/phase-9-execution-safety-gates` head `f984e1b1611b49d766d2eb2467683fb5d97f3d4d` | Corrected the test to validate the global append-only hash-chain predecessor across interleaved intents; offline tamper assertion retained. Exact-head CI run `43766530934` passed: 906 passed / 5 skipped; compileall passed. No code merge or live-execution enablement. |
-| 2026-11-15 | PR #183 dashboard test correction | `work/dashboard-reference-mobile-rebuild` head `7fa969d7460d27eb06b7072454ed3d3c9e4d147c` | Moved authenticated dashboard JavaScript asset retrieval before the `dashboard_js` assertions, eliminating the test's use-before-assignment. Exact-head CI run `43766534202` passed: 979 passed / 5 skipped; compileall passed. Android visual QA remains blocked by the recorded Vercel daily quota. | |
+| 2026-11-15 | PR #183 dashboard test correction | `work/dashboard-reference-mobile-rebuild` head `7fa969d7460d27eb06b7072454ed3d3c9e4d147c` | Moved authenticated dashboard JavaScript asset retrieval before the `dashboard_js` assertions, eliminating the test's use-before-assignment. Exact-head CI run `43766534202` passed: 979 passed / 5 skipped; compileall passed. Android visual QA remains blocked by the recorded Vercel daily quota. |
+| 2026-11-15 | Stage 09.2 clean-current-main integration | PR #191, `work/phase-9.2-isolation-current-main` head `0d2be7299de0b033f4b2ded8dfec1ae58f911dfd` | Rebuilt the isolation integration directly on current main because PR #23 was 52 commits behind and diverged. Added paper/dashboard/observer identities, systemd templates, read-only host preflight/verifier, runbook, wallet-domain types, loopback dashboard authentication, shell syntax CI, and stronger SQLite DAC permissions independent of mount isolation. Exact-head CI run `43767022608` queued; no host-level acceptance claimed. | |
