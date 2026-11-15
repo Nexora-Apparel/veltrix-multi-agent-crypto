@@ -1398,7 +1398,7 @@
       quoteId: POOL + ":" + freshBlockhash.blockhash,
       quotedAtMs: quoteCapturedAtMs, quoteTtlMs,
       inputMint: SOL, outputMint: USDC, inputAmountRaw: String(lamports),
-      quotedOutputRaw: q.outputAmount,
+      inputDecimals: 9, outputDecimals: 6, quotedOutputRaw: q.outputAmount,
       liquidityUsd: 1, tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
       volatilityBps, routeHops: 1,
       dexFee: {amountRaw: swapResult.tradeFee.toString(), currency: "SOL", disclosure: "trade fee returned by live CPMM quote; included in output calculation"},
@@ -1530,10 +1530,13 @@
     const reviewedMinimum = BigInt(prepared.quote.otherAmountThreshold);
     const freshOutputRaw = BigInt(freshResult.outputAmount.toString());
     const pricing = await loadPricingEngine();
-    const freshness = pricing.evaluateFreshQuote(prepared.quoteSnapshot, {
+    const freshVolatilityBps = await measurePoolVolatilityBps(raydium, baseIn);
+    const freshness = await pricing.evaluateFreshQuote(prepared.quoteSnapshot, {
       quotedAtMs: Date.now(), quoteTtlMs: prepared.quoteSnapshot.expiresAtMs - prepared.quoteSnapshot.quotedAtMs,
       quotedOutputRaw: freshOutputRaw.toString(), inputAmountRaw: prepared.quote.inputAmount,
-      inputMint: SOL, outputMint: USDC
+      inputMint: SOL, outputMint: USDC,
+      liquidityUsd: 1, tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
+      volatilityBps: freshVolatilityBps, routeHops: 1
     }, Date.now());
     if (freshness.action !== "continue_exact_review") {
       invalidatePrepared("Quote protection requires a fresh quote and a new review: " + freshness.reason);
