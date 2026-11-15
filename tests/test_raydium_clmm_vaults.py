@@ -418,6 +418,23 @@ def test_verifies_finalized_pool_vault_balance_deltas_against_token_cpis():
     }
 
 
+def test_rejects_finalized_transaction_that_is_not_the_exact_simulated_message():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    mismatched_simulation = dataclasses.replace(values[2], message_sha256="0" * 64)
+    with pytest.raises(RaydiumClmmVaultError, match="does not match the exact simulated message"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values),
+            simulation=mismatched_simulation,
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
 def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
     values = fixture(slot=801)
     snapshot = fetch(values)
