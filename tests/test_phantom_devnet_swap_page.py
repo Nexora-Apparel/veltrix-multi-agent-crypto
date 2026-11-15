@@ -400,7 +400,7 @@ def test_missing_or_invalid_network_fee_estimate_fails_closed():
 
 
 def test_quote_review_displays_exact_output_automatic_protection_and_fee_items():
-    source = PAGE.read_text(encoding="utf-8").read_text(encoding="utf-8")
+    source = PAGE.read_text(encoding="utf-8")
     assert 'id="outputRawValue"' in source
     assert 'id="minimumRawValue"' in source
     assert 'id="protectionValue"' in source
