@@ -278,26 +278,79 @@
     return {version:"legacy",header,staticAccountKeys,recentBlockhash,addressTableLookups:[],compiledInstructions};
   }
   function compareLegacyMessageSemantics(expectedMessage,actualMessage) {
+    // Phantom may compile the same reviewed instruction set with a different static-key
+    // ordering and may add bounded ComputeBudget instructions. Compare resolved program
+    // and account identities, not compiler-assigned indexes or global key-array order.
     const differences=[];
-    for(const field of ["numRequiredSignatures","numReadonlySignedAccounts","numReadonlyUnsignedAccounts"]) {
-      if(expectedMessage.header[field]!==actualMessage.header[field]) differences.push("header."+field);
+    if(expectedMessage.header.numRequiredSignatures!==actualMessage.header.numRequiredSignatures) {
+      differences.push("header.numRequiredSignatures");
     }
-    if(expectedMessage.recentBlockhash!==actualMessage.recentBlockhash) differences.push("recentBlockhash");
+    if(expectedMessage.header.numReadonlySignedAccounts!==actualMessage.header.numReadonlySignedAccounts) {
+      differences.push("header.numReadonlySignedAccounts");
+    }
+    if(expectedMessage.header.numRequiredSignatures!==1 ||
+       actualMessage.header.numRequiredSignatures!==1 ||
+       actualMessage.header.numReadonlySignedAccounts!==0) {
+      differences.push("singleWalletSignerPolicy");
+    }
     const expectedKeys=expectedMessage.staticAccountKeys.map(key=>typeof key==="string"?key:key.toBase58());
     const actualKeys=actualMessage.staticAccountKeys.map(key=>typeof key==="string"?key:key.toBase58());
-    if(expectedKeys.length!==actualKeys.length) differences.push("accountKeys.length");
-    const keyCount=Math.max(expectedKeys.length,actualKeys.length);
-    for(let i=0;i<keyCount;i++) if(expectedKeys[i]!==actualKeys[i]) differences.push("accountKeys["+i+"]");
-    if(expectedMessage.compiledInstructions.length!==actualMessage.compiledInstructions.length) differences.push("instructions.length");
-    const instructionCount=Math.max(expectedMessage.compiledInstructions.length,actualMessage.compiledInstructions.length);
-    for(let i=0;i<instructionCount;i++) {
-      const a=expectedMessage.compiledInstructions[i],b=actualMessage.compiledInstructions[i];
+    if(expectedKeys[0]!==actualKeys[0]) differences.push("feePayer");
+    if(expectedMessage.recentBlockhash!==actualMessage.recentBlockhash) differences.push("recentBlockhash");
+
+    const resolve=(keys,ix)=>{
+      if(!Number.isInteger(ix.programIdIndex)||ix.programIdIndex<0||ix.programIdIndex>=keys.length) {
+        throw new Error("compiled instruction program index is outside the message account set");
+      }
+      const indexes=Array.from(ix.accountKeyIndexes ?? []);
+      if(indexes.some(index=>!Number.isInteger(index)||index<0||index>=keys.length)) {
+        throw new Error("compiled instruction account index is outside the message account set");
+      }
+      return {
+        program:keys[ix.programIdIndex],
+        accounts:indexes.map(index=>keys[index]),
+        data:Uint8Array.from(ix.data)
+      };
+    };
+    const allowedComputeBudget=(ix)=>{
+      if(ix.accounts.length!==0) return false;
+      const data=ix.data;
+      if(data.length===5 && data[0]===2) {
+        const units=new DataView(data.buffer,data.byteOffset,data.byteLength).getUint32(1,true);
+        return units>0 && units<=1400000;
+      }
+      if(data.length===9 && data[0]===3) {
+        const price=new DataView(data.buffer,data.byteOffset,data.byteLength).getBigUint64(1,true);
+        return price<=1000000n;
+      }
+      return false;
+    };
+    const canonical=(message,keys,label)=>{
+      const result=[];
+      for(let i=0;i<message.compiledInstructions.length;i++) {
+        let item;
+        try { item=resolve(keys,message.compiledInstructions[i]); }
+        catch { differences.push(label+".instructions["+i+"].invalidIndex"); continue; }
+        if(item.program===COMPUTE_BUDGET) {
+          if(!allowedComputeBudget(item)) differences.push(label+".instructions["+i+"].computeBudgetPolicy");
+          continue;
+        }
+        result.push(item);
+      }
+      return result;
+    };
+    const expected=canonical(expectedMessage,expectedKeys,"reviewed");
+    const actual=canonical(actualMessage,actualKeys,"confirmed");
+    if(expected.length!==actual.length) differences.push("instructions.length");
+    const count=Math.max(expected.length,actual.length);
+    for(let i=0;i<count;i++) {
+      const a=expected[i],b=actual[i];
       if(!a||!b){differences.push("instructions["+i+"]");continue;}
-      if(a.programIdIndex!==b.programIdIndex) differences.push("instructions["+i+"].programIdIndex");
-      if(a.accountKeyIndexes.join(",")!==b.accountKeyIndexes.join(",")) differences.push("instructions["+i+"].accountKeyIndexes");
+      if(a.program!==b.program) differences.push("instructions["+i+"].program");
+      if(a.accounts.join(",")!==b.accounts.join(",")) differences.push("instructions["+i+"].accounts");
       if(!bytesEqual(a.data,b.data)) differences.push("instructions["+i+"].data");
     }
-    return differences;
+    return [...new Set(differences)];
   }
   function firstByteDifference(expected,actual) {
     const limit=Math.min(expected.length,actual.length);
