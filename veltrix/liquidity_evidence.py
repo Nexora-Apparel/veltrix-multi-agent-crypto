@@ -492,7 +492,8 @@ class SolanaLiquidityLockerProvider:
     are never interpreted as locks.
     """
     SUPPORTED_PROGRAMS = {
-        "GsSCS3vPWrtJ5Y9aEVVT65fmrex5P5RGHXdZvsdbWgfo": "raydium-amm-v4",
+        "GsSCS3vPWrtJ5Y9aEVVT65fmrex5P5RGHXdZvsdbWgfo": "uncx-raydium-amm-v4",
+        "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE": "raydium-burn-and-earn-cpmm",
     }
 
     def __init__(self, deployment: LockerDeployment, reader: LiquiditySnapshotSource):
