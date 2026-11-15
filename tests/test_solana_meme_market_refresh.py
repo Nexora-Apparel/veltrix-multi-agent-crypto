@@ -1,9 +1,12 @@
+import pytest
+
 from veltrix.providers.base import MarketEvent
 from veltrix.solana_meme.candidates import normalize_candidate
 from veltrix.solana_meme.launch_stream import LaunchStore
 from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.market_refresh import MarketRefreshWorker
+from veltrix.orchestration import LeaseBusy, OrchestrationStore, RunContext, run_once
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -37,11 +40,14 @@ class RotatingProvider:
         self.price = 0.001
         self.fail = False
         self.calls = []
+        self.on_fetch = None
 
     def fetch_token_pairs(self, chain, token_addresses):
         self.calls.append((chain, list(token_addresses)))
         if self.fail:
             raise RuntimeError("provider unavailable")
+        if self.on_fetch is not None:
+            self.on_fetch()
         return [event(self.observed, self.price)]
 
 
@@ -169,3 +175,46 @@ def test_refresh_worker_rejects_split_database_and_invalid_limits(tmp_path):
             assert False, "expected invalid limit to be rejected"
         except ValueError:
             pass
+
+
+def test_market_refresh_pipeline_fences_and_commits_snapshot_with_job_state(tmp_path):
+    launches, store, provider, worker = setup(tmp_path)
+    launches.record_candidate(launch())
+    seed_snapshot(store)
+    orchestration = OrchestrationStore(str(launches.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(context=context)
+        assert result.refreshed == 1
+
+    result = run_once(
+        orchestration, idempotency_key="market-refresh-window-1",
+        job_type="market_refresh", payload={}, handler=handler,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert store.count(MINT) == 2
+    assert worker.status()["processing"] == 0
+
+
+def test_market_refresh_rejects_replaced_row_claim_after_provider_read(tmp_path):
+    launches, store, provider, worker = setup(tmp_path)
+    launches.record_candidate(launch())
+    seed_snapshot(store)
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 9, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: None,
+    )
+    def replace_claim_after_provider_read():
+        with worker._connect() as db:
+            db.execute(
+                "UPDATE solana_market_refresh_jobs SET claim_fencing_token=10 WHERE mint=?",
+                (MINT,),
+            )
+
+    provider.on_fetch = replace_claim_after_provider_read
+    with pytest.raises(LeaseBusy, match="row claim"):
+        worker.run_once(context=context)
+    assert store.count(MINT) == 1
+    assert worker.status()["processing"] == 1

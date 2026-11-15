@@ -95,6 +95,7 @@ def test_store_rejects_untyped_data_and_invalid_history_limit(tmp_path):
         MarketSnapshotStore(":memory:")
 
 
+<<<<<<< origin/main
 
 def test_store_revalidates_forged_snapshot_before_writing(tmp_path):
     store = MarketSnapshotStore(tmp_path / "market.sqlite3")
@@ -119,3 +120,19 @@ def test_store_rejects_snapshot_with_future_response_receipt(tmp_path):
     with pytest.raises(ValueError, match="failed canonical validation"):
         store.record(invalid)
     assert store.count(MINT) == 0
+=======
+def test_record_in_transaction_uses_caller_commit_and_rollback(tmp_path):
+    store = MarketSnapshotStore(tmp_path / "market-transaction.sqlite3")
+    item = snapshot(retrieved=4000, observed=3900)
+    with store._connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        assert store.record_in_transaction(item, db)
+        db.rollback()
+    assert store.count(MINT) == 0
+
+    with store._connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        assert store.record_in_transaction(item, db)
+        db.commit()
+    assert store.count(MINT) == 1
+>>>>>>> origin/work/h1.1-h2-h3-clean

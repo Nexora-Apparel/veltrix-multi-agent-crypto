@@ -4,6 +4,7 @@ from veltrix.solana_meme.candidates import SolanaCandidate, normalize_candidate
 from veltrix.solana_meme.dexscreener import DexScreenerBatch
 from veltrix.solana_meme.discovery import SolanaDiscoveryEngine
 from veltrix.solana_meme.launch_stream import LaunchStore
+from veltrix.orchestration import LeaseBusy, OrchestrationStore, RunContext, run_once
 
 MINT = "So11111111111111111111111111111111111111112"
 
@@ -93,6 +94,7 @@ def test_engine_rejects_invalid_poll_intervals(tmp_path, interval):
         )
 
 
+<<<<<<< origin/main
 
 def test_poll_once_revalidates_each_candidate_and_records_rejections(tmp_path):
     store = LaunchStore(tmp_path / "discovery.sqlite3")
@@ -120,3 +122,63 @@ def test_poll_once_revalidates_each_candidate_and_records_rejections(tmp_path):
     assert result.candidates_rejected == 1
     assert store.candidate_count() == 1
     assert store.event_count(event_type="candidate_rejected") == 1
+=======
+def test_discovery_pipeline_fences_and_persists_batch_once(tmp_path):
+    store = LaunchStore(tmp_path / "discovery-pipeline.sqlite3")
+    candidate = normalize_candidate(
+        {"chain": "solana", "mint": MINT},
+        source="dexscreener-latest-profile",
+        observed_at_ms=200,
+    )
+    engine = SolanaDiscoveryEngine(
+        store,
+        FakeSecondarySource(DexScreenerBatch(
+            candidates=(candidate,),
+            successful_sources=("dexscreener-latest-profile",),
+            errors=(),
+        )),
+        clock_ms=lambda: 300,
+    )
+    orchestration = OrchestrationStore(str(store.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = engine.poll_once(context=context)
+        assert result.candidates_stored == 1
+
+    result = run_once(
+        orchestration, idempotency_key="discovery-window-1",
+        job_type="discovery", payload={}, handler=handler,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert store.candidate_count() == 1
+
+
+def test_discovery_does_not_persist_after_global_fence_loss(tmp_path):
+    store = LaunchStore(tmp_path / "discovery-fence-loss.sqlite3")
+    candidate = normalize_candidate(
+        {"chain": "solana", "mint": MINT},
+        source="dexscreener-latest-profile",
+        observed_at_ms=200,
+    )
+    engine = SolanaDiscoveryEngine(
+        store,
+        FakeSecondarySource(DexScreenerBatch(
+            candidates=(candidate,),
+            successful_sources=("dexscreener-latest-profile",),
+            errors=(),
+        )),
+        clock_ms=lambda: 300,
+    )
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: (_ for _ in ()).throw(
+            LeaseBusy("global lease lost")
+        ),
+    )
+    with pytest.raises(LeaseBusy, match="global lease lost"):
+        engine.poll_once(context=context)
+    assert store.candidate_count() == 0
+    assert store.active_outage_count() == 0
+>>>>>>> origin/work/h1.1-h2-h3-clean
