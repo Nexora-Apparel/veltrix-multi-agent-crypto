@@ -1,6 +1,6 @@
 # Stage 5 production evidence acceptance runbook
 
-Stage 5 is not complete until the six chain-specific read-only acceptance runs (liquidity lock + developer evidence on Solana, Base and BSC) pass against production finalized state and the resulting provider identities are independently reviewed. Unit tests and mocked fixtures do not satisfy this gate.
+Stage 5 is not complete until the nine chain-specific read-only acceptance runs (liquidity lock, developer evidence and launch bundle on Solana, Base and BSC) pass against production finalized state and the resulting provider identities are independently reviewed. Unit tests and mocked fixtures do not satisfy this gate.
 
 ## 1. Liquidity-lock provider acceptance
 
