@@ -152,7 +152,7 @@ class ConfirmedTransactionEvidence:
     post_token_balances_json: str
     logs: tuple[str, ...]
     raw_result_json: str
-
+    message_sha256: str = ""
 
 
 class SolanaRpcSimulationAdapter:
@@ -432,6 +432,49 @@ class SolanaRpcSimulationAdapter:
                 inner_program_ids.append(resolve_program_id(instruction))
         pre_balances = meta.get("preTokenBalances")
         post_balances = meta.get("postTokenBalances")
+        # Fetch the canonical wire transaction as well as the decoded JSON view.
+        # The decoded view is used for CPI/balance inspection; the wire bytes bind
+        # this finalized signature to the exact message that was simulated.
+        wire_result = self._rpc(
+            "getTransaction",
+            [
+                signature,
+                {
+                    "encoding": "base64",
+                    "commitment": "finalized",
+                    "maxSupportedTransactionVersion": 0,
+                },
+            ],
+        )
+        if not isinstance(wire_result, dict) or wire_result.get("slot") != slot:
+            raise SolanaRpcAdapterError("finalized wire transaction does not match the decoded transaction slot")
+        wire_meta = wire_result.get("meta")
+        if not isinstance(wire_meta, dict) or wire_meta.get("err") is not None:
+            raise SolanaRpcAdapterError("finalized wire transaction metadata is missing or reports execution failure")
+        wire_transaction = wire_result.get("transaction")
+        if (
+            not isinstance(wire_transaction, list)
+            or len(wire_transaction) != 2
+            or wire_transaction[1] != "base64"
+            or not isinstance(wire_transaction[0], str)
+        ):
+            raise SolanaRpcAdapterError("finalized RPC provider omitted the canonical base64 transaction bytes")
+        try:
+            wire_bytes = base64.b64decode(wire_transaction[0], validate=True)
+            # Solana's compact-u16 signature count is one byte for valid transactions
+            # (the protocol caps required signatures well below 128).
+            if not wire_bytes:
+                raise ValueError("empty transaction")
+            signature_count = wire_bytes[0]
+            message_offset = 1 + signature_count * 64
+            if signature_count < 1 or signature_count != len(signatures) or len(wire_bytes) <= message_offset:
+                raise ValueError("malformed signature vector")
+            if str(Signature.from_bytes(wire_bytes[1:65])) != signature:
+                raise ValueError("wire signature differs from requested signature")
+            message_sha256 = hashlib.sha256(wire_bytes[message_offset:]).hexdigest()
+        except Exception as exc:
+            raise SolanaRpcAdapterError("finalized wire transaction bytes or signature vector are malformed") from exc
+
         logs = meta.get("logMessages")
         if not isinstance(pre_balances, list) or not isinstance(post_balances, list):
             raise SolanaRpcAdapterError("finalized transaction omitted pre/post token balance evidence")
@@ -453,6 +496,7 @@ class SolanaRpcSimulationAdapter:
             post_token_balances_json=json.dumps(post_balances, sort_keys=True, separators=(",", ":")),
             logs=tuple(logs),
             raw_result_json=json.dumps(result, sort_keys=True, separators=(",", ":")),
+            message_sha256=message_sha256,
         )
 
     def _resolve_lookup_tables(
