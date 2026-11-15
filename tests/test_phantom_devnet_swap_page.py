@@ -414,7 +414,9 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert "await finalPreSignFreshnessGate()" in execute
+    assert "const gateResult = await finalPreSignFreshnessGate()" in execute
+    assert "if (gateResult?.refreshed)" in execute
+    assert "if (prepared !== reviewed)" in execute
     assert "provider.signTransaction(finalTx)" in execute
 
 
