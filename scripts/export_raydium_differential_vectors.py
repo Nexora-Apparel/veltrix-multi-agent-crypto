@@ -1479,28 +1479,54 @@ def multiple_reward_update_vector() -> dict:
 def randomized_swap_replay_vectors() -> list[dict]:
     """Generate reproducible full-loop adversarial inputs for the pinned Rust oracle.
 
-    The fixed seed makes CI byte-for-byte reproducible while varying swap direction,
-    exact-input/exact-output mode, amount size, dynamic-fee activation and FIFO load.
+    The fixed seed varies direction, amount mode, amount size, dynamic fees,
+    FIFO load, empty-array removal, multi-array traversal, bitmap extensions,
+    reward updates and PoolState fee_on modes without introducing flaky CI.
     """
     rng = random.Random(0x09_71_2026)
     vectors = []
-    for index in range(24):
-        zero_for_one = bool(index % 2)
-        is_base_input = bool((index // 2) % 2)
+    for index in range(32):
+        mode = index % 8
+        zero_for_one = bool(rng.getrandbits(1))
+        is_base_input = bool(rng.getrandbits(1))
         amount_specified = rng.randint(100_000, 1_000_000)
-        dynamic_fee_enabled = index % 3 == 0
-        fifo_order_amount = rng.randint(1, 200) if index % 4 == 0 else 0
+        options = {}
+
+        if mode == 1:
+            options["dynamic_fee_enabled"] = True
+            options["fifo_order_amount"] = rng.randint(1, 200)
+        elif mode == 2:
+            options["fifo_order_amount"] = rng.randint(1, 200)
+        elif mode == 3:
+            zero_for_one = False
+            is_base_input = True
+            amount_specified = 1_000_000
+            options["multi_array"] = True
+        elif mode == 4:
+            zero_for_one = False
+            is_base_input = True
+            amount_specified = 1_000_000_000_000_000_000
+            options["bitmap_extension"] = True
+        elif mode == 5:
+            zero_for_one = True
+            is_base_input = True
+            amount_specified = 1_000_000_000_000_000_000
+            options["negative_bitmap_extension"] = True
+            options["fifo_order_amount"] = rng.randint(1, 200)
+        elif mode == 6:
+            options["active_reward"] = True
+        elif mode == 7:
+            options["fee_on"] = rng.choice((1, 2))
+
         fixture = swap_replay_vector(
             zero_for_one=zero_for_one,
             is_base_input=is_base_input,
             amount_specified=amount_specified,
-            dynamic_fee_enabled=dynamic_fee_enabled,
-            fifo_order_amount=fifo_order_amount,
+            **options,
         )
-        fixture["case_name"] = f"seeded_adversarial_{index:02d}"
+        fixture["case_name"] = f"seeded_adversarial_{index:02d}_mode_{mode}"
         vectors.append(fixture)
     return vectors
-
 
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
