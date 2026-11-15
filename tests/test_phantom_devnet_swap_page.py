@@ -48,7 +48,7 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert "const EXECUTION_RELEASE_ENABLED = false" in source
     sign_test = source[source.index("async function testLegacyPhantomSigning()"):source.index("async function execute()")]
     assert "await finalPreSignFreshnessGate()" in sign_test
-    assert "provider.signTransaction(finalTx)" in sign_test
+    assert "provider.signTransaction(phantomInputTx)" in sign_test
     assert "normalizePhantomSignedLegacyTransaction(phantomWireBytes)" in sign_test
     assert "phantomSigningWireBytes(phantomResult)" in sign_test
     assert "function normalizePhantomSignedLegacyTransaction(value)" in source
@@ -245,7 +245,7 @@ def test_browser_semantic_audit_runs_before_review_and_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert "Transaction intent rejected:" in source
-    assert "provider.signTransaction(finalTx)" in source
+    assert "provider.signTransaction(phantomInputTx)" in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
 
 
@@ -389,7 +389,7 @@ def test_browser_ui_uses_direct_cpmm_sdk_and_keeps_submission_hard_disabled():
     assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
-    assert "provider.signTransaction(finalTx)" in source
+    assert "provider.signTransaction(phantomInputTx)" in source
     assert "await finalPreSignFreshnessGate()" in source
     assert '$("signTest").disabled=false' in source
     assert '$("execute").disabled=true' in source
@@ -428,7 +428,7 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "const gateResult = await finalPreSignFreshnessGate()" in execute
     assert "if (gateResult?.refreshed)" in execute
     assert "if (prepared !== reviewed)" in execute
-    assert "provider.signTransaction(finalTx)" in execute
+    assert "provider.signTransaction(phantomInputTx)" in execute
 
 
 
@@ -475,7 +475,7 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "resolveV0Accounts(message)" in page
     assert "duplicate public key in resolved v0 account set" in page
     assert "legacy transaction unexpectedly references address lookup tables" in page
-    assert "provider.signTransaction(finalTx)" in page
+    assert "provider.signTransaction(phantomInputTx)" in page
     assert "connection.sendRawTransaction(signedWireBytes" in page
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in page
     assert "signature !== locallySignedSignature" in page
