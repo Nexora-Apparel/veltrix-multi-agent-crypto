@@ -288,7 +288,9 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     workflow = (root / ".github" / "workflows" / "raydium-devnet-swap-preflight.yml").read_text(encoding="utf-8")
     assert '"@raydium-io/raydium-sdk-v2": "0.2.64-alpha"' in package
     assert 'const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo"' in source
-    assert 'const INPUT = 1_000_000' in source
+    assert 'const INPUT = parseSolToLamports(process.env.SWAP_INPUT_SOL || "0.001")' in source
+    assert 'process.env.SWAP_SLIPPAGE_BPS || "100"' in source
+    assert "slippage:SLIPPAGE_BPS/10000" in source
     assert 'cluster:"devnet"' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "raydium.cpmm.swap(" in source
