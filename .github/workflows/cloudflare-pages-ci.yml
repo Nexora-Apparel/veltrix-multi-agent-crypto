@@ -9,6 +9,7 @@ on:
       - "package.json"
       - "wrangler.toml"
       - ".github/workflows/cloudflare-pages-ci.yml"
+      - ".github/workflows/cloudflare-pages-deploy.yml"
   pull_request:
     paths:
       - "functions/**"
@@ -35,6 +36,13 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run dashboard API security tests
         run: npm test
+      - name: Validate Wrangler production deployment commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler pages project create --help | grep -q -- "--production-branch"
+          npx wrangler pages secret put --help | grep -q -- "--env"
+          npx wrangler pages deploy --help | grep -q -- "--project-name"
       - name: Build the Pages static bundle
         run: npm run build:pages
       - name: Smoke-test Pages static assets and unauthenticated API boundary
