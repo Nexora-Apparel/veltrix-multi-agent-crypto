@@ -118,7 +118,7 @@ try {
   const dynamicResolved=await hooks.resolveV0Accounts(dynamicMessage);
   assert.equal(dynamicResolved.resolved.length,5);
   assert.equal(dynamicResolved.lookupEvidence.length,2);
-  assert.deepEqual(dynamicResolved.resolved.slice(1).map(key=>key.toBase58()),[
+  assert.deepEqual(Array.from(dynamicResolved.resolved.slice(1),key=>key.toBase58()),[
     altAddresses[0][1].toBase58(),altAddresses[1][2].toBase58(),
     altAddresses[0][0].toBase58(),altAddresses[1][3].toBase58()
   ]);
