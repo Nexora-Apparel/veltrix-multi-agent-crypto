@@ -80,6 +80,7 @@ async function main() {
   const reserveIn = baseIn ? rpcData.baseReserve : rpcData.quoteReserve;
   const reserveOut = baseIn ? rpcData.quoteReserve : rpcData.baseReserve;
   const inputAmount = new BN(String(INPUT));
+  const creatorFeeOnInput=rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB;
   const swapResult = CurveCalculator.swapBaseInput(
     inputAmount,
     reserveIn,
@@ -88,8 +89,9 @@ async function main() {
     rpcData.configInfo.creatorFeeRate,
     rpcData.configInfo.protocolFeeRate,
     rpcData.configInfo.fundFeeRate,
-    rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB
+    creatorFeeOnInput
   );
+  if(!swapResult.tradeFee || !swapResult.creatorFee) fail("CPMM quote omitted trade/creator fee itemization");
   if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) fail("pool quote output is zero");
   const spotOutput = inputAmount.mul(reserveOut).div(reserveIn);
   if (!spotOutput || spotOutput.lte(new BN(0))) fail("pool spot output is zero");
@@ -172,6 +174,8 @@ async function main() {
   const negative=await simulateLegacy(negativeBytes,false);
   if(!negative.value.err) fail("CPMM accepted a minimum output one raw unit above the observed output");
   const message=tx.compileMessage();
+  const feeEstimate=await connection.getFeeForMessage(message,"confirmed");
+  if(!feeEstimate || !Number.isSafeInteger(feeEstimate.value) || feeEstimate.value<0) fail("network fee estimate unavailable or invalid");
   const keys=message.accountKeys.map(k=>k.toBase58());
   const ixSummary=tx.instructions.map(ix=>({
     programId:ix.programId.toBase58(),
@@ -188,6 +192,11 @@ async function main() {
     wallet:WALLET,pool:POOL,program:poolInfo.programId,
     input_mint:WSOL,output_mint:USDC,input_amount_lamports:String(INPUT),
     quoted_output_raw:swapResult.outputAmount.toString(),minimum_output_raw:minimumOut.toString(),actual_output_raw:actualOutput.toString(),
+    pool_trade_fee_raw:swapResult.tradeFee.toString(),
+    pool_creator_fee_raw:swapResult.creatorFee.toString(),
+    pool_creator_fee_currency:creatorFeeOnInput?WSOL:USDC,
+    route_fee_raw:"0",platform_fee_raw:"0",platform_fee_enabled:false,
+    network_fee_lamports:String(feeEstimate.value),
     price_impact_pct:priceImpactPct,
     protection_bps:protectionBps,volatility_bps:volatilityBps,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
     unsigned_transaction_base64:Buffer.from(serialized).toString("base64"),
