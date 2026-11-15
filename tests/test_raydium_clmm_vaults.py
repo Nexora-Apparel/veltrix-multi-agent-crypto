@@ -373,7 +373,7 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
         genesis_hash="genesis",
         account_keys=tuple(keys),
         top_level_program_ids=(raydium_program,),
-        inner_program_ids=(token_program,) if include_cpis else (),
+        inner_program_ids=(token_program, token_program) if include_cpis else (),
         inner_instructions_present=True,
         pre_token_balances_json=json.dumps(records_pre),
         post_token_balances_json=json.dumps(records_post),
