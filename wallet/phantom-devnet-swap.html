@@ -1448,9 +1448,9 @@
       }
       status("Final audit passed. Phantom is opening its transaction approval screen. Review the transaction there before approving.","warning");
       approvalRequested = true;
-      // Pass the active Connection so Phantom can resolve all dynamically selected
-      // address lookup tables before KMS signing a v0 message.
-      const approval=await provider.signAndSendTransaction(finalTx,connection,{
+      // Phantom's injected provider accepts SendOptions as its second argument;
+      // it resolves v0 lookup-table references as part of its native send flow.
+      const approval=await provider.signAndSendTransaction(finalTx,{
         preflightCommitment:"confirmed",maxRetries:3
       });
       signature = approval && typeof approval.signature === "string" ? approval.signature : approval;
