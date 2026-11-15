@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+import * as solanaWeb3 from "@solana/web3.js";
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 
 const html=fs.readFileSync(new URL("../wallet/phantom-devnet-swap.html",import.meta.url),"utf8");
 const script=html.split("<script>",2)[1].split("</script>",1)[0];
@@ -10,17 +11,31 @@ const artifact=JSON.parse(fs.readFileSync(artifactPath,"utf8"));
 assert.equal(artifact.status,"simulation_succeeded");
 assert.equal(artifact.cluster,"devnet");
 assert.equal(artifact.pool,"5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo");
-assert.equal(artifact.transaction_version,0);
+assert.equal(artifact.transaction_version,"legacy");
+assert.equal(artifact.address_lookup_tables.length,0);
+assert.ok(artifact.serialized_size_bytes<=1232);
 assert.equal(artifact.transaction_count,1);
 assert.equal(artifact.signed,false);
 assert.equal(artifact.submitted,false);
 assert.equal(artifact.broadcast,false);
+assert.ok(Number.isFinite(Number(artifact.price_impact_pct)));
+if(process.env.EXPECT_IMPACT_ABOVE_2==="true") {
+  assert.ok(Number(artifact.price_impact_pct)>2,
+    "CI fixture must exercise a quote whose informational price impact exceeds the former 2% cutoff");
+}
 
 const bytes=Uint8Array.from(Buffer.from(artifact.unsigned_transaction_base64,"base64"));
-const tx=VersionedTransaction.deserialize(bytes);
-assert.equal(tx.version,0);
+const tx=Transaction.from(bytes);
 assert.equal(tx.signatures.length,1);
-assert.ok(tx.signatures.every(sig=>sig.every(byte=>byte===0)));
+assert.ok(tx.signatures.every(item=>item.signature===null));
+assert.ok(tx.compileMessage().accountKeys.length<=32);
+assert.equal(tx.instructions.length,4);
+assert.deepEqual(tx.instructions.map(ix=>ix.programId.toBase58()),[
+  "11111111111111111111111111111111",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+]);
 
 const nodes=new Map();
 function node(id){
@@ -40,17 +55,305 @@ vm.runInNewContext(script,context);
 const hooks=window.__VELTRIX_TEST_HOOKS__;
 assert.ok(hooks,"browser verifier test hooks unavailable");
 hooks.setWalletForTest(new PublicKey(artifact.wallet));
+
+// The live builder must locate and mutate the CPMM instruction in v0 compiled
+// instructions, including when the program key is supplied by a dynamically
+// resolved lookup table rather than the static key array.
+const v0ProgramKey=new PublicKey(hooks.constants.CPMM);
+const v0ProgramMessage=new solanaWeb3.MessageV0({
+  header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+  staticAccountKeys:[new PublicKey(artifact.wallet)],
+  recentBlockhash:new PublicKey(Uint8Array.from({length:32},()=>77)).toBase58(),
+  compiledInstructions:[{programIdIndex:1,accountKeyIndexes:[],data:Uint8Array.from([1,2,3])}],
+  addressTableLookups:[{accountKey:new PublicKey(Uint8Array.from({length:32},()=>78)),writableIndexes:[],readonlyIndexes:[0]}]
+});
+const v0ProgramTx=new solanaWeb3.VersionedTransaction(v0ProgramMessage);
+assert.equal(hooks.findDirectCpmmInstructionIndex(v0ProgramTx,[new PublicKey(artifact.wallet),v0ProgramKey]),0,
+  "v0 CPMM program lookup must use the fully resolved account set");
+hooks.replaceDirectCpmmData(v0ProgramTx,Uint8Array.from([9,8,7]),[new PublicKey(artifact.wallet),v0ProgramKey]);
+assert.deepEqual(Array.from(v0ProgramTx.message.compiledInstructions[0].data),[9,8,7],
+  "v0 CPMM instruction data must be updated without a legacy tx.instructions property");
+
+// Lookup resolution is account-set driven: multiple unrelated tables are accepted,
+// and the verifier resolves each selected writable/readonly index independently.
+const maxU64=(1n<<64n)-1n;
+const altAddresses=[
+  [11,12,13,14].map(n=>new PublicKey(Uint8Array.from({length:32},()=>n))),
+  [21,22,23,24].map(n=>new PublicKey(Uint8Array.from({length:32},()=>n)))
+];
+const selectionA=hooks.validateLookupSelection({writableIndexes:[1],readonlyIndexes:[0]},{
+  deactivationSlot:maxU64,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+},100);
+const selectionB=hooks.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[3]},{
+  deactivationSlot:maxU64,lastExtendedSlot:91n,lastExtendedSlotStartIndex:0,addresses:altAddresses[1]
+},100);
+assert.equal(selectionA.writable[0].toBase58(),altAddresses[0][1].toBase58());
+assert.equal(selectionA.readonly[0].toBase58(),altAddresses[0][0].toBase58());
+assert.equal(selectionB.writable[0].toBase58(),altAddresses[1][2].toBase58());
+assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[4],readonlyIndexes:[]},{
+  deactivationSlot:maxU64,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+},100),/ALT index out of range/);
+assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[1],readonlyIndexes:[]},{
+  deactivationSlot:99n,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+},100),/deactivated/);
+assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},{
+  deactivationSlot:maxU64,lastExtendedSlot:100n,lastExtendedSlotStartIndex:2,addresses:altAddresses[0]
+},100),/extended in the current slot/);
+
+// Exercise the actual RPC resolver with two dynamically named lookup tables.
+const originalFetch=context.fetch;
+const originalDeserialize=solanaWeb3.AddressLookupTableAccount.deserialize;
+const fakeTableStates=new Map();
+const tableKeys=[
+  new PublicKey(Uint8Array.from({length:32},()=>41)),
+  new PublicKey(Uint8Array.from({length:32},()=>42))
+];
+fakeTableStates.set(tableKeys[0].toBase58(),{
+  deactivationSlot:maxU64,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+});
+fakeTableStates.set(tableKeys[1].toBase58(),{
+  deactivationSlot:maxU64,lastExtendedSlot:91n,lastExtendedSlotStartIndex:0,addresses:altAddresses[1]
+});
+solanaWeb3.AddressLookupTableAccount.deserialize=()=>fakeTableStates.get(activeTable);
+let activeTable="";
+context.fetch=async(_url,options)=>{
+  const request=JSON.parse(options.body);
+  if(request.method==="getGenesisHash") return {ok:true,json:async()=>({result:"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"})};
+  if(request.method==="getSlot") return {ok:true,json:async()=>({result:100})};
+  if(request.method==="getAccountInfo") {
+    activeTable=request.params[0];
+    return {ok:true,json:async()=>({result:{value:{
+      owner:hooks.constants.ALT_PROGRAM,executable:false,data:["","base64"]
+    }}})};
+  }
+  throw new Error("unexpected mocked RPC method "+request.method);
+};
+try {
+  const dynamicMessage={
+    header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+    staticAccountKeys:[new PublicKey(artifact.wallet)],
+    addressTableLookups:[
+      {accountKey:tableKeys[0],writableIndexes:[1],readonlyIndexes:[0]},
+      {accountKey:tableKeys[1],writableIndexes:[2],readonlyIndexes:[3]}
+    ],
+    compiledInstructions:[{programIdIndex:0,accountKeyIndexes:[1,2,3,4],data:Uint8Array.from([1])}]
+  };
+  const dynamicResolved=await hooks.resolveV0Accounts(dynamicMessage);
+  assert.equal(dynamicResolved.resolved.length,5);
+  assert.equal(dynamicResolved.lookupEvidence.length,2);
+  assert.deepEqual(Array.from(dynamicResolved.resolved.slice(1),key=>key.toBase58()),[
+    altAddresses[0][1].toBase58(),altAddresses[1][2].toBase58(),
+    altAddresses[0][0].toBase58(),altAddresses[1][3].toBase58()
+  ]);
+  const v0WithoutTables=await hooks.resolveV0Accounts({
+    header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+    staticAccountKeys:[new PublicKey(artifact.wallet)],addressTableLookups:[],
+    compiledInstructions:[{programIdIndex:0,accountKeyIndexes:[],data:Uint8Array.from([1])}]
+  });
+  assert.equal(v0WithoutTables.resolved.length,1);
+  assert.equal(v0WithoutTables.lookupEvidence.length,0);
+} finally {
+  context.fetch=originalFetch;
+  solanaWeb3.AddressLookupTableAccount.deserialize=originalDeserialize;
+}
+
+// Confirmed v0 account keys include RPC-loaded writable then readonly addresses.
+// Semantic comparison follows resolved identities, not compiler-assigned indexes.
+const resolvedV0=hooks.normalizeConfirmedMessage({
+  header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:1},
+  staticAccountKeys:[new PublicKey(artifact.wallet)],
+  addressTableLookups:[{accountKey:new PublicKey(Uint8Array.from({length:32},()=>31)),writableIndexes:[0],readonlyIndexes:[0]}],
+  recentBlockhash:new PublicKey(Uint8Array.from({length:32},()=>32)).toBase58(),
+  compiledInstructions:[{programIdIndex:1,accountKeyIndexes:[2],data:Uint8Array.from([7,8,9])}]
+},{loadedAddresses:{writable:[altAddresses[0][1]],readonly:[altAddresses[0][0]]}});
+assert.equal(resolvedV0.resolvedAccountKeys.length,3);
+assert.equal(resolvedV0.resolvedAccountKeys[1],altAddresses[0][1].toBase58());
+assert.equal(resolvedV0.resolvedAccountKeys[2],altAddresses[0][0].toBase58());
+const expectedResolved={
+  header:resolvedV0.header,staticAccountKeys:[artifact.wallet],
+  resolvedAccountKeys:[artifact.wallet,altAddresses[0][0].toBase58(),altAddresses[0][1].toBase58()],
+  recentBlockhash:resolvedV0.recentBlockhash,
+  compiledInstructions:[{programIdIndex:2,accountKeyIndexes:[1],data:Uint8Array.from([7,8,9])}]
+};
+const actualResolved={
+  ...resolvedV0,
+  resolvedAccountKeys:[artifact.wallet,altAddresses[0][0].toBase58(),altAddresses[0][1].toBase58()],
+  compiledInstructions:[{programIdIndex:2,accountKeyIndexes:[1],data:Uint8Array.from([7,8,9])}]
+};
+assert.equal(hooks.compareLegacyMessageSemantics(expectedResolved,actualResolved).length,0,
+  "v0 account-table reordering must preserve resolved instruction semantics");
+const normalized=hooks.normalizedTransactionMessage(tx);
+const directPolicy=hooks.decodeDirectCpmmPolicy(normalized,normalized.staticAccountKeys,{
+  inputAmount:artifact.input_amount_lamports,otherAmountThreshold:artifact.minimum_output_raw
+});
+assert.equal(directPolicy.createsOutputAta,false);
+const swapArtifact=artifact.instructions.find(ix=>ix.programId==="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+assert.ok(swapArtifact,"unsigned artifact is missing its direct CPMM instruction");
+assert.equal(directPolicy.inputAta,artifact.static_account_keys[swapArtifact.accountIndexes[4]]);
+assert.equal(directPolicy.outputAta,artifact.static_account_keys[swapArtifact.accountIndexes[5]]);
+assert.equal(hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:true}),true);
+assert.throws(()=>hooks.validateDirectCpmmAtaShape(directPolicy,{outputAtaPresent:false}),
+  /missing USDC ATA requires the five-instruction path/);
+assert.throws(()=>hooks.validateDirectCpmmAtaShape({...directPolicy,createsOutputAta:true},{outputAtaPresent:true}),
+  /existing USDC ATA must use the four-instruction path/);
+assert.equal(hooks.validateDirectCpmmAtaShape({...directPolicy,createsOutputAta:true},{outputAtaPresent:false}),true);
+
+// Exercise the five-instruction absent-ATA variant through the actual policy decoder,
+// not only the branch selector. The ATA instruction must be idempotent and target
+// exactly this wallet's canonical Devnet USDC associated token account.
+const withAtaTx=Transaction.from(bytes);
+withAtaTx.instructions.splice(2,0,new TransactionInstruction({
+  programId:new PublicKey(hooks.constants.ATA_PROGRAM),
+  keys:[
+    {pubkey:new PublicKey(artifact.wallet),isSigner:true,isWritable:true},
+    {pubkey:new PublicKey(artifact.static_account_keys[swapArtifact.accountIndexes[5]]),isSigner:false,isWritable:true},
+    {pubkey:new PublicKey(artifact.wallet),isSigner:false,isWritable:false},
+    {pubkey:new PublicKey(hooks.constants.USDC),isSigner:false,isWritable:false},
+    {pubkey:new PublicKey(hooks.constants.SYSTEM),isSigner:false,isWritable:false},
+    {pubkey:new PublicKey(hooks.constants.TOKEN),isSigner:false,isWritable:false}
+  ],
+  data:Buffer.from([1])
+}));
+const withAtaMessage=hooks.normalizedTransactionMessage(withAtaTx);
+const createAtaPolicy=hooks.decodeDirectCpmmPolicy(withAtaMessage,withAtaMessage.staticAccountKeys,{
+  inputAmount:artifact.input_amount_lamports,otherAmountThreshold:artifact.minimum_output_raw
+});
+assert.equal(createAtaPolicy.createsOutputAta,true);
+assert.equal(hooks.validateDirectCpmmAtaShape(createAtaPolicy,{outputAtaPresent:false}),true);
+assert.throws(()=>hooks.validateDirectCpmmAtaShape(createAtaPolicy,{outputAtaPresent:true}),
+  /existing USDC ATA must use the four-instruction path/);
+const parsedUsdcAccounts = {
+  value:[{
+    account:{
+      owner:hooks.constants.TOKEN,
+      data:{program:"spl-token",parsed:{type:"account",info:{
+        mint:hooks.constants.USDC,owner:artifact.wallet,
+        tokenAmount:{amount:"2460",decimals:6}
+      }}}
+    }
+  }]
+};
+assert.equal(hooks.sumUsdcTokenAccounts(parsedUsdcAccounts,artifact.wallet),2460n);
+assert.throws(()=>hooks.sumUsdcTokenAccounts({value:[{account:{data:{parsed:{info:{tokenAmount:{amount:"1"}}}}}}]},artifact.wallet),
+  /unexpected owner, mint, program or amount/);
+const reviewedMessage = Uint8Array.from([1,2,3,4]);
+const matchingConfirmedTx = {
+  meta:{err:null},
+  transaction:{
+    signatures:["test-signature"],
+    message:{serialize:()=>Uint8Array.from(reviewedMessage)}
+  }
+};
+assert.equal(hooks.assertConfirmedTransactionMatchesReviewedMessage(matchingConfirmedTx,reviewedMessage,"test-signature"),true);
+assert.throws(()=>hooks.assertConfirmedTransactionMatchesReviewedMessage({
+  meta:{err:null},transaction:{signatures:["test-signature"],message:{serialize:()=>Uint8Array.from([1,2,3,5])}}
+},reviewedMessage,"test-signature"),/differs from the immutable reviewed message/);
+assert.throws(()=>hooks.assertConfirmedTransactionMatchesReviewedMessage(matchingConfirmedTx,reviewedMessage,"other-signature"),
+  /does not contain the returned Phantom signature/);
+
+// A byte-level serialization discrepancy is diagnostic, not an automatic swap failure,
+// only when every decoded legacy-message field remains identical.
+const testWallet=new PublicKey(artifact.wallet);
+hooks.setWalletForTest(testWallet);
+const semanticTx=new Transaction({feePayer:testWallet,recentBlockhash:testWallet.toBase58()});
+const semanticData=Buffer.alloc(24);
+Buffer.from([143,190,90,218,196,30,51,222]).copy(semanticData,0);
+semanticData.writeBigUInt64LE(1000000n,8);
+semanticData.writeBigUInt64LE(2411n,16);
+semanticTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.CPMM),keys:[],data:semanticData}));
+const reviewedMessageBytes=Uint8Array.from(semanticTx.compileMessage().serialize());
+const confirmedMessageBase=semanticTx.compileMessage();
+// Simulate the mutable Transaction object being altered by the wallet adapter after
+// the pre-approval snapshot. Reconciliation must derive expected semantics from bytes,
+// never from this post-handoff object.
+const mutatedReviewedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
+mutatedReviewedTx.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
+const immutableExpected=hooks.normalizeReviewedLegacyMessageBytes(reviewedMessageBytes);
+const originalExpected=hooks.normalizedTransactionMessage(semanticTx);
+assert.equal(hooks.compareLegacyMessageSemantics(immutableExpected,originalExpected).length,0,
+  "immutable reviewed bytes must reconstruct the original reviewed semantics");
+assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(mutatedReviewedTx)).length>0,
+  "regression setup must prove the wallet-mutated transaction differs from the immutable reviewed message");
+const differentSerializedBytes=Uint8Array.from(reviewedMessageBytes);
+differentSerializedBytes[differentSerializedBytes.length-1]^=1;
+const semanticallySameMessage={
+  header:confirmedMessageBase.header,accountKeys:confirmedMessageBase.accountKeys,
+  recentBlockhash:confirmedMessageBase.recentBlockhash,instructions:confirmedMessageBase.instructions,
+  serialize:()=>differentSerializedBytes
+};
+// Phantom may reorder the static account table and append bounded compute-budget
+// instructions. The semantic verifier must tolerate that compiler augmentation while
+// preserving the exact non-compute instruction identities, order and payloads.
+const augmentedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
+const computeBudgetProgram=new PublicKey(hooks.constants.COMPUTE_BUDGET);
+augmentedTx.add(
+  new TransactionInstruction({programId:computeBudgetProgram,keys:[],data:Buffer.from([2,0x20,0xa1,0x07,0x00])}),
+  new TransactionInstruction({programId:computeBudgetProgram,keys:[],data:Buffer.from([3,0x40,0x42,0x0f,0x00,0x00,0x00,0x00,0x00])})
+);
+const augmentedMessage=hooks.normalizedTransactionMessage(augmentedTx);
+assert.equal(hooks.compareLegacyMessageSemantics(immutableExpected,augmentedMessage).length,0,
+  "bounded Phantom ComputeBudget augmentation must not fail semantic reconciliation");
+const maliciousAugmentation=Transaction.from(augmentedTx.serialize({requireAllSignatures:false,verifySignatures:false}));
+maliciousAugmentation.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
+assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(maliciousAugmentation)).length>0,
+  "non-ComputeBudget instruction injection must still fail semantic reconciliation");
+const semanticResult=await hooks.reconcileConfirmedTransaction({
+  meta:{err:null,
+    preTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"0"}}],
+    postTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"2411"}}]},
+  transaction:{signatures:["test-signature"],message:semanticallySameMessage}
+},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"},"1000000");
+assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
+assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
+assert.equal(semanticResult.semanticMatch,true);
+assert.equal(semanticResult.diagnostics.firstByteDifference.offset,differentSerializedBytes.length-1);
+assert.equal(semanticResult.diagnostics.semanticDifferences.length,0);
+const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new PublicKey(artifact.wallet).toBase58().replace(/^./,"2")};
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
+  meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
+},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"},"1000000"),/CONFIRMED_BUT_UNVERIFIED/);
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
+  meta:{err:{InstructionError:[0,"Custom"]}},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
+},reviewedMessageBytes,"test-signature","2411"),/FAILED_ON_CHAIN/);
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction(null,reviewedMessageBytes,"test-signature","2411"),
+  /SUBMISSION_STATUS_UNKNOWN/);
+const noAtaCpis={createAccountCount:0,sizeQueryCount:0,immutableOwnerCount:0,initializeAccountCount:0,createAccountLamports:null};
+const existingAtaRent=hooks.validateOutputAtaCpiEvidence({outputAtaPresent:true},0n,noAtaCpis);
+assert.equal(existingAtaRent.outputAtaPresent,true);
+assert.equal(existingAtaRent.persistentAtaRentLamports,"0");
+
+const exactRent=1488440n;
+const createdAtaCpis={createAccountCount:1,sizeQueryCount:1,immutableOwnerCount:1,
+  initializeAccountCount:1,createAccountLamports:exactRent.toString()};
+const newAtaRent=hooks.validateOutputAtaCpiEvidence({outputAtaPresent:false},exactRent,createdAtaCpis);
+assert.equal(newAtaRent.outputAtaPresent,false);
+assert.equal(newAtaRent.persistentAtaRentLamports,exactRent.toString());
+assert.throws(()=>hooks.validateOutputAtaCpiEvidence({outputAtaPresent:true},0n,createdAtaCpis),
+  /existing USDC ATA must not incur rent or be recreated/);
+assert.throws(()=>hooks.validateOutputAtaCpiEvidence({outputAtaPresent:false},exactRent+1n,createdAtaCpis),
+  /funded with exact live rent/);
+
 const audit=await hooks.inspectDirectCpmmTransaction(tx,{
+  inputAmount:artifact.input_amount_lamports,
   outputAmount:artifact.quoted_output_raw,
   otherAmountThreshold:artifact.minimum_output_raw
 },bytes);
 assert.equal(audit.directCpmm,"verified");
-assert.equal(audit.resolvedAccountCount,16);
+const temporaryFunding=BigInt(audit.temporaryWsolFundingLamports);
+const reviewedInput=BigInt(artifact.input_amount_lamports);
+assert.ok(temporaryFunding>=reviewedInput);
+assert.ok(temporaryFunding-reviewedInput<=5000000n,
+  "temporary WSOL rent reserve must remain bounded independently of the swap input");
+assert.ok(audit.resolvedAccountCount<=32);
+assert.equal(audit.lookupTables.length,0);
 assert.equal(audit.runtime.adversarialRejected,true);
 assert.equal(audit.runtime.actualOutput,artifact.actual_output_raw);
 const output={evidence_type:"veltrix_browser_direct_cpmm_live_audit",status:"passed",
   wallet:artifact.wallet,pool:artifact.pool,input_amount_lamports:artifact.input_amount_lamports,
   minimum_output_raw:artifact.minimum_output_raw,actual_output_raw:audit.runtime.actualOutput,
+  temporary_wsol_funding_lamports:audit.temporaryWsolFundingLamports,
+  output_ata_present:audit.runtime.outputAtaPresent,
+  persistent_ata_rent_lamports:audit.runtime.persistentAtaRentLamports,
   adversarial_minimum_raw:audit.runtime.adversarialMinimum,
   adversarial_rejected:audit.runtime.adversarialRejected,
   resolved_account_count:audit.resolvedAccountCount,lookup_tables:audit.lookupTables,
