@@ -1511,6 +1511,11 @@
       invalidatePrepared("Transaction blockhash expired. Build a new transaction.");
       throw new Error("Pre-sign blockhash is no longer valid.");
     }
+    const freshNetworkFee = await connection.getFeeForMessage(tx.compileMessage(), "confirmed");
+    if(!freshNetworkFee || !Number.isSafeInteger(freshNetworkFee.value) || freshNetworkFee.value !== prepared.totalFee) {
+      invalidatePrepared("Network fee estimate changed or became unavailable. Review a freshly built transaction.");
+      throw new Error("Pre-sign network fee no longer matches the reviewed fee breakdown.");
+    }
 
     // Recompute the quote from a new RPC-backed pool read. Any reserve/fee drift
     // invalidates this transaction; the user must build and audit a replacement.
@@ -1537,12 +1542,20 @@
     const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
     const inputAmount=new BN(String(prepared.lamports));
     const freshLiquidityMetrics=calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut);
+    const freshCreatorFeeOnInput=rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB;
     const freshResult=CurveCalculator.swapBaseInput(
       inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
       rpcData.configInfo.creatorFeeRate,rpcData.configInfo.protocolFeeRate,rpcData.configInfo.fundFeeRate,
-      rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB
+      freshCreatorFeeOnInput
     );
-    if (!freshResult.outputAmount || freshResult.outputAmount.lte(new BN(0))) throw new Error("Fresh CPMM quote is invalid.");
+    if (!freshResult.outputAmount || freshResult.outputAmount.lte(new BN(0)) ||
+        !freshResult.tradeFee || !freshResult.creatorFee) throw new Error("Fresh CPMM quote or fee breakdown is invalid.");
+    if(freshResult.tradeFee.toString()!==prepared.quoteSnapshot.fees.dex.amountRaw ||
+       freshResult.creatorFee.toString()!==prepared.quoteSnapshot.fees.creator.amountRaw ||
+       (freshCreatorFeeOnInput?"SOL":"USDC")!==prepared.quoteSnapshot.fees.creator.currency) {
+      invalidatePrepared("Pool fee schedule changed after review. Build and review a fresh quote.");
+      throw new Error("Pre-sign CPMM trade/creator fee breakdown changed.");
+    }
     const freshSpot=inputAmount.mul(reserveOut).div(reserveIn);
     const freshImpact=Number(freshSpot.sub(freshResult.outputAmount).toString())/Number(freshSpot.toString())*100;
     const reviewedMinimum = BigInt(prepared.quote.otherAmountThreshold);
