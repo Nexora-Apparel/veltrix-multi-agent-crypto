@@ -141,6 +141,8 @@ The earlier liquidity layer accepted typed snapshot readers but did not itself a
 
 ### Configuration and live acceptance
 
+See [the Stage 5 production evidence acceptance runbook](docs/stage5-production-evidence-acceptance.md) for the exact GitHub Actions secrets, repository variables, per-chain workflow sequence and release criteria.
+
 - Configure separate pool and locker RPC URLs for each chain in `.env` or GitHub Actions secrets.
 - EVM factory/locker JSON registries require the exact deployment block and 64-character runtime code hash (without `0x`). The Base locker ABI profiles are `uncx-v2.1-locks-nonce` and `uncx-v2.0-locks-nonce`; BSC is `uncx-v1-token-lock-index-events`.
 - Keep `BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE`, `BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE` and `SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE` false until every factory/program in the declared supported scope is included. Pin both Raydium program hashes before constructing the Solana reader.
