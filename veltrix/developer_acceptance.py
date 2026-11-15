@@ -33,6 +33,9 @@ def run_developer_acceptance(*, chain, token_address, settings,
     root = root_provider.fetch_attestation(chain, token_address)
 
     deployment_block = None
+    origin_provider_id = None
+    origin_evidence_id = None
+    origin_provider_trusted = None
     if chain in {"base", "bsc"}:
         resolver = (origin_resolvers or {}).get(chain)
         if resolver is None:
@@ -41,6 +44,11 @@ def run_developer_acceptance(*, chain, token_address, settings,
         if not origin.complete or origin.chain != chain or origin.launch_block is None:
             raise ValueError("EVM token deployment block is not verified")
         deployment_block = origin.launch_block
+        origin_provider_id = origin.provider
+        origin_evidence_id = origin.evidence_id
+        origin_provider_trusted = origin.provider in frozenset(
+            settings.trusted_launch_origin_providers
+        )
         holder = holder_provider.fetch_snapshot(token_address, deployment_block)
     else:
         holder = holder_provider.fetch_snapshot(token_address)
@@ -63,6 +71,7 @@ def run_developer_acceptance(*, chain, token_address, settings,
         "holder_provider_trusted": holder.provider in trusted_holders,
         "funding_provider_trusted": funding.provider in trusted_funding,
         "developer_claim_allowlist_configured": bool(settings.trusted_developer_providers),
+        "launch_origin_provider_trusted": origin_provider_trusted if chain in {"base", "bsc"} else True,
     }
     trust_ready = all(trust.values())
     return {
@@ -75,6 +84,10 @@ def run_developer_acceptance(*, chain, token_address, settings,
         "live_execution_enabled": False,
         "observed_at_ms": now_ms,
         "deployment_block": deployment_block,
+        "launch_origin": {
+            "provider": origin_provider_id,
+            "evidence_id": origin_evidence_id,
+        } if origin_provider_id else None,
         "holder": {
             "provider": holder.provider,
             "evidence_id": holder.evidence_id,
