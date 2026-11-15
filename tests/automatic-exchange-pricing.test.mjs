@@ -104,6 +104,17 @@ assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
 }, 1_009_000)).action, "refresh_and_re_review");
+const completedDuringFreshnessAudit = await evaluateFreshQuote(sealedWithExistingProtection, {
+  quotedAtMs: 1_019_000, quoteTtlMs: 8000, quotedOutputRaw: "10900",
+  inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
+}, 1_020_000, 1_017_000);
+assert.equal(completedDuringFreshnessAudit.action, "continue_exact_review",
+  "a signing review initiated before expiry may finish its live freshness audit after the wall-clock expiry");
+assert.equal((await evaluateFreshQuote(sealedWithExistingProtection, {
+  quotedAtMs: 1_019_000, quoteTtlMs: 8000, quotedOutputRaw: "10900",
+  inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
+}, 1_020_000, 1_018_001)).action, "refresh_and_re_review",
+  "a signing review initiated after expiry must still be refreshed");
 assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint,
