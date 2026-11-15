@@ -102,3 +102,26 @@ def test_structural_pass_does_not_imply_provider_trust_or_certification():
     assert result["structural_pass"] is True
     assert result["trust_ready"] is False
     assert result["capability_certified"] is False
+
+
+
+def test_developer_acceptance_rejects_unverified_root_attestation():
+    class UnverifiedRootProvider:
+        def fetch_attestation(self, chain, token):
+            return DeveloperRootAttestation(
+                chain, token, "independent-root-service", "root-proof",
+                NOW - 10, (ROOT,), True, "https://roots.example/proof",
+                signature_verified=False, signing_key_fingerprint="a" * 64,
+            )
+    result = None
+    try:
+        run_developer_acceptance(
+            chain="base", token_address=TOKEN, settings=cfg(),
+            holder_providers={"base": HolderProvider()},
+            funding_providers={"base": FundingProvider()},
+            root_provider=UnverifiedRootProvider(),
+            origin_resolvers={"base": OriginResolver()}, now_ms=NOW,
+        )
+    except ValueError as exc:
+        result = str(exc)
+    assert result == "Developer-root attestation is not verified, complete and token-bound"
