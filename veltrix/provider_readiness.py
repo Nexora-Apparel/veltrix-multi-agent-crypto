@@ -65,6 +65,9 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
     developer_capability_attested = bool(
         getattr(settings, "developer_evidence_capability_certified", False)
     )
+    launch_bundle_capability_attested = bool(
+        getattr(settings, "launch_bundle_evidence_capability_certified", False)
+    )
     goplus_configured = True  # Public EVM endpoint; Solana beta is authenticated.
     helius = bool(getattr(settings, "helius_api_key", ""))
     etherscan = bool(getattr(settings, "etherscan_api_key", ""))
@@ -241,10 +244,21 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             bundle_blockers.append(f"{funder_id} is not explicitly trusted for funding traces")
         if origin_id not in origin_trust:
             bundle_blockers.append(f"{origin_id} is not explicitly trusted for launch-origin evidence")
+        if not launch_bundle_capability_attested:
+            bundle_blockers.append(
+                "LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED is false; all three live launch scans and independent coverage/provenance review are not attested"
+            )
+        bundle_trusted = (
+            indexer_id in bundle_trust and funder_id in funding_trust
+            and origin_id in origin_trust
+        )
+        bundle_capability_complete = bool(
+            indexer_configured and bundle_trusted and launch_bundle_capability_attested
+        )
         rows.append(ClaimReadiness(
-            chain, "launch_bundle", bool(indexer_configured), indexer_id in bundle_trust
-            and funder_id in funding_trust and origin_id in origin_trust,
-            bool(indexer_configured), (indexer_id, funder_id, origin_id) if indexer_configured else (),
+            chain, "launch_bundle", bool(indexer_configured), bundle_trusted,
+            bundle_capability_complete,
+            (indexer_id, funder_id, origin_id) if indexer_configured else (),
             tuple(bundle_blockers),
         ))
 
