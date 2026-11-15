@@ -50,8 +50,10 @@ Validation completed on the current CI head:
 - full Python regression suite passed;
 - isolated Devnet/Phantom page safety tests passed;
 - embedded browser JavaScript syntax check and adversarial Node verifier passed;
-- unsigned direct CPMM transaction built and simulated successfully at 0.005 SOL input with 250 bps (2.50%) configured slippage;
-- the CI audit asserted that the quote's informational price impact exceeded the former 2% cutoff and still passed, proving that impact is no longer a universal rejection gate;
+- unsigned direct CPMM transaction built and simulated successfully at 0.005 SOL (5,000,000 lamports) input with 250 bps (2.50%) configured slippage;
+- observed quote: 10,904 raw USDC output, 10,631 raw minimum output, 11,212 raw simulated actual output;
+- measured informational price impact: 3.5196687%; the CI assertion required impact above 2% and the transaction still built and simulated successfully;
+- adversarial simulation with minimum output one raw unit above the observed output was rejected; the unsigned transaction was not signed or submitted;
 - the separate read-only prior-signature reconciliation workflow passed.
 
 Still required before release:
