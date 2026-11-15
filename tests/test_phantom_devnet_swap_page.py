@@ -454,6 +454,8 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "provider.signTransaction(finalTx)" in page
     assert "connection.sendRawTransaction(signedWireBytes" in page
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in page
+    assert "signature !== locallySignedSignature" in page
+    assert "actualSolBalanceAfter" in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
 
