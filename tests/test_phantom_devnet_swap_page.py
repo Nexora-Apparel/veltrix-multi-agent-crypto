@@ -115,6 +115,8 @@ def test_execution_protection_is_automatic_and_minimum_is_sealed_into_transactio
     assert "function parseSlippageBps(value)" not in source
     assert "computeProtectionBps" in source
     assert "calculateMinimumOutput" in source
+    assert "swapResult.tradeFee" in source
+    assert "swapResult.creatorFee" in source
     assert "createQuoteSnapshot" in source
     assert "quoteSnapshot.minimumOutputRaw !== q.otherAmountThreshold" in source
     assert 'id="protectionValue"' in source
@@ -299,6 +301,9 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert "calculateMinimumOutput" in source
     assert "slippage:protectionBps/10000" in source
     assert "SWAP_SLIPPAGE_BPS" not in source
+    assert "pool_trade_fee_raw" in source
+    assert "pool_creator_fee_raw" in source
+    assert "network_fee_lamports" in source
     assert "priceImpactPct" in source
     assert "observed short-window volatility" in source
     assert "priceImpactPct >" not in source
@@ -411,6 +416,7 @@ def test_quote_review_displays_exact_output_automatic_protection_and_fee_items()
     assert 'id="protectionValue"' in source
     assert 'id="quoteExpiryValue"' in source
     assert 'id="dexFeeValue"' in source
+    assert 'id="creatorFeeValue"' in source
     assert 'id="routeFeeValue"' in source
     assert 'id="platformFeeValue"' in source
     assert "function fmtFixedRaw(raw, decimals)" in source
