@@ -46,11 +46,18 @@ Implemented in `wallet/phantom-devnet-swap.html` on this branch:
 - pre-funding before SDK transaction construction so faucet activity does not stale the transaction blockhash;
 - confirmed instruction input/minimum validation and exact reconciliation between confirmed wallet token-balance delta and actual output.
 
+Validation completed on the current CI head:
+- full Python regression suite passed;
+- isolated Devnet/Phantom page safety tests passed;
+- embedded browser JavaScript syntax check and adversarial Node verifier passed;
+- unsigned direct CPMM transaction built and simulated successfully at 0.005 SOL input with 250 bps (2.50%) configured slippage;
+- the CI audit asserted that the quote's informational price impact exceeded the former 2% cutoff and still passed, proving that impact is no longer a universal rejection gate;
+- the separate read-only prior-signature reconciliation workflow passed.
+
 Still required before release:
-- run the repository's full regression and adversarial verifier suite against the new commit;
-- run a fresh unsigned Devnet quote/build/simulation at multiple input sizes and slippage settings;
-- test both legacy and v0 wallet paths where supported;
-- perform a fresh manual Phantom Devnet approval only after those checks pass.
+- exercise additional user-selected input amounts and slippage values in a fresh browser quote;
+- test Phantom's supported legacy and v0 approval paths on the deployed current build;
+- perform a fresh manual Phantom Devnet approval only after reviewing the exact transaction in the in-app browser.
 
 The previously reported successful Phantom swap was performed against an earlier deployed build. It is not evidence that this new dynamic-amount/slippage build has passed a live test.
 
