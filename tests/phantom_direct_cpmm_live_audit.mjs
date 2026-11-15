@@ -76,6 +76,56 @@ assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[2],readonlyInd
   deactivationSlot:maxU64,lastExtendedSlot:100n,lastExtendedSlotStartIndex:2,addresses:altAddresses[0]
 },100),/extended in the current slot/);
 
+// Exercise the actual RPC resolver with two dynamically named lookup tables.
+const originalFetch=context.fetch;
+const originalDeserialize=solanaWeb3.AddressLookupTableAccount.deserialize;
+const fakeTableStates=new Map();
+const tableKeys=[
+  new PublicKey(Uint8Array.from({length:32},()=>41)),
+  new PublicKey(Uint8Array.from({length:32},()=>42))
+];
+fakeTableStates.set(tableKeys[0].toBase58(),{
+  deactivationSlot:maxU64,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+});
+fakeTableStates.set(tableKeys[1].toBase58(),{
+  deactivationSlot:maxU64,lastExtendedSlot:91n,lastExtendedSlotStartIndex:0,addresses:altAddresses[1]
+});
+solanaWeb3.AddressLookupTableAccount.deserialize=()=>({state:fakeTableStates.get(activeTable)});
+let activeTable="";
+context.fetch=async(_url,options)=>{
+  const request=JSON.parse(options.body);
+  if(request.method==="getGenesisHash") return {ok:true,json:async()=>({result:"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"})};
+  if(request.method==="getSlot") return {ok:true,json:async()=>({result:100})};
+  if(request.method==="getAccountInfo") {
+    activeTable=request.params[0];
+    return {ok:true,json:async()=>({result:{value:{
+      owner:hooks.constants.ALT_PROGRAM,executable:false,data:["","base64"]
+    }}})};
+  }
+  throw new Error("unexpected mocked RPC method "+request.method);
+};
+try {
+  const dynamicMessage={
+    header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+    staticAccountKeys:[new PublicKey(artifact.wallet)],
+    addressTableLookups:[
+      {accountKey:tableKeys[0],writableIndexes:[1],readonlyIndexes:[0]},
+      {accountKey:tableKeys[1],writableIndexes:[2],readonlyIndexes:[3]}
+    ],
+    compiledInstructions:[{programIdIndex:0,accountKeyIndexes:[1,2,3,4],data:Uint8Array.from([1])}]
+  };
+  const dynamicResolved=await hooks.resolveV0Accounts(dynamicMessage);
+  assert.equal(dynamicResolved.resolved.length,5);
+  assert.equal(dynamicResolved.lookupEvidence.length,2);
+  assert.deepEqual(dynamicResolved.resolved.slice(1).map(key=>key.toBase58()),[
+    altAddresses[0][1].toBase58(),altAddresses[1][2].toBase58(),
+    altAddresses[0][0].toBase58(),altAddresses[1][3].toBase58()
+  ]);
+} finally {
+  context.fetch=originalFetch;
+  solanaWeb3.AddressLookupTableAccount.deserialize=originalDeserialize;
+}
+
 // Confirmed v0 account keys include RPC-loaded writable then readonly addresses.
 // Semantic comparison follows resolved identities, not compiler-assigned indexes.
 const resolvedV0=hooks.normalizeConfirmedMessage({
