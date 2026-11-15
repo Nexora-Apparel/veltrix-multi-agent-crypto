@@ -65,20 +65,41 @@ Run **Developer evidence structural acceptance** once per chain, selecting a pro
 
 The workflow reports structural completeness separately from provider trust and capability certification. It exits unsuccessfully if structural coverage or the exact provider trust allowlists are incomplete. A structural pass is not capability certification: independent review of root-identity methodology, source coverage, provider terms/limits and production evidence is still required.
 
-## 3. Release decision
+## 3. Launch-bundle indexing and funding-provenance acceptance
+
+Run the GitHub Actions workflow **Launch-bundle live read-only acceptance** once per chain. Choose a token whose launch window has fully elapsed and whose historical supply and transaction history are available.
+
+### Required secrets
+
+- Solana: `HELIUS_API_KEY` (Developer plan or higher).
+- Base: `BASE_RPC_URL`.
+- BSC: `BSC_RPC_URL`.
+
+### Required repository variables
+
+- `TRUSTED_BUNDLE_PROVIDERS` — explicit launch-indexer provider IDs.
+- `TRUSTED_FUNDING_PROVIDERS` — explicit funding-trace provider IDs.
+- `TRUSTED_LAUNCH_ORIGIN_PROVIDERS` — explicit launch-origin resolver provider IDs.
+- `ALCHEMY_QUOTE_TOKENS_BASE` — comma-separated Base quote-token addresses.
+- `ALCHEMY_QUOTE_TOKENS_BSC` — comma-separated BSC quote-token addresses.
+- `LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED` — keep `false` until all three chain runs pass and launch-window coverage, historical supply and funding provenance are independently reviewed; then set to `true`.
+
+A complete empty launch scan may correctly report 0% bundled supply. A positive shared-funder cluster is a risk signal, not a provider-acceptance failure. Incomplete pagination, stale/missing historical supply, untrusted funders or unverified launch origin must block acceptance.
+
+## 4. Release decision
 
 Stage 5 can be marked complete only when all of the following are true:
 
 1. Liquidity live acceptance passes on Solana, Base and BSC.
 2. Developer evidence acceptance passes on Solana, Base and BSC.
-3. Every production RPC is independent where the reader requires independent endpoints, and all registries cover the declared AMM/locker scope.
-4. All executable hashes are measured from deployed finalized code and reviewed.
-5. `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three liquidity runs and locker-profile coverage pass independent review.
-6. `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three developer runs and signed root methodology pass independent review.
-7. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
-8. The `liquidity_lock` and `developer_holdings` readiness rows report no unresolved blockers for Solana, Base and BSC.
-9. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
-
-The separate `launch_bundle` claim is not certified by these six runs. If the release policy requires all three composite safety claims to be certified before Stage 5 closes, launch-bundle live acceptance must be added as a separate gate; do not treat these two claim families as proof of it.
+3. Launch-bundle acceptance passes on Solana, Base and BSC.
+4. Every production RPC is independent where the reader requires independent endpoints, and all registries cover the declared AMM/locker scope.
+5. All executable hashes are measured from deployed finalized code and reviewed.
+6. `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three liquidity runs and locker-profile coverage pass independent review.
+7. `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three developer runs and signed root methodology pass independent review.
+8. `LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three launch-bundle runs pass and launch-window/supply/funding coverage is independently reviewed.
+9. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
+10. The `liquidity_lock`, `developer_holdings` and `launch_bundle` readiness rows report no unresolved blockers for Solana, Base and BSC.
+11. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
 
 Never place RPC URLs containing credentials, API keys, private keys or signed payload secrets in source files, issue comments or chat. Store them in GitHub Actions Secrets. Do not enable live trading as part of this stage; all acceptance workflows are read-only.
