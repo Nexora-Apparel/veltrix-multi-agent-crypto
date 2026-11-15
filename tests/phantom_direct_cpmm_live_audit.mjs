@@ -121,6 +121,13 @@ try {
     altAddresses[0][1].toBase58(),altAddresses[1][2].toBase58(),
     altAddresses[0][0].toBase58(),altAddresses[1][3].toBase58()
   ]);
+  const v0WithoutTables=await hooks.resolveV0Accounts({
+    header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+    staticAccountKeys:[new PublicKey(artifact.wallet)],addressTableLookups:[],
+    compiledInstructions:[{programIdIndex:0,accountKeyIndexes:[],data:Uint8Array.from([1])}]
+  });
+  assert.equal(v0WithoutTables.resolved.length,1);
+  assert.equal(v0WithoutTables.lookupEvidence.length,0);
 } finally {
   context.fetch=originalFetch;
   solanaWeb3.AddressLookupTableAccount.deserialize=originalDeserialize;
