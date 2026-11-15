@@ -281,9 +281,8 @@ const semanticallySameMessage={
   recentBlockhash:confirmedMessageBase.recentBlockhash,instructions:confirmedMessageBase.instructions,
   serialize:()=>differentSerializedBytes
 };
-// Phantom may reorder the static account table and append bounded compute-budget
-// instructions. The semantic verifier must tolerate that compiler augmentation while
-// preserving the exact non-compute instruction identities, order and payloads.
+// Any Phantom-added ComputeBudget instruction changes the reviewed message.
+ // Semantic reconciliation must reject the mutation; exact signed bytes are mandatory.
 const augmentedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
 const computeBudgetProgram=new PublicKey(hooks.constants.COMPUTE_BUDGET);
 augmentedTx.add(
@@ -291,23 +290,19 @@ augmentedTx.add(
   new TransactionInstruction({programId:computeBudgetProgram,keys:[],data:Buffer.from([3,0x40,0x42,0x0f,0x00,0x00,0x00,0x00,0x00])})
 );
 const augmentedMessage=hooks.normalizedTransactionMessage(augmentedTx);
-assert.equal(hooks.compareLegacyMessageSemantics(immutableExpected,augmentedMessage).length,0,
-  "bounded Phantom ComputeBudget augmentation must not fail semantic reconciliation");
+assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,augmentedMessage).includes("computeBudgetInstructionSet"),
+  "any Phantom ComputeBudget augmentation must fail semantic reconciliation");
 const maliciousAugmentation=Transaction.from(augmentedTx.serialize({requireAllSignatures:false,verifySignatures:false}));
 maliciousAugmentation.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
 assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(maliciousAugmentation)).length>0,
   "non-ComputeBudget instruction injection must still fail semantic reconciliation");
-const semanticResult=await hooks.reconcileConfirmedTransaction({
+await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:null,
     preTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"0"}}],
     postTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"2411"}}]},
   transaction:{signatures:["test-signature"],message:semanticallySameMessage}
-},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"},"1000000");
-assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
-assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
-assert.equal(semanticResult.semanticMatch,true);
-assert.equal(semanticResult.diagnostics.firstByteDifference.offset,differentSerializedBytes.length-1);
-assert.equal(semanticResult.diagnostics.semanticDifferences.length,0);
+},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"},"1000000"),
+/CONFIRMED_BUT_UNVERIFIED/);
 const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new PublicKey(artifact.wallet).toBase58().replace(/^./,"2")};
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
