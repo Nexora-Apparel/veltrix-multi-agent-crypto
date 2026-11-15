@@ -143,7 +143,7 @@ async function main() {
   }
   if (new BN(Buffer.from(directIx.data.slice(8,16)).reverse()).toString() !== String(INPUT)) fail("SDK CPMM input amount mismatch");
   const directIndex=tx.instructions.findIndex(ix=>ix.programId.toBase58()==="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
-  if(directIndex<0) fail("direct CPMM instruction disappeared while applying slippage floor");
+  if(directIndex<0) fail("direct CPMM instruction disappeared while applying automatic protection floor");
   const adjustedData=Buffer.from(tx.instructions[directIndex].data);
   adjustedData.set(minimumOut.toArrayLike(Buffer,"le",8),16);
   tx.instructions[directIndex].data=adjustedData;
