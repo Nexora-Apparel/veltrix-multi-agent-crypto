@@ -55,13 +55,13 @@ hooks.setWalletForTest(new PublicKey(artifact.wallet));
 // instructions, including when the program key is supplied by a dynamically
 // resolved lookup table rather than the static key array.
 const v0ProgramKey=new PublicKey(hooks.constants.CPMM);
-const v0ProgramMessage=new solanaWeb3.MessageV0(
-  {numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
-  [new PublicKey(artifact.wallet)],
-  new PublicKey(Uint8Array.from({length:32},()=>77)).toBase58(),
-  [{programIdIndex:1,accountKeyIndexes:[],data:Uint8Array.from([1,2,3])}],
-  [{accountKey:new PublicKey(Uint8Array.from({length:32},()=>78)),writableIndexes:[],readonlyIndexes:[0]}]
-);
+const v0ProgramMessage=new solanaWeb3.MessageV0({
+  header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+  staticAccountKeys:[new PublicKey(artifact.wallet)],
+  recentBlockhash:new PublicKey(Uint8Array.from({length:32},()=>77)).toBase58(),
+  compiledInstructions:[{programIdIndex:1,accountKeyIndexes:[],data:Uint8Array.from([1,2,3])}],
+  addressTableLookups:[{accountKey:new PublicKey(Uint8Array.from({length:32},()=>78)),writableIndexes:[],readonlyIndexes:[0]}]
+});
 const v0ProgramTx=new solanaWeb3.VersionedTransaction(v0ProgramMessage);
 assert.equal(hooks.findDirectCpmmInstructionIndex(v0ProgramTx,[new PublicKey(artifact.wallet),v0ProgramKey]),0,
   "v0 CPMM program lookup must use the fully resolved account set");
