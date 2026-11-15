@@ -130,6 +130,10 @@ def test_dashboard_dac_permissions_are_read_only_independently_of_mount_namespac
     assert 'runuser -u veltrix-dashboard -- test ! -w "$DB"' in script
     assert 'runuser -u veltrix-dashboard -- test ! -w "$(dirname "$DB")"' in script
     assert "stat -c '%a' \"$DB\"" in script
+    assert '[[ ! -L "$DB" ]]' in script
+    assert '[[ ! -L "$DB_DIR"' in script
+    assert 'runuser -u veltrix-paper -- test -w "$DB"' in script
+    assert "veltrix-paper:veltrix-db:2750" in script
     assert "UMask=0027" in unit
     assert "StateDirectoryMode=2750" in unit
 
