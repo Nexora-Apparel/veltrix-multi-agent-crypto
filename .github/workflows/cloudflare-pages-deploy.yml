@@ -50,6 +50,11 @@ jobs:
         run: |
           npm install --ignore-scripts
           npm run build:pages
+      - name: Verify the production dashboard token is read-only
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_READONLY_AUTH_TOKEN: ${{ secrets.TURSO_READONLY_AUTH_TOKEN }}
+        run: node scripts/verify-turso-readonly-token.mjs
       - name: Ensure Pages project exists
         shell: bash
         run: |
