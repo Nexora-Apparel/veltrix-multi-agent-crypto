@@ -48,7 +48,7 @@ def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate
     assert "Nothing is sent unless you approve it in Phantom." in source
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
     assert "await finalPreSignFreshnessGate()" in execute
-    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert "provider.signTransaction(finalTx)" in execute
     assert "provider.publicKey.equals(wallet)" in execute
     assert "confirmTransaction(signature" in execute
     assert "getTransaction(signature" in execute
@@ -215,7 +215,7 @@ def test_browser_semantic_audit_runs_before_review_and_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert "Transaction intent rejected:" in source
-    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "provider.signTransaction(finalTx)" in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
 
 
@@ -351,7 +351,7 @@ def test_browser_ui_uses_direct_cpmm_sdk_and_only_enables_user_approved_signing(
     assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
-    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "provider.signTransaction(finalTx)" in source
     assert "await finalPreSignFreshnessGate()" in source
     assert '$("execute").disabled=false' in source
     assert '$("execute").textContent="Review and approve in Phantom"' in source
@@ -385,7 +385,7 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
     assert "await finalPreSignFreshnessGate()" in execute
-    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert "provider.signTransaction(finalTx)" in execute
 
 
 
@@ -423,11 +423,11 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "address_lookup_tables:[]" in builder
     assert "TxVersion.LEGACY" in page
     assert "resolveLegacyAccounts(message)" in page
-    assert "only legacy or v0 Phantom transactions are supported" in page
+    assert "Phantom KMS-safe execution requires a legacy transaction with no address lookup tables" in page
     assert "resolveV0Accounts(message)" in page
     assert "duplicate public key in resolved v0 account set" in page
     assert "legacy transaction unexpectedly references address lookup tables" in page
-    assert "provider.signAndSendTransaction(finalTx,{" in page
+    assert "provider.signTransaction(finalTx),{" in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
 
@@ -438,10 +438,11 @@ def test_wallet_capability_adapter_requires_legacy_before_quote_and_approval():
     assert 'advertised.has("legacy")' in source
     assert 'advertised.includes("legacy")' in source
     assert "walletCapabilities=detectWalletCapabilities(provider)" in source
-    assert 'advertised.has(0)||advertised.has("0")' in source
-    assert 'advertised.includes(0)||advertised.includes("0")' in source
-    assert "preparedIsV0?!walletCapabilities.v0:!walletCapabilities.legacy" in source
-    assert "Connected Phantom wallet exposes no supported transaction version." in source
+    assert "return {legacy:true,v0:false" in source
+    assert 'advertised.has(0)||advertised.has("0")' not in source
+    assert 'advertised.includes(0)||advertised.includes("0")' not in source
+    assert "if(!walletCapabilities.legacy || !prepared" in source
+    assert "Connected Phantom wallet does not expose the required legacy signTransaction capability." in source
 
 
 
