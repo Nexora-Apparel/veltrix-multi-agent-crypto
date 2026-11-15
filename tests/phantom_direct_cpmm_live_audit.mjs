@@ -90,7 +90,7 @@ fakeTableStates.set(tableKeys[0].toBase58(),{
 fakeTableStates.set(tableKeys[1].toBase58(),{
   deactivationSlot:maxU64,lastExtendedSlot:91n,lastExtendedSlotStartIndex:0,addresses:altAddresses[1]
 });
-solanaWeb3.AddressLookupTableAccount.deserialize=()=>({state:fakeTableStates.get(activeTable)});
+solanaWeb3.AddressLookupTableAccount.deserialize=()=>fakeTableStates.get(activeTable);
 let activeTable="";
 context.fetch=async(_url,options)=>{
   const request=JSON.parse(options.body);
