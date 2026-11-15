@@ -10,7 +10,9 @@ function asBigInt(value, label) {
     return value;
   }
   if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) fail(label + " must be an unsigned integer string");
-  return BigInt(value);
+  const parsed = BigInt(value);
+  if (parsed > U64_MAX) fail(label + " exceeds the unsigned u64 range");
+  return parsed;
 }
 function asFinite(value, label) {
   const n = Number(value);
