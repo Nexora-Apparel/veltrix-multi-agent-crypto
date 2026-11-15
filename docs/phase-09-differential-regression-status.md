@@ -83,7 +83,9 @@ This is deterministic software differential evidence, not exhaustive swap-loop p
 - Settlement verification requires that finalized message hash to equal the message hash in the original simulation evidence, in addition to the existing same-provider/genesis, Raydium invocation, Token Program CPI, and exact vault-delta checks.
 - This closes a critical evidence-pairing gap: an unrelated finalized transaction can no longer be combined with an otherwise valid simulation record merely because it touched the same pool and produced matching vault deltas.
 - The inspector has no signing, wallet, transaction-submission, or broadcast path. Its result remains `execution_ready=False`.
-- This implementation is still awaiting CI confirmation and a real finalized Devnet signature. No live-chain settlement is certified yet.
+- [Python CI run #43689173575](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43689173575): **1,530 passed, 5 skipped**; compilation passed. The five skipped checks are live-provider smoke tests and are not counted as on-chain validation.
+- [Pinned Rust differential run #43689173636](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43689173636): **19 passed, 0 failed** against the pinned upstream Raydium source.
+- CI confirms software regression behavior only. A real finalized Devnet signature and matching original simulation/pool evidence are still required before any live-chain settlement claim.
 
 ## Safety state
 
