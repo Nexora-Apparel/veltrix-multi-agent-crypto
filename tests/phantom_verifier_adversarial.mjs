@@ -98,6 +98,23 @@ rejected(()=>h.validateLookupSelection({writableIndexes:[0],readonlyIndexes:[]},
 rejected(()=>h.validateLookupSelection({writableIndexes:[3],readonlyIndexes:[]},goodState,11),"out-of-range ALT index");
 rejected(()=>h.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},goodState,10),"same-slot ALT extension");
 
+// ComputeBudget instructions are part of the reviewed policy, not ignored metadata.
+{
+  const expectedFixture=makeMessage(),actualFixture=makeMessage();
+  const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
+  assert.deepEqual(h.compareLegacyMessageSemantics(expected,actual),[]);
+  actual.compiledInstructions[3].data[1]^=1; // still under the cap, but not the reviewed compute-unit price
+  assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("computeBudgetInstructionSet"));
+}
+{
+  const expectedFixture=makeMessage(),actualFixture=makeMessage();
+  const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
+  actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
+  assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("computeBudgetInstructionSet"));
+}
+
 // Baseline router transaction passes the structural policy.
 const base=makeMessage();
 const baseline=h.decodeRouterPolicy(base.message,base.resolved,routerQuote);
