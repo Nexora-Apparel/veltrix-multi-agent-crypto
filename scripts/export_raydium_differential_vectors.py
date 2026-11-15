@@ -6,6 +6,7 @@ import argparse
 from dataclasses import replace
 import hashlib
 import json
+import random
 from pathlib import Path
 
 from solders.pubkey import Pubkey
@@ -1474,6 +1475,33 @@ def multiple_reward_update_vector() -> dict:
     }
 
 
+
+def randomized_swap_replay_vectors() -> list[dict]:
+    """Generate reproducible full-loop adversarial inputs for the pinned Rust oracle.
+
+    The fixed seed makes CI byte-for-byte reproducible while varying swap direction,
+    exact-input/exact-output mode, amount size, dynamic-fee activation and FIFO load.
+    """
+    rng = random.Random(0x09_71_2026)
+    vectors = []
+    for index in range(24):
+        zero_for_one = bool(index % 2)
+        is_base_input = bool((index // 2) % 2)
+        amount_specified = rng.randint(100_000, 1_000_000)
+        dynamic_fee_enabled = index % 3 == 0
+        fifo_order_amount = rng.randint(1, 200) if index % 4 == 0 else 0
+        fixture = swap_replay_vector(
+            zero_for_one=zero_for_one,
+            is_base_input=is_base_input,
+            amount_specified=amount_specified,
+            dynamic_fee_enabled=dynamic_fee_enabled,
+            fifo_order_amount=fifo_order_amount,
+        )
+        fixture["case_name"] = f"seeded_adversarial_{index:02d}"
+        vectors.append(fixture)
+    return vectors
+
+
 def build_vectors() -> dict:
     ticks = (-443636, -100000, -1000, -100, -1, 0, 1, 10, 100, 1000, 100000, 443636)
     tick_vectors = [
@@ -1537,7 +1565,7 @@ def build_vectors() -> dict:
             swap_replay_vector(zero_for_one=True, fee_on=1),
             swap_replay_vector(zero_for_one=False, fee_on=2),
             swap_replay_vector(zero_for_one=True, fee_on=2),
-        ],
+        ] + randomized_swap_replay_vectors(),
     }
 
 
