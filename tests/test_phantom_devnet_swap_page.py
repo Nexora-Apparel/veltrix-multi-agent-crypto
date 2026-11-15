@@ -118,7 +118,11 @@ def test_execution_protection_is_automatic_and_minimum_is_sealed_into_transactio
     assert "swapResult.tradeFee" in source
     assert "swapResult.creatorFee" in source
     assert "createQuoteSnapshot" in source
+    assert "inputDecimals: 9, outputDecimals: 6" in source
     assert "quoteSnapshot.minimumOutputRaw !== q.otherAmountThreshold" in source
+    assert "await pricing.evaluateFreshQuote" in source
+    assert "snapshot hash mismatch" in engine
+    assert "current liquidity, volatility or route risk" in engine
     assert 'id="protectionValue"' in source
     assert "maximum slippage" not in source.lower()
     assert "quoteAgeMs" in engine and "liquidityUsd" in engine and "volatilityBps" in engine
@@ -418,6 +422,7 @@ def test_quote_review_displays_exact_output_automatic_protection_and_fee_items()
     assert 'id="dexFeeValue"' in source
     assert 'id="creatorFeeValue"' in source
     assert 'id="routeFeeValue"' in source
+    assert 'id="platformFeeValue"' in source
     assert 'id="platformFeeValue"' in source
     assert "function fmtFixedRaw(raw, decimals)" in source
     assert 'textContent=fmtFixedRaw(quotedRaw,6)+" USDC"' in source
