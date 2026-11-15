@@ -41,22 +41,27 @@ def test_devnet_faucet_topups_are_chunked_before_transaction_construction():
     assert "Devnet faucet could not supply the remaining test balance" in source
 
 
-def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate():
+def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     source = PAGE.read_text(encoding="utf-8")
-    assert '<button id="execute" disabled>Review and approve in Phantom</button>' in source
-    assert "User-approved Phantom signing · Solana Devnet only" in source
-    assert "Nothing is sent unless you approve it in Phantom." in source
+    assert '<button id="signTest" class="secondary" disabled>Verify Phantom legacy signing (no broadcast)</button>' in source
+    assert '<button id="execute" disabled>Execution locked pending validation</button>' in source
+    assert "const EXECUTION_RELEASE_ENABLED = false" in source
+    sign_test = source[source.index("async function testLegacyPhantomSigning()"):source.index("async function execute()")]
+    assert "await finalPreSignFreshnessGate()" in sign_test
+    assert "provider.signTransaction(finalTx)" in sign_test
+    assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
+    assert "verifySignatures:true" in sign_test
+    assert "submitted:false,broadcast:false" in sign_test
+    assert "sendRawTransaction" not in sign_test
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert "await finalPreSignFreshnessGate()" in execute
-    assert "provider.signTransaction(finalTx)" in execute
-    assert "provider.publicKey.equals(wallet)" in execute
+    assert "EXECUTION_RELEASE_ENABLED !== true" in execute
+    assert "Execution is hard-disabled" in execute
     assert "confirmTransaction(signature" in execute
     assert "getTransaction(signature" in execute
     assert "reconcileConfirmedTransaction(" in execute
-    assert "CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH" in source
+    assert "CONFIRMED_BUT_UNVERIFIED" in execute
     assert "firstByteDifference" in source
     assert "reviewedMessageSha256" in source
-    assert "tokenBalanceRaw()" in execute
     assert "window.confirm(" not in source
     assert "await provider.connect()" in source
 
@@ -365,15 +370,17 @@ def test_amm_config_discriminator_is_compared_as_raw_bytes():
 
 
 
-def test_browser_ui_uses_direct_cpmm_sdk_and_only_enables_user_approved_signing():
+def test_browser_ui_uses_direct_cpmm_sdk_and_keeps_submission_hard_disabled():
     source = PAGE.read_text(encoding="utf-8")
     assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert "provider.signTransaction(finalTx)" in source
     assert "await finalPreSignFreshnessGate()" in source
-    assert '$("execute").disabled=false' in source
-    assert '$("execute").textContent="Review and approve in Phantom"' in source
+    assert '$("signTest").disabled=false' in source
+    assert '$("execute").disabled=true' in source
+    assert 'Execution locked pending validation' in source
+    assert 'EXECUTION_RELEASE_ENABLED !== true' in source
 
 
 
