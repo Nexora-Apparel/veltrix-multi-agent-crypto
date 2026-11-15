@@ -12,8 +12,9 @@ LOCK_RATIO_ONLY = "at least one discovered pool lacks the required active locked
 
 
 def _locker_sample_blockers(batch):
-    configured = {item.address for item in batch.deployments}
-    exercised = {item.locker_address for item in batch.positions}
+    normalize = str.lower if batch.chain in {"base", "bsc"} else (lambda value: value)
+    configured = {normalize(item.address) for item in batch.deployments}
+    exercised = {normalize(item.locker_address) for item in batch.positions}
     if not batch.positions:
         return ["acceptance token has no live locker positions; use a token with active locks"]
     missing = sorted(configured - exercised)
