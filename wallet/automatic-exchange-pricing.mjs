@@ -2,6 +2,8 @@
 // This module is deliberately side-effect free: it never signs, submits, or retries.
 const BPS = 10_000n;
 const U64_MAX = (1n << 64n) - 1n;
+const WSOL_MINT = "So11111111111111111111111111111111111111112";
+const DEVNET_USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 
 function fail(message) { throw new Error("QUOTE_POLICY_REJECTED: " + message); }
 function asBigInt(value, label) {
@@ -161,6 +163,8 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
   if (!snapshot.quoteId || !snapshot.inputMint || !snapshot.outputMint || snapshot.inputMint === snapshot.outputMint) {
     fail("quote identity or mint pair is invalid");
   }
+  if (snapshot.inputMint === WSOL_MINT && inputDecimals !== 9) fail("wrapped SOL input mint must use 9 decimals");
+  if (snapshot.outputMint === DEVNET_USDC_MINT && outputDecimals !== 6) fail("Devnet USDC output mint must use 6 decimals");
   const bytes = new TextEncoder().encode(canonical(snapshot));
   if (!globalThis.crypto?.subtle) fail("Web Crypto SHA-256 is unavailable; immutable quote snapshot cannot be sealed");
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
