@@ -158,3 +158,19 @@ def test_developer_acceptance_requires_the_expected_composite_claim_provider_all
     assert result["trust"]["developer_claim_provider_trusted"] is False
     assert result["trust_ready"] is False
     assert result["capability_certified"] is False
+
+
+
+def test_developer_acceptance_certifies_only_after_explicit_flag_and_complete_trust():
+    result = run_developer_acceptance(
+        chain="base", token_address=TOKEN,
+        settings=cfg(developer_evidence_capability_certified=True),
+        holder_providers={"base": HolderProvider()},
+        funding_providers={"base": FundingProvider()},
+        root_provider=RootProvider(), origin_resolvers={"base": OriginResolver()},
+        now_ms=NOW,
+    )
+    assert result["structural_pass"] is True
+    assert result["trust_ready"] is True
+    assert result["capability_certified"] is True
+    assert result["live_execution_enabled"] is False
