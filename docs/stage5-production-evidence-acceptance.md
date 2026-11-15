@@ -1,10 +1,10 @@
 # Stage 5 production evidence acceptance runbook
 
-Stage 5 is not complete until the six chain-specific read-only acceptance runs (liquidity lock + developer evidence on Solana, Base and BSC) pass against production finalized state and the resulting provider identities are independently reviewed. Unit tests and mocked fixtures do not satisfy this gate.
+Stage 5 is not complete until the nine chain-specific read-only acceptance runs (liquidity lock, developer evidence and launch bundle on Solana, Base and BSC) pass against production finalized state and the resulting provider identities are independently reviewed. Unit tests and mocked fixtures do not satisfy this gate.
 
 ## 1. Liquidity-lock provider acceptance
 
-Run the GitHub Actions workflow **Liquidity live read-only acceptance** once per chain. The workflow is manual and does not submit transactions.
+Run the GitHub Actions workflow **Liquidity live read-only acceptance** once per chain. Supply a token that has live positions for every configured locker profile; a token with pools but no decoded lock positions is not an acceptable provider-certification sample. The workflow is read-only and fails if its production configuration or sample token is missing.
 
 ### Solana secrets
 
@@ -15,7 +15,7 @@ Run the GitHub Actions workflow **Liquidity live read-only acceptance** once per
 - `SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH` — SHA-256 of the finalized deployed Raydium Burn & Earn / Liquidity Locking ProgramData ELF.
 - `SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE` — set to the string `true` only after the supported Raydium AMM V4 + CPMM scope has been independently reviewed as complete.
 
-Optional repository variable: `SOLANA_LIQUIDITY_ACCEPTANCE_TOKEN`.
+For push-triggered acceptance, set repository variable `SOLANA_LIQUIDITY_ACCEPTANCE_TOKEN`; manual dispatch requires the token address as an input. The Solana sample must exercise both UNCX Raydium AMM V4 and Raydium Burn & Earn CPMM lock profiles.
 
 ### Base secrets
 
@@ -25,7 +25,7 @@ Optional repository variable: `SOLANA_LIQUIDITY_ACCEPTANCE_TOKEN`.
 - `BASE_UNCX_LOCKERS_JSON` — complete, reviewed UNCX locker deployment/ABI/hash registry JSON.
 - `BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE` — set to `true` only after the supported factory scope has been independently reviewed as complete.
 
-Optional repository variable: `BASE_LIQUIDITY_ACCEPTANCE_TOKEN`.
+For push-triggered acceptance, set repository variable `BASE_LIQUIDITY_ACCEPTANCE_TOKEN`; manual dispatch requires the token address as an input. The sample must exercise every configured Base locker deployment.
 
 ### BSC secrets
 
@@ -35,7 +35,11 @@ Optional repository variable: `BASE_LIQUIDITY_ACCEPTANCE_TOKEN`.
 - `BSC_UNCX_LOCKERS_JSON` — complete, reviewed UNCX locker deployment/ABI/hash registry JSON.
 - `BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE` — set to `true` only after the supported factory scope has been independently reviewed as complete.
 
-Optional repository variable: `BSC_LIQUIDITY_ACCEPTANCE_TOKEN`.
+### Required repository variable
+
+- `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` — keep `false` until all three chain-specific liquidity runs pass and the exact provider deployments, runtime hashes, registries and locker evidence have been independently reviewed; then set to `true`.
+
+For push-triggered acceptance, set repository variable `BSC_LIQUIDITY_ACCEPTANCE_TOKEN`; manual dispatch requires the token address as an input. The sample must exercise every configured BSC locker deployment.
 
 Do not derive or guess program hashes. Pin the deployed executable bytes read from finalized ProgramData. A documented program address or an IDL alone is not a runtime hash. The Solana reader now verifies both the UNCX AMM V4 TokenLock profile and Raydium Burn & Earn CPMM lock-state profile. CLMM, Meteora DLMM, Orca and PumpSwap remain outside the declared pool scope.
 
@@ -57,19 +61,45 @@ Run **Developer evidence structural acceptance** once per chain, selecting a pro
 - `TRUSTED_DEVELOPER_FUNDING_PROVIDERS`
 - `TRUSTED_DEVELOPER_PROVIDERS` — must explicitly include `developer-graph-provider`.
 - `TRUSTED_LAUNCH_ORIGIN_PROVIDERS` — required for Base and BSC deployment-block provenance.
+- `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` — keep `false` until all three developer acceptance artifacts pass and the root-identity methodology/provider evidence are independently reviewed; then set to `true`.
 
 The workflow reports structural completeness separately from provider trust and capability certification. It exits unsuccessfully if structural coverage or the exact provider trust allowlists are incomplete. A structural pass is not capability certification: independent review of root-identity methodology, source coverage, provider terms/limits and production evidence is still required.
 
-## 3. Release decision
+## 3. Launch-bundle indexing and funding-provenance acceptance
+
+Run the GitHub Actions workflow **Launch-bundle live read-only acceptance** once per chain. Choose a token whose launch window has fully elapsed and whose historical supply and transaction history are available.
+
+### Required secrets
+
+- Solana: `HELIUS_API_KEY` (Developer plan or higher).
+- Base: `BASE_RPC_URL`.
+- BSC: `BSC_RPC_URL`.
+
+### Required repository variables
+
+- `TRUSTED_BUNDLE_PROVIDERS` — explicit launch-indexer provider IDs.
+- `TRUSTED_FUNDING_PROVIDERS` — explicit funding-trace provider IDs.
+- `TRUSTED_LAUNCH_ORIGIN_PROVIDERS` — explicit launch-origin resolver provider IDs.
+- `ALCHEMY_QUOTE_TOKENS_BASE` — comma-separated Base quote-token addresses.
+- `ALCHEMY_QUOTE_TOKENS_BSC` — comma-separated BSC quote-token addresses.
+- `LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED` — keep `false` until all three chain runs pass and launch-window coverage, historical supply and funding provenance are independently reviewed; then set to `true`.
+
+A complete empty launch scan may correctly report 0% bundled supply. A positive shared-funder cluster is a risk signal, not a provider-acceptance failure. Incomplete pagination, stale/missing historical supply, untrusted funders or unverified launch origin must block acceptance.
+
+## 4. Release decision
 
 Stage 5 can be marked complete only when all of the following are true:
 
 1. Liquidity live acceptance passes on Solana, Base and BSC.
 2. Developer evidence acceptance passes on Solana, Base and BSC.
-3. Every production RPC is independent where the reader requires independent endpoints, and all registries cover the declared AMM/locker scope.
-4. All executable hashes are measured from deployed finalized code and reviewed.
-5. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
-6. Provider readiness reports no unresolved Stage 5 blockers.
-7. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
+3. Launch-bundle acceptance passes on Solana, Base and BSC.
+4. Every production RPC is independent where the reader requires independent endpoints, and all registries cover the declared AMM/locker scope.
+5. All executable hashes are measured from deployed finalized code and reviewed.
+6. `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three liquidity runs and locker-profile coverage pass independent review.
+7. `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three developer runs and signed root methodology pass independent review.
+8. `LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three launch-bundle runs pass and launch-window/supply/funding coverage is independently reviewed.
+9. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
+10. The `liquidity_lock`, `developer_holdings` and `launch_bundle` readiness rows report no unresolved blockers for Solana, Base and BSC.
+11. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
 
 Never place RPC URLs containing credentials, API keys, private keys or signed payload secrets in source files, issue comments or chat. Store them in GitHub Actions Secrets. Do not enable live trading as part of this stage; all acceptance workflows are read-only.

@@ -8,7 +8,8 @@ from solders.pubkey import Pubkey
 from veltrix.providers.solana_liquidity_reader import (
     BPF_UPGRADEABLE_LOADER, RAYDIUM_AMM_V4_PROGRAM, RAYDIUM_CPMM_PROGRAM,
     RAYDIUM_CPMM_STATE_SIZE, RAYDIUM_CPMM_POOL_DISCRIMINATOR,
-    TOKEN_PROGRAM, TOKEN_2022_PROGRAM, UNCX_PROGRAM,
+    TOKEN_PROGRAM, TOKEN_2022_PROGRAM, UNCX_PROGRAM, RAYDIUM_LOCKING_PROGRAM,
+    RAYDIUM_LOCKED_CP_LIQUIDITY_DISCRIMINATOR, RAYDIUM_LOCKED_CP_LIQUIDITY_SIZE,
     TOKEN_LOCK_DISCRIMINATOR, SolanaRaydiumV4CpmmSnapshotReader,
 )
 
@@ -25,6 +26,7 @@ def reader():
         "https://solana-pools.example", "https://solana-locks.example",
         expected_raydium_executable_hash="a" * 64,
         expected_raydium_cpmm_executable_hash="b" * 64,
+        expected_raydium_locking_executable_hash="c" * 64,
         registry_complete=True,
     )
 
@@ -198,6 +200,7 @@ def test_solana_reader_requires_both_rayidium_hashes_and_complete_scope():
             "https://solana-pools.example", "https://solana-locks.example",
             expected_raydium_executable_hash="a" * 64,
             expected_raydium_cpmm_executable_hash="",
+            expected_raydium_locking_executable_hash="c" * 64,
             registry_complete=True,
         )
     with pytest.raises(ValueError, match="registry must be explicitly certified"):
@@ -205,6 +208,7 @@ def test_solana_reader_requires_both_rayidium_hashes_and_complete_scope():
             "https://solana-pools.example", "https://solana-locks.example",
             expected_raydium_executable_hash="a" * 64,
             expected_raydium_cpmm_executable_hash="b" * 64,
+            expected_raydium_locking_executable_hash="c" * 64,
             registry_complete=False,
         )
 
@@ -270,3 +274,180 @@ def test_cpmm_vault_with_wrong_authority_is_rejected():
     instance._get_account = lambda rpc, address, slot: accounts[address]
     with pytest.raises(Exception, match="vault mint, authority or state mismatch"):
         instance._verify_cpmm_pool_accounts(pool, 900)
+
+
+
+def raydium_locked_cpmm_state():
+    instance = reader()
+    fee_mint = Pubkey.from_bytes(bytes([6]) * 32)
+    state, _ = Pubkey.find_program_address(
+        [b"locked_liquidity", bytes(fee_mint)],
+        Pubkey.from_string(RAYDIUM_LOCKING_PROGRAM),
+    )
+    data = bytearray(RAYDIUM_LOCKED_CP_LIQUIDITY_SIZE)
+    data[:8] = RAYDIUM_LOCKED_CP_LIQUIDITY_DISCRIMINATOR
+    struct.pack_into("<Q", data, 8, 100)
+    struct.pack_into("<Q", data, 16, 20)
+    struct.pack_into("<Q", data, 24, 5)
+    struct.pack_into("<Q", data, 32, 500)
+    data[40:56] = (123456).to_bytes(16, "little")
+    struct.pack_into("<Q", data, 56, 99)
+    data[64:96] = bytes(AMM)
+    data[96:128] = bytes(fee_mint)
+    data[128:160] = bytes(OWNER)
+    data[160:192] = bytes(LP_MINT)
+    pool = {"amm_id": str(AMM), "lp_mint": str(LP_MINT)}
+    return instance, pool, str(state), bytes(data), str(fee_mint)
+
+
+def test_raydium_burn_and_earn_locked_cpmm_state_layout_and_pda_are_verified():
+    instance, pool, address, data, fee_mint = raydium_locked_cpmm_state()
+    decoded = instance._decode_raydium_locked_cpmm_state(
+        address, account(data, RAYDIUM_LOCKING_PROGRAM), pool
+    )
+    assert decoded["locked_lp_amount"] == 100
+    assert decoded["claimed_lp_amount"] == 20
+    assert decoded["unclaimed_lp_amount"] == 5
+    assert decoded["last_lp"] == 500
+    assert decoded["last_k"] == 123456
+    assert decoded["fee_nft_mint"] == fee_mint
+    assert decoded["locked_lp_mint"] == str(LP_MINT)
+
+
+def test_raydium_burn_and_earn_rejects_wrong_pda_or_pool_and_bad_program_owner():
+    instance, pool, address, data, _fee_mint = raydium_locked_cpmm_state()
+    wrong = str(Pubkey.from_bytes(bytes([7]) * 32))
+    with pytest.raises(Exception, match="PDA does not match"):
+        instance._decode_raydium_locked_cpmm_state(
+            wrong, account(data, RAYDIUM_LOCKING_PROGRAM), pool
+        )
+    with pytest.raises(Exception, match="pool or LP mint mismatch"):
+        instance._decode_raydium_locked_cpmm_state(
+            address, account(data, RAYDIUM_LOCKING_PROGRAM),
+            {"amm_id": str(OWNER), "lp_mint": str(LP_MINT)}
+        )
+    with pytest.raises(Exception, match="not owned by the pinned locking program"):
+        instance._decode_raydium_locked_cpmm_state(
+            address, account(data, RAYDIUM_CPMM_PROGRAM), pool
+        )
+
+
+def test_raydium_burn_and_earn_custody_reconciles_principal_and_claimable_fees():
+    instance, pool, _address, _data, fee_mint = raydium_locked_cpmm_state()
+    authority, _ = Pubkey.find_program_address(
+        [b"lock_cp_authority_seed"], Pubkey.from_string(RAYDIUM_LOCKING_PROGRAM)
+    )
+    vault, _ = Pubkey.find_program_address(
+        [bytes(authority), bytes(instance.token_program), bytes(LP_MINT)],
+        instance.associated_token_program,
+    )
+    mint_data = bytearray(82)
+    struct.pack_into("<I", mint_data, 0, 1)
+    mint_data[4:36] = bytes(authority)
+    struct.pack_into("<Q", mint_data, 36, 1)
+    mint_data[44] = 0
+    mint_data[45] = 1
+    vault_data = bytearray(165)
+    vault_data[:32] = bytes(LP_MINT)
+    vault_data[32:64] = bytes(authority)
+    struct.pack_into("<Q", vault_data, 64, 105)
+    vault_data[108] = 1
+    accounts = {
+        fee_mint: account(bytes(mint_data), TOKEN_PROGRAM),
+        str(vault): account(bytes(vault_data), TOKEN_PROGRAM),
+    }
+    instance._get_account = lambda rpc, address, slot: accounts[address]
+    instance._get_optional_account = lambda rpc, address, slot: accounts.get(address)
+    records = ({
+        "address": "locked-state",
+        "locked_lp_amount": 100,
+        "unclaimed_lp_amount": 5,
+        "fee_nft_mint": fee_mint,
+        "locked_owner": str(OWNER),
+    },)
+    got_vault, got_authority, amount, positions = instance._read_raydium_cpmm_custody(
+        pool, records, 900
+    )
+    assert got_vault == str(vault)
+    assert got_authority == str(authority)
+    assert amount == 105
+    assert positions == records
+
+
+def test_raydium_burn_and_earn_custody_rejects_vault_balance_mismatch():
+    instance, pool, _address, _data, fee_mint = raydium_locked_cpmm_state()
+    authority, _ = Pubkey.find_program_address(
+        [b"lock_cp_authority_seed"], Pubkey.from_string(RAYDIUM_LOCKING_PROGRAM)
+    )
+    vault, _ = Pubkey.find_program_address(
+        [bytes(authority), bytes(instance.token_program), bytes(LP_MINT)],
+        instance.associated_token_program,
+    )
+    mint_data = bytearray(82)
+    struct.pack_into("<I", mint_data, 0, 1)
+    mint_data[4:36] = bytes(authority)
+    struct.pack_into("<Q", mint_data, 36, 1)
+    mint_data[45] = 1
+    vault_data = bytearray(165)
+    vault_data[:32] = bytes(LP_MINT)
+    vault_data[32:64] = bytes(authority)
+    struct.pack_into("<Q", vault_data, 64, 104)
+    vault_data[108] = 1
+    accounts = {
+        fee_mint: account(bytes(mint_data), TOKEN_PROGRAM),
+        str(vault): account(bytes(vault_data), TOKEN_PROGRAM),
+    }
+    instance._get_account = lambda rpc, address, slot: accounts[address]
+    instance._get_optional_account = lambda rpc, address, slot: accounts.get(address)
+    records = ({
+        "address": "locked-state",
+        "locked_lp_amount": 100,
+        "unclaimed_lp_amount": 5,
+        "fee_nft_mint": fee_mint,
+        "locked_owner": str(OWNER),
+    },)
+    with pytest.raises(Exception, match="does not reconcile"):
+        instance._read_raydium_cpmm_custody(pool, records, 900)
+
+
+
+def test_raydium_burn_and_earn_rejects_unattributed_vault_balance_without_lock_records():
+    instance = reader()
+    pool = {"amm_id": str(AMM), "lp_mint": str(LP_MINT)}
+    authority, _ = Pubkey.find_program_address(
+        [b"lock_cp_authority_seed"], Pubkey.from_string(RAYDIUM_LOCKING_PROGRAM)
+    )
+    vault_data = bytearray(165)
+    vault_data[:32] = bytes(LP_MINT)
+    vault_data[32:64] = bytes(authority)
+    struct.pack_into("<Q", vault_data, 64, 1)
+    vault_data[108] = 1
+    instance._get_optional_account_crosschecked = lambda address, slot: account(
+        bytes(vault_data), TOKEN_PROGRAM
+    )
+    with pytest.raises(Exception, match="unattributed custody"):
+        instance._read_raydium_cpmm_custody(pool, (), 900)
+
+
+def test_raydium_burn_and_earn_accepts_absent_vault_only_when_no_lock_state_exists():
+    instance = reader()
+    pool = {"amm_id": str(AMM), "lp_mint": str(LP_MINT)}
+    instance._get_optional_account_crosschecked = lambda address, slot: None
+    vault, authority, amount, positions = instance._read_raydium_cpmm_custody(
+        pool, (), 900
+    )
+    assert vault
+    assert authority
+    assert amount == 0
+    assert positions == ()
+
+
+def test_solana_reader_requires_rayidum_burn_and_earn_program_hash():
+    with pytest.raises(ValueError, match="Burn & Earn locking executable SHA-256"):
+        SolanaRaydiumV4CpmmSnapshotReader(
+            "https://solana-pools.example", "https://solana-locks.example",
+            expected_raydium_executable_hash="a" * 64,
+            expected_raydium_cpmm_executable_hash="b" * 64,
+            expected_raydium_locking_executable_hash="",
+            registry_complete=True,
+        )

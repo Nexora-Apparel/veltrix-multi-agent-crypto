@@ -10,6 +10,13 @@ def settings(**overrides):
         trusted_launch_origin_providers=(), goplus_access_token="",
         helius_api_key="", etherscan_api_key="", base_rpc_url="", bsc_rpc_url="",
         alchemy_quote_tokens_base=(), alchemy_quote_tokens_bsc=(),
+        trusted_developer_root_providers=(), trusted_holder_inventory_providers=(),
+        trusted_developer_funding_providers=(), developer_root_attestation_url="",
+        developer_root_attestation_public_key="",
+        developer_root_attestation_provider_id="signed-developer-roots",
+        liquidity_evidence_capability_certified=False,
+        developer_evidence_capability_certified=False,
+        launch_bundle_evidence_capability_certified=False,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -90,7 +97,8 @@ def test_liquidity_readiness_names_missing_chain_specific_snapshot_readers():
     assert all(any("RPC endpoints" in item and "separate" in item
                    for item in row.blockers) for row in rows.values())
     assert any("runtime hash" in item for item in rows["base"].blockers)
-    assert any("deployed program hashes" in item for item in rows["solana"].blockers)
+    assert any("UNCX V4 TokenLock and Raydium Burn & Earn CPMM lock PDAs" in item
+               for item in rows["solana"].blockers)
 
 
 def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit_trust():
@@ -106,7 +114,7 @@ def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit
                if row.chain == "base" and row.claim == "liquidity_lock")
     assert row.configured and row.trusted
     assert not row.capability_complete
-    assert any("live read-only acceptance" in item for item in row.blockers)
+    assert any("LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED is false" in item for item in row.blockers)
 
 
 def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
@@ -117,7 +125,7 @@ def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
     row = next(row for row in report.claims
                if row.chain == "solana" and row.claim == "liquidity_lock")
     assert not row.configured
-    assert any("Raydium AMM V4 and CPMM executable SHA-256 hashes are required" in item
+    assert any("Raydium AMM V4, CPMM and Burn & Earn locking executable SHA-256 hashes are required" in item
                for item in row.blockers)
     assert any("Solana supported-AMM registry completeness attestation is missing" in item
                for item in row.blockers)
@@ -127,7 +135,7 @@ def test_solana_readiness_exposes_missing_cpmm_locker_adapter():
     report = build_provider_readiness(settings())
     row = next(row for row in report.claims
                if row.chain == "solana" and row.claim == "liquidity_lock")
-    assert any("no source-verifiable UNCX CPMM locker adapter exists" in item
+    assert any("LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED is false" in item
                for item in row.blockers)
 
 
@@ -135,7 +143,7 @@ def test_base_readiness_reports_live_uncx_deployment_verification_requirement():
     report = build_provider_readiness(settings())
     row = next(row for row in report.claims
                if row.chain == "base" and row.claim == "liquidity_lock")
-    assert any("live bytecode hash and constructor factory still require acceptance" in item
+    assert any("Base UNCX V2.1 candidate still requires live bytecode-hash and constructor-factory acceptance" in item
                for item in row.blockers)
 
 
@@ -145,3 +153,147 @@ def test_evm_liquidity_readiness_does_not_report_solana_program_blockers():
     for chain in ("base", "bsc"):
         assert not any("Solana support is scoped" in item or "UNCX CPMM locker" in item
                        for item in rows[chain].blockers)
+
+
+
+def test_liquidity_capability_attestation_requires_configured_and_trusted_reader():
+    report = build_provider_readiness(settings(
+        base_liquidity_pool_rpc_url="https://base-pool.example",
+        base_liquidity_locker_rpc_url="https://base-locker.example",
+        base_liquidity_factories_json='[{"amm_id":"uniswap-v2"}]',
+        base_liquidity_lockers_json='[{"amm_id":"uniswap-v2"}]',
+        base_liquidity_registry_complete=True,
+        trusted_liquidity_providers=("base-finalized-all-factory-liquidity",),
+        liquidity_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "base" and row.claim == "liquidity_lock")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
+
+
+def test_developer_capability_attestation_requires_all_chain_providers_and_trust():
+    report = build_provider_readiness(settings(
+        solana_rpc_url="https://solana.example",
+        helius_api_key="configured",
+        developer_root_attestation_url="https://roots.example",
+        developer_root_attestation_public_key="public-key",
+        developer_root_attestation_provider_id="signed-developer-roots",
+        trusted_developer_root_providers=("signed-developer-roots",),
+        trusted_holder_inventory_providers=("solana-rpc-holder-inventory",),
+        trusted_developer_funding_providers=("helius-solana-funding-graph",),
+        trusted_developer_providers=("developer-graph-provider",),
+        developer_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "developer_holdings")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
+
+
+
+def test_launch_bundle_capability_requires_trusted_indexer_funder_origin_and_attestation():
+    report = build_provider_readiness(settings(
+        helius_api_key="configured",
+        trusted_bundle_providers=("helius-launch",),
+        trusted_funding_providers=("helius-funder",),
+        trusted_launch_origin_providers=("helius-launch-origin",),
+        launch_bundle_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "launch_bundle")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
+
+
+
+def test_launch_bundle_capability_attestation_requires_indexer_funder_and_origin_trust():
+    report = build_provider_readiness(settings(
+        helius_api_key="configured",
+        trusted_bundle_providers=("helius-launch",),
+        trusted_funding_providers=("helius-funder",),
+        trusted_launch_origin_providers=("helius-launch-origin",),
+        launch_bundle_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "launch_bundle")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
+
+
+def test_launch_bundle_capability_stays_disabled_without_manual_attestation():
+    report = build_provider_readiness(settings(
+        helius_api_key="configured",
+        trusted_bundle_providers=("helius-launch",),
+        trusted_funding_providers=("helius-funder",),
+        trusted_launch_origin_providers=("helius-launch-origin",),
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "launch_bundle")
+    assert row.configured and row.trusted
+    assert not row.capability_complete
+    assert any("LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED is false" in x
+               for x in row.blockers)
+
+
+
+def test_all_stage5_claims_can_become_ready_only_with_all_chain_attestations():
+    report = build_provider_readiness(settings(
+        solana_liquidity_pool_rpc_url="https://solana-pool.example",
+        solana_liquidity_locker_rpc_url="https://solana-locker.example",
+        solana_raydium_amm_v4_executable_hash="a" * 64,
+        solana_raydium_cpmm_executable_hash="b" * 64,
+        solana_raydium_locking_executable_hash="c" * 64,
+        solana_liquidity_registry_complete=True,
+        base_liquidity_pool_rpc_url="https://base-pool.example",
+        base_liquidity_locker_rpc_url="https://base-locker.example",
+        base_liquidity_factories_json='[{"amm_id":"factory"}]',
+        base_liquidity_lockers_json='[{"amm_id":"locker"}]',
+        base_liquidity_registry_complete=True,
+        bsc_liquidity_pool_rpc_url="https://bsc-pool.example",
+        bsc_liquidity_locker_rpc_url="https://bsc-locker.example",
+        bsc_liquidity_factories_json='[{"amm_id":"factory"}]',
+        bsc_liquidity_lockers_json='[{"amm_id":"locker"}]',
+        bsc_liquidity_registry_complete=True,
+        solana_rpc_url="https://solana.example",
+        helius_api_key="helius",
+        base_rpc_url="https://base.example",
+        alchemy_api_key="alchemy",
+        bsc_rpc_url="https://bsc.example",
+        etherscan_api_key="etherscan",
+        developer_root_attestation_url="https://roots.example",
+        developer_root_attestation_public_key="public-key",
+        developer_root_attestation_provider_id="signed-developer-roots",
+        alchemy_quote_tokens_base=("0x" + "11" * 20,),
+        alchemy_quote_tokens_bsc=("0x" + "22" * 20,),
+        trusted_liquidity_providers=(
+            "solana-raydium-v4-cpmm-finalized-pool-inventory",
+            "base-finalized-all-factory-liquidity",
+            "bsc-finalized-all-factory-liquidity",
+        ),
+        trusted_developer_root_providers=("signed-developer-roots",),
+        trusted_holder_inventory_providers=(
+            "solana-rpc-holder-inventory", "base-rpc-holder-inventory",
+            "bsc-rpc-holder-inventory",
+        ),
+        trusted_developer_funding_providers=(
+            "helius-solana-funding-graph", "alchemy-base-funding-graph",
+            "etherscan-v2-bsc-funding-graph",
+        ),
+        trusted_developer_providers=("developer-graph-provider",),
+        trusted_bundle_providers=("helius-launch", "base-rpc-launch", "bsc-rpc-launch"),
+        trusted_funding_providers=("helius-funder", "base-quote-funder", "bsc-quote-funder"),
+        trusted_launch_origin_providers=(
+            "helius-launch-origin", "base-rpc-launch-origin", "bsc-rpc-launch-origin",
+        ),
+        liquidity_evidence_capability_certified=True,
+        developer_evidence_capability_certified=True,
+        launch_bundle_evidence_capability_certified=True,
+    ))
+    stage5 = [
+        row for row in report.claims
+        if row.claim in {"liquidity_lock", "developer_holdings", "launch_bundle"}
+    ]
+    assert len(stage5) == 9
+    assert all(row.configured and row.trusted and row.capability_complete
+               and row.eligible_to_attempt and not row.blockers for row in stage5)

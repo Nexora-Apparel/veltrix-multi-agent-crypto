@@ -11,6 +11,21 @@ from .providers.factory import build_liquidity_snapshot_providers
 LOCK_RATIO_ONLY = "at least one discovered pool lacks the required active locked LP share"
 
 
+def _locker_sample_blockers(batch):
+    normalize = str.lower if batch.chain in {"base", "bsc"} else (lambda value: value)
+    configured = {normalize(item.address) for item in batch.deployments}
+    exercised = {normalize(item.locker_address) for item in batch.positions}
+    if not batch.positions:
+        return ["acceptance token has no live locker positions; use a token with active locks"]
+    missing = sorted(configured - exercised)
+    if missing:
+        return [
+            "acceptance token does not exercise every configured locker profile: "
+            + ", ".join(missing)
+        ]
+    return []
+
+
 def run(chain, token_address):
     cfg = settings()
     providers = build_liquidity_snapshot_providers(cfg, chains=(chain,))
@@ -26,16 +41,23 @@ def run(chain, token_address):
     structural_reasons = [
         reason for reason in report.reasons if reason != LOCK_RATIO_ONLY
     ]
+    sample_blockers = _locker_sample_blockers(batch)
     accepted = (
         batch.inventory_complete is True
         and bool(batch.pools)
         and report.verified_pool_count == report.pool_count
         and not structural_reasons
+        and not sample_blockers
     )
     result = {
         "reader_acceptance": "PASS" if accepted else "BLOCKED",
+        "capability_certified": bool(
+            cfg.liquidity_evidence_capability_certified and accepted
+        ),
         "safety_gate": "PASS" if report.passed else "BLOCKED",
         "chain": chain,
+        "locker_position_count": len(batch.positions),
+        "locker_position_programs": sorted({item.locker_address for item in batch.positions}),
         "token_address": token_address,
         "finalized_ref": batch.finalized_ref,
         "pool_set_id": batch.pool_set_id,
@@ -49,7 +71,7 @@ def run(chain, token_address):
         ],
         "earliest_unlock_at_ms": report.earliest_unlock_at_ms,
         "evidence_id": report.evidence_id,
-        "structural_blockers": structural_reasons,
+        "structural_blockers": structural_reasons + sample_blockers,
         "safety_blockers": list(report.reasons),
         "locker_deployments": [
             {

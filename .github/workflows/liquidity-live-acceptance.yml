@@ -19,8 +19,8 @@ on:
           - bsc
           - solana
       token_address:
-        description: Optional token address; defaults to canonical wrapped native asset
-        required: false
+        description: Token address with active positions for every configured locker profile
+        required: true
         type: string
 
 permissions:
@@ -37,11 +37,12 @@ jobs:
       BASE_LIQUIDITY_AMM_FACTORIES_JSON: ${{ secrets.BASE_LIQUIDITY_AMM_FACTORIES_JSON }}
       BASE_UNCX_LOCKERS_JSON: ${{ secrets.BASE_UNCX_LOCKERS_JSON }}
       BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE: ${{ secrets.BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE }}
+      LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED: ${{ vars.LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED }}
       SAFETY_EVIDENCE_MAX_AGE_MS: "900000"
       LIQUIDITY_READER_MAX_LOGS: "200000"
       LIQUIDITY_READER_MAX_POOLS: "50000"
       LIQUIDITY_READER_MAX_LOCKS: "100000"
-      TARGET_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.token_address || vars.BASE_LIQUIDITY_ACCEPTANCE_TOKEN || '0x4200000000000000000000000000000000000006' }}
+      TARGET_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.token_address || vars.BASE_LIQUIDITY_ACCEPTANCE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,12 +57,11 @@ jobs:
         id: config
         shell: bash
         run: |
-          if [[ -z "$BASE_LIQUIDITY_POOL_RPC_URL" || -z "$BASE_LIQUIDITY_LOCKER_RPC_URL" || -z "$BASE_LIQUIDITY_AMM_FACTORIES_JSON" || -z "$BASE_UNCX_LOCKERS_JSON" || "$BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Base live acceptance skipped: independent RPC endpoints, pinned registries and complete-scope attestation are not all configured."
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [[ -z "$TARGET_TOKEN" || -z "$BASE_LIQUIDITY_POOL_RPC_URL" || -z "$BASE_LIQUIDITY_LOCKER_RPC_URL" || -z "$BASE_LIQUIDITY_AMM_FACTORIES_JSON" || -z "$BASE_UNCX_LOCKERS_JSON" || "$BASE_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
+            echo "::error::Base acceptance requires a sample token with live locker positions, independent RPCs, pinned factory/locker registries and complete-scope attestation."
+            exit 1
           fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
       - name: Execute Base finalized-state acceptance
         if: steps.config.outputs.ready == 'true'
         run: python -m veltrix.liquidity_acceptance --chain base --token-address "$TARGET_TOKEN" --output liquidity-acceptance-base.json
@@ -86,7 +86,7 @@ jobs:
       LIQUIDITY_READER_MAX_LOGS: "200000"
       LIQUIDITY_READER_MAX_POOLS: "50000"
       LIQUIDITY_READER_MAX_LOCKS: "100000"
-      TARGET_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.token_address || vars.BSC_LIQUIDITY_ACCEPTANCE_TOKEN || '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c' }}
+      TARGET_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.token_address || vars.BSC_LIQUIDITY_ACCEPTANCE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -101,12 +101,11 @@ jobs:
         id: config
         shell: bash
         run: |
-          if [[ -z "$BSC_LIQUIDITY_POOL_RPC_URL" || -z "$BSC_LIQUIDITY_LOCKER_RPC_URL" || -z "$BSC_LIQUIDITY_AMM_FACTORIES_JSON" || -z "$BSC_UNCX_LOCKERS_JSON" || "$BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::BSC live acceptance skipped: independent RPC endpoints, pinned registries and complete-scope attestation are not all configured."
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [[ -z "$TARGET_TOKEN" || -z "$BSC_LIQUIDITY_POOL_RPC_URL" || -z "$BSC_LIQUIDITY_LOCKER_RPC_URL" || -z "$BSC_LIQUIDITY_AMM_FACTORIES_JSON" || -z "$BSC_UNCX_LOCKERS_JSON" || "$BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
+            echo "::error::BSC acceptance requires a sample token with live locker positions, independent RPCs, pinned factory/locker registries and complete-scope attestation."
+            exit 1
           fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
       - name: Execute BSC finalized-state acceptance
         if: steps.config.outputs.ready == 'true'
         run: python -m veltrix.liquidity_acceptance --chain bsc --token-address "$TARGET_TOKEN" --output liquidity-acceptance-bsc.json
@@ -126,11 +125,12 @@ jobs:
       SOLANA_LIQUIDITY_LOCKER_RPC_URL: ${{ secrets.SOLANA_LIQUIDITY_LOCKER_RPC_URL }}
       SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH: ${{ secrets.SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH }}
       SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH: ${{ secrets.SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH }}
+      SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH: ${{ secrets.SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH }}
       SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE: ${{ secrets.SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE }}
       SAFETY_EVIDENCE_MAX_AGE_MS: "900000"
       LIQUIDITY_READER_MAX_POOLS: "20000"
       LIQUIDITY_READER_MAX_LOCKS: "20000"
-      TARGET_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.token_address || vars.SOLANA_LIQUIDITY_ACCEPTANCE_TOKEN || 'So11111111111111111111111111111111111111112' }}
+      TARGET_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.token_address || vars.SOLANA_LIQUIDITY_ACCEPTANCE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -145,12 +145,11 @@ jobs:
         id: config
         shell: bash
         run: |
-          if [[ -z "$SOLANA_LIQUIDITY_POOL_RPC_URL" || -z "$SOLANA_LIQUIDITY_LOCKER_RPC_URL" || -z "$SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH" || -z "$SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH" || "$SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Solana live acceptance skipped: independent RPC endpoints, both pinned Raydium program hashes and complete-scope attestation are not all configured."
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [[ -z "$TARGET_TOKEN" || -z "$SOLANA_LIQUIDITY_POOL_RPC_URL" || -z "$SOLANA_LIQUIDITY_LOCKER_RPC_URL" || -z "$SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH" || -z "$SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH" || -z "$SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH" || "$SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
+            echo "::error::Solana acceptance requires a sample token exercising UNCX V4 and Raydium Burn & Earn locks, independent RPCs, all three pinned program hashes and complete-scope attestation."
+            exit 1
           fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
       - name: Execute Solana finalized-slot acceptance
         if: steps.config.outputs.ready == 'true'
         run: python -m veltrix.liquidity_acceptance --chain solana --token-address "$TARGET_TOKEN" --output liquidity-acceptance-solana.json

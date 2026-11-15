@@ -90,7 +90,10 @@ def run_developer_acceptance(*, chain, token_address, settings,
         "status": "structural_pass" if report.coverage_complete else "blocked",
         "structural_pass": bool(report.coverage_complete),
         "trust_ready": trust_ready,
-        "capability_certified": False,
+        "capability_certified": bool(
+            getattr(settings, "developer_evidence_capability_certified", False)
+            and report.coverage_complete and trust_ready
+        ),
         "live_execution_enabled": False,
         "observed_at_ms": now_ms,
         "deployment_block": deployment_block,
