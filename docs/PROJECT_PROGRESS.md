@@ -302,3 +302,44 @@ For every task:
 | 2026-11-15 | Stage 09.2 current-main integration | PR #191, `work/phase-9.2-isolation-current-main` | Rebuilt host-isolation integration on current main because PR #23 was 52 commits behind/diverged. Added systemd templates, preflight/verifier, runbook, wallet-domain types, loopback dashboard authentication, DAC hardening, symlink rejection and CI validation. |
 | 2026-11-15 | Stage 09.2 CI and systemd template validation | PR #191 head `76a9b54131c1c67b29ba533e4c7758b8c20b42b0`; runs `43767022608`, `43767121211`, `43767229327`, `43767439888`, `43767513662` | Final exact-head run `43767513662` passed: 886 passed / 5 skipped; compileall, `bash -n` and `systemd-analyze verify` passed. Intermediate failures were recorded and corrected: host-specific ExecStart path in raw unit verification, then stale static-test expectation after DAC verifier hardening. No actual host install or host acceptance. |
 | 2026-11-15 | Stage 09.3 dependent signer-boundary contract | PR #192, `work/phase-9.3-signer-contract-after-9.2` head `8b2cef7eb57ba22bcd9a307ba51495c45821182d`; runs `43767720194`, `43767800370` | Added typed chain/network immutable envelopes, canonical policy hashes and metadata-binding tests. Explicitly documented that metadata equality does not verify signed bytes or cryptographic signatures. Final exact-head CI passed: 919 passed / 5 skipped; compileall, shell syntax and systemd template verification passed. PR #192 remains draft and stacked on #191; no signer implementation. |
+
+## 7. Hosting implementation status correction — 2026-11-15
+
+This section is authoritative where earlier wording in this ledger conflicts with it.
+
+### Selected hosting direction
+
+The project direction remains the previously selected **$0/no-bank-card serverless architecture**:
+- **GitHub Actions hosted Linux runners:** bounded scheduled/batch Python work and CI; not an always-on API server.
+- **Turso Free:** remote SQLite-compatible persistence, subject to the existing driver/SQL compatibility and production migration gates.
+- **Cloudflare Pages + Workers:** static dashboard hosting and a narrow read-only API/runtime layer, subject to a verified implementation and deployment.
+- **GitHub repository:** source control and CI/CD.
+
+Do not treat a dedicated Linux VPS or systemd host as a prerequisite for this selected deployment. Preserve PR #191's useful isolation controls as an optional alternate deployment path or translate applicable controls into serverless equivalents.
+
+### What is actually complete
+
+- PR #13 records the architecture decision and compatibility audit; it is documentation, not deployment.
+- PRs #14–#18 contain Turso DB-API/conformance and adapter work.
+- PRs #19–#22 contain bounded orchestration, worker fencing and one-shot pipeline integration.
+- Remote Turso conformance passed in Actions run `42912477053` (five DB-API/schema/orchestration/worker/pipeline suites, 325.57 seconds) against a dedicated disposable database. Integrated H1.1/H2/H3 conformance also passed in run `42964334567`.
+- These tests do **not** certify production credentials, production database migration, data cutover, Cloudflare deployment, DNS/HTTPS routing, deployed API health, scheduled production operation, or disaster recovery.
+- SQLite remains the default/rollback data store until a separately approved and verified migration.
+- PR #22 remains an open draft integration candidate and must be checked for current head, ancestry, diff and CI before merge; do not assume the recorded historical branch state is still current.
+
+### Hosting acceptance work order
+
+1. Re-audit current `main`, PRs #13–#22, and the existing serverless branch before changing implementation. Record current SHAs and CI, and do not repeat already-passed disposable Turso conformance unnecessarily.
+2. Verify the Python runtime split: which modules run as bounded GitHub Actions jobs, which functions need a Cloudflare Worker/API boundary, and whether the current Python dashboard/API can run there without an unsupported runtime assumption. Define an explicit compatibility adapter or a supported runtime split; do not assume Python code runs unchanged inside Workers.
+3. Finish and merge the reviewed H1.1/H2/H3 integration only after current-head synchronization, regression CI, security review, and a clear rollback plan.
+4. Build and test Cloudflare Pages/Workers deployment configuration, API authentication, environment separation, least-privilege secrets, health checks, logs, and rollback. No deployment is complete until the deployed URLs and runtime health are verified.
+5. Add scheduled bounded pipeline invocations through GitHub Actions only after idempotency, fencing, retry, concurrency, rate limits and WAT schedule semantics are verified. GitHub Actions schedules are not a guarantee of exact-minute execution or continuous WebSocket capture.
+6. Provision and verify a separate production Turso database identity; test schema migrations, transactions, backup/restore and recovery against a disposable copy first. Never reuse destructive conformance credentials for production.
+7. Perform a controlled production data migration only after export/import row counts, schema, constraints, ledger integrity and rollback are independently verified. Keep SQLite intact until cutover acceptance.
+8. Verify end-to-end dashboard/API → worker → Turso operation, schedule delay/retry behaviour, provider egress and emergency stop. Only then mark hosting operational.
+
+### Stage 09.2 disposition
+
+The systemd/real-host requirement in the earlier Stage 09.2 row applies only to the **optional PR #191 host-isolation path**. It is not a blocker for the selected GitHub Actions + Turso + Cloudflare architecture. Serverless isolation acceptance must instead cover ephemeral job boundaries, workflow permissions, environment/secret scoping, Cloudflare runtime isolation, API authentication, Turso database identity and token scope, concurrency/fencing, egress controls, observability, backup/restore and operational stop controls.
+
+PR #191 remains optional and unmerged; do not make PR #192's dependency on #191 a reason to delay hosting. Keep all signing, transaction submission, broadcasting and live execution disabled. Hosting completion does not grant execution authorization.
