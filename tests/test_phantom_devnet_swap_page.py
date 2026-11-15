@@ -61,7 +61,7 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert "phantomInputTx = solanaWeb3.Transaction.from" in sign_test
     assert "Transaction.from(raw)" in source
     assert "reviewStartedAtMs" not in sign_test
-    assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
+    assert "assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes)" in sign_test
     assert "verifySignatures:true" in source
     assert "submitted:false,broadcast:false" in sign_test
     assert "refreshQuoteForReview" in source
