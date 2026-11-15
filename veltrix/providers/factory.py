@@ -67,9 +67,10 @@ def build_holder_inventory_providers(settings, *, session=None):
 def build_funding_graph_providers(settings, *, session=None):
     """Build only funding sources whose documented chain coverage is adequate.
 
-    Alchemy documents internal-transfer coverage on Base, but not BSC. Helius
-    Parsed Events supplies Solana native-SOL ancestry. BSC remains withheld
-    rather than silently presenting partial histories as complete.
+    Helius supplies finalized native and token transfer history on Solana;
+    Alchemy supplies external, internal and ERC-20 history on Base; Etherscan
+    V2 supplies external, internal and ERC-20 history on BSC. These adapters
+    remain untrusted until chain-specific capability certification passes.
     """
     from .alchemy_funding import AlchemyBaseFundingGraphProvider
     from .helius_funding import HeliusSolanaFundingGraphProvider
