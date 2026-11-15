@@ -47,7 +47,7 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert '<button id="execute" disabled>Execution locked pending validation</button>' in source
     assert "const EXECUTION_RELEASE_ENABLED = false" in source
     sign_test = source[source.index("async function testLegacyPhantomSigning()"):source.index("async function execute()")]
-    assert "await finalPreSignFreshnessGate()" in sign_test
+    assert "await finalPreSignFreshnessGate(reviewStartedAtMs)" in sign_test
     assert "provider.signTransaction(finalTx)" in sign_test
     assert "normalizePhantomSignedLegacyTransaction(phantomResult)" in sign_test
     assert "function normalizePhantomSignedLegacyTransaction(value)" in source
@@ -179,7 +179,7 @@ def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
     source = PAGE.read_text(encoding="utf-8")
     assert "prepared.txs.length !== 1" in source
     assert "prepared.reviewedBytes.length !== 1" in source
-    assert "Date.now() - prepared.preparedAt > 15000" in source
+    assert "reviewStartedAtMs - prepared.preparedAt > 15000" in source
     assert "prepared.walletAddress !== wallet.toBase58()" in source
 
 
@@ -401,9 +401,9 @@ def test_devnet_ci_uses_fresh_direct_cpmm_audit_without_stale_router_fixture():
 
 def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_quote_and_exact_bytes():
     source = PAGE.read_text(encoding="utf-8")
-    assert "async function finalPreSignFreshnessGate()" in source
-    gate = source[source.index("async function finalPreSignFreshnessGate()"):source.index("async function execute()")]
-    assert "Date.now() - prepared.preparedAt > 15000" in gate
+    assert "async function finalPreSignFreshnessGate(reviewStartedAtMs = Date.now())" in source
+    gate = source[source.index("async function finalPreSignFreshnessGate(reviewStartedAtMs = Date.now())"):source.index("async function execute()")]
+    assert "reviewStartedAtMs - prepared.preparedAt > 15000" in gate
     assert "provider.publicKey.equals(wallet)" in gate
     assert "connection.getGenesisHash()" in gate
     assert "BigInt(prepared.requiredBalanceLamports)" in gate
