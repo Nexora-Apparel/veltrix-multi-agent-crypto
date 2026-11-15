@@ -231,19 +231,16 @@ class SolanaRiskEvidenceWorker:
                 WHERE mint = ? AND status = 'processing'
                   AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
             """, (
-<<<<<<< origin/main
-                failures,
-                now + delay,
-                f"{type(error).__name__}",
-                now,
-                mint,
-=======
-                failures, now + delay,
-                f"{type(error).__name__}: {error}"[:500], now, mint,
+                WHERE mint = ? AND status = 'processing'
+                  AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
+            """, (
+                failures, now + delay, f"{type(error).__name__}", now, mint,
                 context.owner_id if context else None,
                 context.owner_id if context else None,
                 context.fencing_token if context else None,
->>>>>>> origin/work/h1.1-h2-h3-clean
+            ))
+            if cursor.rowcount != 1:
+                raise LeaseBusy("risk evidence failure update lost its row claim")
             ))
             if cursor.rowcount != 1:
                 raise LeaseBusy("risk evidence failure update lost its row claim")
