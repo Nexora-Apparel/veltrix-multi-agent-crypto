@@ -343,3 +343,51 @@ Do not treat a dedicated Linux VPS or systemd host as a prerequisite for this se
 The systemd/real-host requirement in the earlier Stage 09.2 row applies only to the **optional PR #191 host-isolation path**. It is not a blocker for the selected GitHub Actions + Turso + Cloudflare architecture. Serverless isolation acceptance must instead cover ephemeral job boundaries, workflow permissions, environment/secret scoping, Cloudflare runtime isolation, API authentication, Turso database identity and token scope, concurrency/fencing, egress controls, observability, backup/restore and operational stop controls.
 
 PR #191 remains optional and unmerged; do not make PR #192's dependency on #191 a reason to delay hosting. Keep all signing, transaction submission, broadcasting and live execution disabled. Hosting completion does not grant execution authorization.
+
+## 8. Hosting implementation progress — 2026-11-15
+
+This section supersedes the earlier provisional hosting work order where the actual implementation status has changed. It does not imply production deployment.
+
+### Reconciled worker/database integration
+
+- **Implemented/unmerged:** PR #22's H1.1/H2/H3 code has been reconciled with current `main` on `work/hosting-integration-reconcile-20261115`, then composed into `work/hosting-complete-20261115`.
+- The reconciled branch preserves current-main release locks, dashboard behavior, provider error sanitization and validation. It does not force-merge the 57-ahead/65-behind original PR #22 branch.
+- Added transaction-scoped persistence for launch candidates, market snapshots, risk evidence and consensus decisions. Transaction methods re-run domain validators before writes.
+- Added production schema initializer `scripts/initialize_turso_database.py`. It refuses the disposable H0 conformance database, initializes the application and empty paper-ledger schema, verifies expected tables, and performs no provider calls or data migration.
+- Added one-shot entrypoint `scripts/run_solana_pipeline.py` and a manual-only Actions workflow. It uses a stable two-hour idempotency bucket and keeps paper trading, Telegram, scheduler activation and live execution disabled.
+- Exact reconciled Python CI run `43771310697` on `work/hosting-integration-reconcile-20261115` head `e411dd4aafec396f19c051f68c44bb945a186983`: **914 passed / 10 skipped**, compileall included `scripts/`. The 10 skips are not counted as passes.
+- Remote Turso conformance run `43770940483` was started against exact reconciled core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; its state must be rechecked before acceptance. Do not claim it passed while it remains in progress.
+
+### Cloudflare Pages and Worker API
+
+- **Implemented/unmerged:** static Pages bundle, Wrangler configuration, Pages Functions API and automated deploy workflow are included in `work/hosting-complete-20261115`.
+- The Pages Function uses `@libsql/client/web` and exposes fixed GET-only dashboard routes. It requires a 32+ character bearer token, validates a credential-free production `libsql://*.turso.io` URL, fails closed when bindings are missing, and has no write, signer, submitter or live-execution endpoint.
+- Dashboard API uses a distinct read-only Turso token. The deployment workflow verifies that the token cannot execute a no-row UPDATE inside a rolled-back transaction before deploying.
+- Node security suite and local Pages static/API smoke passed on the Cloudflare implementation branch: run `43770923182`, **10 passed / 0 failed**. Wrangler project/secret/deploy CLI surface and Pages smoke passed in run `43771276851`. The newer read-only-token verifier and final composed branch still require exact-head CI.
+- The deployment workflow creates the Pages project if needed, writes production-only secrets, deploys assets and Functions, then checks the deployed dashboard and authenticated API health. No deployment has yet been performed.
+
+### Scheduling and execution disposition
+
+- The repository's Stage 9.1 release policy and `tests/test_foundation.py::test_existing_workflows_do_not_define_scheduled_triggers` explicitly prohibit scheduled workflow triggers. An attempted cron workflow failed this guard and was converted to `workflow_dispatch` only.
+- Do not bypass this lock using Cloudflare Cron or another external scheduler. A two-hour UTC cadence is only a proposed post-release setting; no automatic schedule is active.
+- Paper trading, Telegram delivery, signing, transaction submission, broadcasting and live execution remain disabled.
+
+### Production acceptance and manual setup
+
+Production hosting is **not yet accepted**. Required operator setup is:
+1. Create a separate production Turso database (not the H0 conformance database).
+2. Add GitHub Actions secrets: `TURSO_DATABASE_URL`, read/write `TURSO_AUTH_TOKEN`, read-only `TURSO_READONLY_AUTH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `DASHBOARD_API_TOKEN`, and either `SOLANA_RPC_URL` or `HELIUS_API_KEY`. Optional `GOPLUS_ACCESS_TOKEN` may be configured separately.
+3. Run the manual production schema initializer; then run the Cloudflare Pages deploy workflow and inspect its deployed API health check.
+4. Run the manual one-shot pipeline and verify candidate/market/risk/consensus persistence, idempotent retry and recovery against the production database.
+5. Independently verify Turso backup/restore and operational recovery before calling hosting complete.
+
+Do not send secret values in chat. Secret inventory is not exposed by the repository audit tools, so current production-secret presence is **not checked**.
+
+The repository tree contains no tracked SQLite database file. The initializer creates a new empty paper ledger account and does not migrate untracked local data. If an existing local SQLite file must be preserved, obtain that exact file and perform a separately tested export/import reconciliation before cutover.
+
+### Current classification
+
+- **Implemented/unmerged:** reconciled H1.1/H2/H3 integration, production schema initializer, manual one-shot runner, Cloudflare Pages static bundle and read-only Pages Function.
+- **CI verified:** 914 passed / 10 skipped for reconciled Python integration; 10 passed / 0 failed for the prior Cloudflare Pages API test run. Recheck exact final branch CI after PR creation.
+- **Pending:** exact-head remote Turso conformance, exact final-branch CI, production database provisioning, controlled data migration (if a source DB exists), Cloudflare deployment, authenticated production health, scheduled release authorization, backup/restore and end-to-end operational acceptance.
+- **Blocked by operator setup:** production Turso credentials, Cloudflare API/account credentials, dashboard access token, and Solana RPC/Helius credentials.
