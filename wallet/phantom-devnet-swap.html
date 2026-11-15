@@ -610,8 +610,9 @@
     const slot=Number(await rpcCall("getSlot",[{commitment:"finalized"}]));
     if(!Number.isSafeInteger(slot)||slot<=0) fail("invalid finalized Devnet slot");
     const staticKeys=message.staticAccountKeys;
-    if(!Array.isArray(message.addressTableLookups)||message.addressTableLookups.length<1||
-       message.addressTableLookups.length>32) fail("v0 lookup-table count outside supported bounds");
+    if(!Array.isArray(message.addressTableLookups)||message.addressTableLookups.length>32) {
+      fail("v0 lookup-table count outside supported bounds");
+    }
     const writableLoaded=[],readonlyLoaded=[],lookupEvidence=[],seenTables=new Set();
     for(const lookup of message.addressTableLookups) {
       const tableKey=lookup.accountKey.toBase58();
