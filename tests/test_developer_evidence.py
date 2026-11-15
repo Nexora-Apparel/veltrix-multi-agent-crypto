@@ -13,7 +13,11 @@ NOW = 5_000_000
 
 
 class HolderProvider:
-    def fetch_snapshot(self, token):
+    def __init__(self):
+        self.deployment_blocks = []
+
+    def fetch_snapshot(self, token, deployment_block): 
+        self.deployment_blocks.append(deployment_block)
         return HolderSnapshot(
             "holder-index", "base", token, NOW - 100, "holders-1", "finalized:100",
             18, 1000, (HolderBalance("0xwallet", 1000),), True,
@@ -44,8 +48,9 @@ class Adapter:
 def test_orchestrator_analyzes_and_persists_rejected_evidence(tmp_path):
     broker = PaperBroker(str(tmp_path / "audit.db"))
     adapter = Adapter()
+    holder = HolderProvider()
     service = DeveloperEvidenceOrchestrator(
-        holder_providers={"base": HolderProvider()},
+        holder_providers={"base": holder},
         funding_providers={"base": FundingProvider()},
         analyzer=None,
         intelligence_adapters=adapter,
@@ -61,9 +66,11 @@ def test_orchestrator_analyzes_and_persists_rejected_evidence(tmp_path):
         signature_verified=True, signing_key_fingerprint="a" * 64,
     )
     result = service.evaluate(
-        chain="base", token_address="0xtoken", root_attestation=roots,
+        chain="base", token_address="0xtoken", deployment_block=100, root_attestation=roots,
         liquidity_evidence=None, launch_bundle=None, now_ms=NOW,
     )
+    assert holder.deployment_blocks == [100]
+    assert result.audit["holder_deployment_block"] == 100
     assert result.report.coverage_complete
     assert result.report.dev_hold_pct == 100.0
     assert result.safety_report.passed is False
