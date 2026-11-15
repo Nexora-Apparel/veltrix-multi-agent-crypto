@@ -1,8 +1,5 @@
-<<<<<<< origin/main
 import sqlite3
-=======
 import pytest
->>>>>>> origin/work/h1.1-h2-h3-clean
 
 from veltrix.providers.base import MarketEvent
 from veltrix.whales import WalletBuyEvent
@@ -239,7 +236,6 @@ def test_consensus_worker_batch_wallet_provider_failure_fails_closed(tmp_path):
     assert store.latest(MINT)["execution_authorized"] is False
 
 
-<<<<<<< origin/main
 
 def test_consensus_worker_does_not_log_or_persist_wallet_provider_exception_text(
     tmp_path, caplog
@@ -270,7 +266,7 @@ def test_consensus_worker_does_not_log_or_persist_wallet_provider_exception_text
         ).fetchone()[0]
     assert last_error == "RuntimeError"
     assert secret not in last_error
-=======
+
 def test_consensus_pipeline_fences_decision_and_job_state_in_one_transaction(tmp_path):
     launches, _, _, store, worker, _ = setup_worker(tmp_path)
     orchestration = OrchestrationStore(str(launches.database_path))
@@ -311,4 +307,3 @@ def test_consensus_worker_rejects_replaced_claim_after_wallet_provider_read(tmp_
         worker.run_once(context=context)
     assert store.count(MINT) == 0
     assert worker.status()["processing"] == 1
->>>>>>> origin/work/h1.1-h2-h3-clean
