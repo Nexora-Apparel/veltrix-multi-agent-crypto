@@ -58,7 +58,7 @@ assert.equal(evaluateFreshQuote(snapshot, {
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
 }, 1_004_000).action, "continue_exact_review");
 assert.equal(evaluateFreshQuote(snapshot, {
-  quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: snapshot.minimumOutputRaw - 1,
+  quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: (BigInt(snapshot.minimumOutputRaw) - 1n).toString(),
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
 }, 1_004_000).action, "refresh_and_re_review");
 assert.equal(evaluateFreshQuote(snapshot, {
