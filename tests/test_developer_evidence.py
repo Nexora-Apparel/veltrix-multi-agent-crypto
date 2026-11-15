@@ -16,7 +16,7 @@ class HolderProvider:
     def __init__(self):
         self.deployment_blocks = []
 
-    def fetch_snapshot(self, token, deployment_block): 
+    def fetch_snapshot(self, token, deployment_block):
         self.deployment_blocks.append(deployment_block)
         return HolderSnapshot(
             "holder-index", "base", token, NOW - 100, "holders-1", "finalized:100",
@@ -138,12 +138,36 @@ def test_orchestrator_fetches_signed_root_attestation_when_not_supplied(tmp_path
         audit_sink=broker,
     )
     result = service.evaluate(
-        chain="base", token_address="0xtoken", root_attestation=None,
+        chain="base", token_address="0xtoken", deployment_block=100, root_attestation=None,
         liquidity_evidence=None, launch_bundle=None, now_ms=NOW,
     )
     assert roots.calls == [("base", "0xtoken")]
     assert result.report.coverage_complete
     assert result.report.root_provider == "signed-root-registry"
+
+
+def test_evm_developer_evidence_fails_closed_without_deployment_block():
+    holder = HolderProvider()
+    service = DeveloperEvidenceOrchestrator(
+        holder_providers={"base": holder},
+        funding_providers={"base": FundingProvider()},
+        analyzer=None,
+        intelligence_adapters=Adapter(),
+        trusted_root_providers=("independent-roots",),
+        trusted_holder_providers=("holder-index",),
+        trusted_funding_providers=("funding-index",),
+    )
+    roots = DeveloperRootAttestation(
+        "base", "0xtoken", "independent-roots", "root-proof",
+        NOW - 100, ("0xdev",), True, "https://roots.example/proof",
+        signature_verified=True, signing_key_fingerprint="a" * 64,
+    )
+    result = service.evaluate(
+        chain="base", token_address="0xtoken", root_attestation=roots,
+        liquidity_evidence=None, launch_bundle=None, now_ms=NOW,
+    )
+    assert result.report.coverage_complete is False
+    assert holder.deployment_blocks == []
 
 
 def test_unverified_root_object_cannot_enter_concentration_analysis(tmp_path):
