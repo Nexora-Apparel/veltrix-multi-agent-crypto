@@ -5,7 +5,10 @@ const U64_MAX = (1n << 64n) - 1n;
 
 function fail(message) { throw new Error("QUOTE_POLICY_REJECTED: " + message); }
 function asBigInt(value, label) {
-  if (typeof value === "bigint") return value;
+  if (typeof value === "bigint") {
+    if (value < 0n || value > U64_MAX) fail(label + " is outside the unsigned u64 range");
+    return value;
+  }
   if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) fail(label + " must be an unsigned integer string");
   return BigInt(value);
 }
@@ -42,7 +45,7 @@ export function computeProtectionBps({
 export function calculateMinimumOutput(quotedOutputRaw, protectionBps) {
   const quoted = asBigInt(quotedOutputRaw, "quotedOutputRaw");
   const bps = Number(protectionBps);
-  if (quoted <= 0n || quoted > U64_MAX || !Number.isInteger(bps) || bps < 0 || bps >= 10_000) {
+  if (quoted <= 0n || quoted > U64_MAX || !Number.isInteger(bps) || bps < 15 || bps > 300) {
     fail("invalid quoted output or protection threshold");
   }
   const minimum = (quoted * (BPS - BigInt(bps))) / BPS;
@@ -54,10 +57,11 @@ export function calculateFeeBreakdown({
   dexFee, creatorFee, networkFeeLamports, routeFee, platformFeeConfig, outputRaw
 }) {
   const output = asBigInt(outputRaw, "outputRaw");
-  if (output <= 0n) fail("outputRaw must be positive");
+  if (output <= 0n || output > U64_MAX) fail("outputRaw must be a positive unsigned u64");
   const normalize = (fee, label) => {
     if (!fee) fail(label + " fee must be explicitly itemized, including an explicit zero");
     const amount = asBigInt(fee.amountRaw, label + ".amountRaw");
+    if (amount > U64_MAX) fail(label + " fee exceeds the unsigned u64 range");
     if (typeof fee.currency !== "string" || !fee.currency.trim()) fail(label + " currency is missing");
     return { category: label, amountRaw: amount.toString(), currency: fee.currency, disclosure: fee.disclosure || "explicit" };
   };
@@ -65,6 +69,7 @@ export function calculateFeeBreakdown({
   const creator = normalize(creatorFee, "creator");
   const route = normalize(routeFee, "route");
   const network = asBigInt(networkFeeLamports, "networkFeeLamports");
+  if (network > U64_MAX) fail("network fee exceeds the unsigned u64 range");
   const platform = { category: "platform", amountRaw: "0", currency: "output-token", recipient: null, enabled: false };
   if (platformFeeConfig?.enabled === true) {
     const rate = Number(platformFeeConfig.rateBps);
@@ -212,6 +217,7 @@ export function reconcileWalletBalanceChanges({
   const minimum = asBigInt(minimumOutputRaw, "minimumOutputRaw");
   const platform = asBigInt(expectedPlatformFeeRaw, "expectedPlatformFeeRaw");
   const actualPlatform = asBigInt(actualPlatformFeeRaw, "actualPlatformFeeRaw");
+  if (minimum <= 0n) fail("minimumOutputRaw must be positive");
   if (solAfter > solBefore || tokenAfter < tokenBefore) fail("wallet balance directions are inconsistent with a swap");
   const solDebit = solBefore - solAfter;
   const tokenCredit = tokenAfter - tokenBefore;
