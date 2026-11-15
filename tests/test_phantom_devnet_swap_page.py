@@ -51,6 +51,9 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert "provider.signTransaction(finalTx)" in sign_test
     assert "normalizePhantomSignedLegacyTransaction(phantomResult)" in sign_test
     assert "function normalizePhantomSignedLegacyTransaction(value)" in source
+    assert "function transactionMessageBytesFromWire(wireBytes)" in source
+    assert "transactionMessageBytesFromWire(phantomWireBytes)" in source
+    assert "serializeTransactionMessage(signedTx)" not in source
     assert "Transaction.from(raw)" in source
     assert "reviewStartedAtMs" in sign_test
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
