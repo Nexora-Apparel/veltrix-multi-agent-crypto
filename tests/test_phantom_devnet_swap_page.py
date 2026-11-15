@@ -480,7 +480,7 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
 
 def test_builder_minimum_output_uses_automatic_protection():
     source = (Path(__file__).parents[1] / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
-    assert 'fail("automatic protection produces a zero minimum output")' in source
+    assert 'fail("automatic execution protection produces a zero minimum output")' in source
     assert "calculateMinimumOutput" in source
     assert "SWAP_SLIPPAGE_BPS" not in source
 
