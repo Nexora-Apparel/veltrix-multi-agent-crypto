@@ -763,7 +763,7 @@
     return {preserved:true,phantomComputeBudgetInstructions:actual.compiledInstructions.filter(ix=>
       actual.staticAccountKeys[ix.programIdIndex]===COMPUTE_BUDGET).length};
   }
-  function assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes) {
+  function assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes) {
     if(!(reviewedMessageBytes instanceof Uint8Array)||!(signedMessageBytes instanceof Uint8Array)) {
       fail("reviewed or Phantom-signed message bytes are unavailable");
     }
@@ -1742,8 +1742,8 @@
         throw new Error("Phantom wallet signature failed local verification.");
       }
       prepared.signingValidatedAt = Date.now();
-      status("PHANTOM LEGACY SIGNING VERIFIED. The signed message is byte-for-byte identical to the reviewed message and the wallet signature verifies locally. No transaction was submitted, broadcast or executed. Execution remains locked.","good");
-      return {legacy:true,exactMessage:true,signatureVerified:true,submitted:false,broadcast:false};
+      status("PHANTOM LEGACY SIGNING VERIFIED. The reviewed swap instructions, accounts, amount, destination and blockhash are preserved. Phantom's valid ComputeBudget adjustments are accepted; the wallet signature verifies locally. No transaction was submitted, broadcast or executed. Execution remains locked.","good");
+      return {legacy:true,semanticIntent:true,signatureVerified:true,submitted:false,broadcast:false};
     } finally {
       if (prepared) prepared.signingTestStarted = false;
       setBusy(false);
