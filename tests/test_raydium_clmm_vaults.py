@@ -23,7 +23,7 @@ from veltrix.raydium_clmm_vaults import (
     verify_finalized_raydium_clmm_vault_settlement,
     verify_finalized_raydium_clmm_vault_settlement_from_rpc,
 )
-from veltrix.simulation_gate import SimulationEvidence
+from veltrix.simulation_gate import SimulationEvidence, SimulatedAccountState
 from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter, ConfirmedTransactionEvidence
 
 
@@ -144,6 +144,32 @@ def fixture(*, slot=501, owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, state0=1, state1=1,
         close_authority=close0,
     )
     data1 = token_account(mint_b, pool_address, state=state1)
+    simulated_data0_post = token_account(
+        mint0 or mint_a, authority0 or pool_address, amount=1_000_100,
+        state=state0, delegate=delegate0, native=native0, close_authority=close0,
+    )
+    simulated_data1_post = token_account(mint_b, pool_address, amount=999_950, state=state1)
+    simulation = dataclasses.replace(
+        simulation,
+        account_states=(
+            SimulatedAccountState(
+                address=vault_a, pre_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+                post_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, pre_lamports=2_000_000,
+                post_lamports=2_000_000, pre_executable=False, post_executable=False,
+                pre_data=data0, post_data=simulated_data0_post,
+                pre_data_sha256=hashlib.sha256(data0).hexdigest(),
+                post_data_sha256=hashlib.sha256(simulated_data0_post).hexdigest(),
+            ),
+            SimulatedAccountState(
+                address=vault_b, pre_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+                post_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, pre_lamports=2_000_000,
+                post_lamports=2_000_000, pre_executable=False, post_executable=False,
+                pre_data=data1, post_data=simulated_data1_post,
+                pre_data_sha256=hashlib.sha256(data1).hexdigest(),
+                post_data_sha256=hashlib.sha256(simulated_data1_post).hexdigest(),
+            ),
+        ),
+    )
     if account_size != 165:
         data0 = data0[:account_size] if account_size < 165 else data0 + b"x" * (account_size - 165)
     accounts = {
