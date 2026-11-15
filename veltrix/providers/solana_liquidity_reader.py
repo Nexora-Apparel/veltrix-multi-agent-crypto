@@ -30,6 +30,10 @@ BPF_UPGRADEABLE_LOADER = "BPFLoaderUpgradeab1e11111111111111111111111"
 RAYDIUM_V4_STATE_SIZE = 752
 RAYDIUM_CPMM_STATE_SIZE = 637
 RAYDIUM_CPMM_POOL_DISCRIMINATOR = hashlib.sha256(b"account:PoolState").digest()[:8]
+RAYDIUM_LOCKING_PROGRAM = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE"
+RAYDIUM_LOCKED_CP_LIQUIDITY_DISCRIMINATOR = bytes.fromhex("190aeec5cfea4916")
+RAYDIUM_LOCKED_CP_LIQUIDITY_SIZE = 256
+ASSOCIATED_TOKEN_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNs22kz2"
 UNCX_TOKEN_LOCK_SIZE = 146
 TOKEN_LOCK_DISCRIMINATOR = hashlib.sha256(b"account:TokenLock").digest()[:8]
 TOKEN_LOCK_LP_MINT_OFFSET = 41
@@ -98,6 +102,7 @@ class SolanaRaydiumV4CpmmSnapshotReader:
         expected_uncx_executable_hash=None,
         expected_raydium_executable_hash=None,
         expected_raydium_cpmm_executable_hash=None,
+        expected_raydium_locking_executable_hash=None,
         registry_complete=False,
         pool_independence_group="solana-raydium-indexer",
         locker_independence_group="solana-uncx-locker-rpc",
@@ -125,6 +130,11 @@ class SolanaRaydiumV4CpmmSnapshotReader:
             raise ValueError("Solana supported-AMM registry must be explicitly certified complete")
         self.expected_raydium_hash = expected_raydium_executable_hash
         self.expected_raydium_cpmm_hash = expected_raydium_cpmm_executable_hash
+        if (not isinstance(expected_raydium_locking_executable_hash, str)
+                or len(expected_raydium_locking_executable_hash) != 64
+                or any(ch not in "0123456789abcdef" for ch in expected_raydium_locking_executable_hash)):
+            raise ValueError("a pinned Raydium Burn & Earn locking executable SHA-256 hash is required")
+        self.expected_raydium_locking_hash = expected_raydium_locking_executable_hash
         self.pool_rpc = _SolanaRpc(
             pool_rpc_url, provider_id="solana-raydium-pool-rpc", session=session
         )
@@ -139,7 +149,9 @@ class SolanaRaydiumV4CpmmSnapshotReader:
         self.amm_program = Pubkey.from_string(RAYDIUM_AMM_V4_PROGRAM)
         self.cpmm_program = Pubkey.from_string(RAYDIUM_CPMM_PROGRAM)
         self.uncx_program = Pubkey.from_string(UNCX_PROGRAM)
+        self.raydium_locking_program = Pubkey.from_string(RAYDIUM_LOCKING_PROGRAM)
         self.token_program = Pubkey.from_string(TOKEN_PROGRAM)
+        self.associated_token_program = Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM)
 
     @staticmethod
     def _context_slot(response, label, expected=None):
@@ -211,6 +223,12 @@ class SolanaRaydiumV4CpmmSnapshotReader:
     def _verify_raydium_cpmm_program(self, slot):
         return self._verify_program_executable(
             RAYDIUM_CPMM_PROGRAM, self.expected_raydium_cpmm_hash, slot, "Raydium CPMM"
+        )
+
+    def _verify_raydium_locking_program(self, slot):
+        return self._verify_program_executable(
+            RAYDIUM_LOCKING_PROGRAM, self.expected_raydium_locking_hash,
+            slot, "Raydium Burn & Earn locking"
         )
 
     def _scan_raydium_pools(self, rpc, token_mint, slot):
@@ -450,6 +468,126 @@ class SolanaRaydiumV4CpmmSnapshotReader:
             raise ProviderError("UNCX LP vault mint, authority or initialized state mismatch")
         return str(vault), str(authority), amount
 
+    def _decode_raydium_locked_cpmm_state(self, address, account, pool):
+        if account.get("owner") != RAYDIUM_LOCKING_PROGRAM:
+            raise ProviderError("Raydium locked-liquidity state is not owned by the pinned locking program")
+        data = _decode_account_data(account, "Raydium LockedCpLiquidityState")
+        if (len(data) != RAYDIUM_LOCKED_CP_LIQUIDITY_SIZE
+                or data[:8] != RAYDIUM_LOCKED_CP_LIQUIDITY_DISCRIMINATOR):
+            raise ProviderError("Raydium LockedCpLiquidityState discriminator or size mismatch")
+        locked_lp_amount = struct.unpack_from("<Q", data, 8)[0]
+        claimed_lp_amount = struct.unpack_from("<Q", data, 16)[0]
+        unclaimed_lp_amount = struct.unpack_from("<Q", data, 24)[0]
+        last_lp = struct.unpack_from("<Q", data, 32)[0]
+        last_k = int.from_bytes(data[40:56], "little")
+        recent_epoch = struct.unpack_from("<Q", data, 56)[0]
+        pool_id = str(Pubkey.from_bytes(data[64:96]))
+        fee_nft_mint = str(Pubkey.from_bytes(data[96:128]))
+        locked_owner = str(Pubkey.from_bytes(data[128:160]))
+        locked_lp_mint = str(Pubkey.from_bytes(data[160:192]))
+        expected, _bump = Pubkey.find_program_address(
+            [b"locked_liquidity", bytes(Pubkey.from_string(fee_nft_mint))],
+            self.raydium_locking_program,
+        )
+        if str(expected) != address:
+            raise ProviderError("Raydium locked-liquidity state PDA does not match its fee NFT mint")
+        if pool_id != pool["amm_id"] or locked_lp_mint != pool["lp_mint"]:
+            raise ProviderError("Raydium locked-liquidity state pool or LP mint mismatch")
+        if locked_lp_amount <= 0 or locked_lp_amount + unclaimed_lp_amount <= 0:
+            raise ProviderError("Raydium locked-liquidity state has no locked LP principal")
+        return {
+            "address": address,
+            "locked_lp_amount": locked_lp_amount,
+            "claimed_lp_amount": claimed_lp_amount,
+            "unclaimed_lp_amount": unclaimed_lp_amount,
+            "last_lp": last_lp,
+            "last_k": last_k,
+            "recent_epoch": recent_epoch,
+            "pool_id": pool_id,
+            "fee_nft_mint": fee_nft_mint,
+            "locked_owner": locked_owner,
+            "locked_lp_mint": locked_lp_mint,
+        }
+
+    def _scan_raydium_locked_cpmm_states(self, rpc, pool, slot):
+        response = rpc.call("getProgramAccounts", [
+            RAYDIUM_LOCKING_PROGRAM,
+            {"encoding": "base64", "commitment": "finalized",
+             "withContext": True, "minContextSlot": slot,
+             "filters": [
+                 {"dataSize": RAYDIUM_LOCKED_CP_LIQUIDITY_SIZE},
+                 {"memcmp": {"offset": 0,
+                             "bytes": base64.b64encode(
+                                 RAYDIUM_LOCKED_CP_LIQUIDITY_DISCRIMINATOR
+                             ).decode()}},
+                 {"memcmp": {"offset": 64, "bytes": pool["amm_id"]}},
+             ]},
+        ])
+        self._context_slot(response, "Raydium CPMM lock enumeration", slot)
+        values = response.get("value")
+        if not isinstance(values, list) or len(values) >= self.max_locks_per_pool:
+            raise ProviderError("Raydium CPMM lock enumeration is malformed or at its result cap")
+        records = tuple(
+            self._decode_raydium_locked_cpmm_state(
+                row.get("pubkey"), row.get("account") or {}, pool
+            )
+            for row in values
+        )
+        return tuple(sorted(records, key=lambda row: row["address"]))
+
+    def _read_raydium_cpmm_lock_records(self, pool, slot):
+        pool_records = self._scan_raydium_locked_cpmm_states(self.pool_rpc, pool, slot)
+        locker_records = self._scan_raydium_locked_cpmm_states(self.locker_rpc, pool, slot)
+        if pool_records != locker_records:
+            raise ProviderError("independent Solana RPCs disagree on Raydium CPMM lock-state inventory")
+        return locker_records
+
+    def _read_raydium_cpmm_custody(self, pool, records, slot):
+        authority, _ = Pubkey.find_program_address(
+            [b"lock_cp_authority_seed"], self.raydium_locking_program
+        )
+        lp_mint = Pubkey.from_string(pool["lp_mint"])
+        vault, _ = Pubkey.find_program_address(
+            [bytes(authority), bytes(self.token_program), bytes(lp_mint)],
+            self.associated_token_program,
+        )
+        if not records:
+            return str(vault), str(authority), 0, ()
+        positions = []
+        expected_custody = 0
+        seen_fee_mints = set()
+        for record in records:
+            fee_mint = record["fee_nft_mint"]
+            if fee_mint in seen_fee_mints:
+                raise ProviderError("Raydium CPMM lock-state inventory duplicates a fee NFT mint")
+            seen_fee_mints.add(fee_mint)
+            mint_value = self._get_account_crosschecked(fee_mint, slot)
+            if mint_value.get("owner") != TOKEN_PROGRAM:
+                raise ProviderError("Raydium fee NFT mint is not owned by the classic SPL Token program")
+            mint_data = _decode_account_data(mint_value, "Raydium fee NFT mint")
+            if (len(mint_data) != 82 or struct.unpack_from("<I", mint_data, 0)[0] != 1
+                    or str(Pubkey.from_bytes(mint_data[4:36])) != str(authority)
+                    or struct.unpack_from("<Q", mint_data, 36)[0] != 1
+                    or mint_data[44] != 0 or mint_data[45] != 1):
+                raise ProviderError("Raydium fee NFT mint authority, supply or decimals are invalid")
+            custody_amount = record["locked_lp_amount"] + record["unclaimed_lp_amount"]
+            expected_custody += custody_amount
+            positions.append(record)
+        vault_value = self._get_account_crosschecked(str(vault), slot)
+        if vault_value.get("owner") != TOKEN_PROGRAM:
+            raise ProviderError("Raydium locked LP vault is not owned by the classic SPL Token program")
+        vault_data = _decode_account_data(vault_value, "Raydium locked LP vault")
+        if len(vault_data) != 165:
+            raise ProviderError("Raydium locked LP vault token-account layout is invalid")
+        mint = str(Pubkey.from_bytes(vault_data[0:32]))
+        owner = str(Pubkey.from_bytes(vault_data[32:64]))
+        actual_custody = struct.unpack_from("<Q", vault_data, 64)[0]
+        if (mint != pool["lp_mint"] or owner != str(authority) or vault_data[108] != 1):
+            raise ProviderError("Raydium locked LP vault mint, authority or initialized state mismatch")
+        if actual_custody != expected_custody:
+            raise ProviderError("Raydium locked LP vault balance does not reconcile to principal plus unclaimed LP fees")
+        return str(vault), str(authority), actual_custody, tuple(positions)
+
     def fetch_inventory(self, token_address):
         token_key = str(Pubkey.from_string(token_address))
         pool_slot_result = self.pool_rpc.call("getSlot", [{"commitment": "finalized"}])
@@ -463,6 +601,7 @@ class SolanaRaydiumV4CpmmSnapshotReader:
         executable_hash = self._verify_uncx_program(slot)
         self._verify_raydium_program(slot)
         self._verify_raydium_cpmm_program(slot)
+        raydium_locking_hash = self._verify_raydium_locking_program(slot)
         v4_pools = self._discover_raydium_pools(token_key, slot)
         cpmm_pools = self._discover_cpmm_pools(token_key, slot)
         discovered = tuple(
@@ -500,16 +639,37 @@ class SolanaRaydiumV4CpmmSnapshotReader:
 
             if pool["pool_type"] == "raydium-cpmm":
                 self._verify_cpmm_pool_accounts(pool, slot)
-                # No independently verified UNCX CPMM locker implementation is
-                # available. Keep every CPMM pool in the inventory with zero
-                # verified custody so it blocks the all-pool safety claim.
+                records = self._read_raydium_cpmm_lock_records(pool, slot)
+                vault, authority, custody_amount, locked_records = (
+                    self._read_raydium_cpmm_custody(pool, records, slot)
+                )
+                for record in locked_records:
+                    positions.append(LockerPositionSnapshot(
+                        chain="solana", pool_address=pool["amm_id"],
+                        lp_token_address=lp_mint,
+                        locker_address=RAYDIUM_LOCKING_PROGRAM,
+                        position_id=record["address"],
+                        amount=record["locked_lp_amount"] + record["unclaimed_lp_amount"],
+                        unlock_at_ms=None, observed_at_ms=observed_ms,
+                        owner=record["locked_owner"],
+                        evidence_ref=(
+                            f"{finalized_ref}:raydium-burn-and-earn:"
+                            f"{record['address']}:{record['fee_nft_mint']}"
+                        ),
+                        account_owner=RAYDIUM_LOCKING_PROGRAM,
+                        custody_account=vault, custody_authority=authority,
+                        custody_token_mint=lp_mint,
+                        custody_account_owner=TOKEN_PROGRAM,
+                        finalized_ref=finalized_ref, permanent=True,
+                        locked_amount=record["locked_lp_amount"],
+                    ))
                 pools.append(PoolLiquiditySnapshot(
                     chain="solana", token_address=token_key, pool_address=pool["amm_id"],
                     lp_token_address=lp_mint, total_lp_supply=supply,
                     observed_at_ms=observed_ms, finalized_ref=finalized_ref,
                     inventory_provider=self.provider_id, inventory_complete=True,
                     pool_set_id="solana:raydium-amm-v4+cpmm:finalized",
-                    locker_custody_amount=0,
+                    locker_custody_amount=custody_amount,
                 ))
                 continue
 
@@ -564,5 +724,20 @@ class SolanaRaydiumV4CpmmSnapshotReader:
             finalized_ref=finalized_ref,
             pool_set_id="solana:raydium-amm-v4+cpmm:finalized",
             inventory_complete=True, pools=tuple(pools), positions=tuple(positions),
-            deployments=(deployment,),
+            deployments=(
+                deployment,
+                LockerDeployment(
+                    chain="solana", provider=self.locker_rpc.provider_id,
+                    address=RAYDIUM_LOCKING_PROGRAM,
+                    abi_profile="raydium-burn-and-earn-locked-cp-liquidity-state-v1",
+                    expected_code_hash=self.expected_raydium_locking_hash,
+                    observed_code_hash=raydium_locking_hash,
+                    source_ref="https://github.com/raydium-io/raydium-cpi/blob/master/programs/locking-cpi/src/states.rs",
+                    independence_group=self.locker_group,
+                    program_executable_hash=raydium_locking_hash,
+                    custody_authority=str(Pubkey.find_program_address(
+                        [b"lock_cp_authority_seed"], self.raydium_locking_program
+                    )[0]),
+                ),
+            ),
         )
