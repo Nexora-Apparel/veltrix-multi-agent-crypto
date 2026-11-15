@@ -128,7 +128,9 @@ done
 ```
 
 Do not use a recursive ownership change. The dashboard must not rely solely on
-a read-only mount to mask permissive underlying file modes.
+a read-only mount to mask permissive underlying file modes. The verifier also
+rejects symlinked database directories, database files, environment files and
+SQLite sidecars so a path cannot escape the protected state directory.
 
 ## 4. Install and validate systemd templates
 
