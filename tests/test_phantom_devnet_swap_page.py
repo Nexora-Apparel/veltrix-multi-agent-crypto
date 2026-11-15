@@ -291,6 +291,12 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert 'const INPUT = parseSolToLamports(process.env.SWAP_INPUT_SOL || "0.001")' in source
     assert 'process.env.SWAP_SLIPPAGE_BPS || "100"' in source
     assert "slippage:SLIPPAGE_BPS/10000" in source
+    assert "priceImpactPct" in source
+    assert "no universal threshold blocks the build" in source
+    assert "priceImpactPct >" not in source
+    assert 'SWAP_INPUT_SOL: "0.005"' in workflow
+    assert 'SWAP_SLIPPAGE_BPS: "250"' in workflow
+    assert 'EXPECT_IMPACT_ABOVE_2: "true"' in workflow
     assert 'cluster:"devnet"' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "raydium.cpmm.swap(" in source
