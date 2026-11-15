@@ -370,21 +370,28 @@
       return false;
     };
     const canonical=(message,keys,label)=>{
-      const result=[];
+      const instructions=[],computeBudget=[];
       for(let i=0;i<message.compiledInstructions.length;i++) {
         let item;
         try { item=resolve(keys,message.compiledInstructions[i]); }
         catch { differences.push(label+".instructions["+i+"].invalidIndex"); continue; }
         if(item.program===COMPUTE_BUDGET) {
           if(!allowedComputeBudget(item)) differences.push(label+".instructions["+i+"].computeBudgetPolicy");
+          computeBudget.push(item);
           continue;
         }
-        result.push(item);
+        instructions.push(item);
       }
-      return result;
+      return {instructions,computeBudget};
     };
-    const expected=canonical(expectedMessage,expectedKeys,"reviewed");
-    const actual=canonical(actualMessage,actualKeys,"confirmed");
+    const expectedSet=canonical(expectedMessage,expectedKeys,"reviewed");
+    const actualSet=canonical(actualMessage,actualKeys,"confirmed");
+    const expected=expectedSet.instructions,actual=actualSet.instructions;
+    const budgetEqual=(a,b)=>a.program===b.program && a.accounts.join(",")===b.accounts.join(",") && bytesEqual(a.data,b.data);
+    if(expectedSet.computeBudget.length!==actualSet.computeBudget.length ||
+       expectedSet.computeBudget.some((item,index)=>!actualSet.computeBudget[index]||!budgetEqual(item,actualSet.computeBudget[index]))) {
+      differences.push("computeBudgetInstructionSet");
+    }
     if(expected.length!==actual.length) differences.push("instructions.length");
     const count=Math.max(expected.length,actual.length);
     for(let i=0;i<count;i++) {
