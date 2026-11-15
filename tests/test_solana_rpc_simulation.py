@@ -890,15 +890,21 @@ class FinalizedTransactionSession:
         self.calls = []
         self.wire_result = None
         if isinstance(result, dict):
-            signature = result["transaction"]["signatures"][0]
-            payer = Pubkey.new_unique()
-            message = Message.new_with_blockhash([], payer, Hash.default())
-            wire_bytes = bytes([1]) + bytes(Signature.from_string(signature)) + to_bytes_versioned(message)
-            self.wire_result = {
-                "slot": result["slot"],
-                "transaction": [base64.b64encode(wire_bytes).decode("ascii"), "base64"],
-                "meta": {"err": None},
-            }
+            signatures = result.get("transaction", {}).get("signatures")
+            if isinstance(signatures, list) and signatures and isinstance(signatures[0], str):
+                try:
+                    signature_bytes = bytes(Signature.from_string(signatures[0]))
+                except Exception:
+                    signature_bytes = b""
+                if len(signature_bytes) == 64 and isinstance(result.get("slot"), int):
+                    payer = Pubkey.new_unique()
+                    message = Message.new_with_blockhash([], payer, Hash.default())
+                    wire_bytes = bytes([1]) + signature_bytes + to_bytes_versioned(message)
+                    self.wire_result = {
+                        "slot": result["slot"],
+                        "transaction": [base64.b64encode(wire_bytes).decode("ascii"), "base64"],
+                        "meta": {"err": None},
+                    }
 
     def post(self, endpoint, *, json, headers, timeout, allow_redirects):
         self.calls.append(json)
