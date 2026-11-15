@@ -108,16 +108,19 @@ def test_price_impact_is_informational_and_not_a_universal_rejection_gate():
 
 
 
-def test_slippage_is_configurable_and_minimum_output_is_encoded_and_reviewed():
+def test_execution_protection_is_automatic_and_minimum_is_sealed_into_transaction():
     source = PAGE.read_text(encoding="utf-8")
-    assert 'id="slippage"' in source
-    assert 'value="1.00"' in source
-    assert "function parseSlippageBps(value)" in source
-    assert "slippageBps,routePlan" in source
-    assert "minimumRawCanonical=quotedRawCanonical*BigInt(10000-slippageBps)/10000n" in source
-    assert "q.otherAmountThreshold=minimumRawCanonical.toString()" in source
-    assert 'textContent=slippageBps+" bps ("' in source
-    assert "9900n" not in source
+    engine = (PAGE.parent / "automatic-exchange-pricing.mjs").read_text(encoding="utf-8")
+    assert 'id="slippage"' not in source
+    assert "function parseSlippageBps(value)" not in source
+    assert "computeProtectionBps" in source
+    assert "calculateMinimumOutput" in source
+    assert "createQuoteSnapshot" in source
+    assert "quoteSnapshot.minimumOutputRaw !== q.otherAmountThreshold" in source
+    assert 'id="protectionValue"' in source
+    assert "maximum slippage" not in source.lower()
+    assert "quoteAgeMs" in engine and "liquidityUsd" in engine and "volatilityBps" in engine
+    assert "expiresAtMs" in engine
 
 
 def test_confirmation_reconciles_exact_input_minimum_and_actual_wallet_output():
@@ -129,12 +132,11 @@ def test_confirmation_reconciles_exact_input_minimum_and_actual_wallet_output():
     assert "walletUsdcBalanceDeltaBelowMinimum" in source
 
 
-def test_amount_and_slippage_edits_both_invalidate_prepared_review():
+def test_only_user_editable_amount_invalidates_prepared_review():
     source = PAGE.read_text(encoding="utf-8")
     assert '$("amount").addEventListener("input"' in source
-    assert '$("slippage").addEventListener("input"' in source
-    assert "Slippage changed. Request a new quote" in source
-    assert '$("slippage").disabled = value' in source
+    assert '$("slippage").addEventListener("input"' not in source
+    assert 'id="slippage"' not in source
 
 def test_amount_is_locked_during_quote_and_signing_operations():
     source = PAGE.read_text(encoding="utf-8")
@@ -244,8 +246,9 @@ def test_quote_is_locked_to_the_exactly_audited_single_hop_pool():
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in source
     assert "poolInfo.id !== POOL || poolInfo.programId !== CPMM" in source
     assert "raydium.cpmm.swap(" in source
-    assert "minimumOut=swapResult.outputAmount.mul(new BN(String(10000-slippageBps))).div(new BN(10000))" in source
-    assert "slippage:slippageBps/10000" in source
+    assert "const minimumOut = new BN(pricing.calculateMinimumOutput(swapResult.outputAmount.toString(), protectionBps))" in source
+    assert "slippage:protectionBps/10000" in source
+    assert "measurePoolVolatilityBps(raydium, baseIn)" in source
     assert "const TRADE =" not in source
 
 
@@ -396,13 +399,16 @@ def test_missing_or_invalid_network_fee_estimate_fails_closed():
     assert "const totalFee=fee.value;" in source
 
 
-def test_quote_review_displays_exact_raw_output_and_slippage_floor():
-    source = PAGE.read_text(encoding="utf-8")
+def test_quote_review_displays_exact_output_automatic_protection_and_fee_items():
+    source = PAGE.read_text(encoding="utf-8").read_text(encoding="utf-8")
     assert 'id="outputRawValue"' in source
     assert 'id="minimumRawValue"' in source
-    assert 'id="slippageValue"' in source
+    assert 'id="protectionValue"' in source
+    assert 'id="quoteExpiryValue"' in source
+    assert 'id="dexFeeValue"' in source
+    assert 'id="routeFeeValue"' in source
+    assert 'id="platformFeeValue"' in source
     assert "function fmtFixedRaw(raw, decimals)" in source
-    assert "minimumRaw!==expectedFloor" in source
     assert 'textContent=fmtFixedRaw(quotedRaw,6)+" USDC"' in source
     assert 'textContent=fmtFixedRaw(minimumRaw,6)+" USDC"' in source
 
