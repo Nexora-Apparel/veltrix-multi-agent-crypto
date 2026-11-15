@@ -1415,9 +1415,13 @@
     if(fundedBalanceLamports<requiredBalanceLamports) {
       throw new Error("Wallet balance is below the exact rent and network-fee requirement after transaction construction. Build a fresh quote after funding; nothing has been signed or sent.");
     }
+    // Seal the review package when all transaction and fee data is ready. The
+    // protection buffer remains the one already applied to the CPMM instruction;
+    // the pre-sign freshness check independently revalidates the live pool quote.
+    const quoteSealedAtMs = Date.now();
     const quoteSnapshot = await pricing.createQuoteSnapshot({
       quoteId: POOL + ":" + freshBlockhash.blockhash,
-      quotedAtMs: quoteCapturedAtMs, quoteTtlMs,
+      quotedAtMs: quoteSealedAtMs, quoteTtlMs, protectionBps,
       inputMint: SOL, outputMint: USDC, inputAmountRaw: String(lamports),
       inputDecimals: 9, outputDecimals: 6, quotedOutputRaw: q.outputAmount,
       liquidityUsd: liquidityMetrics.liquidityUsd, tradeUsd: liquidityMetrics.tradeUsd,
