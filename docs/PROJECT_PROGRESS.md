@@ -154,7 +154,7 @@ The following stages are marked complete because their implementation PRs are me
 - PR #182 adds a raw Solana legacy/v0 unsigned message decoder, structural ALT validation, raw-message hashing, same-context account snapshot acquisition, Jupiter V6 outer instruction parser and classic SPL Token parse-only decoder.
 - PR #182 current head `b08b7645ee44ea4c45e7992111de2c0226fc611f` has successful Python CI: **979 passed / 5 skipped** (run `43548384099`).
 - Structural parsing is not semantic swap approval. The Jupiter decoder is outer-instruction-only; the SPL parser is parse-only. The documented remaining requirements include invoked DEX/token instruction semantics, CPI provenance, authoritative account-effect reconstruction from same-context state, ALT snapshot provenance, complete transaction-state reconciliation and independent security review.
-- The current PR #181 head is `7a59161dbc78ca7cd2361f9814f060283f07e5ef`. Its current CI run `43521504346` **fails**: 905 passed, 1 failed, 5 skipped. Failure: `test_execution_audit_hash_chain_detects_offline_tampering` assumes an intent-local predecessor, while the audit chain is global. The PR body cites a different older head and an older 905-pass result; that result does not validate the current head.
+- PR #181's prior head `7a59161dbc78ca7cd2361f9814f060283f07e5ef` failed run `43521504346` (905 passed, 1 failed, 5 skipped) because the test assumed an intent-local predecessor while the audit chain is global. The regression test is now corrected on head `f984e1b1611b49d766d2eb2467683fb5d97f3d4d`: it validates the predecessor against the immediately preceding global event and retains the offline-tamper check. Exact-head CI run `43766530934` is **in progress**; no pass is claimed yet.
 - PR #181 also explicitly states that Stage 05 does not yet emit `LIVE_RISK_APPROVED`, the pipeline stops at `AUTHORIZED`, and `SIGNED`, `SUBMITTED` and `CONFIRMED` are blocked.
 
 ## 4. Stage 5 provider evidence certification extension
@@ -210,11 +210,10 @@ The uploaded 12 November Phantom diagnostic log recorded an ALT-backed transacti
 ## 6. Dashboard redesign track
 
 ### PR #183
-- Open, non-draft; current PR head: `6d7cc1a348ae66c89ecf8dd7ba580380a4968cd2`.
+- Open, non-draft; current PR head: `7fa969d7460d27eb06b7072454ed3d3c9e4d147c` (base: `work/phase-9-raw-message-decoder`).
 - Mobile-first interface changes: Home, Trades, Agents and Wallet navigation, separate Search control, dedicated screens and read-only account/position/fill/market/consensus data.
 - Signing, transfers, submission and live execution remain unavailable.
-- Current CI run `43598754552` **fails**: 978 passed, 1 failed, 5 skipped. Failure: `test_dashboard_server_api_is_authenticated_and_get_only` references `dashboard_js` before assignment (`UnboundLocalError`).
-- The PR body references a different later head and a CI run in progress; it does not supersede the observed current-head failure.
+- Previous head `6d7cc1a348ae66c89ecf8dd7ba580380a4968cd2` failed run `43598754552` (978 passed, 1 failed, 5 skipped) because the test referenced `dashboard_js` before assignment. The asset request/initialization now precedes its assertions on head `7fa969d7460d27eb06b7072454ed3d3c9e4d147c`. Exact-head CI run `43766534202` is **in progress**; no pass is claimed yet.
 - The PR body records Vercel's free daily deployment quota (HTTP 402) as a blocker for the latest visual refinement. Final Android screenshot comparison is outstanding.
 
 ## 7. PR and branch hygiene
@@ -241,8 +240,8 @@ PR #188 is closed/unmerged and superseded by #189. PR #185 is a closed CI-verifi
 
 The next work is ordered by safety dependencies. Do not skip ahead to signing or execution.
 
-1. **Correct PR #181's audit-chain regression test/contract** and rerun CI on the exact new head. Confirm the global-chain predecessor semantics and test offline tamper detection without assuming per-intent isolation.
-2. **Fix PR #183's dashboard test defect** by retrieving/initializing the JavaScript asset before assertions; rerun exact-head CI. Then complete the Android screenshot/visual comparison when deployment quota permits.
+1. **Complete exact-head CI for PR #181 and PR #183.** Both regression defects have been fixed on their current heads; inspect complete pytest logs, verify pass/skip counts and update PR bodies/ledger only after successful runs. If either fails, fix the next failure and rerun.
+2. **Complete PR #183 visual acceptance.** Run Android browser screenshot comparison after the Vercel quota reset; the code test pass alone is not visual acceptance.
 3. **Resolve redundant PR #186.** Its inspected code patches are already present identically in #187. Confirm there are no other unique changes, then mark #186 superseded/close it rather than merging duplicate code.
 4. **Prepare Stage 5 production evidence**: inspect required configuration names, confirm only presence/absence without exposing values, verify registry/hash sources and sample token eligibility, then run the nine manual read-only workflows. Record each artifact, chain, claim family, run ID, exact head, finalized slot/block, provider IDs and reviewer outcome. Do not claim a pass for a skipped workflow.
 5. **Complete Stage 09.5 semantic transaction validation**: bind Jupiter and invoked DEX/token instruction bytes, CPI parent/authority provenance, same-context account snapshots, token-account/vault effects and exact input/min-output/destination semantics. Unknown routes and unsupported programs must fail closed.
@@ -294,3 +293,5 @@ For every task:
 | 2026-11-15 | Recursive source/test/workflow inventory | `main` ledger commit `d54e4881ec93f676312cb5f6175f5424f194b069`; tree complete at subsequent ledger revision | Confirmed 213 tracked paths: 92 `veltrix/`, 86 tests, 12 docs, 16 workflow files. Reviewed main CI and key manual acceptance/preflight workflow triggers. No cron trigger found in the inspected main workflows; external schedulers and secret presence remain not checked. |
 | 2026-11-15 | Full Actions history and production acceptance audit | Actions runs `42912477053`, `42964334567`, `43724610264`, `43725136999`, `43752387729`; latest ledger CI `43754460265` | Confirmed Turso H3 disposable-database conformance: 5 passed in 325.57s. Confirmed Stage 5 liquidity workflow runs with reader steps skipped or preflight failures and no artifacts; 0/9 production evidence remains verified. Latest progress-ledger push CI completed successfully. |
 | 2026-11-15 | Stage 5 PR overlap review | PRs #186 and #187, exact changed-file patches | Confirmed #186's monitor/developer-evidence patches are identical to code already included in #187, with tests present in #187. #186 is redundant and should not be merged separately. |
+| 2026-11-15 | PR #181 audit-chain regression correction | `work/phase-9-execution-safety-gates` head `f984e1b1611b49d766d2eb2467683fb5d97f3d4d` | Corrected the test to validate the global append-only hash-chain predecessor across interleaved intents; offline tamper assertion retained. Exact-head CI run `43766530934` is in progress. No code merge or live-execution enablement. |
+| 2026-11-15 | PR #183 dashboard test correction | `work/dashboard-reference-mobile-rebuild` head `7fa969d7460d27eb06b7072454ed3d3c9e4d147c` | Moved authenticated dashboard JavaScript asset retrieval before the `dashboard_js` assertions, eliminating the test's use-before-assignment. Exact-head CI run `43766534202` is in progress. Android visual QA remains blocked by the recorded Vercel daily quota. |
