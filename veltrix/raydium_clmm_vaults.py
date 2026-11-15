@@ -95,7 +95,9 @@ def verify_finalized_raydium_clmm_vault_settlement(
         raise RaydiumClmmVaultError("finalized transaction evidence is required")
     if not isinstance(simulation, SimulationEvidence):
         raise RaydiumClmmVaultError("the exact successful simulation evidence is required")
-    if evidence.message_sha256 != simulation.message_sha256:
+    if simulation.simulation_error is not None:
+        raise RaydiumClmmVaultError("the exact simulated transaction did not complete successfully")
+    if not simulation.message_sha256 or evidence.message_sha256 != simulation.message_sha256:
         raise RaydiumClmmVaultError("finalized transaction message does not match the exact simulated message")
     if (
         evidence.provider_id != simulation.provider_id
