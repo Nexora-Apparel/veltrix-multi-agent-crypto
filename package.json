@@ -1,0 +1,16 @@
+{
+  "name": "veltrix-cloudflare-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test cloudflare-tests/*.test.js",
+    "pages:dev": "wrangler pages dev veltrix/dashboard_assets",
+    "pages:deploy": "wrangler pages deploy veltrix/dashboard_assets --project-name veltrix-multi-agent-crypto"
+  },
+  "dependencies": {
+    "@libsql/client": "0.18.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.162.0"
+  }
+}
