@@ -96,3 +96,20 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
 This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
+
+
+### 09.5 — fail-closed simulation evidence gate
+
+Implemented in `veltrix/simulation_gate.py` with adversarial coverage in `tests/test_simulation_gate.py`.
+
+- Requires a prior structural `TransactionValidationResult` and the same immutable `TransactionIntent`.
+- Binds simulation evidence to the exact SHA-256 message digest and approved recent blockhash.
+- Requires the configured cluster and genesis hash to match exactly, and the RPC provider identifier to be allowlisted.
+- Rejects missing/error simulation, stale or excessively future-dated evidence, context slots below the caller's minimum, and blockhashes whose last-valid block height has passed.
+- Enforces maximum compute units and fee lamports.
+- Requires the complete simulated token-account set (account, mint, owner) and each raw-unit pre/post balance delta to match the explicit expected effects exactly. Missing, extra, duplicate, or altered account records fail closed.
+- Uses integer raw token amounts only; no floating-point token arithmetic.
+- The module consumes normalized evidence. It does not call RPC and cannot independently authenticate a provider response. A future RPC adapter must use authenticated transport, bind the raw response to the request/message, preserve provider/cluster/context metadata, and reject incomplete RPC fields before constructing evidence.
+- This gate does not independently decode arbitrary SPL/Anchor instructions, verify mint extensions, model native SOL rent/fee balance changes, prove external program behavior, sign, or broadcast. Those remain separate requirements; a passing gate is not live-trade authorization.
+
+No RPC client, signer, private-key handling, transaction submission, or live execution is introduced. Live execution remains disabled.
