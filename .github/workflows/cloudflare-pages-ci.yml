@@ -45,6 +45,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          printf 'TURSO_DATABASE_URL=%s\nTURSO_AUTH_TOKEN=%s\nDASHBOARD_API_TOKEN=%s\n' \
+            "$TURSO_DATABASE_URL" "$TURSO_AUTH_TOKEN" "$DASHBOARD_API_TOKEN" > .dev.vars
           npx wrangler pages dev dist --ip 127.0.0.1 --port 8788 > /tmp/veltrix-pages.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
@@ -57,5 +59,10 @@ jobs:
           grep -q "VELTRIX" /tmp/veltrix-index.html
           curl --silent --fail http://127.0.0.1:8788/assets/dashboard.js | grep -q "api(\"/api/health\")"
           status=$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" http://127.0.0.1:8788/api/health)
-          test "$status" = "401"
+          echo "Unauthenticated API status: $status"
+          if [ "$status" != "401" ]; then
+            cat /tmp/veltrix-unauthorized.json
+            cat /tmp/veltrix-pages.log
+            exit 1
+          fi
           grep -q "unauthorized" /tmp/veltrix-unauthorized.json
