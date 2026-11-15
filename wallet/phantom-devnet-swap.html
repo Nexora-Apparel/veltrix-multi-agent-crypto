@@ -1480,11 +1480,16 @@
     $("signTest").disabled = true;
     if (reason) status(reason, "warning");
   }
+  async function refreshQuoteForReview(reason) {
+    invalidatePrepared(reason + " Acquiring a fresh quote and rebuilding the review; no signing or submission will occur.");
+    await prepareQuote();
+    status("FRESH QUOTE READY. Review the updated output, automatic protection, expiry and fee breakdown. Run the sign-only test again only after reviewing the new terms.","warning");
+    return {refreshed:true,reason};
+  }
   async function finalPreSignFreshnessGate() {
     if (!prepared || !provider || !wallet) throw new Error("No prepared transaction or connected Phantom wallet.");
     if (Date.now() - prepared.preparedAt > 15000) {
-      invalidatePrepared("Final review expired after 15 seconds. Build a new transaction.");
-      throw new Error("Pre-sign freshness window expired.");
+      return await refreshQuoteForReview("Final review expired after 15 seconds.");
     }
     if (prepared.walletAddress !== wallet.toBase58() ||
         !provider.publicKey || !provider.publicKey.equals(wallet) ||
@@ -1499,28 +1504,23 @@
     const currentBalance = await refreshBalance();
     const requiredBalance = BigInt(prepared.requiredBalanceLamports);
     if (BigInt(currentBalance) !== BigInt(prepared.solBalanceBefore)) {
-      invalidatePrepared("Wallet SOL balance changed after review. Build a fresh transaction.");
-      throw new Error("Pre-sign SOL balance baseline changed.");
+      return await refreshQuoteForReview("Wallet SOL balance changed after review.");
     }
     if (BigInt(currentBalance) < requiredBalance) {
-      invalidatePrepared("Devnet SOL is below the transaction funding amount. Request a fresh quote to top up from the faucet.");
-      throw new Error("Pre-sign Devnet funding check failed.");
+      return await refreshQuoteForReview("Devnet SOL is below the transaction funding amount.");
     }
     const currentUsdcBalance = await tokenBalanceRaw();
     if (currentUsdcBalance !== BigInt(prepared.tokenBalanceBefore)) {
-      invalidatePrepared("Devnet USDC balance changed after review. Build a fresh transaction.");
-      throw new Error("Pre-sign output-token balance baseline changed.");
+      return await refreshQuoteForReview("Devnet USDC balance changed after review.");
     }
     const tx = assertExactReviewedBytes(prepared.txs[0], prepared.reviewedBytes[0]);
     const blockhashCheck = await connection.isBlockhashValid(normalizedTransactionMessage(tx).recentBlockhash, "confirmed");
     if (!blockhashCheck || blockhashCheck.value !== true) {
-      invalidatePrepared("Transaction blockhash expired. Build a new transaction.");
-      throw new Error("Pre-sign blockhash is no longer valid.");
+      return await refreshQuoteForReview("Transaction blockhash expired.");
     }
     const freshNetworkFee = await connection.getFeeForMessage(tx.compileMessage(), "confirmed");
     if(!freshNetworkFee || !Number.isSafeInteger(freshNetworkFee.value) || freshNetworkFee.value !== prepared.totalFee) {
-      invalidatePrepared("Network fee estimate changed or became unavailable. Review a freshly built transaction.");
-      throw new Error("Pre-sign network fee no longer matches the reviewed fee breakdown.");
+      return await refreshQuoteForReview("Network fee estimate changed or became unavailable.");
     }
 
     // Recompute the quote from a new RPC-backed pool read. Any reserve/fee drift
@@ -1559,8 +1559,7 @@
     if(freshResult.tradeFee.toString()!==prepared.quoteSnapshot.fees.dex.amountRaw ||
        freshResult.creatorFee.toString()!==prepared.quoteSnapshot.fees.creator.amountRaw ||
        (freshCreatorFeeOnInput?"SOL":"USDC")!==prepared.quoteSnapshot.fees.creator.currency) {
-      invalidatePrepared("Pool fee schedule changed after review. Build and review a fresh quote.");
-      throw new Error("Pre-sign CPMM trade/creator fee breakdown changed.");
+      return await refreshQuoteForReview("Pool trade/creator fee schedule changed after review.");
     }
     const freshSpot=inputAmount.mul(reserveOut).div(reserveIn);
     const freshImpact=Number(freshSpot.sub(freshResult.outputAmount).toString())/Number(freshSpot.toString())*100;
@@ -1576,18 +1575,14 @@
       volatilityBps: freshVolatilityBps, routeHops: 1
     }, Date.now());
     if (freshness.action !== "continue_exact_review") {
-      invalidatePrepared("Quote protection requires a fresh quote and a new review: " + freshness.reason);
-      throw new Error("Pre-sign quote freshness check failed: " + freshness.reason);
+      return await refreshQuoteForReview("Quote protection requires a new review: " + freshness.reason);
     }
     // The reviewed quote is a reference price, not an equality constraint.
     // CPMM reserves can move between review and approval. The automatically
     // calculated minimum is the actual execution bound: permit movement only
     // while a fresh quote clears that exact on-chain minimum.
     if (!Number.isFinite(freshImpact) || freshOutputRaw < reviewedMinimum) {
-      invalidatePrepared("Fresh pool quote no longer clears the reviewed minimum output. Build a fresh transaction.");
-      throw new Error("Pre-sign quote freshness check failed: fresh output=" + freshOutputRaw.toString() +
-        ", reviewed minimum=" + reviewedMinimum.toString() +
-        ", fresh impact=" + freshImpact.toFixed(6) + "%.");
+      return await refreshQuoteForReview("Fresh pool output no longer clears the reviewed minimum; current impact=" + freshImpact.toFixed(6) + "%.");
     }
 
     // Re-resolve the transaction's static and lookup-table account set and privileges, re-read pool/token
@@ -1599,19 +1594,16 @@
     }
     if(audit.runtime.outputAtaPresent!==prepared.outputAtaPresent ||
        BigInt(audit.runtime.persistentAtaRentLamports)!==BigInt(prepared.persistentAtaRentLamports)) {
-      invalidatePrepared("USDC token-account state or rent changed after review. Build and audit a fresh transaction.");
-      throw new Error("Pre-sign USDC ATA presence/rent changed.");
+      return await refreshQuoteForReview("USDC token-account state or rent changed after review.");
     }
     const latestBalance=await refreshBalance();
     if(BigInt(latestBalance)!==BigInt(prepared.solBalanceBefore) ||
        BigInt(latestBalance)<BigInt(prepared.requiredBalanceLamports)) {
-      invalidatePrepared("Devnet SOL balance changed or is below the exact reviewed funding amount.");
-      throw new Error("Pre-sign transaction funding/balance baseline check failed.");
+      return await refreshQuoteForReview("Devnet SOL balance changed during the final audit.");
     }
     const latestUsdcBalance=await tokenBalanceRaw();
     if(latestUsdcBalance!==BigInt(prepared.tokenBalanceBefore)) {
-      invalidatePrepared("Devnet USDC balance changed during final audit. Build a fresh transaction.");
-      throw new Error("Pre-sign USDC balance baseline changed during final audit.");
+      return await refreshQuoteForReview("Devnet USDC balance changed during the final audit.");
     }
     assertExactReviewedBytes(tx,prepared.reviewedBytes[0]);
     return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
@@ -1628,7 +1620,8 @@
     setBusy(true);
     try {
       status("Running final Devnet freshness and exact-byte checks before a sign-only Phantom compatibility test…","muted");
-      await finalPreSignFreshnessGate();
+      const gateResult = await finalPreSignFreshnessGate();
+      if (gateResult?.refreshed) return gateResult;
       const finalTx = assertExactReviewedBytes(prepared.txs[0],prepared.reviewedBytes[0]);
       const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
       if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
