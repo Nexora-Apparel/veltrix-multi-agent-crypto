@@ -640,7 +640,7 @@
     if (value && typeof value.serialize === "function") {
       wireBytes = Uint8Array.from(value.serialize({requireAllSignatures:true,verifySignatures:true}));
     } else if (value && ArrayBuffer.isView(value)) {
-      wireBytes = Uint8Array.from(value.buffer, value.byteOffset, value.byteLength);
+      wireBytes = Uint8Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
     } else {
       const returnedType = value && value.constructor && value.constructor.name
         ? value.constructor.name : Object.prototype.toString.call(value);
