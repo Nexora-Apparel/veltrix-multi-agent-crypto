@@ -50,6 +50,9 @@ def run(chain, token_address):
     )
     result = {
         "reader_acceptance": "PASS" if accepted else "BLOCKED",
+        "capability_certified": bool(
+            cfg.liquidity_evidence_capability_certified and accepted
+        ),
         "safety_gate": "PASS" if report.passed else "BLOCKED",
         "chain": chain,
         "locker_position_count": len(batch.positions),
