@@ -212,12 +212,49 @@ def verify_finalized_raydium_clmm_vault_settlement(
             raise RaydiumClmmVaultError("finalized vault token balance exceeds u64")
         return parsed
 
+    expected = {item.vault_address: item.delta_raw for item in expected_deltas}
+    simulated_states = getattr(simulation, "account_states", ())
+    if not isinstance(simulated_states, tuple):
+        raise RaydiumClmmVaultError("simulation vault account-state evidence is malformed")
+    simulated_deltas: dict[str, int] = {}
+    for vault in vaults:
+        matches = [item for item in simulated_states if getattr(item, "address", None) == vault.address]
+        if len(matches) != 1:
+            raise RaydiumClmmVaultError("simulation must capture exactly one pre/post account state for each pool vault")
+        state = matches[0]
+        pre_data = getattr(state, "pre_data", None)
+        post_data = getattr(state, "post_data", None)
+        if (
+            getattr(state, "pre_owner", None) != CLASSIC_SPL_TOKEN_PROGRAM_ID
+            or getattr(state, "post_owner", None) != CLASSIC_SPL_TOKEN_PROGRAM_ID
+            or getattr(state, "pre_executable", None) is not False
+            or getattr(state, "post_executable", None) is not False
+            or not isinstance(pre_data, bytes)
+            or not isinstance(post_data, bytes)
+            or len(pre_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH
+            or len(post_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH
+            or hashlib.sha256(pre_data).hexdigest() != getattr(state, "pre_data_sha256", None)
+            or hashlib.sha256(post_data).hexdigest() != getattr(state, "post_data_sha256", None)
+        ):
+            raise RaydiumClmmVaultError("simulated pool-vault account bytes, owner, or hashes are incomplete")
+        for account_data in (pre_data, post_data):
+            if (
+                str(Pubkey.from_bytes(account_data[0:32])) != vault.mint
+                or str(Pubkey.from_bytes(account_data[32:64])) != vault.pool_address
+                or account_data[108] != TOKEN_ACCOUNT_INITIALIZED
+            ):
+                raise RaydiumClmmVaultError("simulated pool-vault mint, authority, or initialized state is inconsistent")
+        simulated_before = int.from_bytes(pre_data[64:72], "little")
+        simulated_after = int.from_bytes(post_data[64:72], "little")
+        simulated_deltas[vault.address] = simulated_after - simulated_before
+    if simulated_deltas != expected:
+        raise RaydiumClmmVaultError("expected vault deltas differ from the exact simulation vault account-state deltas")
+
     actual_deltas = {}
     for vault in vaults:
         before = balance_for(pre_balances, vault)
         after = balance_for(post_balances, vault)
         actual_deltas[vault.address] = after - before
-    expected = {item.vault_address: item.delta_raw for item in expected_deltas}
     if actual_deltas != expected:
         raise RaydiumClmmVaultError("finalized pre/post vault balances do not equal the exact expected deltas")
 
