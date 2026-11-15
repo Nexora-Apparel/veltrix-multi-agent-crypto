@@ -1,8 +1,6 @@
-name: Scheduled Solana intelligence pipeline
+name: Manual Solana intelligence pipeline (scheduler locked)
 
 on:
-  schedule:
-    - cron: "0 */2 * * *"
   workflow_dispatch:
 
 permissions:
