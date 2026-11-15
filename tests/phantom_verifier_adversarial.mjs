@@ -103,7 +103,7 @@ rejected(()=>h.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},
   const expectedFixture=makeMessage(),actualFixture=makeMessage();
   const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
   const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
-  assert.deepEqual(h.compareLegacyMessageSemantics(expected,actual),[]);
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0);
   actual.compiledInstructions[3].data[1]^=1; // still under the cap, but not the reviewed compute-unit price
   assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("computeBudgetInstructionSet"));
 }
