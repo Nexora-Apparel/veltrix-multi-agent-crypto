@@ -81,7 +81,7 @@ await assert.rejects(() => evaluateFreshQuote(tamperedSnapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
 }, 1_004_000), /snapshot hash mismatch/);
-assert.throws(() => createQuoteSnapshot({...base, outputDecimals: 99}, 1_002_000), /decimals/);
+await assert.rejects(() => createQuoteSnapshot({...base, outputDecimals: 99}, 1_002_000), /decimals/);
 
 const reconciled = reconcileWalletBalanceChanges({
   inputSolBefore: "100000000", inputSolAfter: "94990000",
