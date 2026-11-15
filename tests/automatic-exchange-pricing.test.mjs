@@ -132,6 +132,6 @@ assert.throws(() => reconcileWalletBalanceChanges({
   outputTokenBefore: "200", outputTokenAfter: "10199",
   expectedInputLamports: "5000000", actualNetworkFeeLamports: "5000",
   persistentRentLamports: "5000", minimumOutputRaw: "10000"
-}), /below minimum/);
+}), /below the reviewed minimum output/);
 
 console.log("Automatic quote protection, expiry, fee transparency and balance reconciliation tests passed.");
