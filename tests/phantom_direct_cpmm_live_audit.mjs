@@ -179,7 +179,7 @@ assert.equal(hooks.compareLegacyMessageSemantics(expectedResolved,actualResolved
   "v0 account-table reordering must preserve resolved instruction semantics");
 const normalized=hooks.normalizedTransactionMessage(tx);
 const directPolicy=hooks.decodeDirectCpmmPolicy(normalized,normalized.staticAccountKeys,{
-  otherAmountThreshold:artifact.minimum_output_raw
+  inputAmount:artifact.input_amount_lamports,otherAmountThreshold:artifact.minimum_output_raw
 });
 assert.equal(directPolicy.createsOutputAta,false);
 const swapArtifact=artifact.instructions.find(ix=>ix.programId==="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
@@ -211,7 +211,7 @@ withAtaTx.instructions.splice(2,0,new TransactionInstruction({
 }));
 const withAtaMessage=hooks.normalizedTransactionMessage(withAtaTx);
 const createAtaPolicy=hooks.decodeDirectCpmmPolicy(withAtaMessage,withAtaMessage.staticAccountKeys,{
-  otherAmountThreshold:artifact.minimum_output_raw
+  inputAmount:artifact.input_amount_lamports,otherAmountThreshold:artifact.minimum_output_raw
 });
 assert.equal(createAtaPolicy.createsOutputAta,true);
 assert.equal(hooks.validateDirectCpmmAtaShape(createAtaPolicy,{outputAtaPresent:false}),true);
@@ -297,7 +297,7 @@ const semanticResult=await hooks.reconcileConfirmedTransaction({
     preTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"0"}}],
     postTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"2411"}}]},
   transaction:{signatures:["test-signature"],message:semanticallySameMessage}
-},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"});
+},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"},"1000000");
 assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
 assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
 assert.equal(semanticResult.semanticMatch,true);
@@ -306,7 +306,7 @@ assert.equal(semanticResult.diagnostics.semanticDifferences.length,0);
 const changedSemanticMessage={...semanticallySameMessage,recentBlockhash:new PublicKey(artifact.wallet).toBase58().replace(/^./,"2")};
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:changedSemanticMessage}
-},reviewedMessageBytes,"test-signature","2411"),/CONFIRMED_BUT_UNVERIFIED/);
+},reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"},"1000000"),/CONFIRMED_BUT_UNVERIFIED/);
 await assert.rejects(()=>hooks.reconcileConfirmedTransaction({
   meta:{err:{InstructionError:[0,"Custom"]}},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
 },reviewedMessageBytes,"test-signature","2411"),/FAILED_ON_CHAIN/);
@@ -329,6 +329,7 @@ assert.throws(()=>hooks.validateOutputAtaCpiEvidence({outputAtaPresent:false},ex
   /funded with exact live rent/);
 
 const audit=await hooks.inspectDirectCpmmTransaction(tx,{
+  inputAmount:artifact.input_amount_lamports,
   outputAmount:artifact.quoted_output_raw,
   otherAmountThreshold:artifact.minimum_output_raw
 },bytes);
