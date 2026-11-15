@@ -32,7 +32,7 @@ assert.throws(() => computeProtectionBps({
   tradeUsd: 30, volatilityBps: 10, routeHops: 1
 }), /20%/);
 assert.equal(calculateMinimumOutput("10904", 250), "10631");
-assert.throws(() => calculateMinimumOutput("1", 9999), /zero minimum/);
+assert.throws(() => calculateMinimumOutput("1", 300), /zero minimum/);
 
 const fees = calculateFeeBreakdown({
   dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee, networkFeeLamports: "5000",
