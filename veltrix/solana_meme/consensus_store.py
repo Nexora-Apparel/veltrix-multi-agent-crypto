@@ -8,13 +8,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Iterator
 
-<<<<<<< origin/main
+from ..database import connect_database, ensure_database_parent, row_factory_for
 from .consensus import AgentVote, ConsensusDecision, validate_consensus_decision
 from .risk_evidence import RiskFlag
-=======
-from ..database import connect_database, ensure_database_parent, row_factory_for
-from .consensus import ConsensusDecision
->>>>>>> origin/work/h1.1-h2-h3-clean
 
 
 class ConsensusStore:
@@ -52,26 +48,15 @@ class ConsensusStore:
             db.close()
 
     def record(self, decision: ConsensusDecision) -> bool:
-<<<<<<< origin/main
-        decision = validate_consensus_decision(decision)
-=======
         """Persist a consensus decision using a store-owned connection."""
         with self._connect() as db:
             return self.record_in_transaction(decision, db)
 
     def record_in_transaction(self, decision: ConsensusDecision, db: Any) -> bool:
         """Write a read-only decision on a caller-owned transaction connection."""
-        if not isinstance(decision, ConsensusDecision):
-            raise TypeError("decision must be a ConsensusDecision")
-        if decision.status not in {"REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"}:
-            raise ValueError("unsupported consensus disposition")
-        if decision.execution_authorized is not False:
-            raise ValueError("Phase 06 consensus decisions cannot authorize execution")
-        if decision.paper_review_eligible is not (decision.status == "CONSENSUS_APPROVED"):
-            raise ValueError("paper-review eligibility must match the consensus disposition")
+        decision = validate_consensus_decision(decision)
         if db is None or not callable(getattr(db, "execute", None)):
             raise TypeError("db must be an open database connection")
->>>>>>> origin/work/h1.1-h2-h3-clean
         payload = json.dumps(asdict(decision), sort_keys=True, separators=(",", ":"))
         cursor = db.execute(
             """INSERT OR IGNORE INTO solana_consensus_decisions
