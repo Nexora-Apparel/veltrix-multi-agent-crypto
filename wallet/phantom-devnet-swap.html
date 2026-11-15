@@ -50,7 +50,8 @@
     <div class="row"><span>Transaction format</span><strong class="value" id="transactionFormatValue">—</strong></div>
     <div class="row"><span>Address lookup tables</span><span class="value" id="lookupTablesValue">—</span></div>
     <div class="row"><span>Resolved account keys</span><span class="value" id="resolvedAccountsValue">—</span></div>
-    <div class="row"><span>DEX pool fee (included in quote)</span><span class="value" id="dexFeeValue">—</span></div>
+    <div class="row"><span>DEX trade fee (included in quote)</span><span class="value" id="dexFeeValue">—</span></div>
+    <div class="row"><span>Pool creator fee (included in quote)</span><span class="value" id="creatorFeeValue">—</span></div>
     <div class="row"><span>Route fee</span><span class="value" id="routeFeeValue">—</span></div>
     <div class="row"><span>Veltrix platform fee</span><span class="value" id="platformFeeValue">—</span></div>
     <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
@@ -1294,11 +1295,13 @@
     const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
     const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
     const inputAmount=new BN(String(lamports));
+    const creatorFeeOnInput = rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB;
     const swapResult=CurveCalculator.swapBaseInput(
       inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
       rpcData.configInfo.creatorFeeRate,rpcData.configInfo.protocolFeeRate,rpcData.configInfo.fundFeeRate,
-      rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB
+      creatorFeeOnInput
     );
+    if(!swapResult.tradeFee || !swapResult.creatorFee) fail("CPMM quote did not expose independently itemized trade and creator fees");
     if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) throw new Error("Live CPMM quote output is zero.");
     const spotOutput=inputAmount.mul(reserveOut).div(reserveIn);
     const impact=Number(spotOutput.sub(swapResult.outputAmount).toString())/Number(spotOutput.toString())*100;
@@ -1312,7 +1315,7 @@
     });
     const minimumOut = new BN(pricing.calculateMinimumOutput(swapResult.outputAmount.toString(), protectionBps));
     if (minimumOut.lte(new BN(0)) || minimumOut.gt(swapResult.outputAmount)) {
-      throw new Error("Configured slippage produces an invalid minimum output.");
+      throw new Error("Automatic execution protection produces an invalid minimum output.");
     }
 
     const built=await raydium.cpmm.swap({
@@ -1365,7 +1368,7 @@
     const quotedRawCanonical=BigInt(q.outputAmount);
     const minimumRawCanonical=BigInt(pricing.calculateMinimumOutput(q.outputAmount, protectionBps));
     if(minimumRawCanonical<=0n || minimumRawCanonical>quotedRawCanonical) {
-      fail("configured slippage produces an invalid minimum output");
+      fail("automatic execution protection produces an invalid minimum output");
     }
     for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumRawCanonical>>BigInt(i*8))&255n);
     if(tx instanceof solanaWeb3.Transaction) tx.instructions[cpmmIndex].data=Uint8Array.from(cpmmData);
@@ -1398,7 +1401,8 @@
       quotedOutputRaw: q.outputAmount,
       liquidityUsd: 1, tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
       volatilityBps, routeHops: 1,
-      dexFee: {amountRaw: inputAmount.mul(new BN(String(rpcData.configInfo.tradeFeeRate))).div(new BN("1000000")).toString(), currency: "SOL", disclosure: "pool fee calculated from live CPMM configuration; included in quote"},
+      dexFee: {amountRaw: swapResult.tradeFee.toString(), currency: "SOL", disclosure: "trade fee returned by live CPMM quote; included in output calculation"},
+      creatorFee: {amountRaw: swapResult.creatorFee.toString(), currency: creatorFeeOnInput ? "SOL" : "USDC", disclosure: "independent creator fee returned by live CPMM quote; included in output calculation"},
       routeFee: {amountRaw: "0", currency: "USDC", disclosure: "direct single-pool route; no separate route fee"},
       networkFeeLamports: String(totalFee),
       platformFeeConfig: {enabled: false}
@@ -1424,7 +1428,8 @@
     $("minimumRawValue").textContent=minimumRaw.toString()+" raw units";
     $("protectionValue").textContent=protectionBps+" bps (automatic)";
     $("quoteExpiryValue").textContent=new Date(quoteSnapshot.expiresAtMs).toLocaleTimeString();
-    $("dexFeeValue").textContent=fmtRaw(quoteSnapshot.fees.dex.amountRaw,9)+" SOL (embedded in quote)";
+    $("dexFeeValue").textContent=fmtRaw(quoteSnapshot.fees.dex.amountRaw,9)+" SOL (trade fee; embedded)";
+    $("creatorFeeValue").textContent=fmtRaw(quoteSnapshot.fees.creator.amountRaw,quoteSnapshot.fees.creator.currency==="SOL"?9:6)+" "+quoteSnapshot.fees.creator.currency+" (embedded)";
     $("routeFeeValue").textContent="0 USDC (direct single pool)";
     $("platformFeeValue").textContent="0 (not configured; no recipient or transfer)";
     $("impactValue").textContent=impact.toFixed(3)+"%";
