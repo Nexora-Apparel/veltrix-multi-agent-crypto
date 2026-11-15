@@ -279,8 +279,9 @@ const semanticallySameMessage={
   recentBlockhash:confirmedMessageBase.recentBlockhash,instructions:confirmedMessageBase.instructions,
   serialize:()=>differentSerializedBytes
 };
-// Any Phantom-added ComputeBudget instruction changes the reviewed message.
- // Semantic reconciliation must reject the mutation; exact signed bytes are mandatory.
+// Phantom may add valid ComputeBudget settings while preserving the reviewed swap intent.
+ // Semantic reconciliation accepts those fee/compute adjustments and still rejects any
+ // added non-ComputeBudget instruction or changed swap instruction.
 const augmentedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
 const computeBudgetProgram=new PublicKey(hooks.constants.COMPUTE_BUDGET);
 augmentedTx.add(
@@ -288,8 +289,8 @@ augmentedTx.add(
   new TransactionInstruction({programId:computeBudgetProgram,keys:[],data:Buffer.from([3,0x40,0x42,0x0f,0x00,0x00,0x00,0x00,0x00])})
 );
 const augmentedMessage=hooks.normalizedTransactionMessage(augmentedTx);
-assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,augmentedMessage).includes("computeBudgetInstructionSet"),
-  "any Phantom ComputeBudget augmentation must fail semantic reconciliation");
+assert.equal(hooks.compareLegacyMessageSemantics(immutableExpected,augmentedMessage).length,0,
+  "valid Phantom ComputeBudget augmentation must preserve semantic swap reconciliation");
 const maliciousAugmentation=Transaction.from(augmentedTx.serialize({requireAllSignatures:false,verifySignatures:false}));
 maliciousAugmentation.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
 assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(maliciousAugmentation)).length>0,
