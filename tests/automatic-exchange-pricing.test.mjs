@@ -10,7 +10,8 @@ const base = {
   outputMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
   inputAmountRaw: "5000000", quotedOutputRaw: "10904",
   liquidityUsd: 50_000, tradeUsd: 5, volatilityBps: 20, routeHops: 1,
-  dexFee: { amountRaw: "15000", currency: "SOL", disclosure: "pool fee from on-chain CPMM config" },
+  dexFee: { amountRaw: "15000", currency: "SOL", disclosure: "trade fee from on-chain CPMM quote" },
+  creatorFee: { amountRaw: "0", currency: "SOL", disclosure: "creator fee from on-chain CPMM quote" },
   routeFee: { amountRaw: "0", currency: "USDC", disclosure: "no separate route fee" },
   networkFeeLamports: "5000"
 };
@@ -34,16 +35,17 @@ assert.equal(calculateMinimumOutput("10904", 250), "10631");
 assert.throws(() => calculateMinimumOutput("1", 9999), /zero minimum/);
 
 const fees = calculateFeeBreakdown({
-  dexFee: base.dexFee, routeFee: base.routeFee, networkFeeLamports: "5000",
+  dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee, networkFeeLamports: "5000",
   outputRaw: "10904"
 });
 assert.equal(fees.dex.amountRaw, "15000");
+assert.equal(fees.creator.amountRaw, "0");
 assert.equal(fees.route.amountRaw, "0");
 assert.equal(fees.network.amountRaw, "5000");
 assert.equal(fees.platform.enabled, false);
 assert.equal(fees.platform.amountRaw, "0");
 assert.throws(() => calculateFeeBreakdown({
-  dexFee: base.dexFee, routeFee: base.routeFee, networkFeeLamports: "5000",
+  dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee, networkFeeLamports: "5000",
   outputRaw: "10904",
   platformFeeConfig: { enabled: true, rateBps: 50, recipient: "11111111111111111111111111111111", instructionVerified: false }
 }), /verified transaction instruction/);
