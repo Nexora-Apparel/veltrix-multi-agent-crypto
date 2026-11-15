@@ -19,10 +19,8 @@ assert.equal(artifact.signed,false);
 assert.equal(artifact.submitted,false);
 assert.equal(artifact.broadcast,false);
 assert.ok(Number.isFinite(Number(artifact.price_impact_pct)));
-if(process.env.EXPECT_IMPACT_ABOVE_2==="true") {
-  assert.ok(Number(artifact.price_impact_pct)>2,
-    "CI fixture must exercise a quote whose informational price impact exceeds the former 2% cutoff");
-}
+assert.ok(Number.isInteger(artifact.protection_bps) && artifact.protection_bps >= 15 && artifact.protection_bps <= 300);
+assert.ok(Number.isInteger(artifact.volatility_bps) && artifact.volatility_bps >= 0);
 
 const bytes=Uint8Array.from(Buffer.from(artifact.unsigned_transaction_base64,"base64"));
 const tx=Transaction.from(bytes);
