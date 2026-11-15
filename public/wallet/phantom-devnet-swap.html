@@ -32,7 +32,7 @@
   <section class="panel">
     <label for="amount">Swap amount (SOL)</label>
     <input id="amount" inputmode="decimal" value="0.001" autocomplete="off">
-    <div class="tiny">Protection is calculated automatically from quote age, pool liquidity, observed short-window volatility and route complexity. If the quote expires or moves beyond the reviewed minimum, the transaction is invalidated and must be reviewed again. Devnet only.</div>
+    <div class="tiny">Protection is calculated automatically when the quote is prepared. The live pool quote and blockhash are checked again before signing; the transaction is rebuilt only if its live output no longer clears the reviewed minimum or its underlying transaction state changes. Devnet only.</div>
     <button id="quote" class="secondary" disabled>Get fresh quote</button>
   </section>
   <section class="panel hidden" id="review">
@@ -716,7 +716,13 @@
       fail("reviewed or Phantom-signed message bytes are unavailable");
     }
     if(!bytesEqual(reviewedMessageBytes,signedMessageBytes)) {
-      fail("Phantom modified the reviewed message before submission; signed transaction was not broadcast");
+      let index=0;
+      const commonLength=Math.min(reviewedMessageBytes.length,signedMessageBytes.length);
+      while(index<commonLength && reviewedMessageBytes[index]===signedMessageBytes[index]) index++;
+      const byteLabel=value=>value===undefined?"EOF":"0x"+value.toString(16).padStart(2,"0");
+      fail("Phantom modified the reviewed message before submission; signed transaction was not broadcast. First differing message byte "+
+        index+" (reviewed "+byteLabel(reviewedMessageBytes[index])+", Phantom "+byteLabel(signedMessageBytes[index])+
+        "; lengths "+reviewedMessageBytes.length+"/"+signedMessageBytes.length+")");
     }
     return true;
   }
@@ -1668,7 +1674,9 @@
         throw new Error("Phantom wallet changed before sign-only compatibility test.");
       }
       status("Phantom is opening a legacy transaction signature prompt. This test verifies the signature locally and will NOT submit or broadcast the transaction.","warning");
-      const phantomResult = await provider.signTransaction(finalTx);
+      const phantomInputTx = solanaWeb3.Transaction.from(Uint8Array.from(prepared.reviewedBytes[0]));
+      assertExactReviewedBytes(phantomInputTx,prepared.reviewedBytes[0]);
+      const phantomResult = await provider.signTransaction(phantomInputTx);
       const phantomWireBytes = phantomSigningWireBytes(phantomResult);
       const signedTx = normalizePhantomSignedLegacyTransaction(phantomWireBytes);
       const signedMessageBytes = transactionMessageBytesFromWire(phantomWireBytes);
@@ -1735,7 +1743,9 @@
       // Ask Phantom only to sign. The application broadcasts the exact signed
       // bytes itself after verifying that Phantom did not rewrite the reviewed
       // message (for example by injecting an unreviewed ComputeBudget instruction).
-      const phantomResult=await provider.signTransaction(finalTx);
+      const phantomInputTx=solanaWeb3.Transaction.from(Uint8Array.from(reviewed.reviewedBytes[0]));
+      assertExactReviewedBytes(phantomInputTx,reviewed.reviewedBytes[0]);
+      const phantomResult=await provider.signTransaction(phantomInputTx);
       const signedWireBytes=phantomSigningWireBytes(phantomResult);
       const signedTx=normalizePhantomSignedLegacyTransaction(signedWireBytes);
       const signedMessageBytes=transactionMessageBytesFromWire(signedWireBytes);
