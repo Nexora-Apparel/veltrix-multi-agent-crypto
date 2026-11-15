@@ -356,14 +356,14 @@ This section supersedes the earlier provisional hosting work order where the act
 - Added production schema initializer `scripts/initialize_turso_database.py`. It refuses the disposable H0 conformance database, initializes the application and empty paper-ledger schema, verifies expected tables, and performs no provider calls or data migration.
 - Added one-shot entrypoint `scripts/run_solana_pipeline.py` and a manual-only Actions workflow. It uses a stable two-hour idempotency bucket and keeps paper trading, Telegram, scheduler activation and live execution disabled.
 - Exact reconciled Python CI run `43771310697` on `work/hosting-integration-reconcile-20261115` head `e411dd4aafec396f19c051f68c44bb945a186983`: **914 passed / 10 skipped**, compileall included `scripts/`. The 10 skips are not counted as passes.
-- Remote Turso conformance run `43770940483` was started against exact reconciled core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; its state must be rechecked before acceptance. Do not claim it passed while it remains in progress.
+- Remote Turso conformance run `43770940483` passed against exact reconciled core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`: **5 passed in 391.62s** across remote DB-API, application schema, orchestration, worker and pipeline conformance on the dedicated disposable database. This does not certify production Turso credentials or migration.
 
 ### Cloudflare Pages and Worker API
 
 - **Implemented/unmerged:** static Pages bundle, Wrangler configuration, Pages Functions API and automated deploy workflow are included in `work/hosting-complete-20261115`.
 - The Pages Function uses `@libsql/client/web` and exposes fixed GET-only dashboard routes. It requires a 32+ character bearer token, validates a credential-free production `libsql://*.turso.io` URL, fails closed when bindings are missing, and has no write, signer, submitter or live-execution endpoint.
 - Dashboard API uses a distinct read-only Turso token. The deployment workflow verifies that the token cannot execute a no-row UPDATE inside a rolled-back transaction before deploying.
-- Node security suite and local Pages static/API smoke passed on the Cloudflare implementation branch: run `43770923182`, **10 passed / 0 failed**. Wrangler project/secret/deploy CLI surface and Pages smoke passed in run `43771276851`. The newer read-only-token verifier and final composed branch still require exact-head CI.
+- Node security suite and local Pages static/API smoke passed on the latest Cloudflare implementation branch head `e87c2172965f5d1141e1544aab6e4069ed0da774`: run `43771483897`, **10 passed / 0 failed**. This run also syntax-checked the read-only-token verifier, validated Wrangler project/secret/deploy CLI flags, built the Pages bundle and verified static/API auth behavior. Python CI run `43771483835` passed: **858 passed / 5 skipped**. The final composed branch still requires exact-head CI.
 - The deployment workflow creates the Pages project if needed, writes production-only secrets, deploys assets and Functions, then checks the deployed dashboard and authenticated API health. No deployment has yet been performed.
 
 ### Scheduling and execution disposition
