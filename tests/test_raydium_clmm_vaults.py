@@ -382,7 +382,7 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
 
 def base58_encode(raw):
     alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    zeros = len(raw) - len(raw.lstrip(b"\\x00"))
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
     number = int.from_bytes(raw, "big")
     encoded = ""
     while number:
