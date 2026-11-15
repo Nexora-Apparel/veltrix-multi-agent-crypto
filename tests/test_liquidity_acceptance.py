@@ -41,3 +41,45 @@ def test_acceptance_cli_fails_closed_when_reader_acceptance_is_blocked(monkeypat
         assert "acceptance failed" in str(exc)
     else:
         raise AssertionError("blocked reader acceptance must return a failure")
+
+
+
+def test_acceptance_requires_live_lock_positions_for_every_configured_locker():
+    from types import SimpleNamespace
+    batch = SimpleNamespace(
+        deployments=(
+            SimpleNamespace(address="uncx-locker"),
+            SimpleNamespace(address="raydium-burn-earn"),
+        ),
+        positions=(SimpleNamespace(locker_address="uncx-locker"),),
+    )
+    blockers = liquidity_acceptance._locker_sample_blockers(batch)
+    assert len(blockers) == 1
+    assert "raydium-burn-earn" in blockers[0]
+
+
+def test_acceptance_rejects_a_token_without_any_live_lock_position():
+    from types import SimpleNamespace
+    batch = SimpleNamespace(
+        deployments=(SimpleNamespace(address="uncx-locker"),),
+        positions=(),
+    )
+    blockers = liquidity_acceptance._locker_sample_blockers(batch)
+    assert blockers == [
+        "acceptance token has no live locker positions; use a token with active locks"
+    ]
+
+
+def test_acceptance_sample_passes_only_when_all_configured_lockers_are_exercised():
+    from types import SimpleNamespace
+    batch = SimpleNamespace(
+        deployments=(
+            SimpleNamespace(address="uncx-locker"),
+            SimpleNamespace(address="raydium-burn-earn"),
+        ),
+        positions=(
+            SimpleNamespace(locker_address="uncx-locker"),
+            SimpleNamespace(locker_address="raydium-burn-earn"),
+        ),
+    )
+    assert liquidity_acceptance._locker_sample_blockers(batch) == []
