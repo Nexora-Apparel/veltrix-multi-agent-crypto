@@ -101,6 +101,8 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
     if expected_funding_provider not in trusted_funding:
         rejected.append("chain-specific funding-trace provider is not explicitly trusted")
     for item in batch.observations:
+        if item.funder_provider != expected_funding_provider:
+            rejected.append(f"funding trace for {item.wallet_address} used an unexpected provider")
         if item.funder_provider not in trusted_funding:
             rejected.append(f"funding trace for {item.wallet_address} is not trusted")
         if not item.funder_evidence_id or not item.funder_address:
