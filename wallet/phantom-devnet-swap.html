@@ -635,6 +635,28 @@
     if(messageOffset>=raw.length)fail("transaction message missing");
     return raw[messageOffset]===0x80?solanaWeb3.VersionedTransaction.deserialize(raw):solanaWeb3.Transaction.from(raw);
   }
+  function normalizePhantomSignedLegacyTransaction(value) {
+    let wireBytes;
+    if (value && typeof value.serialize === "function") {
+      wireBytes = Uint8Array.from(value.serialize({requireAllSignatures:true,verifySignatures:true}));
+    } else if (value && ArrayBuffer.isView(value)) {
+      wireBytes = Uint8Array.from(value.buffer, value.byteOffset, value.byteLength);
+    } else {
+      const returnedType = value && value.constructor && value.constructor.name
+        ? value.constructor.name : Object.prototype.toString.call(value);
+      fail("Phantom returned an unsupported signing result (" + returnedType + "); serialized transaction bytes are unavailable");
+    }
+    if (wireBytes.length < 1 || wireBytes.length > 1232) fail("Phantom returned an invalid or oversized signed transaction");
+    const normalized = deserializeUnsignedTransaction(wireBytes);
+    if (!(normalized instanceof solanaWeb3.Transaction)) {
+      fail("Phantom returned a versioned transaction; this reviewed message is legacy");
+    }
+    const verifiedWireBytes = Uint8Array.from(normalized.serialize({requireAllSignatures:true,verifySignatures:true}));
+    if (!bytesEqual(verifiedWireBytes, wireBytes)) {
+      fail("Phantom signed legacy transaction failed exact wire round-trip or local signature verification");
+    }
+    return normalized;
+  }
   function normalizedTransactionMessage(tx) {
     if(tx instanceof solanaWeb3.VersionedTransaction) return tx.message;
     if(!(tx instanceof solanaWeb3.Transaction)) fail("unsupported transaction class");
@@ -1491,9 +1513,9 @@
     status("FRESH QUOTE READY. Review the updated output, automatic protection, expiry and fee breakdown. Run the sign-only test again only after reviewing the new terms.","warning");
     return {refreshed:true,reason};
   }
-  async function finalPreSignFreshnessGate() {
+  async function finalPreSignFreshnessGate(reviewStartedAtMs = Date.now()) {
     if (!prepared || !provider || !wallet) throw new Error("No prepared transaction or connected Phantom wallet.");
-    if (Date.now() - prepared.preparedAt > 15000) {
+    if (!Number.isSafeInteger(reviewStartedAtMs) || reviewStartedAtMs - prepared.preparedAt > 15000) {
       return await refreshQuoteForReview("Final review expired after 15 seconds.");
     }
     if (prepared.walletAddress !== wallet.toBase58() ||
@@ -1578,7 +1600,7 @@
       inputMint: SOL, outputMint: USDC,
       liquidityUsd: freshLiquidityMetrics.liquidityUsd, tradeUsd: freshLiquidityMetrics.tradeUsd,
       volatilityBps: freshVolatilityBps, routeHops: 1
-    }, Date.now());
+    }, Date.now(), reviewStartedAtMs);
     if (freshness.action !== "continue_exact_review") {
       return await refreshQuoteForReview("Quote protection requires a new review: " + freshness.reason);
     }
@@ -1621,11 +1643,12 @@
     }
     if (prepared.signingTestStarted) throw new Error("Phantom signing compatibility test is already running.");
     if (prepared.signingValidatedAt) throw new Error("Phantom legacy signing has already been verified for this reviewed transaction.");
+    const reviewStartedAtMs = Date.now();
     prepared.signingTestStarted = true;
     setBusy(true);
     try {
       status("Running final Devnet freshness and exact-byte checks before a sign-only Phantom compatibility test…","muted");
-      const gateResult = await finalPreSignFreshnessGate();
+      const gateResult = await finalPreSignFreshnessGate(reviewStartedAtMs);
       if (gateResult?.refreshed) return gateResult;
       const finalTx = assertExactReviewedBytes(prepared.txs[0],prepared.reviewedBytes[0]);
       const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
@@ -1633,8 +1656,8 @@
         throw new Error("Phantom wallet changed before sign-only compatibility test.");
       }
       status("Phantom is opening a legacy transaction signature prompt. This test verifies the signature locally and will NOT submit or broadcast the transaction.","warning");
-      const signedTx = await provider.signTransaction(finalTx);
-      if (!(signedTx instanceof solanaWeb3.Transaction)) throw new Error("Phantom returned a non-legacy transaction type.");
+      const phantomResult = await provider.signTransaction(finalTx);
+      const signedTx = normalizePhantomSignedLegacyTransaction(phantomResult);
       const signedMessageBytes = Uint8Array.from(serializeTransactionMessage(signedTx));
       assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
       const signedWireBytes = Uint8Array.from(signedTx.serialize({requireAllSignatures:true,verifySignatures:true}));
