@@ -2,7 +2,7 @@ name: Raydium Devnet swap preflight
 
 on:
   push:
-    branches: [work/devnet-raydium-swap-preflight, work/devnet-phantom-legacy-compat]
+    branches: [work/devnet-raydium-swap-preflight, work/devnet-phantom-legacy-compat, fix/phantom-kms-legacy-exact-signing]
   pull_request:
     paths:
       - 'wallet/phantom-devnet-swap.html'
