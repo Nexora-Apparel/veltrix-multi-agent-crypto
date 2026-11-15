@@ -99,6 +99,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             solana_program_hash_pinned = bool(
                 getattr(settings, "solana_raydium_amm_v4_executable_hash", "")
                 and getattr(settings, "solana_raydium_cpmm_executable_hash", "")
+                and getattr(settings, "solana_raydium_locking_executable_hash", "")
             )
             solana_scope_complete = bool(
                 getattr(settings, "solana_liquidity_registry_complete", False)
@@ -118,7 +119,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             if not solana_endpoints_configured:
                 liquidity_blockers.append("separate Solana pool and locker RPC endpoints are required")
             if not solana_program_hash_pinned:
-                liquidity_blockers.append("pinned Raydium AMM V4 and CPMM executable SHA-256 hashes are required")
+                liquidity_blockers.append("pinned Raydium AMM V4, CPMM and Burn & Earn locking executable SHA-256 hashes are required")
             if not solana_scope_complete:
                 liquidity_blockers.append("Solana supported-AMM registry completeness attestation is missing")
         if liquidity_provider_id not in liquidity_trust:
