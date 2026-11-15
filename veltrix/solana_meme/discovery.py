@@ -72,10 +72,13 @@ class SolanaDiscoveryEngine:
                     occurred_at_ms=timestamp,
                     db=db,
                 )
-            return DiscoveryCycleResult(0, 0, (), ((self.secondary_source.name, reason),))
+            return DiscoveryCycleResult(
+                0, 0, (), ((self.secondary_source.name, reason),), 0
+            )
 
         timestamp = self.clock_ms()
         stored = 0
+        rejected = 0
         with self.store._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if context is not None:
@@ -96,6 +99,7 @@ class SolanaDiscoveryEngine:
                     self.store.record_candidate_in_transaction(candidate, db)
                     stored += 1
                 except CandidateRejected as exc:
+                    rejected += 1
                     source = getattr(candidate, "source", "unknown")
                     if not isinstance(source, str) or not source.strip():
                         source = "unknown"
@@ -110,9 +114,6 @@ class SolanaDiscoveryEngine:
         return DiscoveryCycleResult(
             candidates_received=len(batch.candidates),
             candidates_stored=stored,
-            healthy_sources=batch.successful_sources,
-            source_errors=batch.errors,
-        )
             healthy_sources=batch.successful_sources,
             source_errors=batch.errors,
             candidates_rejected=rejected,
