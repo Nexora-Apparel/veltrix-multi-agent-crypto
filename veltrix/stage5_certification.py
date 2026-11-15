@@ -42,8 +42,10 @@ def evaluate_stage5_artifacts(*, liquidity, developer, launch_bundle):
         ):
             if artifact.get("chain") != chain:
                 blockers.append(f"{chain}: {name} artifact chain identity mismatch")
-            if artifact.get("live_execution_enabled") is True:
-                blockers.append(f"{chain}: {name} artifact unexpectedly reports execution enabled")
+            if artifact.get("live_execution_enabled") is not False:
+                blockers.append(
+                    f"{chain}: {name} artifact does not explicitly attest execution disabled"
+                )
 
         if liq.get("reader_acceptance") != "PASS":
             blockers.append(f"{chain}: liquidity reader acceptance did not pass")

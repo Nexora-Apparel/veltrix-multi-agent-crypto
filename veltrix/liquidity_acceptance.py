@@ -56,6 +56,7 @@ def run(chain, token_address):
         ),
         "safety_gate": "PASS" if report.passed else "BLOCKED",
         "chain": chain,
+        "live_execution_enabled": False,
         "locker_position_count": len(batch.positions),
         "locker_position_programs": sorted({item.locker_address for item in batch.positions}),
         "token_address": token_address,

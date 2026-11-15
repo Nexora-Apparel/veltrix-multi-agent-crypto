@@ -6,6 +6,7 @@ def liquidity(chain, lockers):
         "chain": chain,
         "reader_acceptance": "PASS",
         "capability_certified": False,
+        "live_execution_enabled": False,
         "locker_position_count": len(lockers),
         "locker_position_programs": lockers,
         "locker_deployments": [{"address": item} for item in lockers],
@@ -115,5 +116,19 @@ def test_stage5_gate_rejects_any_artifact_that_claims_execution_enabled():
         liquidity=liquidity_rows, developer=developer_rows,
         launch_bundle=bundle_rows,
     )
-    assert any("base: launch_bundle artifact unexpectedly reports execution enabled" in x
+    assert any("base: launch_bundle artifact does not explicitly attest execution disabled" in x
                for x in report["blockers"])
+
+
+
+def test_stage5_gate_requires_explicit_execution_disabled_attestation():
+    liquidity_rows, developer_rows, bundle_rows = complete_artifacts()
+    del liquidity_rows["solana"]["live_execution_enabled"]
+    report = evaluate_stage5_artifacts(
+        liquidity=liquidity_rows, developer=developer_rows,
+        launch_bundle=bundle_rows,
+    )
+    assert any(
+        "solana: liquidity artifact does not explicitly attest execution disabled" in x
+        for x in report["blockers"]
+    )
