@@ -64,7 +64,7 @@ The deployment is not accepted until the production URL serves the dashboard, au
 
 The `.github/workflows/cloudflare-pages-deploy.yml` workflow creates the Pages project if needed, uploads the production-only secrets, deploys the static bundle plus Pages Function, then verifies the live dashboard and authenticated read-only database health.
 
-The repository must have these GitHub Actions secrets configured before dispatching deployment:
+Before deployment, the workflow performs a no-row UPDATE inside a rolled-back transaction and requires Turso to reject it. This verifies that the configured dashboard token is read-only; a write-capable token blocks deployment. The repository must have these GitHub Actions secrets configured before dispatching deployment:
 
 | Secret | Purpose |
 |---|---|
