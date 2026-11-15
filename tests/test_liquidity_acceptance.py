@@ -75,6 +75,7 @@ def test_acceptance_rejects_a_token_without_any_live_lock_position():
 def test_acceptance_sample_passes_only_when_all_configured_lockers_are_exercised():
     from types import SimpleNamespace
     batch = SimpleNamespace(
+        chain="solana",
         deployments=(
             SimpleNamespace(address="uncx-locker"),
             SimpleNamespace(address="raydium-burn-earn"),
