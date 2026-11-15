@@ -172,14 +172,15 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
   return Object.freeze({ ...snapshot, snapshotSha256: hash });
 }
 
-export async function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now()) {
+export async function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now(), reviewStartedAtMs = nowMs) {
   if (!snapshot || typeof snapshot.snapshotSha256 !== "string") fail("sealed quote snapshot is missing");
   const { snapshotSha256, ...snapshotPayload } = snapshot;
   if (!globalThis.crypto?.subtle) fail("Web Crypto SHA-256 is unavailable for quote integrity verification");
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical(snapshotPayload)));
   const actualHash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
   if (actualHash !== snapshotSha256) fail("immutable quote snapshot hash mismatch");
-  if (!Number.isSafeInteger(nowMs) || nowMs > snapshot.expiresAtMs) {
+  if (!Number.isSafeInteger(nowMs) || !Number.isSafeInteger(reviewStartedAtMs) ||
+      reviewStartedAtMs > nowMs || reviewStartedAtMs > snapshot.expiresAtMs) {
     return { action: "refresh_and_re_review", reason: "reviewed quote expired" };
   }
   if (!freshQuote || !Number.isSafeInteger(freshQuote.quotedAtMs) ||
