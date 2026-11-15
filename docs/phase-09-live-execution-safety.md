@@ -96,3 +96,18 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
 This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
+
+
+### 09.4 — exact-intent transaction message validation
+
+Implemented in `veltrix/transaction_validator.py` with adversarial coverage in `tests/test_transaction_validator.py`.
+
+- Decodes and sanitizes Solana legacy/v0 messages through the pinned Solders API.
+- Requires exact fee payer, recent blockhash, required signer set, instruction count, program ID, ordered account keys, signer/writable privileges, and complete instruction data bytes to match an immutable approved intent.
+- Requires every invoked program to be in the policy allowlist and rejects unused/unexpected account keys.
+- Rejects malformed messages, oversized messages, privilege changes, unexpected programs, altered instruction bytes, and address lookup tables.
+- Address lookup tables are intentionally unsupported until their on-chain contents and loaded-address ordering can be independently resolved and verified.
+- The validator is structural and exact-intent based. It does not interpret arbitrary Anchor/Borsh instruction semantics, independently decode SPL token transfer amounts, establish token mint safety, prove blockhash freshness, simulate execution, sign, or broadcast.
+- A passing result is not transaction approval by itself. The next SimulationGate must independently verify cluster, blockhash validity, simulation success, expected token/account balance deltas, compute/fee bounds, and evidence freshness before any future signer boundary can be considered.
+
+No signer implementation, private-key handling, RPC call, simulation call, or transaction submission is introduced by this component. Live execution remains disabled.
