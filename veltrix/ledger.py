@@ -165,12 +165,8 @@ class PaperBroker:
         execution_authorized=None, created_at_ms,
         fee_bps=100, slippage_bps=50, processed_at_ms=None,
         expected_market_snapshot_id=None, expected_risk_evidence_hash=None,
-<<<<<<< origin/main
         max_decision_age_ms=120_000, max_market_age_ms=120_000,
-        max_risk_age_ms=300_000, max_portfolio_exposure_pct=1.0,
-=======
-        max_portfolio_exposure_pct=1.0, db=None,
->>>>>>> origin/work/h1.1-h2-h3-clean
+        max_risk_age_ms=300_000, max_portfolio_exposure_pct=1.0, db=None,
     ):
         """Atomically open a paper position and consume one approved consensus ID."""
         import math
