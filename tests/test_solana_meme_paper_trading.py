@@ -515,7 +515,6 @@ def test_broker_atomically_rechecks_latest_consensus_decision(tmp_path):
     assert broker.snapshot()["open_positions"] == []
 
 
-<<<<<<< origin/main
 
 def test_broker_revalidates_consensus_payload_inside_entry_transaction(tmp_path):
     _, _, _, broker, worker, decision = build_pipeline(tmp_path)
@@ -651,7 +650,7 @@ def test_paper_entry_and_idempotency_survive_broker_restart(tmp_path):
     costs = restarted_broker.execution_cost_totals()
     assert costs["fees_usd"] == pytest.approx(0.25)
     assert costs["slippage_cost_usd"] > 0
-=======
+
 def test_paper_worker_uses_global_fence_for_entry_and_ledger_mutations(tmp_path):
     _, _, _, broker, worker, _ = build_pipeline(tmp_path)
     orchestration = OrchestrationStore(broker.db_path)
@@ -742,4 +741,3 @@ def test_paper_exit_mutation_is_fenced_inside_broker_transaction(tmp_path):
         worker.run_once(context=context)
     assert broker.totals()["closed_sell_fills"] == 0
     assert len(broker.snapshot()["open_positions"]) == 1
->>>>>>> origin/work/h1.1-h2-h3-clean
