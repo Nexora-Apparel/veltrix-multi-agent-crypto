@@ -12,12 +12,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-<<<<<<< origin/main
-from .candidates import CandidateRejected, SolanaCandidate, validate_candidate
-=======
 from ..database import connect_database, ensure_database_parent, is_remote_database, row_factory_for
-from .candidates import SolanaCandidate
->>>>>>> origin/work/h1.1-h2-h3-clean
+from .candidates import CandidateRejected, SolanaCandidate, validate_candidate
 from .pumpportal import PumpPortalDiscovery
 
 LOGGER = logging.getLogger(__name__)
