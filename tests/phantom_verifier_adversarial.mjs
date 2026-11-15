@@ -97,15 +97,26 @@ rejected(()=>h.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},
   const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
   const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
   assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0);
-  actual.compiledInstructions[3].data[1]^=1; // still under the cap, but not the reviewed compute-unit price
-  assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("computeBudgetInstructionSet"));
+  actual.compiledInstructions[3].data[1]^=1; // Phantom may adjust the priority fee.
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0);
 }
 {
   const expectedFixture=makeMessage(),actualFixture=makeMessage();
   const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
   const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
   actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
-  assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("computeBudgetInstructionSet"));
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0,"Phantom-added compute limit must be accepted");
+
+}
+
+
+{
+  const expectedFixture=makeMessage(),actualFixture=makeMessage();
+  const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
+  actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
+  actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
+  assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("duplicateComputeBudgetInstruction"));
 }
 
 // Baseline router transaction passes the structural policy.
