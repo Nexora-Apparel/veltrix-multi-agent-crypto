@@ -1,85 +1,105 @@
-# Phantom Devnet direct CPMM page
+# Phantom Devnet direct CPMM swap
 
-This static page is a wallet-owner-controlled, one-time Solana Devnet swap test. It is not a live trading interface.
+This is a Devnet-only, single-pool SOL → official Devnet USDC test interface. It is not a live trading interface. Mainnet is unsupported.
 
-## Acquisition path
+## Transaction acquisition
 
-- The browser dynamically loads the pinned `@raydium-io/raydium-sdk-v2@0.2.64-alpha` package.
-- It resolves the exact Devnet CPMM pool `5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo` through canonical Devnet RPC.
-- It builds one direct CPMM legacy (non-versioned) transaction. Address Lookup Tables are prohibited on this Phantom compatibility path; the auto-routing Trade API is not used for transaction acquisition.
-- The wallet compatibility adapter checks the provider's advertised transaction versions when available, requires legacy support before quote construction and rechecks before approval. When Phantom does not expose a version list, it uses Phantom's documented legacy `Transaction` provider API. It never silently falls back to v0.
-- The only supported pair is WSOL to the official Devnet USDC mint.
-- Input is fixed at exactly 0.001 SOL (1,000,000 lamports).
-- No artificial SOL reserve or pre-funded wallet requirement is imposed. If the wallet is short, the page automatically requests the exact Devnet faucet top-up needed for temporary WSOL funding, persistent USDC ATA rent and the network fee, plus a small 0.01 SOL cushion. The faucet request is allowed only after canonical Devnet genesis verification.
-- Price impact is calculated from live pool reserves and must not exceed 2%.
-- The browser checks whether the destination Devnet USDC associated token account already exists and validates its owner, mint and state.
-- If the USDC account is absent, the browser obtains the live 165-byte Tokenkeg rent exemption from Devnet RPC and requires the inner System createAccount CPI to fund exactly that amount, followed by the expected token-account initialization CPIs.
-- If the USDC account already exists, the verifier requires zero ATA creation/initialization CPIs and zero additional ATA rent.
-- The review displays account presence, one-time persistent USDC ATA rent, network fee and estimated net SOL debit. The temporary wrapped-SOL account is closed in the same transaction and its rent is returned; USDC ATA rent remains locked until that account is closed.
-- The net-debit estimate is swap input + persistent USDC ATA rent + network fee. The automatic faucet target accounts for peak temporary WSOL account funding (including its rent float before refund) + persistent USDC ATA rent + network fee; no additional reserve is required.
-- The CPMM instruction minimum output is derived from the final quoted raw output using integer floor arithmetic at 1% slippage and is checked against the exact reviewed transaction bytes.
+- The page loads the pinned `@raydium-io/raydium-sdk-v2@0.2.64-alpha` package.
+- It reads the pinned CPMM pool `5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPg8K8HZYvjoMiwo` from canonical Solana Devnet RPC.
+- It builds exactly one legacy transaction. Versioned transactions and address lookup tables are rejected on this Phantom KMS compatibility path.
+- The only supported swap pair is WSOL to the official Devnet USDC mint.
+- SOL input is parsed as integer lamports. The browser does not expose a user-configurable slippage field.
+- Price impact is displayed but is not a universal rejection threshold.
 
-## Browser semantic audit
+## Automatic quote and execution protection
 
-Before displaying the review summary, the page independently:
+The browser loads the side-effect-free `wallet/automatic-exchange-pricing.mjs` policy module (also exposed through the static-site entrypoint `automatic-exchange-pricing.mjs`).
 
-1. Checks the canonical Devnet genesis hash.
-2. Requires a legacy message with zero address-table lookups, reconstructs every static account key, and rejects any v0/ALT transaction on this path.
-3. Reconstructs effective signer and writable privileges.
-4. Checks the exact five-instruction direct-CPMM setup/swap/cleanup shape, temporary WSOL account creation/initialization/close semantics, and USDC ATA creation semantics.
-5. Reads the live CPMM pool/config/vault/mint/observation/authority accounts and checks their owners, identities and token pairings.
-6. Simulates the exact unsigned transaction, inspects parsed inner CPIs, and proves the exact 1,000,000-lamport input transfer and actual USDC output transfer.
-7. Simulates an adversarial clone with minimum output set one raw unit above the observed output; the CPMM program must reject it.
+The quote snapshot binds:
+- canonical Devnet identity, quote ID and pool;
+- input/output mint, raw amount and token decimals;
+- quoted raw output and exact minimum raw output;
+- quote timestamp and 15-second expiry;
+- USD-normalized pool liquidity and trade size;
+- observed short-window pool-price volatility and route hop count;
+- trade fee, creator fee, route fee, network fee and platform-fee state;
+- a canonical SHA-256 snapshot commitment.
 
-CI builds a fresh legacy transaction through the pinned SDK, enforces the 1232-byte packet limit, and invokes this browser-side verifier against those exact serialized bytes and current canonical Devnet account state. Evidence includes transaction size, static account/privilege map, zero ALT count, actual output, and adversarial rejection result.
+The automatic protection threshold is bounded to 15–300 basis points and is calculated from quote age, trade size relative to pool liquidity, observed volatility and route complexity. The threshold is not user-configurable. Minimum output uses integer floor arithmetic and is encoded into the CPMM instruction.
 
-## User approval and final freshness gate
+Before Phantom can be asked to sign, the page:
+1. verifies the immutable quote snapshot hash;
+2. re-reads the pool and recomputes output, liquidity and short-window volatility;
+3. rejects the review if the quote expired, output is below the reviewed minimum, current risk requires a wider protection threshold, or the trade identity changed;
+4. rechecks the exact network fee and CPMM trade/creator fee amounts;
+5. rechecks the wallet's SOL and USDC balance baselines, blockhash, pool/account state, token-account rent, and the exact reviewed transaction bytes;
+6. reruns the browser semantic audit and unsigned simulation against the exact reviewed bytes.
 
-The page exposes one explicit user-triggered Phantom approval action after the browser audit. It never signs or submits on page load or when a quote is created. Immediately before opening Phantom, the page:
+Any material drift invalidates the transaction and requires a new quote and a new user review. The page does not silently worsen the exchange terms or mutate the reviewed transaction.
 
-- Requires the prepared review to be no older than 15 seconds.
-- Rebinds the connected Phantom public key and canonical Devnet genesis.
-- Rechecks the current SOL balance against peak temporary WSOL funding, persistent USDC ATA rent and estimated network fee. If funds changed after review, it invalidates the prepared transaction and requires a fresh quote/faucet top-up.
-- Rechecks output USDC ATA presence and exact live rent; if either differs from the reviewed state, the prepared transaction is invalidated and must be rebuilt.
-- Rechecks that the wallet's Devnet USDC balance has not changed since quote preparation.
-- Verifies the transaction's original recent blockhash is still valid.
-- Re-reads the pinned CPMM pool and recomputes output, minimum output and price impact. Any quote drift invalidates the prepared transaction.
-- Re-runs the exact-byte semantic audit, finalized ALT resolution, live account checks, simulation and one-unit-higher adversarial rejection.
-- Rechecks the serialized transaction bytes after the final audit.
+## Transparent fees
 
-If any freshness condition changes, the page rejects the old transaction and requires a new quote/build/audit. It does not mutate or silently refresh a reviewed transaction.
+The review separately displays:
+- CPMM trade fee from the SDK quote (input-token units);
+- CPMM creator fee from the SDK quote, with its actual input/output token denomination;
+- route fee (zero for this direct single-pool route);
+- estimated Solana network fee from `getFeeForMessage`;
+- persistent USDC associated-token-account rent, when a new ATA is needed;
+- temporary WSOL funding, whose rent is returned when the temporary account closes;
+- Veltrix platform fee.
 
-## Submission and settlement verification
+The Veltrix platform fee is currently **0**. No platform recipient or transfer instruction is configured. A nonzero fee is rejected by the pricing module unless a bounded explicit rate, valid public-key recipient and independently verified transaction instruction are supplied. The current direct CPMM page does not enable that path.
 
-- Phantom's `signTransaction` is called only after the final freshness gate passes and only from the user's explicit button click.
-- This KMS compatibility path accepts legacy transactions only and rejects all v0/ALT messages before opening Phantom.
-- After Phantom signs, the browser serializes the signed transaction, verifies the signature, and compares the signed message bytes against the immutable reviewed message. Any Phantom-added/removed/reordered instruction (including ComputeBudget changes), account-key mutation, blockhash change or fee-payer change is rejected before broadcast.
-- The browser submits the exact signed bytes through the canonical Devnet RPC using `sendRawTransaction`; it does not delegate signing and submission together to Phantom's `signAndSendTransaction`.
-- The wallet owner must inspect and approve the transaction in Phantom. The page cannot approve on the user's behalf.
-- Immediately before opening Phantom, the page copies the serialized reviewed message and records its byte length and SHA-256 digest. This immutable evidence is retained in the in-flight review state before the wallet provider receives the transaction object.
-- The page waits for Devnet confirmation, retrieves the confirmed legacy transaction, and records its serialized message length and SHA-256 digest.
-- Confirmed message bytes must exactly equal the immutable reviewed message bytes. A semantic-only match is not sufficient for this exact-byte execution path; any difference is `CONFIRMED_BUT_UNVERIFIED` and must not be retried.
-- The expected semantic message is decoded directly from the immutable pre-approval message bytes using a strict legacy-message parser. It is never reconstructed from the mutable transaction object passed to Phantom. Exact message bytes produce `CONFIRMED_EXACT_MATCH`. If serialized bytes differ, the page records the first differing byte and compares the complete normalized legacy message: header, fee payer/signer policy, ordered account keys, recent blockhash, instruction count/order, program indexes, account indexes and instruction data. It also rechecks the exact CPMM input and minimum output.
-- Only if every normalized field and the signer/fee-payer/CPMM policy match may the page classify the result as `CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH`. This remains a confirmed on-chain swap and is displayed with a diagnostic warning; it is not reported as a failed transaction.
-- Any semantic difference is classified `CONFIRMED_BUT_UNVERIFIED`; no retry is offered and the signature must be inspected. A transaction with a non-null on-chain execution error is `FAILED_ON_CHAIN`; an ambiguous submission remains `SUBMISSION_STATUS_UNKNOWN`.
-- The page then checks the wallet's Devnet USDC balance increase against the reviewed minimum output.
-- A signature or successful simulation alone is not reported as a successful swap.
-- If Phantom explicitly rejects approval, the action may be retried only while the prepared review remains fresh. If the submission result is ambiguous or a signature exists, the action is locked against retries until wallet activity is inspected.
-- No seed phrase or private key is requested, accepted, derived, exported or stored.
-- No Mainnet cluster, mint, RPC endpoint or execution path is supported.
+The estimated net SOL debit is input + network fee + persistent ATA rent. Temporary WSOL rent is a peak-funding requirement and is returned in the transaction. DEX trade and creator fees are already reflected in the CPMM quote output; they are disclosed, not deducted a second time.
 
-## Android in-app-browser test
+## Exact-byte and Phantom boundary
 
-1. Open the HTTPS preview inside Phantom on Android.
-2. Connect the intended Devnet wallet and verify the canonical Devnet network.
-3. Request a fresh quote for exactly 0.001 SOL.
-4. Inspect pair, input, quoted output, automatically calculated minimum output, 1% slippage, price impact, network fee, USDC account presence, one-time ATA rent, estimated net SOL debit, temporary WSOL funding and minimum SOL balance including reserve. Confirm the temporary WSOL rent is returned and the USDC ATA rent remains locked if a new account is created.
-5. Select the approval action only if the displayed transaction matches the intended test.
-6. Review the transaction in Phantom. Reject it if any wallet, amount, mint, pool or fee detail is unexpected.
-7. If approved, wait for the page to report confirmed signature and verified USDC balance increase.
+- The page requires Phantom `signTransaction` and legacy transaction support.
+- The reviewed message bytes are snapshotted before the wallet provider receives the transaction.
+- The sign-only Android test calls Phantom `signTransaction`, verifies the returned message is byte-for-byte identical, verifies the wallet signature and packet-size limit, and does not call any submission RPC.
+- The actual execution function has a hard `EXECUTION_RELEASE_ENABLED = false` guard. The execution control remains disabled.
+- If execution is ever separately enabled after release review, the transaction path must submit the exact locally verified signed wire bytes through canonical Devnet RPC; it must not delegate signing and submission together to `signAndSendTransaction`.
+- Any wallet mutation, including a changed ComputeBudget instruction, account key, blockhash, fee payer or instruction payload, fails closed.
 
-There is no automatic router or multi-hop fallback. Any failed verifier, freshness check, confirmation, or balance-delta check must fail closed.
+## Confirmation reconciliation implementation
 
-## Evidence boundary
+The still-disabled execution path requires:
+- exact equality between the confirmed message and immutable reviewed message bytes;
+- matching RPC-returned signature and local wallet signature;
+- confirmed transaction metadata with no on-chain error;
+- exact SOL debit equal to input + actual network fee + persistent ATA rent;
+- actual USDC token-balance delta meeting the reviewed minimum;
+- current wallet SOL balance equal to the confirmed transaction post-balance;
+- current wallet USDC balance delta equal to the independently decoded transaction output.
 
-A quote or successful simulation is not a swap. The test is complete only after a user-approved transaction has a real signature, Devnet confirmation, either exact-message matching or a full strict semantic match, and a verified positive Devnet USDC balance delta meeting the minimum output. A semantic mismatch remains unverified and must never trigger an automatic retry.
+A confirmed transaction with missing or inconsistent evidence is `CONFIRMED_BUT_UNVERIFIED`; it must never be automatically retried.
+
+## CI validation
+
+The preflight workflow is read/simulation-only. It:
+- runs the Python safety/regression tests;
+- validates the inline browser JavaScript;
+- runs the Phantom byte/semantic adversarial suite;
+- runs automatic quote expiry, liquidity/volatility, snapshot-integrity, token-decimal, fee-rounding, recipient-guard and balance-reconciliation tests;
+- builds and simulates an unsigned 0.005 SOL direct CPMM legacy transaction;
+- runs the browser audit and one-unit-higher minimum-output adversarial simulation;
+- reconciles the historical Devnet signature read-only.
+
+CI must never sign, submit or broadcast a transaction. Live provider smoke tests that require credentials or wallet interaction may remain explicitly skipped and must not be represented as passing live evidence.
+
+## Android sign-only validation
+
+A manual Phantom Android in-app-browser test is still required:
+1. Open the current HTTPS preview inside Phantom on Android.
+2. Connect the intended wallet and verify Solana Devnet.
+3. Build a fresh quote and inspect the full fee breakdown, minimum output, quote expiry and total debit.
+4. Select **Verify Phantom legacy signing (no broadcast)**.
+5. Review the legacy transaction in Phantom and approve the signature prompt.
+6. Confirm the page reports exact reviewed-message equality and local signature verification, and explicitly reports that no transaction was submitted or broadcast.
+7. Confirm the execution control remains disabled.
+
+This validates the legacy Phantom KMS signing operation without executing a swap. A successful Android sign-only test is necessary but does not itself authorize execution.
+
+## Release boundary
+
+Keep the PR open and unmerged until exact-head CI is green and the Android sign-only test has been observed. Do not enable submission until the exact-byte, fee, balance, confirmation and adversarial release gates are all verified. Devnet only; no mainnet or automated signing.
