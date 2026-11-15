@@ -435,7 +435,7 @@ def test_rejects_finalized_vault_settlement_without_token_program_cpis():
     with pytest.raises(RaydiumClmmVaultError, match="no classic SPL Token"):
         verify_finalized_raydium_clmm_vault_settlement(
             finalized_settlement_evidence(values, include_cpis=False),
-            vaults=snapshot.vaults,
+            vault_snapshot=snapshot,
             expected_deltas=(
                 ExpectedRaydiumVaultDelta(values[5], 100),
                 ExpectedRaydiumVaultDelta(values[6], -50),
