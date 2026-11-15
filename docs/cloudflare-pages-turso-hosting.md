@@ -59,3 +59,37 @@ npm run pages:deploy
 ```
 
 The deployment is not accepted until the production URL serves the dashboard, authenticated API health reports the correct database and read-only state, unauthenticated calls return 401, and the end-to-end persistence/recovery checks pass.
+
+## Automated deployment and production scheduling
+
+The `.github/workflows/cloudflare-pages-deploy.yml` workflow creates the Pages project if needed, uploads the production-only secrets, deploys the static bundle plus Pages Function, then verifies the live dashboard and authenticated read-only database health.
+
+The repository must have these GitHub Actions secrets configured before dispatching deployment:
+
+| Secret | Purpose |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Pages Read and Pages Write |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier |
+| `TURSO_DATABASE_URL` | Separate production Turso endpoint |
+| `TURSO_AUTH_TOKEN` | Production read/write token for the GitHub Actions pipeline |
+| `TURSO_READONLY_AUTH_TOKEN` | Separate read-only token for the dashboard API |
+| `DASHBOARD_API_TOKEN` | Random dashboard bearer token, at least 32 characters |
+| `SOLANA_RPC_URL` or `HELIUS_API_KEY` | Required by the Phase 05 risk-evidence collector |
+
+Optional `GOPLUS_ACCESS_TOKEN` can be added for the optional GoPlus evidence adapter. Provider allowlists remain empty until each provider has been separately vetted; do not add trust IDs merely to make a health check pass.
+
+The Cloudflare deployment workflow copies the three dashboard secrets into the Pages **production** environment. Preview deployments receive no production credentials and fail closed.
+
+### Production initialization and scheduled execution
+
+1. Add the GitHub Actions secrets above without posting their values in chat or committing them to the repository.
+2. Run `Initialize production Turso schema` manually from Actions. The script refuses the dedicated disposable conformance database, creates the application tables, creates an empty paper ledger account if absent, and verifies the expected schema. It does not run providers or activate paper trading.
+3. Run `Deploy VELTRIX Cloudflare Pages` manually. It creates the Pages project, sets production-only read-only bindings, deploys, and verifies the authenticated health response.
+4. The scheduled Solana pipeline workflow runs every two hours (UTC), with a four-minute job ceiling and non-overlapping concurrency. This conservative cadence is designed to keep the GitHub-hosted runner budget bounded. GitHub Actions schedule events can be delayed; they are not an exact-time SLA.
+5. The pipeline runs discovery, enrichment, market refresh, risk evidence and consensus only. Paper trading, Telegram, signing, transaction submission and live execution remain disabled.
+
+The scheduled pipeline requires a **read/write** production Turso token because it persists candidate, market, risk, consensus and orchestration records. The Cloudflare dashboard uses a distinct **read-only** token. Never reuse the disposable conformance token or database for production.
+
+### Existing SQLite data
+
+The repository does not contain a tracked SQLite database file. The initializer creates a new empty production schema and paper account; it does not import an untracked local database. If a local SQLite ledger contains records that must be retained, provide that exact database file for a separately tested export/import and reconciliation before production cutover. Keep the original file and a verified backup until migration acceptance.
