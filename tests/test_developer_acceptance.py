@@ -142,3 +142,19 @@ def test_evm_developer_acceptance_does_not_ignore_untrusted_launch_origin():
     assert result["trust"]["launch_origin_provider_trusted"] is False
     assert result["trust_ready"] is False
     assert result["capability_certified"] is False
+
+
+
+def test_developer_acceptance_requires_the_expected_composite_claim_provider_allowlist():
+    result = run_developer_acceptance(
+        chain="base", token_address=TOKEN,
+        settings=cfg(trusted_developer_providers=("unrelated-provider",)),
+        holder_providers={"base": HolderProvider()},
+        funding_providers={"base": FundingProvider()},
+        root_provider=RootProvider(), origin_resolvers={"base": OriginResolver()},
+        now_ms=NOW,
+    )
+    assert result["structural_pass"] is True
+    assert result["trust"]["developer_claim_provider_trusted"] is False
+    assert result["trust_ready"] is False
+    assert result["capability_certified"] is False
