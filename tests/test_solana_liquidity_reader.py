@@ -406,3 +406,46 @@ def test_raydium_burn_and_earn_custody_rejects_vault_balance_mismatch():
     },)
     with pytest.raises(Exception, match="does not reconcile"):
         instance._read_raydium_cpmm_custody(pool, records, 900)
+
+
+
+def test_raydium_burn_and_earn_rejects_unattributed_vault_balance_without_lock_records():
+    instance = reader()
+    pool = {"amm_id": str(AMM), "lp_mint": str(LP_MINT)}
+    authority, _ = Pubkey.find_program_address(
+        [b"lock_cp_authority_seed"], Pubkey.from_string(RAYDIUM_LOCKING_PROGRAM)
+    )
+    vault_data = bytearray(165)
+    vault_data[:32] = bytes(LP_MINT)
+    vault_data[32:64] = bytes(authority)
+    struct.pack_into("<Q", vault_data, 64, 1)
+    vault_data[108] = 1
+    instance._get_optional_account_crosschecked = lambda address, slot: account(
+        bytes(vault_data), TOKEN_PROGRAM
+    )
+    with pytest.raises(Exception, match="unattributed custody"):
+        instance._read_raydium_cpmm_custody(pool, (), 900)
+
+
+def test_raydium_burn_and_earn_accepts_absent_vault_only_when_no_lock_state_exists():
+    instance = reader()
+    pool = {"amm_id": str(AMM), "lp_mint": str(LP_MINT)}
+    instance._get_optional_account_crosschecked = lambda address, slot: None
+    vault, authority, amount, positions = instance._read_raydium_cpmm_custody(
+        pool, (), 900
+    )
+    assert vault
+    assert authority
+    assert amount == 0
+    assert positions == ()
+
+
+def test_solana_reader_requires_rayidum_burn_and_earn_program_hash():
+    with pytest.raises(ValueError, match="Burn & Earn locking executable SHA-256"):
+        SolanaRaydiumV4CpmmSnapshotReader(
+            "https://solana-pools.example", "https://solana-locks.example",
+            expected_raydium_executable_hash="a" * 64,
+            expected_raydium_cpmm_executable_hash="b" * 64,
+            expected_raydium_locking_executable_hash="",
+            registry_complete=True,
+        )
