@@ -714,8 +714,14 @@
   function describeLegacyMessageDelta(reviewedWireBytes,signedWireBytes) {
     const changes=[];
     try {
-      const before=solanaWeb3.Message.from(Uint8Array.from(reviewedWireBytes));
-      const after=solanaWeb3.Message.from(Uint8Array.from(signedWireBytes));
+      const decodeMessage=bytes=>{
+        const wire=new Uint8Array(65+bytes.length);
+        wire[0]=1;
+        wire.set(bytes,65);
+        return solanaWeb3.Transaction.from(wire).compileMessage();
+      };
+      const before=decodeMessage(reviewedWireBytes);
+      const after=decodeMessage(signedWireBytes);
       const beforeHeader=before.header,afterHeader=after.header;
       for(const key of ["numRequiredSignatures","numReadonlySignedAccounts","numReadonlyUnsignedAccounts"]) {
         if(beforeHeader[key]!==afterHeader[key]) changes.push("header."+key);
