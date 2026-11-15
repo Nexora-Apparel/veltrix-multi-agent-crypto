@@ -92,6 +92,8 @@ def verify_finalized_raydium_clmm_vault_settlement(
     """Verify finalized Token Program CPI transfers against exact pool-vault balance deltas."""
     if not isinstance(evidence, ConfirmedTransactionEvidence):
         raise RaydiumClmmVaultError("finalized transaction evidence is required")
+    if evidence.inner_instructions_present is not True:
+        raise RaydiumClmmVaultError("finalized transaction does not attest to captured inner instructions")
     if not isinstance(vaults, tuple) or len(vaults) != 2 or any(
         not isinstance(item, RaydiumClmmVaultAccount) for item in vaults
     ):
@@ -163,6 +165,7 @@ def verify_finalized_raydium_clmm_vault_settlement(
         raise RaydiumClmmVaultError("finalized pre/post vault balances do not equal the exact expected deltas")
 
     transfer_amounts: dict[str, list[int]] = {item.address: [] for item in vaults}
+    vault_mints = {item.address: item.mint for item in vaults}
     for group in inner_groups:
         for instruction in group.get("instructions", []):
             program_index = instruction.get("programIdIndex")
@@ -189,6 +192,10 @@ def verify_finalized_raydium_clmm_vault_settlement(
                 if isinstance(account_index, bool) or not isinstance(account_index, int) or not 0 <= account_index < len(evidence.account_keys):
                     raise RaydiumClmmVaultError("Token Program CPI account index is invalid")
             source = evidence.account_keys[source_index]
+            if len(data) == 10 and data[0] == 12:
+                for address in (source, evidence.account_keys[destination_index]):
+                    if address in vault_mints and evidence.account_keys[mint_index] != vault_mints[address]:
+                        raise RaydiumClmmVaultError("TransferChecked CPI mint differs from the verified pool vault mint")
             destination = evidence.account_keys[destination_index]
             if source in transfer_amounts:
                 transfer_amounts[source].append(-amount)
