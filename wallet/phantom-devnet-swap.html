@@ -1315,6 +1315,7 @@
     const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
     const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
     const inputAmount=new BN(String(lamports));
+    const liquidityMetrics=calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut);
     const creatorFeeOnInput = rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB;
     const swapResult=CurveCalculator.swapBaseInput(
       inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
