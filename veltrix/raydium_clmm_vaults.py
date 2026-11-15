@@ -129,10 +129,46 @@ def verify_finalized_raydium_clmm_vault_settlement(
 
     try:
         result = json.loads(evidence.raw_result_json)
+        transaction = result["transaction"]
+        message = transaction["message"]
         meta = result["meta"]
         inner_groups = meta["innerInstructions"]
         pre_balances = meta["preTokenBalances"]
         post_balances = meta["postTokenBalances"]
+        raw_signatures = transaction["signatures"]
+        raw_keys = message["accountKeys"]
+        raw_keys = [item.get("pubkey") if isinstance(item, dict) else item for item in raw_keys]
+        loaded = meta.get("loadedAddresses") or {"writable": [], "readonly": []}
+        resolved_keys = tuple(raw_keys + loaded.get("writable", []) + loaded.get("readonly", []))
+        if (
+            result.get("slot") != evidence.slot
+            or not isinstance(raw_signatures, list)
+            or not raw_signatures
+            or raw_signatures[0] != evidence.signature
+            or meta.get("err") is not None
+            or resolved_keys != evidence.account_keys
+        ):
+            raise RaydiumClmmVaultError("finalized transaction raw payload does not match its immutable evidence fields")
+
+        def resolve_program_ids(groups: list) -> tuple[str, ...]:
+            resolved = []
+            for group in groups:
+                instructions = group.get("instructions", []) if "index" in group else [group]
+                for instruction in instructions:
+                    index = instruction.get("programIdIndex")
+                    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(evidence.account_keys):
+                        raise RaydiumClmmVaultError("raw instruction program index is outside resolved account keys")
+                    resolved.append(evidence.account_keys[index])
+            return tuple(resolved)
+
+        if (
+            resolve_program_ids(message["instructions"]) != evidence.top_level_program_ids
+            or resolve_program_ids(inner_groups) != evidence.inner_program_ids
+            or pre_balances != json.loads(evidence.pre_token_balances_json)
+            or post_balances != json.loads(evidence.post_token_balances_json)
+            or tuple(meta.get("logMessages") or ()) != evidence.logs
+        ):
+            raise RaydiumClmmVaultError("finalized transaction raw payload differs from its immutable instruction or balance evidence")
     except Exception as exc:
         raise RaydiumClmmVaultError("finalized transaction raw evidence is incomplete or invalid") from exc
 
