@@ -407,7 +407,8 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
     assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" not in gate
-    assert "fresh output=" in gate
+    assert "refreshQuoteForReview" in gate
+    assert "freshOutputRaw < reviewedMinimum" in gate
     assert "freshImpact > MAX_IMPACT" not in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
     assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
@@ -466,8 +467,8 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in page
     assert "signature !== locallySignedSignature" in page
     assert "actualSolBalanceAfter" in page
-    assert "Pre-sign network fee no longer matches" in page
-    assert "Pre-sign CPMM trade/creator fee breakdown changed" in page
+    assert "Network fee estimate changed or became unavailable" in page
+    assert "Pool trade/creator fee schedule changed after review" in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
 
