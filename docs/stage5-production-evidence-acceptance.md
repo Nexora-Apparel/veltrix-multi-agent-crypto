@@ -35,6 +35,10 @@ For push-triggered acceptance, set repository variable `BASE_LIQUIDITY_ACCEPTANC
 - `BSC_UNCX_LOCKERS_JSON` — complete, reviewed UNCX locker deployment/ABI/hash registry JSON.
 - `BSC_LIQUIDITY_AMM_REGISTRY_COMPLETE` — set to `true` only after the supported factory scope has been independently reviewed as complete.
 
+### Required repository variable
+
+- `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` — keep `false` until all three chain-specific liquidity runs pass and the exact provider deployments, runtime hashes, registries and locker evidence have been independently reviewed; then set to `true`.
+
 For push-triggered acceptance, set repository variable `BSC_LIQUIDITY_ACCEPTANCE_TOKEN`; manual dispatch requires the token address as an input. The sample must exercise every configured BSC locker deployment.
 
 Do not derive or guess program hashes. Pin the deployed executable bytes read from finalized ProgramData. A documented program address or an IDL alone is not a runtime hash. The Solana reader now verifies both the UNCX AMM V4 TokenLock profile and Raydium Burn & Earn CPMM lock-state profile. CLMM, Meteora DLMM, Orca and PumpSwap remain outside the declared pool scope.
