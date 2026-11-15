@@ -119,10 +119,12 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
       !Number.isSafeInteger(nowMs) || nowMs < timestamp || nowMs - timestamp > ttl) {
     fail("quote timestamp or expiry is invalid");
   }
-  const protectionBps = computeProtectionBps({
-    quoteAgeMs: nowMs - timestamp, quoteTtlMs: ttl, liquidityUsd: input.liquidityUsd,
-    tradeUsd: input.tradeUsd, volatilityBps: input.volatilityBps, routeHops: input.routeHops
-  });
+  const protectionBps = input.protectionBps === undefined
+    ? computeProtectionBps({
+        quoteAgeMs: nowMs - timestamp, quoteTtlMs: ttl, liquidityUsd: input.liquidityUsd,
+        tradeUsd: input.tradeUsd, volatilityBps: input.volatilityBps, routeHops: input.routeHops
+      })
+    : Number(input.protectionBps);
   const outputRaw = asBigInt(input.quotedOutputRaw, "quotedOutputRaw");
   const fees = calculateFeeBreakdown({
     dexFee: input.dexFee, creatorFee: input.creatorFee, networkFeeLamports: input.networkFeeLamports,
