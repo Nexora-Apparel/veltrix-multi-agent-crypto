@@ -51,6 +51,24 @@ const hooks=window.__VELTRIX_TEST_HOOKS__;
 assert.ok(hooks,"browser verifier test hooks unavailable");
 hooks.setWalletForTest(new PublicKey(artifact.wallet));
 
+// The live builder must locate and mutate the CPMM instruction in v0 compiled
+// instructions, including when the program key is supplied by a dynamically
+// resolved lookup table rather than the static key array.
+const v0ProgramKey=new PublicKey(hooks.constants.CPMM);
+const v0ProgramMessage=new solanaWeb3.MessageV0(
+  {numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:0},
+  [new PublicKey(artifact.wallet)],
+  new PublicKey(Uint8Array.from({length:32},()=>77)).toBase58(),
+  [{programIdIndex:1,accountKeyIndexes:[],data:Uint8Array.from([1,2,3])}],
+  [{accountKey:new PublicKey(Uint8Array.from({length:32},()=>78)),writableIndexes:[],readonlyIndexes:[0]}]
+);
+const v0ProgramTx=new solanaWeb3.VersionedTransaction(v0ProgramMessage);
+assert.equal(hooks.findDirectCpmmInstructionIndex(v0ProgramTx,[new PublicKey(artifact.wallet),v0ProgramKey]),0,
+  "v0 CPMM program lookup must use the fully resolved account set");
+hooks.replaceDirectCpmmData(v0ProgramTx,Uint8Array.from([9,8,7]),[new PublicKey(artifact.wallet),v0ProgramKey]);
+assert.deepEqual(Array.from(v0ProgramTx.message.compiledInstructions[0].data),[9,8,7],
+  "v0 CPMM instruction data must be updated without a legacy tx.instructions property");
+
 // Lookup resolution is account-set driven: multiple unrelated tables are accepted,
 // and the verifier resolves each selected writable/readonly index independently.
 const maxU64=(1n<<64n)-1n;
