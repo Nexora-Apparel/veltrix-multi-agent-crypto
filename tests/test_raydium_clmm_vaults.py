@@ -478,6 +478,22 @@ def test_rejects_finalized_settlement_when_original_simulation_failed():
         )
 
 
+def test_rejects_caller_expected_deltas_not_bound_to_simulated_vault_state():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    with pytest.raises(RaydiumClmmVaultError, match="differ from the exact simulation vault account-state deltas"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values, amount_a=101),
+            simulation=values[2],
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 101),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
 def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
     values = fixture(slot=801)
     snapshot = fetch(values)
