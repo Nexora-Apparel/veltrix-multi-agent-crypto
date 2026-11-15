@@ -7,12 +7,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-<<<<<<< origin/main
-from .market_data import SolanaMarketSnapshot, validate_market_snapshot
-=======
 from ..database import connect_database, ensure_database_parent, row_factory_for
-from .market_data import SolanaMarketSnapshot
->>>>>>> origin/work/h1.1-h2-h3-clean
+from .market_data import SolanaMarketSnapshot, validate_market_snapshot
 
 
 class MarketSnapshotStore:
@@ -77,112 +73,15 @@ class MarketSnapshotStore:
             db.close()
 
     def record(self, snapshot: SolanaMarketSnapshot) -> bool:
-<<<<<<< origin/main
-        snapshot = validate_market_snapshot(snapshot)
-        with self._connect() as db:
-            cursor = db.execute(
-                """INSERT OR IGNORE INTO solana_market_snapshots
-                (mint, pair_address, symbol, name, price_usd, liquidity_usd,
-                 volume_m5_usd, volume_h1_usd, volume_h24_usd,
-                 price_change_m5_pct, price_change_h1_pct, price_change_h24_pct,
-                 txns_m5_buys, txns_m5_sells, txns_h1_buys, txns_h1_sells,
-                 txns_h24_buys, txns_h24_sells, fdv_usd, market_cap_usd,
-                 dex_id, quote_token_symbol, pool_token_side, pair_count, retrieved_at_ms,
-                 response_received_at_ms, pair_created_at_ms, quality_flags_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    snapshot.mint,
-                    snapshot.selected_pair_address,
-                    snapshot.symbol,
-                    snapshot.name,
-                    snapshot.price_usd,
-                    snapshot.selected_pool_liquidity_usd,
-                    snapshot.selected_pool_volume_m5_usd,
-                    snapshot.selected_pool_volume_h1_usd,
-                    snapshot.selected_pool_volume_h24_usd,
-                    snapshot.price_change_m5_pct,
-                    snapshot.price_change_h1_pct,
-                    snapshot.price_change_h24_pct,
-                    snapshot.txns_m5_buys,
-                    snapshot.txns_m5_sells,
-                    snapshot.txns_h1_buys,
-                    snapshot.txns_h1_sells,
-                    snapshot.txns_h24_buys,
-                    snapshot.txns_h24_sells,
-                    snapshot.fdv_usd,
-                    snapshot.market_cap_usd,
-                    snapshot.dex_id,
-                    snapshot.quote_token_symbol,
-                    snapshot.pool_token_side,
-                    snapshot.pair_count,
-                    snapshot.retrieved_at_ms,
-                    snapshot.response_received_at_ms,
-                    snapshot.pair_created_at_ms,
-                    json.dumps(snapshot.quality_flags),
-                ),
-            )
-            return cursor.rowcount == 1
-=======
         """Persist a snapshot using a store-owned connection."""
         with self._connect() as db:
             return self.record_in_transaction(snapshot, db)
 
     def record_in_transaction(self, snapshot: SolanaMarketSnapshot, db: Any) -> bool:
-        """Write a snapshot on a caller-owned connection without committing it.
-
-        Callers that coordinate queue state with evidence persistence must use
-        this method inside the same transaction as their fenced job mutation.
-        The caller retains ownership of commit, rollback and connection close.
-        """
-        if not isinstance(snapshot, SolanaMarketSnapshot):
-            raise TypeError("snapshot must be a normalized SolanaMarketSnapshot")
+        """Write a snapshot on a caller-owned connection without committing it."""
+        snapshot = validate_market_snapshot(snapshot)
         if db is None or not callable(getattr(db, "execute", None)):
             raise TypeError("db must be an open database connection")
-        cursor = db.execute(
-            """INSERT OR IGNORE INTO solana_market_snapshots
-            (mint, pair_address, symbol, name, price_usd, liquidity_usd,
-             volume_m5_usd, volume_h1_usd, volume_h24_usd,
-             price_change_m5_pct, price_change_h1_pct, price_change_h24_pct,
-             txns_m5_buys, txns_m5_sells, txns_h1_buys, txns_h1_sells,
-             txns_h24_buys, txns_h24_sells, fdv_usd, market_cap_usd,
-             dex_id, quote_token_symbol, pool_token_side, pair_count, retrieved_at_ms,
-             response_received_at_ms, pair_created_at_ms, quality_flags_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                snapshot.mint,
-                snapshot.selected_pair_address,
-                snapshot.symbol,
-                snapshot.name,
-                snapshot.price_usd,
-                snapshot.selected_pool_liquidity_usd,
-                snapshot.selected_pool_volume_m5_usd,
-                snapshot.selected_pool_volume_h1_usd,
-                snapshot.selected_pool_volume_h24_usd,
-                snapshot.price_change_m5_pct,
-                snapshot.price_change_h1_pct,
-                snapshot.price_change_h24_pct,
-                snapshot.txns_m5_buys,
-                snapshot.txns_m5_sells,
-                snapshot.txns_h1_buys,
-                snapshot.txns_h1_sells,
-                snapshot.txns_h24_buys,
-                snapshot.txns_h24_sells,
-                snapshot.fdv_usd,
-                snapshot.market_cap_usd,
-                snapshot.dex_id,
-                snapshot.quote_token_symbol,
-                snapshot.pool_token_side,
-                snapshot.pair_count,
-                snapshot.retrieved_at_ms,
-                snapshot.response_received_at_ms,
-                snapshot.pair_created_at_ms,
-                json.dumps(snapshot.quality_flags),
-            ),
-        )
-        return cursor.rowcount == 1
->>>>>>> origin/work/h1.1-h2-h3-clean
 
     @staticmethod
     def _decode(row: sqlite3.Row | None) -> dict | None:
