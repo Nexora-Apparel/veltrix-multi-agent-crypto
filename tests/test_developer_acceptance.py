@@ -85,6 +85,7 @@ def test_live_acceptance_uses_resolved_evm_deployment_block_and_reports_structur
     assert origin.calls == [(TOKEN, 120_000)]
     assert result["structural_pass"] is True
     assert result["trust_ready"] is True
+    assert result["trust"]["launch_origin_provider_trusted"] is True
     assert result["capability_certified"] is False
     assert result["concentration"]["developer_hold_pct"] == 100.0
     assert result["live_execution_enabled"] is False
@@ -125,3 +126,19 @@ def test_developer_acceptance_rejects_unverified_root_attestation():
     except ValueError as exc:
         result = str(exc)
     assert result == "Developer-root attestation is not verified, complete and token-bound"
+
+
+
+def test_evm_developer_acceptance_does_not_ignore_untrusted_launch_origin():
+    result = run_developer_acceptance(
+        chain="base", token_address=TOKEN,
+        settings=cfg(trusted_launch_origin_providers=()),
+        holder_providers={"base": HolderProvider()},
+        funding_providers={"base": FundingProvider()},
+        root_provider=RootProvider(), origin_resolvers={"base": OriginResolver()},
+        now_ms=NOW,
+    )
+    assert result["structural_pass"] is True
+    assert result["trust"]["launch_origin_provider_trusted"] is False
+    assert result["trust_ready"] is False
+    assert result["capability_certified"] is False
