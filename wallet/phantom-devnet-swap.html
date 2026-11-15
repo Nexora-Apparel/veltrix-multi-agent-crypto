@@ -46,6 +46,9 @@
     <div class="row"><span>Slippage floor</span><span class="value" id="slippageValue">—</span></div>
     <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
     <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
+    <div class="row"><span>Transaction format</span><strong class="value" id="transactionFormatValue">—</strong></div>
+    <div class="row"><span>Address lookup tables</span><span class="value" id="lookupTablesValue">—</span></div>
+    <div class="row"><span>Resolved account keys</span><span class="value" id="resolvedAccountsValue">—</span></div>
     <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
     <div class="row"><span>USDC token account</span><span class="value" id="usdcAccountStatusValue">—</span></div>
     <div class="row"><span>USDC account rent (one-time)</span><span class="value" id="ataRentValue">—</span></div>
@@ -1307,6 +1310,11 @@
     $("slippageValue").textContent="100 bps (1.00%)";
     $("impactValue").textContent=impact.toFixed(3)+"%";
     $("poolsValue").textContent="1 direct CPMM pool";
+    $("transactionFormatValue").textContent=tx instanceof solanaWeb3.VersionedTransaction?"Versioned v0":"Legacy";
+    $("lookupTablesValue").textContent=semanticAudit.lookupTables.length
+      ? semanticAudit.lookupTables.length+" dynamically resolved"
+      : "0 (none)";
+    $("resolvedAccountsValue").textContent=String(semanticAudit.resolvedAccountCount);
     $("feeValue").textContent=(totalFee/1e9).toFixed(6)+" SOL (network fee estimate)";
     $("usdcAccountStatusValue").textContent=prepared.outputAtaPresent?"Already exists":"Will be created";
     $("ataRentValue").textContent=persistentAtaRentLamports===0n
