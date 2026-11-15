@@ -530,3 +530,12 @@ def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reser
     assert "0.05 SOL reserve" not in source
     assert 'id="temporaryFundingValue"' in source
     assert 'id="requiredBalanceValue"' in source
+
+def test_quote_liquidity_metrics_are_defined_before_protection_and_snapshot_use():
+    source = PAGE.read_text(encoding="utf-8")
+    declaration = "const liquidityMetrics=calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut)"
+    assert source.count(declaration) == 1
+    assert source.index(declaration) < source.index("liquidityUsd: liquidityMetrics.liquidityUsd")
+    assert source.index(declaration) < source.index("tradeUsd: liquidityMetrics.tradeUsd")
+    assert "const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve" in source
+    assert "const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve" in source
