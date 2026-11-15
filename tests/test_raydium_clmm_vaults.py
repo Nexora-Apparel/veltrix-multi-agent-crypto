@@ -435,6 +435,23 @@ def test_rejects_finalized_transaction_that_is_not_the_exact_simulated_message()
         )
 
 
+def test_rejects_finalized_settlement_when_original_simulation_failed():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    failed_simulation = dataclasses.replace(values[2], simulation_error="InstructionError")
+    with pytest.raises(RaydiumClmmVaultError, match="did not complete successfully"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values),
+            simulation=failed_simulation,
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
 def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
     values = fixture(slot=801)
     snapshot = fetch(values)
