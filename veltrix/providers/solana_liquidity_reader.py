@@ -1,10 +1,9 @@
-"""Finalized read-only Raydium V4/CPMM inventory and UNCX V4 locker reader.
+"""Finalized read-only Raydium V4/CPMM inventory and locker reader.
 
-Pool state and locker state are read through separate RPC endpoints. The
-reader requires the same finalized slot across all account queries, verifies
-deployed ELF hashes, decodes Anchor TokenLock PDAs, derives UNCX custody/vault
-PDAs, and reconciles token-account balances. CPMM pools are inventoried but
-remain unverified until a source-verifiable CPMM locker is available.
+Pool and locker state are read through separate RPC endpoints at the same
+finalized slot. Raydium AMM V4 uses the UNCX TokenLock profile; Raydium CPMM
+uses Raydium Burn & Earn LockedCpLiquidityState, fee-NFT and permanent LP-vault
+reconciliation. Every deployed program hash must be independently pinned.
 """
 import base64
 import hashlib
@@ -90,12 +89,11 @@ class _SolanaRpc:
 
 
 class SolanaRaydiumV4CpmmSnapshotReader:
-    """Exhaustive Raydium V4 + CPMM pool scan; UNCX lock decoder for V4 only.
+    """Exhaustive Raydium V4 + CPMM pool scan and their supported lock profiles.
 
-    CLMM, Meteora DLMM, Orca and PumpSwap require separate state layouts and
-    are not silently included in the declared supported-AMM inventory.
-    CPMM pools are included but cannot pass the liquidity gate without a
-    separately verified CPMM locker.
+    UNCX TokenLock covers AMM V4; Raydium Burn & Earn covers CPMM. CLMM,
+    Meteora DLMM, Orca and PumpSwap require separate state layouts and are not
+    silently included in the declared supported-AMM inventory.
     """
     def __init__(
         self, pool_rpc_url, locker_rpc_url, *,
