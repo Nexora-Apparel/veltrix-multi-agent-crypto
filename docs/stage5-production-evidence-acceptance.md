@@ -76,7 +76,9 @@ Stage 5 can be marked complete only when all of the following are true:
 5. `LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three liquidity runs and locker-profile coverage pass independent review.
 6. `DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED` is set to `true` only after all three developer runs and signed root methodology pass independent review.
 7. Developer-root identity evidence is signed, token-bound, fresh and independently trusted.
-8. Provider readiness reports no unresolved Stage 5 blockers.
+8. The `liquidity_lock` and `developer_holdings` readiness rows report no unresolved blockers for Solana, Base and BSC.
 9. Capability allowlists are updated only after review of the exact provider IDs and acceptance artifacts.
+
+The separate `launch_bundle` claim is not certified by these six runs. If the release policy requires all three composite safety claims to be certified before Stage 5 closes, launch-bundle live acceptance must be added as a separate gate; do not treat these two claim families as proof of it.
 
 Never place RPC URLs containing credentials, API keys, private keys or signed payload secrets in source files, issue comments or chat. Store them in GitHub Actions Secrets. Do not enable live trading as part of this stage; all acceptance workflows are read-only.
