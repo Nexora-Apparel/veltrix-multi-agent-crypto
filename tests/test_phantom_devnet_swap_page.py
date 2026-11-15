@@ -130,6 +130,9 @@ def test_confirmation_reconciles_exact_input_minimum_and_actual_wallet_output():
     assert "actualOutputRaw" in source
     assert "received.toString() !== reconciliation.diagnostics.actualOutputRaw" in source
     assert "walletUsdcBalanceDeltaBelowMinimum" in source
+    assert "walletSolBalanceDebitMismatch" in source
+    assert "expectedPersistentRentLamports" in source
+    assert "reviewed.solBalanceBefore" in source
 
 
 def test_only_user_editable_amount_invalidates_prepared_review():
