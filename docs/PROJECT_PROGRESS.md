@@ -27,7 +27,7 @@ VELTRIX is a Solana-first, multi-chain token-intelligence and paper-trading rese
 | 5 | Security and risk engine | **Core implementation complete — merged** | Evidence-provider capability certification remains incomplete; see §4 |
 | 6 | Evidence-gated multi-agent consensus | **Complete — merged** | Whale remains abstention-only until trusted wallet feed and allowlist are configured |
 | 7 | Paper trading | **Complete — merged** | Runtime is not certified as continuously active in production |
-| 8 | Read-only dashboard and analytics | **Complete — merged** | New mobile redesign PR has a failing current-head CI test and visual QA outstanding |
+| 8 | Read-only dashboard and analytics | **Complete — merged** | Mobile redesign PR #183 exact-head CI passes; Android visual QA remains outstanding |
 | 09.1 | Fail-closed policy and operator authorization | **Complete — merged (PR #9)** | No live authorization |
 | 09.2 | Paper/dashboard process and wallet-observation isolation | **Implementation under review — PR #191 open; host acceptance incomplete** | Exact-head CI plus real Linux host, systemd, UID/GID, mount, DAC, DB/WAL/SHM and egress evidence |
 | 09.3 | Isolated signer boundary | **Typed contract-only draft PR #192 stacked on #191; CI verified** | Cannot merge before 09.2 host acceptance; metadata binding is not signed-byte or cryptographic verification; no signer exists |
