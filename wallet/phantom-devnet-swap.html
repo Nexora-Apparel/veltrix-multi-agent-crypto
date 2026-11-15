@@ -635,17 +635,38 @@
     if(messageOffset>=raw.length)fail("transaction message missing");
     return raw[messageOffset]===0x80?solanaWeb3.VersionedTransaction.deserialize(raw):solanaWeb3.Transaction.from(raw);
   }
-  function normalizePhantomSignedLegacyTransaction(value) {
-    let wireBytes;
+  function phantomSigningWireBytes(value) {
     if (value && typeof value.serialize === "function") {
-      wireBytes = Uint8Array.from(value.serialize({requireAllSignatures:true,verifySignatures:true}));
-    } else if (value && ArrayBuffer.isView(value)) {
-      wireBytes = Uint8Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-    } else {
-      const returnedType = value && value.constructor && value.constructor.name
-        ? value.constructor.name : Object.prototype.toString.call(value);
-      fail("Phantom returned an unsupported signing result (" + returnedType + "); serialized transaction bytes are unavailable");
+      return Uint8Array.from(value.serialize({requireAllSignatures:true,verifySignatures:true}));
     }
+    if (value && ArrayBuffer.isView(value)) {
+      return Uint8Array.from(new Uint8Array(value.buffer,value.byteOffset,value.byteLength));
+    }
+    const returnedType=value&&value.constructor&&value.constructor.name
+      ? value.constructor.name : Object.prototype.toString.call(value);
+    fail("Phantom returned an unsupported signing result ("+returnedType+"); serialized transaction bytes are unavailable");
+  }
+  function transactionMessageBytesFromWire(wireBytes) {
+    if (!(wireBytes instanceof Uint8Array) || wireBytes.length < 66 || wireBytes.length > 1232) {
+      fail("serialized transaction bytes are missing, truncated or oversized");
+    }
+    let offset=0, signatureCount=0, shift=0, complete=false;
+    for(let i=0;i<5;i++) {
+      if(offset>=wireBytes.length) fail("truncated transaction signature vector");
+      const byte=wireBytes[offset++];
+      signatureCount += (byte&127) * (2**shift);
+      if(!(byte&128)) { complete=true; break; }
+      shift+=7;
+    }
+    if(!complete || signatureCount<1 || signatureCount>64) fail("invalid transaction signature vector");
+    const messageOffset=offset+signatureCount*64;
+    if(messageOffset>=wireBytes.length) fail("transaction message is missing");
+    return Uint8Array.from(wireBytes.slice(messageOffset));
+  }
+  function normalizePhantomSignedLegacyTransaction(value) {
+    const wireBytes = value instanceof Uint8Array
+      ? Uint8Array.from(value)
+      : phantomSigningWireBytes(value);
     if (wireBytes.length < 1 || wireBytes.length > 1232) fail("Phantom returned an invalid or oversized signed transaction");
     const normalized = deserializeUnsignedTransaction(wireBytes);
     if (!(normalized instanceof solanaWeb3.Transaction)) {
@@ -1651,14 +1672,15 @@
       const gateResult = await finalPreSignFreshnessGate(reviewStartedAtMs);
       if (gateResult?.refreshed) return gateResult;
       const finalTx = assertExactReviewedBytes(prepared.txs[0],prepared.reviewedBytes[0]);
-      const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
+      const reviewedMessageBytes = transactionMessageBytesFromWire(prepared.reviewedBytes[0]);
       if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
         throw new Error("Phantom wallet changed before sign-only compatibility test.");
       }
       status("Phantom is opening a legacy transaction signature prompt. This test verifies the signature locally and will NOT submit or broadcast the transaction.","warning");
       const phantomResult = await provider.signTransaction(finalTx);
-      const signedTx = normalizePhantomSignedLegacyTransaction(phantomResult);
-      const signedMessageBytes = Uint8Array.from(serializeTransactionMessage(signedTx));
+      const phantomWireBytes = phantomSigningWireBytes(phantomResult);
+      const signedTx = normalizePhantomSignedLegacyTransaction(phantomWireBytes);
+      const signedMessageBytes = transactionMessageBytesFromWire(phantomWireBytes);
       assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
       const signedWireBytes = Uint8Array.from(signedTx.serialize({requireAllSignatures:true,verifySignatures:true}));
       if (signedWireBytes.length > 1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit.");
@@ -1708,7 +1730,7 @@
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
       // Snapshot the exact message before handing the mutable Transaction object to Phantom.
       // Wallet adapters may mutate their in-memory transaction after signing/submission.
-      const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
+      const reviewedMessageBytes = transactionMessageBytesFromWire(reviewed.reviewedBytes[0]);
       const reviewedMessageEvidence = Object.freeze({
         length:reviewedMessageBytes.length,
         sha256:await sha256Hex(reviewedMessageBytes)
@@ -1722,18 +1744,11 @@
       // Ask Phantom only to sign. The application broadcasts the exact signed
       // bytes itself after verifying that Phantom did not rewrite the reviewed
       // message (for example by injecting an unreviewed ComputeBudget instruction).
-      const signedTx=await provider.signTransaction(finalTx);
-      if(!(signedTx instanceof solanaWeb3.Transaction)) {
-        throw new Error("Phantom returned an unsupported signed transaction type; nothing was broadcast.");
-      }
-      const signedMessageBytes=Uint8Array.from(serializeTransactionMessage(signedTx));
+      const phantomResult=await provider.signTransaction(finalTx);
+      const signedWireBytes=phantomSigningWireBytes(phantomResult);
+      const signedTx=normalizePhantomSignedLegacyTransaction(signedWireBytes);
+      const signedMessageBytes=transactionMessageBytesFromWire(signedWireBytes);
       assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
-      let signedWireBytes;
-      try {
-        signedWireBytes=Uint8Array.from(signedTx.serialize({requireAllSignatures:true,verifySignatures:true}));
-      } catch(error) {
-        throw new Error("Phantom signature verification failed; nothing was broadcast. "+(error?.message||String(error)));
-      }
       if(signedWireBytes.length>1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit; nothing was broadcast.");
       status("Phantom signed the exact reviewed transaction. Broadcasting those unchanged signed bytes to Devnet…","warning");
       submissionAttempted=true;
