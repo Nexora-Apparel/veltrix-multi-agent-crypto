@@ -57,11 +57,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Build and simulate a 0.005 SOL / 2.50% slippage ALT-free legacy CPMM transaction
+      - name: Build and simulate a 0.005 SOL automatically protected ALT-free legacy CPMM transaction
         env:
           SWAP_INPUT_SOL: "0.005"
-          SWAP_SLIPPAGE_BPS: "250"
-          EXPECT_IMPACT_ABOVE_2: "true"
         run: |
           npm install --no-audit --no-fund
           mkdir -p artifacts
