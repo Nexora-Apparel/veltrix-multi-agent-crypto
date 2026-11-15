@@ -471,7 +471,11 @@ class SolanaRpcSimulationAdapter:
                 raise ValueError("malformed signature vector")
             if str(Signature.from_bytes(wire_bytes[1:65])) != signature:
                 raise ValueError("wire signature differs from requested signature")
-            message_sha256 = hashlib.sha256(wire_bytes[message_offset:]).hexdigest()
+            message_bytes = wire_bytes[message_offset:]
+            parsed_message = from_bytes_versioned(message_bytes)
+            if to_bytes_versioned(parsed_message) != message_bytes:
+                raise ValueError("wire message is not canonically serialized")
+            message_sha256 = hashlib.sha256(message_bytes).hexdigest()
         except Exception as exc:
             raise SolanaRpcAdapterError("finalized wire transaction bytes or signature vector are malformed") from exc
 
