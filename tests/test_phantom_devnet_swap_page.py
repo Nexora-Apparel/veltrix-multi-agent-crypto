@@ -55,6 +55,8 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert "function transactionMessageBytesFromWire(wireBytes)" in source
     assert "transactionMessageBytesFromWire(phantomWireBytes)" in source
     assert "serializeTransactionMessage(signedTx)" not in source
+    assert "First differing message byte" in source
+    assert "phantomInputTx = solanaWeb3.Transaction.from" in sign_test
     assert "Transaction.from(raw)" in source
     assert "reviewStartedAtMs" not in sign_test
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
