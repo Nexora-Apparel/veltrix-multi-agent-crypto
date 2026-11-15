@@ -49,6 +49,10 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     sign_test = source[source.index("async function testLegacyPhantomSigning()"):source.index("async function execute()")]
     assert "await finalPreSignFreshnessGate()" in sign_test
     assert "provider.signTransaction(finalTx)" in sign_test
+    assert "normalizePhantomSignedLegacyTransaction(phantomResult)" in sign_test
+    assert "function normalizePhantomSignedLegacyTransaction(value)" in source
+    assert "Transaction.from(raw)" in source
+    assert "reviewStartedAtMs" in sign_test
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
     assert "verifySignatures:true" in sign_test
     assert "submitted:false,broadcast:false" in sign_test
