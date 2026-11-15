@@ -35,6 +35,33 @@ VELTRIX is a Solana-first, multi-chain token-intelligence and paper-trading rese
 | Devnet integration | Phantom + direct CPMM sign-only test | **Sign-only validation reported successful — PR #184 open** | No submission; resolve/record prior ALT-path KMS failure separately; release remains locked |
 | Stage 5 provider certification extension | Solana/Base/BSC liquidity, developer and launch evidence | **Incomplete — PRs #187/#189/#190 open** | Nine live read-only acceptance artifacts, registry/provider review and independent certification |
 
+
+## 1.1 Repository inventory and workflow audit
+
+A recursive Git tree was retrieved from the repository after the ledger commit. It was complete (GitHub reported `truncated=false`) and contained **213 tracked paths** at that tree:
+- 92 paths under `veltrix/` (including package directories and source modules);
+- 86 test files under `tests/`;
+- 12 documents under `docs/` (including this progress ledger);
+- 16 GitHub Actions workflow files under `.github/workflows/`;
+- root configuration, README and dependency files.
+
+The source tree contains the following major areas:
+- Core policy/foundation, agents, composite safety, provider capability/readiness, developer concentration/evidence, launch intelligence/origin/bundling, liquidity evidence and monitoring.
+- Provider adapters for DexScreener, Helius, Alchemy, GoPlus, signed developer roots, holder inventory and EVM/Solana liquidity readers.
+- Solana discovery, enrichment, market refresh, risk evidence, consensus, paper runtime and dashboard modules.
+- Jupiter quote/order preflight and Solana Devnet wallet preflight.
+- 86 tests covering the core pipeline, data provenance, provider adapters, safety gates, dashboard, paper ledger and preflight workflows.
+
+### Workflow trigger findings
+
+The main-branch Python CI workflow runs on pushes to `main` and `work/**`, pull requests and manual dispatch. It runs compileall and pytest. Its three live Solana smoke steps are branch-scoped and can be skipped; skipped provider tests do not count as live acceptance.
+
+The main branch also contains manual or narrowly triggered workflows for provider acceptance, liquidity acceptance, Raydium pool validation, Jupiter quote/unsigned-order preflight, Devnet wallet preflight, and Turso conformance. The liquidity workflow supports manual chain selection and can also run on selected file-path pushes. The Turso H3 workflow is manually dispatchable and path-triggered on main; it is not a recurring schedule.
+
+**No cron/scheduled trigger was found in the 16 main-branch workflow files inspected.** This is a repository workflow finding, not proof that no external scheduler exists. No repository secret/variable inventory was available through the connected GitHub tools, so configured credential presence remains **not checked**.
+
+The main-branch tree audit does not include unmerged files from PR branches. In particular, the Stage 5 developer/launch acceptance workflows in PR #187/#189 are not yet part of main.
+
 ## 2. Confirmed completed work
 
 The following stages are marked complete because their implementation PRs are merged and their stage documents record exit criteria and post-merge validation.
@@ -264,3 +291,4 @@ For every task:
 | Date (UTC) | Task | Branch / commit / PR | Result and evidence |
 |---|---|---|---|
 | 2026-11-15 | Initial repository-wide audit and progress baseline | `main` baseline `6158a5995c7f241a7c1ba56dc20161c3fd7e4fa2`; PR heads listed above | Inspected repository metadata, stage documentation, merged/open/closed PR inventory, exact-head CI runs and failure logs. No application source code changed in this audit. Initial ledger created. |
+| 2026-11-15 | Recursive source/test/workflow inventory | `main` ledger commit `d54e4881ec93f676312cb5f6175f5424f194b069`; tree complete at subsequent ledger revision | Confirmed 213 tracked paths: 92 `veltrix/`, 86 tests, 12 docs, 16 workflow files. Reviewed main CI and key manual acceptance/preflight workflow triggers. No cron trigger found in the inspected main workflows; external schedulers and secret presence remain not checked. |
