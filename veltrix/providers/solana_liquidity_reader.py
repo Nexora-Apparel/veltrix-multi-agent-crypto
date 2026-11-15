@@ -172,6 +172,21 @@ class SolanaRaydiumV4CpmmSnapshotReader:
             raise ProviderError("Solana account reads did not share one finalized slot")
         return value
 
+    def _get_optional_account(self, rpc, address, slot):
+        result = rpc.call("getAccountInfo", [
+            address, {"encoding": "base64", "commitment": "finalized",
+                      "minContextSlot": slot},
+        ])
+        actual_slot = self._context_slot(result, f"optional account {address}", slot)
+        return result.get("value")
+
+    def _get_optional_account_crosschecked(self, address, slot):
+        pool_value = self._get_optional_account(self.pool_rpc, address, slot)
+        locker_value = self._get_optional_account(self.locker_rpc, address, slot)
+        if pool_value != locker_value:
+            raise ProviderError("independent Solana RPCs disagree on optional finalized account state")
+        return locker_value
+
     def _get_account_crosschecked(self, address, slot):
         pool_value = self._get_account(self.pool_rpc, address, slot)
         locker_value = self._get_account(self.locker_rpc, address, slot)
@@ -546,6 +561,18 @@ class SolanaRaydiumV4CpmmSnapshotReader:
             self.associated_token_program,
         )
         if not records:
+            empty_vault = self._get_optional_account_crosschecked(str(vault), slot)
+            if empty_vault is None:
+                return str(vault), str(authority), 0, ()
+            if empty_vault.get("owner") != TOKEN_PROGRAM:
+                raise ProviderError("Raydium empty-lock LP vault is not owned by the classic SPL Token program")
+            empty_data = _decode_account_data(empty_vault, "Raydium empty-lock LP vault")
+            if (len(empty_data) != 165
+                    or str(Pubkey.from_bytes(empty_data[0:32])) != pool["lp_mint"]
+                    or str(Pubkey.from_bytes(empty_data[32:64])) != str(authority)
+                    or empty_data[108] != 1
+                    or struct.unpack_from("<Q", empty_data, 64)[0] != 0):
+                raise ProviderError("Raydium CPMM LP vault has unattributed custody without lock-state records")
             return str(vault), str(authority), 0, ()
         positions = []
         expected_custody = 0
@@ -567,7 +594,9 @@ class SolanaRaydiumV4CpmmSnapshotReader:
             custody_amount = record["locked_lp_amount"] + record["unclaimed_lp_amount"]
             expected_custody += custody_amount
             positions.append(record)
-        vault_value = self._get_account_crosschecked(str(vault), slot)
+        vault_value = self._get_optional_account_crosschecked(str(vault), slot)
+        if vault_value is None:
+            raise ProviderError("Raydium locked LP vault account is missing")
         if vault_value.get("owner") != TOKEN_PROGRAM:
             raise ProviderError("Raydium locked LP vault is not owned by the classic SPL Token program")
         vault_data = _decode_account_data(vault_value, "Raydium locked LP vault")
