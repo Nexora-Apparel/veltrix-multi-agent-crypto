@@ -116,6 +116,19 @@
     }
     return maximumMoveBps;
   }
+  function calculatePoolLiquidityUsd(inputAmount, solReserveRaw, usdcReserveRaw) {
+    const solReserve = Number(solReserveRaw.toString()) / 1e9;
+    const usdcReserve = Number(usdcReserveRaw.toString()) / 1e6;
+    const solPriceUsd = usdcReserve / solReserve;
+    const tradeSol = Number(inputAmount.toString()) / 1e9;
+    const liquidityUsd = solReserve * solPriceUsd + usdcReserve;
+    const tradeUsd = tradeSol * solPriceUsd;
+    if (![solReserve,usdcReserve,solPriceUsd,liquidityUsd,tradeUsd].every(Number.isFinite) ||
+        solReserve<=0 || usdcReserve<=0 || solPriceUsd<=0 || liquidityUsd<=0 || tradeUsd<=0) {
+      throw new Error("Pool liquidity USD normalization is unavailable or invalid.");
+    }
+    return {liquidityUsd,tradeUsd};
+  }
 
   function status(message, kind) {
     $("status").textContent = message;
@@ -1309,8 +1322,8 @@
     const pricing = await loadPricingEngine();
     const protectionBps = pricing.computeProtectionBps({
       quoteAgeMs: Date.now() - quoteCapturedAtMs, quoteTtlMs,
-      liquidityUsd: 1,
-      tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
+      liquidityUsd: liquidityMetrics.liquidityUsd,
+      tradeUsd: liquidityMetrics.tradeUsd,
       volatilityBps, routeHops: 1
     });
     const minimumOut = new BN(pricing.calculateMinimumOutput(swapResult.outputAmount.toString(), protectionBps));
@@ -1399,7 +1412,7 @@
       quotedAtMs: quoteCapturedAtMs, quoteTtlMs,
       inputMint: SOL, outputMint: USDC, inputAmountRaw: String(lamports),
       inputDecimals: 9, outputDecimals: 6, quotedOutputRaw: q.outputAmount,
-      liquidityUsd: 1, tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
+      liquidityUsd: liquidityMetrics.liquidityUsd, tradeUsd: liquidityMetrics.tradeUsd,
       volatilityBps, routeHops: 1,
       dexFee: {amountRaw: swapResult.tradeFee.toString(), currency: "SOL", disclosure: "trade fee returned by live CPMM quote; included in output calculation"},
       creatorFee: {amountRaw: swapResult.creatorFee.toString(), currency: creatorFeeOnInput ? "SOL" : "USDC", disclosure: "independent creator fee returned by live CPMM quote; included in output calculation"},
@@ -1520,6 +1533,7 @@
     const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
     const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
     const inputAmount=new BN(String(prepared.lamports));
+    const freshLiquidityMetrics=calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut);
     const freshResult=CurveCalculator.swapBaseInput(
       inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
       rpcData.configInfo.creatorFeeRate,rpcData.configInfo.protocolFeeRate,rpcData.configInfo.fundFeeRate,
@@ -1536,7 +1550,7 @@
       quotedAtMs: freshQuoteAtMs, quoteTtlMs: prepared.quoteSnapshot.expiresAtMs - prepared.quoteSnapshot.quotedAtMs,
       quotedOutputRaw: freshOutputRaw.toString(), inputAmountRaw: prepared.quote.inputAmount,
       inputMint: SOL, outputMint: USDC,
-      liquidityUsd: 1, tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
+      liquidityUsd: freshLiquidityMetrics.liquidityUsd, tradeUsd: freshLiquidityMetrics.tradeUsd,
       volatilityBps: freshVolatilityBps, routeHops: 1
     }, Date.now());
     if (freshness.action !== "continue_exact_review") {
