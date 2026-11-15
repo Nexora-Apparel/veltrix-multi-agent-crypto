@@ -108,3 +108,34 @@ def test_base_liquidity_factory_builder_rejects_conflicting_pinned_identity(monk
     )
     with pytest.raises(ValueError, match="conflicts with pinned registry identity"):
         build_liquidity_snapshot_providers(configured, chains=("base",))
+
+
+
+def test_funding_factory_builds_only_configured_chain_graph_providers():
+    from veltrix.providers.factory import build_funding_graph_providers
+    from veltrix.providers.alchemy_funding import AlchemyBaseFundingGraphProvider
+    from veltrix.providers.helius_funding import HeliusSolanaFundingGraphProvider
+    from veltrix.providers.etherscan_bsc_funding import EtherscanBscFundingGraphProvider
+
+    cfg = settings(
+        helius_api_key="helius-key", alchemy_api_key="alchemy-key",
+        etherscan_api_key="etherscan-key", bsc_rpc_url="https://bsc-rpc.example",
+        funding_graph_max_pages=10, funding_graph_max_wallets=100,
+        funding_graph_max_total_pages=100,
+    )
+    providers = build_funding_graph_providers(cfg)
+    assert isinstance(providers["solana"], HeliusSolanaFundingGraphProvider)
+    assert isinstance(providers["base"], AlchemyBaseFundingGraphProvider)
+    assert isinstance(providers["bsc"], EtherscanBscFundingGraphProvider)
+    assert set(providers) == {"solana", "base", "bsc"}
+
+
+def test_funding_factory_does_not_build_bsc_graph_without_rpc_or_api_key():
+    from veltrix.providers.factory import build_funding_graph_providers
+
+    assert "bsc" not in build_funding_graph_providers(settings(
+        etherscan_api_key="etherscan-key", bsc_rpc_url=""
+    ))
+    assert "bsc" not in build_funding_graph_providers(settings(
+        etherscan_api_key="", bsc_rpc_url="https://bsc-rpc.example"
+    ))
