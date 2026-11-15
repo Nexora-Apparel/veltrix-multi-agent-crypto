@@ -185,6 +185,9 @@
   async function refreshBalance() {
     if (!wallet) return;
     const lamports = await connection.getBalance(wallet, "confirmed");
+    if (!Number.isSafeInteger(lamports) || lamports < 0) {
+      throw new Error("RPC returned a SOL balance that JavaScript cannot represent exactly; refusing an imprecise funding check.");
+    }
     $("balance").textContent = (lamports / 1e9).toFixed(6) + " SOL";
     return lamports;
   }
@@ -826,7 +829,9 @@
     const seed=new TextDecoder().decode(create.data.slice(44,76));
     if (!/^[1-9A-HJ-NP-Za-km-z]{32}$/.test(seed)) fail("temporary WSOL account seed is malformed");
     const rentFunding=readU64(create.data,76);
-    if (rentFunding<=0n || rentFunding>5000000n) fail("temporary WSOL account rent funding outside cap");
+    if (rentFunding<decoded.amountIn || rentFunding-decoded.amountIn>5000000n) {
+      fail("temporary WSOL account funding does not equal the requested input plus a bounded rent reserve");
+    }
     if (initialize.data.length!==1 || initialize.data[0]!==1 ||
         initAccounts.join("|")!==[swapAccounts[4],SOL,wallet.toBase58(),"SysvarRent111111111111111111111111111111111"].join("|")) {
       fail("temporary WSOL InitializeAccount instruction mismatch");
@@ -1162,27 +1167,31 @@
     }
     const current = BigInt(await refreshBalance());
     if (current >= requiredBalanceLamports) return current;
-    // Devnet test SOL only: request the exact deficit plus a small fee cushion.
-    // This never requests funds on mainnet and does not sign with the user's wallet.
+    // Devnet faucet requests are chunked at 1 SOL per request. This is a
+    // faucet transport limit, not a swap-input limit. Wallets already funded
+    // for the transaction bypass the faucet entirely.
     const cushion = 10000000n;
-    const topUp = requiredBalanceLamports - current + cushion;
-    if (topUp > 1000000000n) {
-      throw new Error("Required Devnet faucet top-up exceeds the one-request limit. Reduce the test amount.");
-    }
-    status("Requesting Devnet test SOL from the public faucet…", "muted");
-    let signature;
-    try {
-      signature = await connection.requestAirdrop(wallet, Number(topUp));
-    } catch (error) {
-      throw new Error("Devnet faucet request failed: " + (error && error.message ? error.message : String(error)));
-    }
-    const confirmation = await connection.confirmTransaction(signature, "confirmed");
-    if (!confirmation || !confirmation.value || confirmation.value.err) {
-      throw new Error("Devnet faucet airdrop did not confirm. Faucet signature: " + signature);
-    }
-    const funded = BigInt(await refreshBalance());
-    if (funded < requiredBalanceLamports) {
-      throw new Error("Devnet faucet confirmed, but the wallet balance is still below the exact transaction funding amount. Faucet signature: " + signature);
+    let funded = current;
+    let lastSignature = null;
+    while (funded < requiredBalanceLamports) {
+      const deficit = requiredBalanceLamports - funded + cushion;
+      const topUp = deficit > 1000000000n ? 1000000000n : deficit;
+      status("Requesting Devnet test SOL from the public faucet (" + fmtFixedRaw(topUp,9) + " SOL)…", "muted");
+      try {
+        lastSignature = await connection.requestAirdrop(wallet, Number(topUp));
+      } catch (error) {
+        throw new Error("Devnet faucet could not supply the remaining test balance. Fund the connected Devnet wallet directly; the swap amount itself is not capped. " +
+          (error && error.message ? error.message : String(error)));
+      }
+      const confirmation = await connection.confirmTransaction(lastSignature, "confirmed");
+      if (!confirmation || !confirmation.value || confirmation.value.err) {
+        throw new Error("Devnet faucet airdrop did not confirm. Faucet signature: " + lastSignature);
+      }
+      const nextFunded = BigInt(await refreshBalance());
+      if (nextFunded <= funded) {
+        throw new Error("Devnet faucet confirmed without increasing the wallet balance. Faucet signature: " + lastSignature);
+      }
+      funded = nextFunded;
     }
     status("Devnet faucet funded the wallet. Continuing transaction preparation…", "good");
     return funded;
@@ -1421,9 +1430,9 @@
     const reviewedMinimum = BigInt(prepared.quote.otherAmountThreshold);
     const freshOutputRaw = BigInt(freshResult.outputAmount.toString());
     // The reviewed quote is a reference price, not an equality constraint.
-    // CPMM reserves can move between review and approval. The transaction's
-    // The user-configured minimum is the actual execution bound: permit market
-    // movement only while a fresh quote still clears that exact on-chain minimum.
+    // CPMM reserves can move between review and approval. The user-configured
+    // minimum is the actual execution bound: permit movement only while a fresh
+    // quote still clears that exact on-chain minimum.
     if (!Number.isFinite(freshImpact) || freshOutputRaw < reviewedMinimum) {
       invalidatePrepared("Fresh pool quote no longer clears the reviewed minimum output. Build a fresh transaction.");
       throw new Error("Pre-sign quote freshness check failed: fresh output=" + freshOutputRaw.toString() +
