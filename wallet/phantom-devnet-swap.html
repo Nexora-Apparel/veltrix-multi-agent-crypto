@@ -116,17 +116,17 @@
   function detectWalletCapabilities(p) {
     if(!p || typeof p.signAndSendTransaction!=="function") return {legacy:false,reason:"signAndSendTransaction unavailable"};
     const advertised=p.supportedTransactionVersions;
-    if(advertised instanceof Set) return {legacy:advertised.has("legacy"),source:"provider-advertised"};
-    if(Array.isArray(advertised)) return {legacy:advertised.includes("legacy"),source:"provider-advertised"};
-    if(advertised==null) return {legacy:true,source:"documented Phantom legacy Transaction API"};
-    return {legacy:false,reason:"unrecognized transaction-version capability declaration"};
+    if(advertised instanceof Set) return {legacy:advertised.has("legacy"),v0:advertised.has(0)||advertised.has("0"),source:"provider-advertised"};
+    if(Array.isArray(advertised)) return {legacy:advertised.includes("legacy"),v0:advertised.includes(0)||advertised.includes("0"),source:"provider-advertised"};
+    if(advertised==null) return {legacy:true,v0:false,source:"legacy fallback; v0 capability not advertised"};
+    return {legacy:false,v0:false,reason:"unrecognized transaction-version capability declaration"};
   }
   async function connect() {
     provider = getProvider();
     const result = await provider.connect();
     wallet = result.publicKey;
     walletCapabilities=detectWalletCapabilities(provider);
-    if(!walletCapabilities.legacy) throw new Error("Connected wallet does not expose the required legacy transaction capability. No transaction will be built.");
+    if(!walletCapabilities.legacy&&!walletCapabilities.v0) throw new Error("Connected Phantom wallet exposes no supported transaction version.");
     const genesis = await connection.getGenesisHash();
     if (genesis !== GENESIS) throw new Error("RPC is not canonical Solana Devnet. Signing disabled.");
     $("wallet").textContent = wallet.toBase58();
@@ -1158,33 +1158,46 @@
     if (minimumOut.lte(new BN(0))) throw new Error("Computed 1% slippage floor is zero.");
 
     const built=await raydium.cpmm.swap({
-      poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.LEGACY,
+      poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,
+      txVersion:walletCapabilities.v0?TxVersion.V0:TxVersion.LEGACY,
       ownerInfo:{wallet,useSOLBalance:true}
     });
     if (!built || !built.transaction || typeof built.transaction.serialize!=="function") {
       throw new Error("Raydium SDK did not return a serializable direct CPMM transaction.");
     }
-    if(!built.transaction || typeof built.transaction.serialize!=="function" ||
-       typeof built.transaction.compileMessage!=="function" || typeof built.transaction.setSigners!=="function") {
-      fail("Raydium SDK did not return a serializable legacy transaction");
+    if(!built.transaction || typeof built.transaction.serialize!=="function") {
+      fail("Raydium SDK did not return a serializable transaction");
     }
-    const freshBlockhash=await connection.getLatestBlockhash("confirmed");
-    built.transaction.feePayer=wallet;
-    built.transaction.recentBlockhash=freshBlockhash.blockhash;
-    const sdkMessage=built.transaction.compileMessage();
-    if(sdkMessage.header.numRequiredSignatures!==1 || !sdkMessage.accountKeys[0].equals(wallet)) {
-      fail("SDK transaction requires an unexpected signer or fee payer");
-    }
-    if(built.transaction.signatures.some(item=>item.signature!==null)) fail("SDK unexpectedly returned a signed transaction");
-    built.transaction.setSigners(wallet);
     let tx;
-    try {
-      const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
-      tx=solanaWeb3.Transaction.from(sdkBytes);
-    } catch { fail("Raydium SDK did not return an ALT-free legacy transaction"); }
+    if(walletCapabilities.v0) {
+      if(!(built.transaction instanceof solanaWeb3.VersionedTransaction)||built.transaction.message.version!==0) {
+        fail("Phantom advertised v0 support but the SDK did not return a v0 transaction");
+      }
+      tx=built.transaction;
+      assertUnsignedSingleSigner(tx);
+    } else {
+      if(typeof built.transaction.compileMessage!=="function"||typeof built.transaction.setSigners!=="function") {
+        fail("Raydium SDK did not return a compatible legacy transaction");
+      }
+      const freshBlockhash=await connection.getLatestBlockhash("confirmed");
+      built.transaction.feePayer=wallet;
+      built.transaction.recentBlockhash=freshBlockhash.blockhash;
+      const sdkMessage=built.transaction.compileMessage();
+      if(sdkMessage.header.numRequiredSignatures!==1||!sdkMessage.accountKeys[0].equals(wallet)) {
+        fail("SDK transaction requires an unexpected signer or fee payer");
+      }
+      if(built.transaction.signatures.some(item=>item.signature!==null)) fail("SDK unexpectedly returned a signed transaction");
+      built.transaction.setSigners(wallet);
+      try {
+        const sdkBytes=Uint8Array.from(built.transaction.serialize({requireAllSignatures:false,verifySignatures:false}));
+        tx=solanaWeb3.Transaction.from(sdkBytes);
+      } catch { fail("Raydium SDK did not return a compatible legacy transaction"); }
+      assertUnsignedSingleSigner(tx);
+    }
     const message=normalizedTransactionMessage(tx);
-    assertUnsignedSingleSigner(tx);
-    if(message.addressTableLookups.length!==0||message.staticAccountKeys.length>32) fail("SDK legacy account layout exceeds policy");
+    if(message.header.numRequiredSignatures!==1||!message.staticAccountKeys[0].equals(wallet)) {
+      fail("SDK transaction fee payer or signer policy mismatch");
+    }
     const cpmmIndex=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
     if(cpmmIndex<0) fail("SDK-built transaction does not contain a direct CPMM instruction");
     const cpmmData=new Uint8Array(tx.instructions[cpmmIndex].data);
@@ -1209,7 +1222,8 @@
        semanticAudit.runtime.adversarialRejected!==true) {
       fail("fresh direct CPMM browser semantic audit did not pass all release checks");
     }
-    const fee=await connection.getFeeForMessage(tx.compileMessage(),"confirmed");
+    const fee=await connection.getFeeForMessage(
+      tx instanceof solanaWeb3.VersionedTransaction?tx.message:tx.compileMessage(),"confirmed");
     if (!fee || !Number.isSafeInteger(fee.value) || fee.value < 0) {
       throw new Error("Network fee estimate is unavailable or invalid; transaction preparation fails closed.");
     }
