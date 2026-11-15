@@ -68,7 +68,7 @@ def test_phantom_submission_is_one_shot_and_never_automatically_retried():
 
 def test_unsigned_transactions_are_checked_and_simulated_before_signing():
     source = PAGE.read_text(encoding="utf-8")
-    assert "numRequiredSignatures !== 1" in source
+    assert "numRequiredSignatures!==1" in source
     assert "simulateTransaction" in source
     assert "fee payer" in source.lower()
     assert "canonical Devnet" in source
@@ -133,8 +133,11 @@ def test_browser_semantic_verifier_has_no_signing_bypass():
 
 def test_browser_v0_decoder_resolves_canonical_devnet_alt_and_privileges():
     source = PAGE.read_text(encoding="utf-8")
-    assert "AddressLookupTableAccount.deserialize(data)" in source
-    assert "AddressLookupTab1e1111111111111111111111111" in source
+    assert "AddressLookupTableAccount.deserialize(accountDataBytes(info" in source
+    assert "AddressLookupTab1e1111111111111111111111" in source
+    assert "message.addressTableLookups.length>32" in source
+    assert "duplicate address lookup table reference" in source
+    assert "tableKey !== ALT_ADDRESS" not in source
     assert "getGenesisHash" in source
     assert 'commitment:"finalized"' in source
     assert "lastExtendedSlot" in source
@@ -371,8 +374,11 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "address_lookup_tables:[]" in builder
     assert "TxVersion.LEGACY" in page
     assert "resolveLegacyAccounts(message)" in page
-    assert "only ALT-free legacy transactions are accepted" in page
-    assert "legacy transaction contains address lookup tables" in page
+    assert "only legacy or v0 Phantom transactions are supported" in page
+    assert "resolveV0Accounts(message)" in page
+    assert "duplicate public key in resolved v0 account set" in page
+    assert "legacy transaction unexpectedly references address lookup tables" in page
+    assert "provider.signAndSendTransaction(finalTx,connection" in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
 
@@ -383,8 +389,10 @@ def test_wallet_capability_adapter_requires_legacy_before_quote_and_approval():
     assert 'advertised.has("legacy")' in source
     assert 'advertised.includes("legacy")' in source
     assert "walletCapabilities=detectWalletCapabilities(provider)" in source
-    assert "No transaction will be built." in source
-    assert "required legacy transaction format; signing is blocked" in source
+    assert 'advertised.has(0)||advertised.has("0")' in source
+    assert 'advertised.includes(0)||advertised.includes("0")' in source
+    assert "preparedIsV0?!walletCapabilities.v0:!walletCapabilities.legacy" in source
+    assert "Connected Phantom wallet exposes no supported transaction version." in source
 
 
 
