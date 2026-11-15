@@ -229,3 +229,47 @@ def test_base_uncx_v21_candidate_matches_current_official_deployment():
     assert EVM_LOCKER_CANDIDATES["base"]["uncx-univ2-v2"]["address"] == (
         "0xc4E637D37113192F4F1F060DaEbD7758De7F4131"
     )
+
+
+
+def test_permanent_lock_uses_locked_principal_not_claimable_lp_fees():
+    digest = SOLANA_UNCX_PROGRAM_CANDIDATES["raydium-amm-v4"]["published_executable_sha256"]
+    raydium_program = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE"
+    deployment = LockerDeployment(
+        chain="solana", provider="solana-locker-reader", address=raydium_program,
+        abi_profile="raydium-burn-and-earn-locked-cp-liquidity-state-v1",
+        expected_code_hash=digest, source_ref="https://github.com/raydium-io/raydium-cpi",
+        independence_group="raydium-locker", program_executable_hash=digest,
+        observed_code_hash=digest, custody_authority=SOLANA_AUTHORITY,
+    )
+    pool = PoolLiquiditySnapshot(
+        chain="solana", token_address=SOLANA_MINT, pool_address=SOLANA_POOL,
+        lp_token_address=SOLANA_LP, total_lp_supply=1000,
+        observed_at_ms=NOW - 100, finalized_ref="slot:900",
+        inventory_provider="solana-pool-indexer", inventory_complete=True,
+        pool_set_id="mint-pools-v1", locker_custody_amount=500,
+    )
+    position = LockerPositionSnapshot(
+        chain="solana", pool_address=SOLANA_POOL, lp_token_address=SOLANA_LP,
+        locker_address=raydium_program, position_id="locked-state-pda",
+        amount=500, unlock_at_ms=None, observed_at_ms=NOW - 100,
+        owner="OwnerWallet111111111111111111111111111",
+        evidence_ref="slot:900:locked-state", account_owner=raydium_program,
+        custody_account="CustodyTokenAccount111111111111111111111",
+        custody_authority=SOLANA_AUTHORITY, custody_token_mint=SOLANA_LP,
+        custody_account_owner=TOKEN_PROGRAM, finalized_ref="slot:900",
+        permanent=True, locked_amount=400,
+    )
+    batch = LiquidityInventoryBatch(
+        chain="solana", token_address=SOLANA_MINT, provider="solana-pool-indexer",
+        observed_at_ms=NOW - 100, finalized_ref="slot:900",
+        pool_set_id="mint-pools-v1", inventory_complete=True,
+        independence_group="independent-pool-indexer", pools=(pool,),
+        positions=(position,), deployments=(deployment,),
+    )
+    report = LiquidityEvidenceAnalyzer().evaluate(
+        batch, chain="solana", token_address=SOLANA_MINT, now_ms=NOW,
+    )
+    assert report.active_locked_pct == 40.0
+    assert not report.passed
+    assert any("at least one discovered pool" in reason for reason in report.reasons)
