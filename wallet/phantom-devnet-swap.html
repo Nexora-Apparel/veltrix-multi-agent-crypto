@@ -32,9 +32,7 @@
   <section class="panel">
     <label for="amount">Swap amount (SOL)</label>
     <input id="amount" inputmode="decimal" value="0.001" autocomplete="off">
-    <label for="slippage">Maximum slippage (%)</label>
-    <input id="slippage" inputmode="decimal" type="number" min="0" max="99.99" step="0.01" value="1.00" autocomplete="off">
-    <div class="tiny">Enter any positive SOL amount supported by your wallet and the pool. Slippage is configurable from 0% to 99.99%. Price impact is displayed for information; there is no universal 2% rejection threshold. Devnet only.</div>
+    <div class="tiny">Protection is calculated automatically from quote age, pool liquidity, observed short-window volatility and route complexity. If the quote expires or moves beyond the reviewed minimum, the transaction is invalidated and must be reviewed again. Devnet only.</div>
     <button id="quote" class="secondary" disabled>Get fresh quote</button>
   </section>
   <section class="panel hidden" id="review">
@@ -45,12 +43,16 @@
     <div class="row"><span>Quoted output (raw units)</span><span class="value" id="outputRawValue">—</span></div>
     <div class="row"><span>Minimum output</span><span class="value" id="minimumValue">—</span></div>
     <div class="row"><span>Minimum output (raw units)</span><span class="value" id="minimumRawValue">—</span></div>
-    <div class="row"><span>Slippage floor</span><span class="value" id="slippageValue">—</span></div>
+    <div class="row"><span>Automatic execution protection</span><span class="value" id="protectionValue">—</span></div>
+    <div class="row"><span>Quote expires</span><span class="value" id="quoteExpiryValue">—</span></div>
     <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
     <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
     <div class="row"><span>Transaction format</span><strong class="value" id="transactionFormatValue">—</strong></div>
     <div class="row"><span>Address lookup tables</span><span class="value" id="lookupTablesValue">—</span></div>
     <div class="row"><span>Resolved account keys</span><span class="value" id="resolvedAccountsValue">—</span></div>
+    <div class="row"><span>DEX pool fee (included in quote)</span><span class="value" id="dexFeeValue">—</span></div>
+    <div class="row"><span>Route fee</span><span class="value" id="routeFeeValue">—</span></div>
+    <div class="row"><span>Veltrix platform fee</span><span class="value" id="platformFeeValue">—</span></div>
     <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
     <div class="row"><span>USDC token account</span><span class="value" id="usdcAccountStatusValue">—</span></div>
     <div class="row"><span>USDC account rent (one-time)</span><span class="value" id="ataRentValue">—</span></div>
@@ -88,6 +90,31 @@
   const $ = id => document.getElementById(id);
   const connection = new solanaWeb3.Connection(RPC, "confirmed");
   let provider = null, wallet = null, prepared = null, busy = false, directSdkPromise = null, walletCapabilities = null;
+  let pricingEnginePromise = null;
+  function loadPricingEngine() {
+    if (!pricingEnginePromise) pricingEnginePromise = import("./automatic-exchange-pricing.mjs");
+    return pricingEnginePromise;
+  }
+  async function measurePoolVolatilityBps(raydium, baseIn) {
+    const prices = [];
+    for (let i = 0; i < 3; i++) {
+      if (i) await new Promise(resolve => setTimeout(resolve, 400));
+      const sample = await raydium.cpmm.getPoolInfoFromRpc(POOL);
+      if (sample.poolInfo.id !== POOL || sample.poolInfo.programId !== CPMM) {
+        throw new Error("Volatility sample pool identity changed.");
+      }
+      const inputReserve = baseIn ? sample.rpcData.baseReserve : sample.rpcData.quoteReserve;
+      const outputReserve = baseIn ? sample.rpcData.quoteReserve : sample.rpcData.baseReserve;
+      const price = Number(outputReserve.toString()) / Number(inputReserve.toString());
+      if (!Number.isFinite(price) || price <= 0) throw new Error("Pool volatility sample is invalid.");
+      prices.push(price);
+    }
+    let maximumMoveBps = 0;
+    for (let i = 1; i < prices.length; i++) {
+      maximumMoveBps = Math.max(maximumMoveBps, Math.ceil(Math.abs(prices[i] - prices[i-1]) / prices[i-1] * 10000));
+    }
+    return maximumMoveBps;
+  }
 
   function status(message, kind) {
     $("status").textContent = message;
@@ -113,20 +140,12 @@
     if (lamports <= 0n || lamports > U64_MAX) throw new Error("SOL input must be greater than zero and fit Solana's u64 lamport amount.");
     return lamports;
   }
-  function parseSlippageBps(value) {
-    const match = /^(0|[1-9][0-9]?)(?:\.([0-9]{1,2}))?$/.exec(String(value).trim());
-    if (!match) throw new Error("Slippage must be between 0 and 99.99%, with at most 2 decimal places.");
-    const bps = BigInt(match[1]) * 100n + BigInt((match[2] || "").padEnd(2,"0") || "0");
-    if (bps >= 10000n) throw new Error("Slippage must be below 100% so the minimum output remains positive.");
-    return Number(bps);
-  }
   function setBusy(value) {
     busy = value;
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
     $("execute").disabled = value || !prepared || !!prepared.executionStarted;
     $("amount").disabled = value;
-    $("slippage").disabled = value;
   }
   function getProvider() {
     const p = window.phantom && window.phantom.solana ? window.phantom.solana : window.solana;
@@ -1221,7 +1240,8 @@
     if (!wallet) throw new Error("Connect Phantom first.");
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
     const lamports = parseSolAmountToLamports($("amount").value);
-    const slippageBps = parseSlippageBps($("slippage").value);
+    const quoteCapturedAtMs = Date.now();
+    const quoteTtlMs = 15000;
     // Fund the requested input plus a bounded rent/fee cushion before the SDK
     // creates a blockhash. Any faucet activity therefore precedes transaction
     // construction and cannot stale the reviewed message.
@@ -1246,6 +1266,7 @@
     const mintA=poolInfo.mintA.address, mintB=poolInfo.mintB.address;
     if (![mintA,mintB].includes(SOL) || ![mintA,mintB].includes(USDC)) throw new Error("Pinned CPMM pool mint pair is not WSOL/Devnet USDC.");
     const baseIn=mintA===SOL;
+    const volatilityBps = await measurePoolVolatilityBps(raydium, baseIn);
     const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
     const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
     const inputAmount=new BN(String(lamports));
@@ -1258,13 +1279,20 @@
     const spotOutput=inputAmount.mul(reserveOut).div(reserveIn);
     const impact=Number(spotOutput.sub(swapResult.outputAmount).toString())/Number(spotOutput.toString())*100;
     if (!Number.isFinite(impact)) throw new Error("Direct CPMM price impact could not be calculated.");
-    const minimumOut=swapResult.outputAmount.mul(new BN(String(10000-slippageBps))).div(new BN(10000));
+    const pricing = await loadPricingEngine();
+    const protectionBps = pricing.computeProtectionBps({
+      quoteAgeMs: Date.now() - quoteCapturedAtMs, quoteTtlMs,
+      liquidityUsd: 1,
+      tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
+      volatilityBps, routeHops: 1
+    });
+    const minimumOut = new BN(pricing.calculateMinimumOutput(swapResult.outputAmount.toString(), protectionBps));
     if (minimumOut.lte(new BN(0)) || minimumOut.gt(swapResult.outputAmount)) {
       throw new Error("Configured slippage produces an invalid minimum output.");
     }
 
     const built=await raydium.cpmm.swap({
-      poolInfo,poolKeys,inputAmount,swapResult,slippage:slippageBps/10000,baseIn,
+      poolInfo,poolKeys,inputAmount,swapResult,slippage:protectionBps/10000,baseIn,
       txVersion:TxVersion.LEGACY,
       ownerInfo:{wallet,useSOLBalance:true}
     });
@@ -1308,10 +1336,10 @@
        readU64(cpmmData,8)!==BigInt(lamports)) fail("SDK CPMM instruction discriminator/input mismatch");
     const q={inputMint:SOL,outputMint:USDC,inputAmount:String(lamports),
       outputAmount:swapResult.outputAmount.toString(),otherAmountThreshold:"0",
-      priceImpactPct:impact,slippageBps,routePlan:[{poolId:POOL}]};
-    // Encode the user's configured minimum directly into the CPMM instruction.
+      priceImpactPct:impact,protectionBps,routePlan:[{poolId:POOL}]};
+    // Encode the automatically calculated execution-protection minimum directly into the CPMM instruction.
     const quotedRawCanonical=BigInt(q.outputAmount);
-    const minimumRawCanonical=quotedRawCanonical*BigInt(10000-slippageBps)/10000n;
+    const minimumRawCanonical=BigInt(pricing.calculateMinimumOutput(q.outputAmount, protectionBps));
     if(minimumRawCanonical<=0n || minimumRawCanonical>quotedRawCanonical) {
       fail("configured slippage produces an invalid minimum output");
     }
@@ -1339,25 +1367,41 @@
     if(fundedBalanceLamports<requiredBalanceLamports) {
       throw new Error("Wallet balance is below the exact rent and network-fee requirement after transaction construction. Build a fresh quote after funding; nothing has been signed or sent.");
     }
-    prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
+    const quoteSnapshot = await pricing.createQuoteSnapshot({
+      quoteId: POOL + ":" + freshBlockhash.blockhash,
+      quotedAtMs: quoteCapturedAtMs, quoteTtlMs,
+      inputMint: SOL, outputMint: USDC, inputAmountRaw: String(lamports),
+      quotedOutputRaw: q.outputAmount,
+      liquidityUsd: 1, tradeUsd: Number(inputAmount.toString()) / Number(reserveIn.toString()),
+      volatilityBps, routeHops: 1,
+      dexFee: {amountRaw: inputAmount.mul(new BN(String(rpcData.configInfo.tradeFeeRate))).div(new BN("1000000")).toString(), currency: "SOL", disclosure: "pool fee calculated from live CPMM configuration; included in quote"},
+      routeFee: {amountRaw: "0", currency: "USDC", disclosure: "direct single-pool route; no separate route fee"},
+      networkFeeLamports: String(totalFee),
+      platformFeeConfig: {enabled: false}
+    }, Date.now());
+    if (quoteSnapshot.minimumOutputRaw !== q.otherAmountThreshold) fail("sealed quote minimum differs from the exact CPMM instruction minimum");
+    prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,quoteSnapshot,impact,lamports,totalFee,
       outputAtaPresent:semanticAudit.runtime.outputAtaPresent,
       persistentAtaRentLamports:persistentAtaRentLamports.toString(),
       temporaryWsolFundingLamports:temporaryWsolFundingLamports.toString(),
       totalDebitLamports:totalDebitLamports.toString(),
       requiredBalanceLamports:requiredBalanceLamports.toString(),
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
-      preparedAt:Date.now(),walletAddress:wallet.toBase58(),slippageBps,semanticAudit};
+      preparedAt:Date.now(),walletAddress:wallet.toBase58(),protectionBps,semanticAudit};
     $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
     const quotedRaw=BigInt(q.outputAmount);
     const minimumRaw=BigInt(q.otherAmountThreshold);
     if(minimumRaw<=0n || minimumRaw>quotedRaw) fail("minimum output must be positive and cannot exceed the quoted output");
-    const expectedFloor=quotedRaw*BigInt(10000-slippageBps)/10000n;
-    if(minimumRaw!==expectedFloor) fail("minimum output does not match configured slippage (quoted_raw="+quotedRaw.toString()+", minimum_raw="+minimumRaw.toString()+", slippage_bps="+slippageBps+", expected_minimum_raw="+expectedFloor.toString()+").");
+    if(minimumRaw!==BigInt(quoteSnapshot.minimumOutputRaw)) fail("minimum output does not match the sealed automatic protection policy.");
     $("outputValue").textContent=fmtFixedRaw(quotedRaw,6)+" USDC";
     $("outputRawValue").textContent=quotedRaw.toString()+" raw units";
     $("minimumValue").textContent=fmtFixedRaw(minimumRaw,6)+" USDC";
     $("minimumRawValue").textContent=minimumRaw.toString()+" raw units";
-    $("slippageValue").textContent=slippageBps+" bps ("+(slippageBps/100).toFixed(2)+"%)";
+    $("protectionValue").textContent=protectionBps+" bps (automatic)";
+    $("quoteExpiryValue").textContent=new Date(quoteSnapshot.expiresAtMs).toLocaleTimeString();
+    $("dexFeeValue").textContent=fmtRaw(quoteSnapshot.fees.dex.amountRaw,9)+" SOL (embedded in quote)";
+    $("routeFeeValue").textContent="0 USDC (direct single pool)";
+    $("platformFeeValue").textContent="0 (not configured; no recipient or transfer)";
     $("impactValue").textContent=impact.toFixed(3)+"%";
     $("poolsValue").textContent="1 direct CPMM pool";
     $("transactionFormatValue").textContent=tx instanceof solanaWeb3.VersionedTransaction?"Versioned v0":"Legacy";
@@ -1451,6 +1495,16 @@
     const freshImpact=Number(freshSpot.sub(freshResult.outputAmount).toString())/Number(freshSpot.toString())*100;
     const reviewedMinimum = BigInt(prepared.quote.otherAmountThreshold);
     const freshOutputRaw = BigInt(freshResult.outputAmount.toString());
+    const pricing = await loadPricingEngine();
+    const freshness = pricing.evaluateFreshQuote(prepared.quoteSnapshot, {
+      quotedAtMs: Date.now(), quoteTtlMs: prepared.quoteSnapshot.expiresAtMs - prepared.quoteSnapshot.quotedAtMs,
+      quotedOutputRaw: freshOutputRaw.toString(), inputAmountRaw: prepared.quote.inputAmount,
+      inputMint: SOL, outputMint: USDC
+    }, Date.now());
+    if (freshness.action !== "continue_exact_review") {
+      invalidatePrepared("Quote protection requires a fresh quote and a new review: " + freshness.reason);
+      throw new Error("Pre-sign quote freshness check failed: " + freshness.reason);
+    }
     // The reviewed quote is a reference price, not an equality constraint.
     // CPMM reserves can move between review and approval. The user-configured
     // minimum is the actual execution bound: permit movement only while a fresh
@@ -1623,7 +1677,7 @@
       detectWalletCapabilities,assertSignedMessageUnchanged,
       validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
-      parseSolAmountToLamports,parseSlippageBps,
+      parseSolAmountToLamports,
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,ALT_PROGRAM,U64_MAX}
     };
@@ -1646,9 +1700,6 @@
   }
   $("amount").addEventListener("input", () => {
     if (prepared) invalidatePrepared("Amount changed. Request a new quote; the previous review was invalidated.");
-  });
-  $("slippage").addEventListener("input", () => {
-    if (prepared) invalidatePrepared("Slippage changed. Request a new quote; the previous review was invalidated.");
   });
   $("connect").addEventListener("click", async () => {
     setBusy(true); try { await connect(); } catch(e) { status(e.message || String(e),"warning"); } finally { setBusy(false); }
