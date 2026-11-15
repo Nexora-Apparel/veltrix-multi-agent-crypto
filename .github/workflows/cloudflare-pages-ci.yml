@@ -36,6 +36,8 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run dashboard API security tests
         run: npm test
+      - name: Syntax-check production token verifier
+        run: node --check scripts/verify-turso-readonly-token.mjs
       - name: Validate Wrangler production deployment commands
         shell: bash
         run: |
