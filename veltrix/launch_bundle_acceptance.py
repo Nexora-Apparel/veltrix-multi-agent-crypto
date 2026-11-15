@@ -32,7 +32,9 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
     )
     if (origin.complete is not True or origin.chain != chain
             or not _same_token(chain, origin.token_address, token_address)
-            or not origin.evidence_id or origin.window_end_ms > now_ms):
+            or not origin.evidence_id
+            or origin.window_end_ms != origin.launch_at_ms + settings.launch_window_ms
+            or origin.window_end_ms > now_ms):
         raise ValueError("Launch-origin evidence is incomplete or not token-bound")
     trusted_origins = frozenset(settings.trusted_launch_origin_providers)
     origin_trusted = origin.provider in trusted_origins
@@ -64,8 +66,13 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
         rejected.append("launch indexer returned a different chain or token")
     if batch.launch_at_ms != origin.launch_at_ms or batch.window_end_ms != origin.window_end_ms:
         rejected.append("launch indexer window differs from verified launch origin")
-    if batch.scanned_through_ms < batch.window_end_ms:
+    if (not isinstance(batch.scanned_through_ms, int)
+            or isinstance(batch.scanned_through_ms, bool)
+            or batch.scanned_through_ms < batch.window_end_ms):
         rejected.append("launch indexer did not reach the requested window end")
+    if (not isinstance(batch.pages_scanned, int)
+            or isinstance(batch.pages_scanned, bool) or batch.pages_scanned < 1):
+        rejected.append("launch indexer page coverage is missing or invalid")
     if batch.supply_source != batch.provider or not batch.supply_block_ref:
         rejected.append("historical launch-time supply provenance is missing")
     if (not isinstance(batch.supply_observed_at_ms, int)
