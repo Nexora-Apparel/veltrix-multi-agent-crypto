@@ -275,7 +275,10 @@ maliciousAugmentation.add(new TransactionInstruction({programId:new PublicKey(ho
 assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(maliciousAugmentation)).length>0,
   "non-ComputeBudget instruction injection must still fail semantic reconciliation");
 const semanticResult=await hooks.reconcileConfirmedTransaction({
-  meta:{err:null},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
+  meta:{err:null,
+    preTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"0"}}],
+    postTokenBalances:[{mint:hooks.constants.USDC,owner:artifact.wallet,uiTokenAmount:{amount:"2411"}}]},
+  transaction:{signatures:["test-signature"],message:semanticallySameMessage}
 },reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"});
 assert.equal(semanticResult.status,"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH");
 assert.equal(semanticResult.diagnostics.reviewedMessageSha256,"preapproval-test-sha256");
