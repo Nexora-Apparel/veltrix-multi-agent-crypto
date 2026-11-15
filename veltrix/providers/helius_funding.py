@@ -96,7 +96,10 @@ class HeliusSolanaFundingGraphProvider:
                 if previous_order is not None and order < previous_order:
                     raise ProviderError("Helius transfer history is not in ascending chain order")
                 previous_order = order
-                if kind not in {"transfer", "transferFee"}:
+                # transferFee is a withheld-fee accounting row, not a new
+                # wallet-to-wallet funding event. Mints, burns, wraps and
+                # unwraps are likewise excluded from first-funder ancestry.
+                if kind != "transfer":
                     continue
                 if recipient != wallet:
                     raise ProviderError("Helius inbound transfer is attributed to another recipient")
