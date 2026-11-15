@@ -91,12 +91,24 @@ pass "running process UIDs, GIDs and supplementary group boundaries match"
 
 [[ -f "$DB" ]] || fail "database file not found: $DB"
 [[ -f "$PAPER_ENV" && -f "$DASHBOARD_ENV" ]] || fail "service environment files are missing"
+DB_DIR="$(dirname "$DB")"
+[[ ! -L "$DB_DIR" && "$(readlink -f "$DB_DIR")" == "$DB_DIR" ]] \
+  || fail "database directory must be a real canonical directory, not a symlink"
+[[ ! -L "$DB" ]] || fail "database file must not be a symlink"
+[[ ! -L "$PAPER_ENV" && ! -L "$DASHBOARD_ENV" ]] \
+  || fail "service environment files must not be symlinks"
 
 # Verify DAC permissions outside the dashboard's read-only mount namespace.
-[[ "$(stat -c '%U:%G' "$DB")" == "veltrix-paper:veltrix-db" ]] \
-  || fail "database owner/group must be veltrix-paper:veltrix-db"
-[[ "$(stat -c '%a' "$DB")" == "640" ]] \
-  || fail "database mode must be 0640 (paper owner writable; db group read-only)"
+[[ "$(stat -c '%U:%G:%a' "$DB_DIR")" == "veltrix-paper:veltrix-db:2750" ]] \
+  || fail "database directory must be veltrix-paper:veltrix-db mode 2750"
+[[ "$(stat -c '%U:%G:%a' "$DB")" == "veltrix-paper:veltrix-db:640" ]] \
+  || fail "database must be veltrix-paper:veltrix-db mode 0640"
+runuser -u veltrix-paper -- test -r "$DB" \
+  || fail "paper DAC permissions do not allow database read"
+runuser -u veltrix-paper -- test -w "$DB" \
+  || fail "paper DAC permissions do not allow database write"
+runuser -u veltrix-paper -- test -w "$DB_DIR" \
+  || fail "paper DAC permissions do not allow database-directory write"
 runuser -u veltrix-dashboard -- test -r "$DB" \
   || fail "dashboard DAC permissions do not allow database read"
 runuser -u veltrix-dashboard -- test ! -w "$DB" \
@@ -105,8 +117,9 @@ runuser -u veltrix-dashboard -- test ! -w "$(dirname "$DB")" \
   || fail "dashboard DAC permissions allow database-directory write outside its mount namespace"
 for suffix in -wal -shm; do
   if [[ -e "$DB$suffix" ]]; then
-    [[ "$(stat -c '%a' "$DB$suffix")" == "640" ]] \
-      || fail "SQLite sidecar $suffix mode must be 0640"
+    [[ ! -L "$DB$suffix" ]] || fail "SQLite sidecar $suffix must not be a symlink"
+    [[ "$(stat -c '%U:%G:%a' "$DB$suffix")" == "veltrix-paper:veltrix-db:640" ]] \
+      || fail "SQLite sidecar $suffix must be veltrix-paper:veltrix-db mode 0640"
     runuser -u veltrix-dashboard -- test -r "$DB$suffix" \
       || fail "dashboard DAC permissions do not allow sidecar $suffix read"
     runuser -u veltrix-dashboard -- test ! -w "$DB$suffix" \
