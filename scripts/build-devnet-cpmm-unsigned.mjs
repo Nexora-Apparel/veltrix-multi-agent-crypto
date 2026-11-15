@@ -99,10 +99,16 @@ async function main() {
     Number(spotOutput.toString()) * 100;
   if (!Number.isFinite(priceImpactPct)) fail("pool price impact could not be calculated");
   // Protection is derived internally from quote age, pool depth, observed short-window volatility and route complexity.
+  const solReserveUi=Number(reserveIn.toString())/1e9;
+  const usdcReserveUi=Number(reserveOut.toString())/1e6;
+  const solPriceUsd=usdcReserveUi/solReserveUi;
+  const liquidityUsd=solReserveUi*solPriceUsd+usdcReserveUi;
+  const tradeUsd=(Number(INPUT.toString())/1e9)*solPriceUsd;
+  if(![solReserveUi,usdcReserveUi,solPriceUsd,liquidityUsd,tradeUsd].every(Number.isFinite)||
+     solReserveUi<=0||usdcReserveUi<=0||solPriceUsd<=0||liquidityUsd<=0||tradeUsd<=0) fail("pool liquidity USD normalization unavailable");
   const protectionBps=computeProtectionBps({
     quoteAgeMs:Date.now()-quoteCapturedAtMs,quoteTtlMs:15000,
-    liquidityUsd:1,tradeUsd:Number(INPUT.toString())/Number(reserveIn.toString()),
-    volatilityBps,routeHops:1
+    liquidityUsd,tradeUsd,volatilityBps,routeHops:1
   });
   const minOut = new BN(calculateMinimumOutput(swapResult.outputAmount.toString(),protectionBps));
   if (minOut.lte(new BN(0))) fail("automatic protection produces a zero minimum output");
@@ -198,7 +204,8 @@ async function main() {
     route_fee_raw:"0",platform_fee_raw:"0",platform_fee_enabled:false,
     network_fee_lamports:String(feeEstimate.value),
     price_impact_pct:priceImpactPct,
-    protection_bps:protectionBps,volatility_bps:volatilityBps,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
+    protection_bps:protectionBps,volatility_bps:volatilityBps,
+    pool_liquidity_usd:liquidityUsd,trade_usd:tradeUsd,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
     unsigned_transaction_base64:Buffer.from(serialized).toString("base64"),
     static_account_keys:keys,instructions:ixSummary,
     address_lookup_tables:[],
