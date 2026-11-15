@@ -1,6 +1,7 @@
 """Read-only coordinator for primary and secondary Solana discovery feeds."""
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -74,36 +75,7 @@ class SolanaDiscoveryEngine:
             return DiscoveryCycleResult(0, 0, (), ((self.secondary_source.name, reason),))
 
         timestamp = self.clock_ms()
-<<<<<<< origin/main
-        for source in batch.successful_sources:
-            self.store.record_source_healthy(source, occurred_at_ms=timestamp)
-        for source, reason in batch.errors:
-            self.store.record_outage(
-                reason,
-                source=source,
-                occurred_at_ms=timestamp,
-            )
         stored = 0
-        rejected = 0
-        for candidate in batch.candidates:
-            try:
-                self.store.record_candidate(candidate)
-                stored += 1
-            except CandidateRejected as exc:
-                rejected += 1
-                source = getattr(candidate, "source", "unknown")
-                if not isinstance(source, str) or not source.strip():
-                    source = "unknown"
-                self.store.record_event(
-                    "candidate_rejected",
-                    details={"source": source.strip()[:100], "reason": str(exc)[:160]},
-                    occurred_at_ms=timestamp,
-                )
-
-        return DiscoveryCycleResult(
-            candidates_received=len(batch.candidates),
-            candidates_stored=stored,
-=======
         with self.store._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if context is not None:
@@ -120,12 +92,27 @@ class SolanaDiscoveryEngine:
             for candidate in selected_candidates:
                 if context is not None:
                     context.checkpoint(items=1)
-                self.store.record_candidate_in_transaction(candidate, db)
+                try:
+                    self.store.record_candidate_in_transaction(candidate, db)
+                    stored += 1
+                except CandidateRejected as exc:
+                    source = getattr(candidate, "source", "unknown")
+                    if not isinstance(source, str) or not source.strip():
+                        source = "unknown"
+                    db.execute(
+                        "INSERT INTO launch_feed_events(event_type, occurred_at_ms, details) VALUES (?, ?, ?)",
+                        ("candidate_rejected", timestamp, json.dumps({
+                            "source": source.strip()[:100],
+                            "reason": str(exc)[:160],
+                        })),
+                    )
 
         return DiscoveryCycleResult(
             candidates_received=len(batch.candidates),
-            candidates_stored=len(selected_candidates),
->>>>>>> origin/work/h1.1-h2-h3-clean
+            candidates_stored=stored,
+            healthy_sources=batch.successful_sources,
+            source_errors=batch.errors,
+        )
             healthy_sources=batch.successful_sources,
             source_errors=batch.errors,
             candidates_rejected=rejected,
