@@ -21,6 +21,8 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main work/hosting-integration-reconcile-20261115 work/hosting-cloudflare-implementation-20261115 work/serverless-hosting-audit-20261115
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           set +e
           first_output="$(git merge-tree --write-tree origin/work/hosting-integration-reconcile-20261115 origin/work/hosting-cloudflare-implementation-20261115 2>&1)"
