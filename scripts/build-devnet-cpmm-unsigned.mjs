@@ -11,7 +11,7 @@ const WSOL = "So11111111111111111111111111111111111111112";
 const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const U64_MAX = (1n << 64n) - 1n;
 function parseSolToLamports(value) {
-  const match = /^(0|[1-9][0-9]*)(?:\\.([0-9]{1,9}))?$/.exec(String(value).trim());
+  const match = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,9}))?$/.exec(String(value).trim());
   if (!match) throw new Error("SWAP_INPUT_SOL must be a positive decimal SOL amount with at most 9 decimals");
   const amount = BigInt(match[1]) * 1000000000n + BigInt((match[2] || "").padEnd(9,"0") || "0");
   if (amount <= 0n || amount > U64_MAX) throw new Error("SWAP_INPUT_SOL is outside the positive u64 lamport range");
