@@ -117,3 +117,8 @@ These source controls and CI tests do not prove a real host has been provisioned
 Phase 09.2 remains blocked on actual Linux/systemd host evidence and independent
 provider-egress firewall verification. The wallet observer and signer remain
 unimplemented; live execution remains disabled.
+
+
+The Phase 09.2 host verifier also rejects symlinked database directories,
+database files, environment files and SQLite WAL/SHM sidecars, and checks the
+paper owner's DAC write access independently of the dashboard's mount namespace.
