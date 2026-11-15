@@ -258,6 +258,7 @@ def test_quote_is_locked_to_the_exactly_audited_single_hop_pool():
     assert "const minimumOut = new BN(pricing.calculateMinimumOutput(swapResult.outputAmount.toString(), protectionBps))" in source
     assert "slippage:protectionBps/10000" in source
     assert "measurePoolVolatilityBps(raydium, baseIn)" in source
+    assert "calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut)" in source
     assert "const TRADE =" not in source
 
 
@@ -310,6 +311,7 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert "network_fee_lamports" in source
     assert "priceImpactPct" in source
     assert "observed short-window volatility" in source
+    assert "pool_liquidity_usd" in source and "trade_usd" in source
     assert "priceImpactPct >" not in source
     assert 'SWAP_INPUT_SOL: "0.005"' in workflow
     assert "SWAP_SLIPPAGE_BPS" not in workflow
