@@ -357,6 +357,7 @@ def test_raydium_burn_and_earn_custody_reconciles_principal_and_claimable_fees()
         str(vault): account(bytes(vault_data), TOKEN_PROGRAM),
     }
     instance._get_account = lambda rpc, address, slot: accounts[address]
+    instance._get_optional_account = lambda rpc, address, slot: accounts.get(address)
     records = ({
         "address": "locked-state",
         "locked_lp_amount": 100,
@@ -397,6 +398,7 @@ def test_raydium_burn_and_earn_custody_rejects_vault_balance_mismatch():
         str(vault): account(bytes(vault_data), TOKEN_PROGRAM),
     }
     instance._get_account = lambda rpc, address, slot: accounts[address]
+    instance._get_optional_account = lambda rpc, address, slot: accounts.get(address)
     records = ({
         "address": "locked-state",
         "locked_lp_amount": 100,
