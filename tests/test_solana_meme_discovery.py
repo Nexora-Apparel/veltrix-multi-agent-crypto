@@ -94,7 +94,6 @@ def test_engine_rejects_invalid_poll_intervals(tmp_path, interval):
         )
 
 
-<<<<<<< origin/main
 
 def test_poll_once_revalidates_each_candidate_and_records_rejections(tmp_path):
     store = LaunchStore(tmp_path / "discovery.sqlite3")
@@ -122,7 +121,7 @@ def test_poll_once_revalidates_each_candidate_and_records_rejections(tmp_path):
     assert result.candidates_rejected == 1
     assert store.candidate_count() == 1
     assert store.event_count(event_type="candidate_rejected") == 1
-=======
+
 def test_discovery_pipeline_fences_and_persists_batch_once(tmp_path):
     store = LaunchStore(tmp_path / "discovery-pipeline.sqlite3")
     candidate = normalize_candidate(
@@ -181,4 +180,3 @@ def test_discovery_does_not_persist_after_global_fence_loss(tmp_path):
         engine.poll_once(context=context)
     assert store.candidate_count() == 0
     assert store.active_outage_count() == 0
->>>>>>> origin/work/h1.1-h2-h3-clean
