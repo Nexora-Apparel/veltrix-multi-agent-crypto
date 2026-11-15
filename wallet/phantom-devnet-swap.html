@@ -414,10 +414,13 @@
     const parsed=deserializeUnsignedTransaction(bytes);
     if(!bytesEqual(serializeUnsignedTransaction(parsed),bytes)) fail("transaction serialization is not stable");
     assertUnsignedSingleSigner(parsed);
-    if(!(parsed instanceof solanaWeb3.Transaction)) fail("only ALT-free legacy transactions are accepted for Phantom compatibility");
     const message=normalizedTransactionMessage(parsed);
-    if(message.addressTableLookups.length!==0||message.staticAccountKeys.length>32) fail("legacy transaction account layout exceeds policy");
-    if(bytes.length>1232) fail("legacy transaction exceeds Solana's 1232-byte packet limit");
+    if(parsed instanceof solanaWeb3.Transaction) {
+      if(message.addressTableLookups.length!==0||message.staticAccountKeys.length>32) fail("legacy transaction account layout exceeds policy");
+    } else if(!(parsed instanceof solanaWeb3.VersionedTransaction)||message.version!==0) {
+      fail("unsupported Phantom transaction version");
+    }
+    if(bytes.length>1232) fail("transaction exceeds Solana's 1232-byte packet limit");
     return new Uint8Array(bytes);
   }
   function assertExactReviewedBytes(tx,reviewedBytes) {
@@ -547,51 +550,54 @@
     if (body.error || !("result" in body)) fail("canonical Devnet RPC " + method + " failed");
     return body.result;
   }
-  function validateLookupSelection(lookup, state, slot) {
-    if (state.deactivationSlot !== U64_MAX) fail("ALT is deactivated/deactivating");
-    if (state.lastExtendedSlot > BigInt(slot)) fail("ALT extension slot is in the future");
-    const addresses = state.addresses;
-    const indexes = [...lookup.writableIndexes, ...lookup.readonlyIndexes];
-    if (!indexes.length || indexes.some(i => !Number.isInteger(i) || i < 0 || i >= addresses.length)) fail("ALT index out of range");
-    if (state.lastExtendedSlot === BigInt(slot) && indexes.some(i => i >= state.lastExtendedSlotStartIndex)) {
+  function validateLookupSelection(lookup,state,slot) {
+    if(state.deactivationSlot!==U64_MAX) fail("ALT is deactivated/deactivating");
+    if(state.lastExtendedSlot>BigInt(slot)) fail("ALT extension slot is in the future");
+    const addresses=state.addresses;
+    const indexes=[...lookup.writableIndexes,...lookup.readonlyIndexes];
+    if(indexes.some(i=>!Number.isInteger(i)||i<0||i>=addresses.length)) fail("ALT index out of range");
+    if(state.lastExtendedSlot===BigInt(slot)&&indexes.some(i=>i>=state.lastExtendedSlotStartIndex)) {
       fail("ALT address was extended in the current slot");
     }
-    return {
-      writable:lookup.writableIndexes.map(i=>addresses[i]),
-      readonly:lookup.readonlyIndexes.map(i=>addresses[i])
-    };
+    return {writable:lookup.writableIndexes.map(i=>addresses[i]),readonly:lookup.readonlyIndexes.map(i=>addresses[i])};
   }
   async function resolveV0Accounts(message) {
-    const genesis = await rpcCall("getGenesisHash", []);
-    if (genesis !== GENESIS) fail("RPC genesis hash is not canonical Devnet");
-    const slot = Number(await rpcCall("getSlot", [{commitment:"finalized"}]));
-    if (!Number.isSafeInteger(slot) || slot <= 0) fail("invalid finalized Devnet slot");
-    const staticKeys = message.staticAccountKeys;
-    if (message.addressTableLookups.length !== 1) fail("exactly one audited address lookup table is required");
-    const writableLoaded = [], readonlyLoaded = [], lookupEvidence = [];
-    for (const lookup of message.addressTableLookups) {
-      const tableKey = lookup.accountKey.toBase58();
-      if (tableKey !== ALT_ADDRESS) fail("unapproved address lookup table " + tableKey);
-      const result = await rpcCall("getAccountInfo", [tableKey,{encoding:"base64",commitment:"finalized",minContextSlot:slot}]);
-      const info = result && result.value;
-      if (!info || info.owner !== ALT_PROGRAM || info.executable !== false) fail("ALT missing or has wrong owner/executable flag");
-      const data = accountDataBytes(info, "ALT");
-      const state = solanaWeb3.AddressLookupTableAccount.deserialize(data);
-      const selected = validateLookupSelection(lookup,state,slot);
+    const genesis=await rpcCall("getGenesisHash",[]);
+    if(genesis!==GENESIS) fail("RPC genesis hash is not canonical Devnet");
+    const slot=Number(await rpcCall("getSlot",[{commitment:"finalized"}]));
+    if(!Number.isSafeInteger(slot)||slot<=0) fail("invalid finalized Devnet slot");
+    const staticKeys=message.staticAccountKeys;
+    if(!Array.isArray(message.addressTableLookups)||message.addressTableLookups.length<1||
+       message.addressTableLookups.length>32) fail("v0 lookup-table count outside supported bounds");
+    const writableLoaded=[],readonlyLoaded=[],lookupEvidence=[],seenTables=new Set();
+    for(const lookup of message.addressTableLookups) {
+      const tableKey=lookup.accountKey.toBase58();
+      if(seenTables.has(tableKey)) fail("duplicate address lookup table reference");
+      seenTables.add(tableKey);
+      const result=await rpcCall("getAccountInfo",[tableKey,{
+        encoding:"base64",commitment:"finalized",minContextSlot:slot
+      }]);
+      const info=result&&result.value;
+      if(!info||info.owner!==ALT_PROGRAM||info.executable!==false) fail("ALT missing or has wrong owner/executable flag: "+tableKey);
+      const state=solanaWeb3.AddressLookupTableAccount.deserialize(accountDataBytes(info,"ALT "+tableKey));
+      const selected=validateLookupSelection(lookup,state,slot);
       writableLoaded.push(...selected.writable);
       readonlyLoaded.push(...selected.readonly);
       lookupEvidence.push({address:tableKey,owner:info.owner,slot,addresses:state.addresses.length,
         writableIndexes:[...lookup.writableIndexes],readonlyIndexes:[...lookup.readonlyIndexes]});
     }
-    const resolved = [...staticKeys, ...writableLoaded, ...readonlyLoaded];
-    const privileges = effectivePrivileges(message, resolved);
-    const total = resolved.length;
-    if (total < staticKeys.length || total > 256) fail("resolved account-key count is invalid");
-    for (const ix of message.compiledInstructions) {
-      if (ix.programIdIndex >= total || ix.accountKeyIndexes.some(i => i >= total)) fail("compiled instruction index out of bounds");
+    const resolved=[...staticKeys,...writableLoaded,...readonlyLoaded];
+    if(resolved.length>256) fail("resolved v0 account-key count exceeds Solana's 256-key limit");
+    const unique=new Set(resolved.map(key=>key.toBase58()));
+    if(unique.size!==resolved.length) fail("duplicate public key in resolved v0 account set");
+    const privileges=effectivePrivileges(message,resolved);
+    for(const ix of message.compiledInstructions) {
+      if(ix.programIdIndex>=resolved.length||ix.accountKeyIndexes.some(i=>i>=resolved.length)) {
+        fail("compiled instruction index outside dynamically resolved account set");
+      }
     }
-    if (message.header.numRequiredSignatures !== 1 || !staticKeys[0].equals(wallet)) fail("fee payer or signer count mismatch");
-    if (privileges.filter(x => x.signer).length !== 1 || !privileges[0].writable) fail("unexpected signer/writable privilege map");
+    if(message.header.numRequiredSignatures!==1||!staticKeys[0].equals(wallet)) fail("fee payer or signer count mismatch");
+    if(privileges.filter(x=>x.signer).length!==1||!privileges[0].writable) fail("unexpected signer/writable privilege map");
     return {resolved,privileges,lookupEvidence,slot};
   }
   async function resolveLegacyAccounts(message) {
@@ -914,13 +920,12 @@
       logs:(value.logs||[]).slice(-60)};
   }
   async function inspectDirectCpmmTransaction(tx,quote,reviewedBytes) {
-    if(!(tx instanceof solanaWeb3.Transaction)) fail("Phantom compatibility policy requires an ALT-free legacy Transaction");
+    if(!(tx instanceof solanaWeb3.Transaction) && (!(tx instanceof solanaWeb3.VersionedTransaction)||tx.message.version!==0)) fail("only legacy or v0 Phantom transactions are supported");
     const message=normalizedTransactionMessage(tx);
-    if(message.addressTableLookups.length!==0) fail("legacy transaction contains address lookup tables");
     if(!bytesEqual(serializeUnsignedTransaction(tx),reviewedBytes)) fail("direct CPMM transaction differs from exact reviewed bytes");
     assertUnsignedSingleSigner(tx);
-    if(reviewedBytes.length>1232) fail("legacy transaction exceeds Solana packet-size limit");
-    const resolvedInfo=await resolveLegacyAccounts(message);
+    if(reviewedBytes.length>1232) fail("transaction exceeds Solana packet-size limit");
+    const resolvedInfo=tx instanceof solanaWeb3.VersionedTransaction ? await resolveV0Accounts(message) : await resolveLegacyAccounts(message);
     const policy=decodeDirectCpmmPolicy(message,resolvedInfo.resolved,quote);
     const accountPresence=await verifyPoolAndAccounts(policy,resolvedInfo);
     if(accountPresence.inputAtaPresent) fail("temporary WSOL account unexpectedly exists before signing");
@@ -1383,7 +1388,9 @@
       }
       status("Final audit passed. Phantom is opening its transaction approval screen. Review the transaction there before approving.","warning");
       approvalRequested = true;
-      const approval = await provider.signAndSendTransaction(finalTx, {
+      // Pass the active Connection so Phantom can resolve all dynamically selected
+      // address lookup tables before KMS signing a v0 message.
+      const approval=await provider.signAndSendTransaction(finalTx,connection,{
         preflightCommitment:"confirmed",maxRetries:3
       });
       signature = approval && typeof approval.signature === "string" ? approval.signature : approval;
