@@ -51,6 +51,8 @@ shared schema and history.
 - Verify dashboard DAC permissions outside its systemd mount namespace as
   well as the effective read-only mount. A read-only mount must not conceal
   group-write permissions on the underlying database or directory.
+- Reject symlinked database paths and sidecars; otherwise a database path can
+  resolve outside the protected `/var/lib/veltrix` mount.
 - Use a restrictive umask so database, WAL and SHM files are not world-readable.
 - If SQLite WAL mode is enabled, verify that the dashboard can read the
   existing `-wal` and `-shm` sidecars without creating or modifying them.
