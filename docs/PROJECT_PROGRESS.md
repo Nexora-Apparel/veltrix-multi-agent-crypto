@@ -172,7 +172,7 @@ The original Stage 5 security/risk engine is merged. PRs #187–#190 extend it w
    - Current head: `a0d35dfa99221791f4762cc310ca852ef285cc0b`
    - CI run `43752432412`: **900 passed / 5 skipped**.
 
-All three are open, draft and unmerged. PR #188 is a closed, unmerged earlier CPMM implementation attempt; #189 is the rebased continuation. PR #186 is a separate open deployment-block wiring correction and needs reconciliation against the #187/#189 stack before release.
+All three are open, draft and unmerged. PR #188 is a closed, unmerged earlier CPMM implementation attempt; #189 is the rebased continuation. PR #186 is a separate open deployment-block wiring correction, but its exact patches to `veltrix/monitor.py` and `veltrix/developer_evidence.py` are already present identically in PR #187. PR #187 also includes the associated developer-evidence tests. Treat #186 as superseded/redundant; do not merge it separately. Close it as superseded after confirming no other unique change is needed.
 
 ### Certification gate still outstanding
 The runbook requires nine production read-only acceptance artifacts:
@@ -243,7 +243,7 @@ The next work is ordered by safety dependencies. Do not skip ahead to signing or
 
 1. **Correct PR #181's audit-chain regression test/contract** and rerun CI on the exact new head. Confirm the global-chain predecessor semantics and test offline tamper detection without assuming per-intent isolation.
 2. **Fix PR #183's dashboard test defect** by retrieving/initializing the JavaScript asset before assertions; rerun exact-head CI. Then complete the Android screenshot/visual comparison when deployment quota permits.
-3. **Reconcile PR #186 with the #187 → #189 → #190 Stage 5 stack.** Confirm whether the deployment-block forwarding fix is already present; avoid duplicate or conflicting implementations.
+3. **Resolve redundant PR #186.** Its inspected code patches are already present identically in #187. Confirm there are no other unique changes, then mark #186 superseded/close it rather than merging duplicate code.
 4. **Prepare Stage 5 production evidence**: inspect required configuration names, confirm only presence/absence without exposing values, verify registry/hash sources and sample token eligibility, then run the nine manual read-only workflows. Record each artifact, chain, claim family, run ID, exact head, finalized slot/block, provider IDs and reviewer outcome. Do not claim a pass for a skipped workflow.
 5. **Complete Stage 09.5 semantic transaction validation**: bind Jupiter and invoked DEX/token instruction bytes, CPI parent/authority provenance, same-context account snapshots, token-account/vault effects and exact input/min-output/destination semantics. Unknown routes and unsupported programs must fail closed.
 6. **Finish Stage 09.2 host isolation** on a real Linux host, or formally choose and validate the zero-cost serverless alternative without pretending it satisfies systemd/mount namespace acceptance.
@@ -293,3 +293,4 @@ For every task:
 | 2026-11-15 | Initial repository-wide audit and progress baseline | `main` baseline `6158a5995c7f241a7c1ba56dc20161c3fd7e4fa2`; PR heads listed above | Inspected repository metadata, stage documentation, merged/open/closed PR inventory, exact-head CI runs and failure logs. No application source code changed in this audit. Initial ledger created. |
 | 2026-11-15 | Recursive source/test/workflow inventory | `main` ledger commit `d54e4881ec93f676312cb5f6175f5424f194b069`; tree complete at subsequent ledger revision | Confirmed 213 tracked paths: 92 `veltrix/`, 86 tests, 12 docs, 16 workflow files. Reviewed main CI and key manual acceptance/preflight workflow triggers. No cron trigger found in the inspected main workflows; external schedulers and secret presence remain not checked. |
 | 2026-11-15 | Full Actions history and production acceptance audit | Actions runs `42912477053`, `42964334567`, `43724610264`, `43725136999`, `43752387729`; latest ledger CI `43754460265` | Confirmed Turso H3 disposable-database conformance: 5 passed in 325.57s. Confirmed Stage 5 liquidity workflow runs with reader steps skipped or preflight failures and no artifacts; 0/9 production evidence remains verified. Latest progress-ledger push CI completed successfully. |
+| 2026-11-15 | Stage 5 PR overlap review | PRs #186 and #187, exact changed-file patches | Confirmed #186's monitor/developer-evidence patches are identical to code already included in #187, with tests present in #187. #186 is redundant and should not be merged separately. |
