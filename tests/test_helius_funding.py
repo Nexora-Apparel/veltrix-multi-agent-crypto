@@ -127,3 +127,22 @@ def test_solana_graph_enforces_wallet_and_global_page_budgets():
     )
     with pytest.raises(ProviderError, match="total transfer-page budget"):
         provider.fetch_snapshot("mint", ["holder-a", "holder-b"])
+
+
+
+def test_solana_graph_ignores_transfer_fee_rows_when_resolving_first_funder():
+    wallet = "holder-wallet"
+    def handler(method, params):
+        if method == "getSlot":
+            return 100
+        fee = transfer("fee-only", 5, "fee-collector", wallet, "mint")
+        fee["type"] = "transferFee"
+        actual = transfer("real-transfer", 10, "actual-funder", wallet, "mint")
+        return {"data": [fee, actual], "paginationToken": None}
+    provider = HeliusSolanaFundingGraphProvider(
+        "key", session=Session(handler), clock_ms=lambda: 100_000
+    )
+    snapshot = provider.fetch_snapshot("mint", [wallet])
+    edge = next(row for row in snapshot.relationships if row.wallet_address == wallet)
+    assert edge.funder_address == "actual-funder"
+    assert edge.transaction_id == "real-transfer"
