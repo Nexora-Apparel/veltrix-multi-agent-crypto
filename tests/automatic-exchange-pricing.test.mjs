@@ -3,6 +3,8 @@ import {
   computeProtectionBps, calculateMinimumOutput, calculateFeeBreakdown,
   createQuoteSnapshot, evaluateFreshQuote, reconcileWalletBalanceChanges
 } from "../wallet/automatic-exchange-pricing.mjs";
+import * as browserPricingEntry from "../automatic-exchange-pricing.mjs";
+assert.equal(browserPricingEntry.calculateMinimumOutput("10904", 250), "10631");
 
 const base = {
   quoteId: "devnet-quote-001", quotedAtMs: 1_000_000, quoteTtlMs: 8_000,
