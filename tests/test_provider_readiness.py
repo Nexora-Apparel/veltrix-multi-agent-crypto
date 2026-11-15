@@ -17,7 +17,6 @@ def settings(**overrides):
         liquidity_evidence_capability_certified=False,
         developer_evidence_capability_certified=False,
         launch_bundle_evidence_capability_certified=False,
-        launch_bundle_evidence_capability_certified=False,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
