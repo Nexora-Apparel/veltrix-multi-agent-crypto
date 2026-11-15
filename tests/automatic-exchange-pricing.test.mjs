@@ -44,6 +44,30 @@ assert.equal(fees.route.amountRaw, "0");
 assert.equal(fees.network.amountRaw, "5000");
 assert.equal(fees.platform.enabled, false);
 assert.equal(fees.platform.amountRaw, "0");
+const enabledPlatformFee = calculateFeeBreakdown({
+  dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee,
+  networkFeeLamports: "5000", outputRaw: "10904",
+  platformFeeConfig: {
+    enabled: true, rateBps: 50,
+    recipient: "11111111111111111111111111111111",
+    instructionVerified: true
+  }
+});
+assert.equal(enabledPlatformFee.platformFeeRaw, "54", "platform fee must use deterministic floor rounding");
+assert.throws(() => calculateFeeBreakdown({
+  dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee,
+  networkFeeLamports: "5000", outputRaw: "10904",
+  platformFeeConfig: { enabled: true, rateBps: 50, recipient: "", instructionVerified: true }
+}), /explicit bounded rate, recipient/);
+assert.throws(() => calculateFeeBreakdown({
+  dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee,
+  networkFeeLamports: "5000", outputRaw: "1",
+  platformFeeConfig: {
+    enabled: true, rateBps: 50,
+    recipient: "11111111111111111111111111111111",
+    instructionVerified: true
+  }
+}), /rounds to zero/);
 assert.throws(() => calculateFeeBreakdown({
   dexFee: base.dexFee, creatorFee: base.creatorFee, routeFee: base.routeFee, networkFeeLamports: "5000",
   outputRaw: "10904",
