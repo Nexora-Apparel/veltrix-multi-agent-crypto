@@ -55,6 +55,12 @@ class ConsensusStore:
     def record_in_transaction(self, decision: ConsensusDecision, db: Any) -> bool:
         """Write a read-only decision on a caller-owned transaction connection."""
         decision = validate_consensus_decision(decision)
+        if decision.status not in {"REJECTED", "WATCH", "ABSTAIN", "CONSENSUS_APPROVED"}:
+            raise ValueError("unsupported consensus disposition")
+        if decision.execution_authorized is not False:
+            raise ValueError("Phase 06 consensus decisions cannot authorize execution")
+        if decision.paper_review_eligible is not (decision.status == "CONSENSUS_APPROVED"):
+            raise ValueError("paper-review eligibility must match the consensus disposition")
         if db is None or not callable(getattr(db, "execute", None)):
             raise TypeError("db must be an open database connection")
         payload = json.dumps(asdict(decision), sort_keys=True, separators=(",", ":"))
