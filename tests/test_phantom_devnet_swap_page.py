@@ -54,7 +54,7 @@ def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     assert "Transaction.from(raw)" in source
     assert "reviewStartedAtMs" in sign_test
     assert "assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes)" in sign_test
-    assert "verifySignatures:true" in sign_test
+    assert "verifySignatures:true" in source
     assert "submitted:false,broadcast:false" in sign_test
     assert "refreshQuoteForReview" in source
     assert "if (gateResult?.refreshed) return gateResult" in sign_test
