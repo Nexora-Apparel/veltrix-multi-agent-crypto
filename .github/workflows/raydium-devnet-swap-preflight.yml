@@ -9,6 +9,8 @@ on:
       - 'package.json'
       - 'scripts/build-devnet-cpmm-unsigned.mjs'
       - 'tests/phantom_direct_cpmm_live_audit.mjs'
+      - 'wallet/automatic-exchange-pricing.mjs'
+      - 'tests/automatic-exchange-pricing.test.mjs'
       - 'tests/test_phantom_devnet_swap_page.py'
       - 'docs/phantom-devnet-swap.md'
       - 'veltrix/solana_devnet_swap_preflight.py'
@@ -51,6 +53,7 @@ jobs:
           PY
           node --check /tmp/phantom-devnet-swap.js
           node tests/phantom_verifier_adversarial.mjs
+          node tests/automatic-exchange-pricing.test.mjs
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
