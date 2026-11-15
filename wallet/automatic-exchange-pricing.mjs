@@ -120,6 +120,16 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
   const platformFee = BigInt(fees.platformFeeRaw);
   const netOutputRaw = outputRaw - platformFee;
   const minimumOutputRaw = calculateMinimumOutput(netOutputRaw.toString(), protectionBps);
+  const inputAmount = asBigInt(input.inputAmountRaw, "inputAmountRaw");
+  if (inputAmount <= 0n || inputAmount > U64_MAX) fail("input amount is outside the positive u64 range");
+  const inputDecimals = Number(input.inputDecimals);
+  const outputDecimals = Number(input.outputDecimals);
+  if (!Number.isInteger(inputDecimals) || inputDecimals < 0 || inputDecimals > 18 ||
+      !Number.isInteger(outputDecimals) || outputDecimals < 0 || outputDecimals > 18) {
+    fail("input/output token decimals are missing or invalid");
+  }
+  const tradeSizeRatio = Number(input.tradeUsd);
+  if (!Number.isFinite(tradeSizeRatio) || tradeSizeRatio <= 0) fail("trade-size/liquidity ratio is invalid");
   const snapshot = {
     schema: "veltrix.quote.v1",
     network: "solana-devnet",
@@ -128,7 +138,8 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
     expiresAtMs: timestamp + ttl,
     inputMint: String(input.inputMint || ""),
     outputMint: String(input.outputMint || ""),
-    inputAmountRaw: asBigInt(input.inputAmountRaw, "inputAmountRaw").toString(),
+    inputAmountRaw: inputAmount.toString(),
+    inputDecimals, outputDecimals, tradeSizeRatio,
     quotedOutputRaw: outputRaw.toString(),
     netOutputRaw: netOutputRaw.toString(),
     minimumOutputRaw,
@@ -148,14 +159,30 @@ export async function createQuoteSnapshot(input, nowMs = Date.now()) {
   return Object.freeze({ ...snapshot, snapshotSha256: hash });
 }
 
-export function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now()) {
+export async function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now()) {
   if (!snapshot || typeof snapshot.snapshotSha256 !== "string") fail("sealed quote snapshot is missing");
+  const { snapshotSha256, ...snapshotPayload } = snapshot;
+  if (!globalThis.crypto?.subtle) fail("Web Crypto SHA-256 is unavailable for quote integrity verification");
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical(snapshotPayload)));
+  const actualHash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+  if (actualHash !== snapshotSha256) fail("immutable quote snapshot hash mismatch");
   if (!Number.isSafeInteger(nowMs) || nowMs > snapshot.expiresAtMs) {
     return { action: "refresh_and_re_review", reason: "reviewed quote expired" };
   }
   if (!freshQuote || !Number.isSafeInteger(freshQuote.quotedAtMs) ||
       nowMs < freshQuote.quotedAtMs || nowMs - freshQuote.quotedAtMs > freshQuote.quoteTtlMs) {
     return { action: "refresh_and_re_review", reason: "fresh quote is missing or stale" };
+  }
+  const freshProtectionBps = computeProtectionBps({
+    quoteAgeMs: nowMs - freshQuote.quotedAtMs,
+    quoteTtlMs: freshQuote.quoteTtlMs,
+    liquidityUsd: freshQuote.liquidityUsd ?? snapshot.poolLiquidityUsd,
+    tradeUsd: freshQuote.tradeUsd ?? snapshot.tradeSizeRatio,
+    volatilityBps: freshQuote.volatilityBps ?? snapshot.volatilityBps,
+    routeHops: freshQuote.routeHops ?? snapshot.routeHops
+  });
+  if (freshProtectionBps > snapshot.protectionBps) {
+    return { action: "refresh_and_re_review", reason: "current liquidity, volatility or route risk requires a wider protection threshold" };
   }
   const freshOutput = asBigInt(freshQuote.quotedOutputRaw, "freshQuote.quotedOutputRaw");
   if (freshOutput < BigInt(snapshot.minimumOutputRaw)) {
