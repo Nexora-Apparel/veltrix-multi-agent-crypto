@@ -138,7 +138,7 @@ class EtherscanBscFundingGraphProvider:
                     break
                 page += 1
             else:
-                raise ProviderError("BSC funding graph exceeded page budget")
+                raise ProviderError("BSC funding graph exceeded total page budget")
             rows_by_action[action] = action_rows
         candidates = []
         for action, rows in rows_by_action.items():
