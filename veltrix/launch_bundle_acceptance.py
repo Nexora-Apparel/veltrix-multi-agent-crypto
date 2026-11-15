@@ -103,6 +103,21 @@ def evaluate_launch_bundle_acceptance(*, chain, token_address, settings,
         "window_end_ms": batch.window_end_ms,
         "scanned_through_ms": batch.scanned_through_ms,
         "supply_block_ref": batch.supply_block_ref,
+        "supply_total": batch.total_supply,
+        "supply_observed_at_ms": batch.supply_observed_at_ms,
+        "observations": [
+            {
+                "provider": item.provider,
+                "wallet": item.wallet_address,
+                "funder": item.funder_address,
+                "transaction": item.transaction_id,
+                "token_amount": item.token_amount,
+                "observed_at_ms": item.observed_at_ms,
+                "funder_provider": item.funder_provider,
+                "funder_evidence_id": item.funder_evidence_id,
+            }
+            for item in batch.observations
+        ],
         "provenance": list(batch.provenance),
         "rejected": rejected,
     }
