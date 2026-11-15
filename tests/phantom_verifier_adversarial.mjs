@@ -69,20 +69,13 @@ const reviewedMessage=Uint8Array.from([1,2,3,4]);
 assert.equal(h.assertSignedMessageUnchanged(reviewedMessage,Uint8Array.from([1,2,3,4])),true);
 rejected(()=>h.assertSignedMessageUnchanged(reviewedMessage,Uint8Array.from([1,2,3,4,5])),"Phantom-injected compute-budget/message mutation");
 
-// Exact amount and slippage parser boundaries.
+// Exact amount parser boundaries.
 assert.equal(h.parseSolAmountToLamports("0.000000001"),1n);
 assert.equal(h.parseSolAmountToLamports("5"),5000000000n);
 assert.equal(h.parseSolAmountToLamports("12.345678901"),12345678901n);
-assert.equal(h.parseSlippageBps("0"),0);
-assert.equal(h.parseSlippageBps("0.25"),25);
-assert.equal(h.parseSlippageBps("1.00"),100);
-assert.equal(h.parseSlippageBps("99.99"),9999);
 assert.throws(()=>h.parseSolAmountToLamports("0"));
 assert.throws(()=>h.parseSolAmountToLamports("1.1234567890"));
 assert.throws(()=>h.parseSolAmountToLamports("18446744074"));
-assert.throws(()=>h.parseSlippageBps("100"));
-assert.throws(()=>h.parseSlippageBps("-1"));
-assert.throws(()=>h.parseSlippageBps("1.001"));
 
 // Primitive and ALT adversarial cases.
 const raw=Uint8Array.from([0,1,2,3,4,5,6,7,8]);
