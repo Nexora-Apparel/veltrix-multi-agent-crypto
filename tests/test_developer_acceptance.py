@@ -53,7 +53,8 @@ class OriginResolver:
         self.calls = []
     def resolve(self, token, launch_window_ms):
         self.calls.append((token, launch_window_ms))
-        return SimpleNamespace(chain="base", complete=True, launch_block=123)
+        return SimpleNamespace(chain="base", complete=True, launch_block=123,
+                               provider="base-rpc-launch-origin", evidence_id="origin-proof")
 
 
 def cfg(**overrides):
@@ -63,6 +64,7 @@ def cfg(**overrides):
         "trusted_developer_root_providers": ("independent-root-service",),
         "trusted_holder_inventory_providers": ("base-rpc-holder-inventory",),
         "trusted_developer_funding_providers": ("alchemy-base-funding-graph",),
+        "trusted_launch_origin_providers": ("base-rpc-launch-origin",),
         "trusted_developer_providers": ("developer-graph-provider",),
     }
     values.update(overrides)
