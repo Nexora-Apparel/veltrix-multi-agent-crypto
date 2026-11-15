@@ -132,7 +132,7 @@
     $("wallet").textContent = wallet.toBase58();
     await refreshBalance();
     $("quote").disabled = false;
-    status("Connected to canonical Devnet. Wallet legacy-transaction capability verified. No transaction has been signed or sent.","good");
+    status("Connected to canonical Devnet. Phantom transaction-version capability verified. No transaction has been signed or sent.","good");
   }
   function sumUsdcTokenAccounts(response, ownerAddress) {
     if (!response || !Array.isArray(response.value)) fail("USDC token-account RPC response is malformed");
@@ -1396,7 +1396,7 @@
         ", fresh impact=" + freshImpact.toFixed(6) + "%.");
     }
 
-    // Revalidate the legacy static account list and privileges, re-read pool/token
+    // Re-resolve the transaction's static and lookup-table account set and privileges, re-read pool/token
     // accounts, simulate the exact bytes, and repeat the one-unit-higher rejection.
     const audit = await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0]);
     if (audit.directCpmm !== "verified" || audit.runtime.adversarialRejected !== true) {
@@ -1433,7 +1433,7 @@
     let signature = null;
     let approvalRequested = false;
     try {
-      status("Rechecking wallet, Devnet funding, blockhash, pool quote, legacy transaction format and exact bytes before opening Phantom approval…","muted");
+      status("Rechecking wallet, Devnet funding, blockhash, pool quote, transaction version, resolved account set and exact bytes before opening Phantom approval…","muted");
       await finalPreSignFreshnessGate();
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
       // Snapshot the exact message before handing the mutable Transaction object to Phantom.
