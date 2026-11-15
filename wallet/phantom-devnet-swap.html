@@ -61,7 +61,7 @@
     <div class="row"><span>Temporary WSOL funding (returned rent included)</span><span class="value" id="temporaryFundingValue">—</span></div>
     <div class="row"><span>Devnet SOL required (faucet top-up)</span><strong class="value" id="requiredBalanceValue">—</strong></div>
     <p class="muted tiny">The temporary wrapped-SOL account must be funded before it is closed, so its full temporary funding amount must be available during execution. Its rent reserve is returned in the same transaction. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
-    <p class="muted warning">The next button opens Phantom approval for this exact reviewed Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
+    <p class="muted warning">The sign-only test opens Phantom for this exact reviewed legacy Devnet transaction, verifies the returned signature locally and never submits it. The execution control remains disabled. Review the pair, amount, minimum output, fee breakdown and total debit before signing.</p>
     <button id="signTest" class="secondary" disabled>Verify Phantom legacy signing (no broadcast)</button>
     <button id="execute" disabled>Execution locked pending validation</button>
     <p class="muted tiny">Signing compatibility can be tested locally, but transaction submission is hard-disabled until CI, Android validation, exact-byte audits, fee reconciliation and adversarial gates are complete.</p>
@@ -162,7 +162,7 @@
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
     $("execute").disabled = true;
-    $("signTest").disabled = value || !prepared || !!prepared.signingTestStarted;
+    $("signTest").disabled = value || !prepared || !!prepared.signingTestStarted || !!prepared.signingValidatedAt;
     $("amount").disabled = value;
   }
   function getProvider() {
@@ -1623,6 +1623,7 @@
       throw new Error("A prepared legacy transaction and Phantom signTransaction provider are required.");
     }
     if (prepared.signingTestStarted) throw new Error("Phantom signing compatibility test is already running.");
+    if (prepared.signingValidatedAt) throw new Error("Phantom legacy signing has already been verified for this reviewed transaction.");
     prepared.signingTestStarted = true;
     setBusy(true);
     try {
