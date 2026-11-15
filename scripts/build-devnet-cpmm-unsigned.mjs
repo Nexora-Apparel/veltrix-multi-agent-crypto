@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { Raydium, TxVersion, CurveCalculator, FeeOn } from "@raydium-io/raydium-sdk-v2";
 import BN from "bn.js";
+import { computeProtectionBps, calculateMinimumOutput } from "../wallet/automatic-exchange-pricing.mjs";
 
 const RPC = "https://api.devnet.solana.com";
 const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
@@ -18,10 +19,6 @@ function parseSolToLamports(value) {
   return amount;
 }
 const INPUT = parseSolToLamports(process.env.SWAP_INPUT_SOL || "0.001");
-const SLIPPAGE_BPS = Number(process.env.SWAP_SLIPPAGE_BPS || "100");
-if (!Number.isSafeInteger(SLIPPAGE_BPS) || SLIPPAGE_BPS < 0 || SLIPPAGE_BPS >= 10000) {
-  throw new Error("SWAP_SLIPPAGE_BPS must be an integer from 0 through 9999");
-}
 const OUT = process.env.OUTPUT || "artifacts/devnet-cpmm-unsigned.json";
 const fail = message => { throw new Error("Devnet CPMM acquisition rejected: " + message); };
 
@@ -62,13 +59,28 @@ async function main() {
   });
   const pool = await raydium.cpmm.getPoolInfoFromRpc(POOL);
   const {poolInfo,poolKeys,rpcData}=pool;
+  const quoteCapturedAtMs=Date.now();
   if (poolInfo.id !== POOL || poolInfo.programId !== "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb") fail("RPC pool identity/program mismatch");
   const mintA=poolInfo.mintA.address, mintB=poolInfo.mintB.address;
   if (![mintA,mintB].includes(WSOL) || ![mintA,mintB].includes(USDC)) fail("pool mint pair is not WSOL/Devnet USDC");
   const baseIn = mintA === WSOL;
+  const prices=[];
+  for(let i=0;i<3;i++){
+    if(i) await new Promise(resolve=>setTimeout(resolve,400));
+    const sample=await raydium.cpmm.getPoolInfoFromRpc(POOL);
+    if(sample.poolInfo.id!==POOL||sample.poolInfo.programId!==poolInfo.programId) fail("volatility sample pool identity changed");
+    const inputReserve=baseIn?sample.rpcData.baseReserve:sample.rpcData.quoteReserve;
+    const outputReserve=baseIn?sample.rpcData.quoteReserve:sample.rpcData.baseReserve;
+    const price=Number(outputReserve.toString())/Number(inputReserve.toString());
+    if(!Number.isFinite(price)||price<=0) fail("pool volatility sample is invalid");
+    prices.push(price);
+  }
+  let volatilityBps=0;
+  for(let i=1;i<prices.length;i++) volatilityBps=Math.max(volatilityBps,Math.ceil(Math.abs(prices[i]-prices[i-1])/prices[i-1]*10000));
   const reserveIn = baseIn ? rpcData.baseReserve : rpcData.quoteReserve;
   const reserveOut = baseIn ? rpcData.quoteReserve : rpcData.baseReserve;
   const inputAmount = new BN(String(INPUT));
+  const creatorFeeOnInput=rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB;
   const swapResult = CurveCalculator.swapBaseInput(
     inputAmount,
     reserveIn,
@@ -77,19 +89,31 @@ async function main() {
     rpcData.configInfo.creatorFeeRate,
     rpcData.configInfo.protocolFeeRate,
     rpcData.configInfo.fundFeeRate,
-    rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB
+    creatorFeeOnInput
   );
+  if(!swapResult.tradeFee || !swapResult.creatorFee) fail("CPMM quote omitted trade/creator fee itemization");
   if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) fail("pool quote output is zero");
   const spotOutput = inputAmount.mul(reserveOut).div(reserveIn);
   if (!spotOutput || spotOutput.lte(new BN(0))) fail("pool spot output is zero");
   const priceImpactPct = Number(spotOutput.sub(swapResult.outputAmount).toString()) /
     Number(spotOutput.toString()) * 100;
   if (!Number.isFinite(priceImpactPct)) fail("pool price impact could not be calculated");
-  // Price impact is recorded for visibility only; no universal threshold blocks the build.
-  const minOut = swapResult.outputAmount.mul(new BN(String(10000-SLIPPAGE_BPS))).div(new BN(10000));
-  if (minOut.lte(new BN(0))) fail("computed minimum output is zero");
+  // Protection is derived internally from quote age, pool depth, observed short-window volatility and route complexity.
+  const solReserveUi=Number(reserveIn.toString())/1e9;
+  const usdcReserveUi=Number(reserveOut.toString())/1e6;
+  const solPriceUsd=usdcReserveUi/solReserveUi;
+  const liquidityUsd=solReserveUi*solPriceUsd+usdcReserveUi;
+  const tradeUsd=(Number(INPUT.toString())/1e9)*solPriceUsd;
+  if(![solReserveUi,usdcReserveUi,solPriceUsd,liquidityUsd,tradeUsd].every(Number.isFinite)||
+     solReserveUi<=0||usdcReserveUi<=0||solPriceUsd<=0||liquidityUsd<=0||tradeUsd<=0) fail("pool liquidity USD normalization unavailable");
+  const protectionBps=computeProtectionBps({
+    quoteAgeMs:Date.now()-quoteCapturedAtMs,quoteTtlMs:15000,
+    liquidityUsd,tradeUsd,volatilityBps,routeHops:1
+  });
+  const minOut = new BN(calculateMinimumOutput(swapResult.outputAmount.toString(),protectionBps));
+  if (minOut.lte(new BN(0))) fail("automatic protection produces a zero minimum output");
   const built = await raydium.cpmm.swap({
-    poolInfo,poolKeys,inputAmount,swapResult,slippage:SLIPPAGE_BPS/10000,baseIn,txVersion:TxVersion.LEGACY,
+    poolInfo,poolKeys,inputAmount,swapResult,slippage:protectionBps/10000,baseIn,txVersion:TxVersion.LEGACY,
     ownerInfo:{wallet:new PublicKey(WALLET),useSOLBalance:true}
   });
   if (!built.transaction || typeof built.transaction.serialize !== "function" ||
@@ -111,22 +135,22 @@ async function main() {
   catch { fail("SDK did not return a legacy transaction; ALT-free compatibility is mandatory"); }
   if (tx.signatures.length !== 1 || tx.signatures.some(item=>item.signature !== null)) fail("SDK transaction is not unsigned with one empty wallet signature");
   if (tx.addressTableLookups?.length) fail("legacy transaction unexpectedly contains address lookup tables");
-  const minimumOut = swapResult.outputAmount.mul(new BN(String(10000-SLIPPAGE_BPS))).div(new BN(10000));
-  if (minimumOut.lte(new BN(0))) fail("configured slippage produces a zero minimum output");
+  const minimumOut = new BN(calculateMinimumOutput(swapResult.outputAmount.toString(),protectionBps));
+  if (minimumOut.lte(new BN(0))) fail("automatic execution protection produces a zero minimum output");
   const directIx = tx.instructions.find(ix => ix.programId.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
   if (!directIx || directIx.data.length !== 24 || Buffer.from(directIx.data.slice(0,8)).toString("hex") !== "8fbe5adac41e33de") {
     fail("SDK CPMM instruction discriminator/layout mismatch");
   }
   if (new BN(Buffer.from(directIx.data.slice(8,16)).reverse()).toString() !== String(INPUT)) fail("SDK CPMM input amount mismatch");
   const directIndex=tx.instructions.findIndex(ix=>ix.programId.toBase58()==="DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
-  if(directIndex<0) fail("direct CPMM instruction disappeared while applying slippage floor");
+  if(directIndex<0) fail("direct CPMM instruction disappeared while applying automatic protection floor");
   const adjustedData=Buffer.from(tx.instructions[directIndex].data);
   adjustedData.set(minimumOut.toArrayLike(Buffer,"le",8),16);
   tx.instructions[directIndex].data=adjustedData;
   const finalCpmmIx = tx.instructions.find(ix =>
     ix.programId.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
   if (new BN(Buffer.from(finalCpmmIx.data.slice(16,24)).reverse()).toString() !== minimumOut.toString()) {
-    fail("final CPMM instruction does not carry the reviewed 1% slippage floor");
+    fail("final CPMM instruction does not carry the reviewed automatic protection floor");
   }
   const serialized=tx.serialize({requireAllSignatures:false,verifySignatures:false});
   if(serialized.length>1232) fail("ALT-free legacy transaction exceeds Solana's 1232-byte packet limit");
@@ -156,6 +180,8 @@ async function main() {
   const negative=await simulateLegacy(negativeBytes,false);
   if(!negative.value.err) fail("CPMM accepted a minimum output one raw unit above the observed output");
   const message=tx.compileMessage();
+  const feeEstimate=await connection.getFeeForMessage(message,"confirmed");
+  if(!feeEstimate || !Number.isSafeInteger(feeEstimate.value) || feeEstimate.value<0) fail("network fee estimate unavailable or invalid");
   const keys=message.accountKeys.map(k=>k.toBase58());
   const ixSummary=tx.instructions.map(ix=>({
     programId:ix.programId.toBase58(),
@@ -172,8 +198,14 @@ async function main() {
     wallet:WALLET,pool:POOL,program:poolInfo.programId,
     input_mint:WSOL,output_mint:USDC,input_amount_lamports:String(INPUT),
     quoted_output_raw:swapResult.outputAmount.toString(),minimum_output_raw:minimumOut.toString(),actual_output_raw:actualOutput.toString(),
+    pool_trade_fee_raw:swapResult.tradeFee.toString(),
+    pool_creator_fee_raw:swapResult.creatorFee.toString(),
+    pool_creator_fee_currency:creatorFeeOnInput?WSOL:USDC,
+    route_fee_raw:"0",platform_fee_raw:"0",platform_fee_enabled:false,
+    network_fee_lamports:String(feeEstimate.value),
     price_impact_pct:priceImpactPct,
-    slippage_bps:SLIPPAGE_BPS,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
+    protection_bps:protectionBps,volatility_bps:volatilityBps,
+    pool_liquidity_usd:liquidityUsd,trade_usd:tradeUsd,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
     unsigned_transaction_base64:Buffer.from(serialized).toString("base64"),
     static_account_keys:keys,instructions:ixSummary,
     address_lookup_tables:[],

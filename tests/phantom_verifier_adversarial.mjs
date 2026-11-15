@@ -60,20 +60,22 @@ function rejected(fn, label) {
   assert.throws(fn,/Transaction intent rejected:/,label);
 }
 
-// Exact amount and slippage parser boundaries.
+// Phantom KMS compatibility: require signTransaction and legacy messages only.
+assert.equal(h.detectWalletCapabilities({signTransaction(){}}).legacy,true);
+assert.equal(h.detectWalletCapabilities({signTransaction(){},supportedTransactionVersions:new Set(["legacy"])}).legacy,true);
+assert.equal(h.detectWalletCapabilities({signTransaction(){},supportedTransactionVersions:new Set([0])}).legacy,false);
+assert.equal(h.detectWalletCapabilities({signAndSendTransaction(){}}).legacy,false);
+const reviewedMessage=Uint8Array.from([1,2,3,4]);
+assert.equal(h.assertSignedMessageUnchanged(reviewedMessage,Uint8Array.from([1,2,3,4])),true);
+rejected(()=>h.assertSignedMessageUnchanged(reviewedMessage,Uint8Array.from([1,2,3,4,5])),"Phantom-injected compute-budget/message mutation");
+
+// Exact amount parser boundaries.
 assert.equal(h.parseSolAmountToLamports("0.000000001"),1n);
 assert.equal(h.parseSolAmountToLamports("5"),5000000000n);
 assert.equal(h.parseSolAmountToLamports("12.345678901"),12345678901n);
-assert.equal(h.parseSlippageBps("0"),0);
-assert.equal(h.parseSlippageBps("0.25"),25);
-assert.equal(h.parseSlippageBps("1.00"),100);
-assert.equal(h.parseSlippageBps("99.99"),9999);
 assert.throws(()=>h.parseSolAmountToLamports("0"));
 assert.throws(()=>h.parseSolAmountToLamports("1.1234567890"));
 assert.throws(()=>h.parseSolAmountToLamports("18446744074"));
-assert.throws(()=>h.parseSlippageBps("100"));
-assert.throws(()=>h.parseSlippageBps("-1"));
-assert.throws(()=>h.parseSlippageBps("1.001"));
 
 // Primitive and ALT adversarial cases.
 const raw=Uint8Array.from([0,1,2,3,4,5,6,7,8]);
@@ -88,6 +90,35 @@ rejected(()=>h.validateLookupSelection({writableIndexes:[0],readonlyIndexes:[]},
 rejected(()=>h.validateLookupSelection({writableIndexes:[0],readonlyIndexes:[]},{...goodState,lastExtendedSlot:12n},11),"future ALT extension");
 rejected(()=>h.validateLookupSelection({writableIndexes:[3],readonlyIndexes:[]},goodState,11),"out-of-range ALT index");
 rejected(()=>h.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},goodState,10),"same-slot ALT extension");
+
+// ComputeBudget instructions are part of the reviewed policy, not ignored metadata.
+{
+  const expectedFixture=makeMessage(),actualFixture=makeMessage();
+  const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0);
+  actual.compiledInstructions[3].data[1]^=1; // Phantom may adjust the priority fee.
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0);
+}
+{
+  const expectedFixture=makeMessage(),actualFixture=makeMessage();
+  const expected={...expectedFixture.message,
+    compiledInstructions:expectedFixture.message.compiledInstructions.filter(item=>item.programIdIndex!==15),
+    resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0,"Phantom-added compute limit and priority price must be accepted");
+
+}
+
+
+{
+  const expectedFixture=makeMessage(),actualFixture=makeMessage();
+  const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
+  actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
+  actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
+  assert.ok(h.compareLegacyMessageSemantics(expected,actual).includes("duplicateComputeBudgetInstruction"));
+}
 
 // Baseline router transaction passes the structural policy.
 const base=makeMessage();

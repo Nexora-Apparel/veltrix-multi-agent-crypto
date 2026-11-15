@@ -41,22 +41,42 @@ def test_devnet_faucet_topups_are_chunked_before_transaction_construction():
     assert "Devnet faucet could not supply the remaining test balance" in source
 
 
-def test_phantom_swap_requires_explicit_user_approval_after_final_freshness_gate():
+def test_phantom_android_validation_is_sign_only_and_execution_stays_locked():
     source = PAGE.read_text(encoding="utf-8")
-    assert '<button id="execute" disabled>Review and approve in Phantom</button>' in source
-    assert "User-approved Phantom signing · Solana Devnet only" in source
-    assert "Nothing is sent unless you approve it in Phantom." in source
+    assert '<button id="signTest" class="secondary" disabled>Verify Phantom legacy signing (no broadcast)</button>' in source
+    assert '<button id="execute" disabled>Execution locked pending validation</button>' in source
+    assert "const EXECUTION_RELEASE_ENABLED = false" in source
+    sign_test = source[source.index("async function testLegacyPhantomSigning()"):source.index("async function execute()")]
+    assert "await finalPreSignFreshnessGate()" in sign_test
+    assert "provider.signTransaction(phantomInputTx)" in sign_test
+    assert "normalizePhantomSignedLegacyTransaction(phantomWireBytes)" in sign_test
+    assert "phantomSigningWireBytes(phantomResult)" in sign_test
+    assert "function normalizePhantomSignedLegacyTransaction(value)" in source
+    assert "function transactionMessageBytesFromWire(wireBytes)" in source
+    assert "transactionMessageBytesFromWire(phantomWireBytes)" in source
+    assert "serializeTransactionMessage(signedTx)" not in source
+    assert "First differing message byte" in source
+    assert "function describeLegacyMessageDelta" in source
+    assert "changed fields:" in source
+    assert "phantomInputTx = solanaWeb3.Transaction.from" in sign_test
+    assert "Transaction.from(raw)" in source
+    assert "reviewStartedAtMs" not in sign_test
+    assert "assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes)" in sign_test
+    assert "verifySignatures:true" in source
+    assert "submitted:false,broadcast:false" in sign_test
+    assert "refreshQuoteForReview" in source
+    assert "if (gateResult?.refreshed) return gateResult" in sign_test
+    assert "FRESH QUOTE READY" in source
+    assert "sendRawTransaction" not in sign_test
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert "await finalPreSignFreshnessGate()" in execute
-    assert "provider.signAndSendTransaction(finalTx" in execute
-    assert "provider.publicKey.equals(wallet)" in execute
+    assert "EXECUTION_RELEASE_ENABLED !== true" in execute
+    assert "Execution is hard-disabled" in execute
     assert "confirmTransaction(signature" in execute
     assert "getTransaction(signature" in execute
     assert "reconcileConfirmedTransaction(" in execute
-    assert "CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH" in source
+    assert "CONFIRMED_BUT_UNVERIFIED" in execute
     assert "firstByteDifference" in source
     assert "reviewedMessageSha256" in source
-    assert "tokenBalanceRaw()" in execute
     assert "window.confirm(" not in source
     assert "await provider.connect()" in source
 
@@ -108,16 +128,26 @@ def test_price_impact_is_informational_and_not_a_universal_rejection_gate():
 
 
 
-def test_slippage_is_configurable_and_minimum_output_is_encoded_and_reviewed():
+def test_execution_protection_is_automatic_and_minimum_is_sealed_into_transaction():
     source = PAGE.read_text(encoding="utf-8")
-    assert 'id="slippage"' in source
-    assert 'value="1.00"' in source
-    assert "function parseSlippageBps(value)" in source
-    assert "slippageBps,routePlan" in source
-    assert "minimumRawCanonical=quotedRawCanonical*BigInt(10000-slippageBps)/10000n" in source
-    assert "q.otherAmountThreshold=minimumRawCanonical.toString()" in source
-    assert 'textContent=slippageBps+" bps ("' in source
-    assert "9900n" not in source
+    engine = (PAGE.parent / "automatic-exchange-pricing.mjs").read_text(encoding="utf-8")
+    assert 'id="slippage"' not in source
+    assert "function parseSlippageBps(value)" not in source
+    assert "computeProtectionBps" in source
+    assert "calculateMinimumOutput" in source
+    assert "swapResult.tradeFee" in source
+    assert "swapResult.creatorFee" in source
+    assert "createQuoteSnapshot" in source
+    assert "inputDecimals: 9, outputDecimals: 6" in source
+    assert "quoteSnapshot.minimumOutputRaw !== q.otherAmountThreshold" in source
+    assert "await pricing.evaluateFreshQuote" in source
+    assert "snapshot hash mismatch" in engine
+    assert "Do not chase changing risk estimates during" in engine
+    assert "current liquidity, volatility or route risk" not in engine
+    assert 'id="protectionValue"' in source
+    assert "maximum slippage" not in source.lower()
+    assert "quoteAgeMs" in engine and "liquidityUsd" in engine and "volatilityBps" in engine
+    assert "expiresAtMs" in engine
 
 
 def test_confirmation_reconciles_exact_input_minimum_and_actual_wallet_output():
@@ -127,14 +157,16 @@ def test_confirmation_reconciles_exact_input_minimum_and_actual_wallet_output():
     assert "actualOutputRaw" in source
     assert "received.toString() !== reconciliation.diagnostics.actualOutputRaw" in source
     assert "walletUsdcBalanceDeltaBelowMinimum" in source
+    assert "walletSolBalanceDebitMismatch" in source
+    assert "expectedPersistentRentLamports" in source
+    assert "reviewed.solBalanceBefore" in source
 
 
-def test_amount_and_slippage_edits_both_invalidate_prepared_review():
+def test_only_user_editable_amount_invalidates_prepared_review():
     source = PAGE.read_text(encoding="utf-8")
     assert '$("amount").addEventListener("input"' in source
-    assert '$("slippage").addEventListener("input"' in source
-    assert "Slippage changed. Request a new quote" in source
-    assert '$("slippage").disabled = value' in source
+    assert '$("slippage").addEventListener("input"' not in source
+    assert 'id="slippage"' not in source
 
 def test_amount_is_locked_during_quote_and_signing_operations():
     source = PAGE.read_text(encoding="utf-8")
@@ -152,11 +184,11 @@ def test_phantom_review_is_bound_to_exact_unsigned_transaction_bytes():
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in source
 
 
-def test_phantom_review_expires_and_rejects_multi_transaction_bundles():
+def test_phantom_review_has_no_artificial_ttl_and_rejects_multi_transaction_bundles():
     source = PAGE.read_text(encoding="utf-8")
     assert "prepared.txs.length !== 1" in source
     assert "prepared.reviewedBytes.length !== 1" in source
-    assert "Date.now() - prepared.preparedAt > 15000" in source
+    assert "reviewStartedAtMs - prepared.preparedAt > 15000" not in source
     assert "prepared.walletAddress !== wallet.toBase58()" in source
 
 
@@ -215,7 +247,7 @@ def test_browser_semantic_audit_runs_before_review_and_before_signing():
     source = PAGE.read_text(encoding="utf-8")
     assert "await inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
     assert "Transaction intent rejected:" in source
-    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "provider.signTransaction(phantomInputTx)" in source
     assert "inspectTransaction(tx, quote, reviewedBytes)" in source
 
 
@@ -244,8 +276,10 @@ def test_quote_is_locked_to_the_exactly_audited_single_hop_pool():
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in source
     assert "poolInfo.id !== POOL || poolInfo.programId !== CPMM" in source
     assert "raydium.cpmm.swap(" in source
-    assert "minimumOut=swapResult.outputAmount.mul(new BN(String(10000-slippageBps))).div(new BN(10000))" in source
-    assert "slippage:slippageBps/10000" in source
+    assert "const minimumOut = new BN(pricing.calculateMinimumOutput(swapResult.outputAmount.toString(), protectionBps))" in source
+    assert "slippage:protectionBps/10000" in source
+    assert "measurePoolVolatilityBps(raydium, baseIn)" in source
+    assert "calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut)" in source
     assert "const TRADE =" not in source
 
 
@@ -289,14 +323,20 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert '"@raydium-io/raydium-sdk-v2": "0.2.64-alpha"' in package
     assert 'const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo"' in source
     assert 'const INPUT = parseSolToLamports(process.env.SWAP_INPUT_SOL || "0.001")' in source
-    assert 'process.env.SWAP_SLIPPAGE_BPS || "100"' in source
-    assert "slippage:SLIPPAGE_BPS/10000" in source
+    assert "computeProtectionBps" in source
+    assert "calculateMinimumOutput" in source
+    assert "slippage:protectionBps/10000" in source
+    assert "SWAP_SLIPPAGE_BPS" not in source
+    assert "pool_trade_fee_raw" in source
+    assert "pool_creator_fee_raw" in source
+    assert "network_fee_lamports" in source
     assert "priceImpactPct" in source
-    assert "no universal threshold blocks the build" in source
+    assert "observed short-window volatility" in source
+    assert "pool_liquidity_usd" in source and "trade_usd" in source
     assert "priceImpactPct >" not in source
     assert 'SWAP_INPUT_SOL: "0.005"' in workflow
-    assert 'SWAP_SLIPPAGE_BPS: "250"' in workflow
-    assert 'EXPECT_IMPACT_ABOVE_2: "true"' in workflow
+    assert "SWAP_SLIPPAGE_BPS" not in workflow
+    assert "EXPECT_IMPACT_ABOVE_2" not in workflow
     assert 'cluster:"devnet"' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "raydium.cpmm.swap(" in source
@@ -346,15 +386,17 @@ def test_amm_config_discriminator_is_compared_as_raw_bytes():
 
 
 
-def test_browser_ui_uses_direct_cpmm_sdk_and_only_enables_user_approved_signing():
+def test_browser_ui_uses_direct_cpmm_sdk_and_keeps_submission_hard_disabled():
     source = PAGE.read_text(encoding="utf-8")
     assert 'import("https://esm.sh/@raydium-io/raydium-sdk-v2@0.2.64-alpha?bundle")' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "inspectDirectCpmmTransaction(tx,q,reviewedBytes)" in source
-    assert "provider.signAndSendTransaction(finalTx" in source
+    assert "provider.signTransaction(phantomInputTx)" in source
     assert "await finalPreSignFreshnessGate()" in source
-    assert '$("execute").disabled=false' in source
-    assert '$("execute").textContent="Review and approve in Phantom"' in source
+    assert '$("signTest").disabled=false' in source
+    assert '$("execute").disabled=true' in source
+    assert 'Execution locked pending validation' in source
+    assert 'EXECUTION_RELEASE_ENABLED !== true' in source
 
 
 
@@ -370,7 +412,7 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     source = PAGE.read_text(encoding="utf-8")
     assert "async function finalPreSignFreshnessGate()" in source
     gate = source[source.index("async function finalPreSignFreshnessGate()"):source.index("async function execute()")]
-    assert "Date.now() - prepared.preparedAt > 15000" in gate
+    assert "prepared.preparedAt > 15000" not in gate
     assert "provider.publicKey.equals(wallet)" in gate
     assert "connection.getGenesisHash()" in gate
     assert "BigInt(prepared.requiredBalanceLamports)" in gate
@@ -378,14 +420,17 @@ def test_final_pre_sign_freshness_gate_rechecks_wallet_balance_blockhash_pool_qu
     assert "raydium.cpmm.getPoolInfoFromRpc(POOL)" in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
     assert "freshMinimum.toString() !== prepared.quote.otherAmountThreshold" not in gate
-    assert "fresh output=" in gate
+    assert "refreshQuoteForReview" in gate
+    assert "freshOutputRaw < reviewedMinimum" in gate
     assert "freshImpact > MAX_IMPACT" not in gate
     assert "freshOutputRaw < reviewedMinimum" in gate
     assert "await inspectDirectCpmmTransaction(tx,prepared.quote,prepared.reviewedBytes[0])" in gate
     assert "assertExactReviewedBytes(tx,prepared.reviewedBytes[0])" in gate
     execute = source[source.index("async function execute()"):source.index("if (window.__VELTRIX_TEST__")]
-    assert "await finalPreSignFreshnessGate()" in execute
-    assert "provider.signAndSendTransaction(finalTx" in execute
+    assert "const gateResult = await finalPreSignFreshnessGate()" in execute
+    assert "if (gateResult?.refreshed)" in execute
+    assert "if (prepared !== reviewed)" in execute
+    assert "provider.signTransaction(phantomInputTx)" in execute
 
 
 
@@ -396,13 +441,18 @@ def test_missing_or_invalid_network_fee_estimate_fails_closed():
     assert "const totalFee=fee.value;" in source
 
 
-def test_quote_review_displays_exact_raw_output_and_slippage_floor():
+def test_quote_review_displays_exact_output_automatic_protection_and_fee_items():
     source = PAGE.read_text(encoding="utf-8")
     assert 'id="outputRawValue"' in source
     assert 'id="minimumRawValue"' in source
-    assert 'id="slippageValue"' in source
+    assert 'id="protectionValue"' in source
+    assert 'id="quoteExpiryValue"' in source
+    assert 'id="dexFeeValue"' in source
+    assert 'id="creatorFeeValue"' in source
+    assert 'id="routeFeeValue"' in source
+    assert 'id="platformFeeValue"' in source
+    assert 'id="platformFeeValue"' in source
     assert "function fmtFixedRaw(raw, decimals)" in source
-    assert "minimumRaw!==expectedFloor" in source
     assert 'textContent=fmtFixedRaw(quotedRaw,6)+" USDC"' in source
     assert 'textContent=fmtFixedRaw(minimumRaw,6)+" USDC"' in source
 
@@ -423,11 +473,17 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "address_lookup_tables:[]" in builder
     assert "TxVersion.LEGACY" in page
     assert "resolveLegacyAccounts(message)" in page
-    assert "only legacy or v0 Phantom transactions are supported" in page
+    assert "Phantom KMS-safe execution requires a legacy transaction with no address lookup tables" in page
     assert "resolveV0Accounts(message)" in page
     assert "duplicate public key in resolved v0 account set" in page
     assert "legacy transaction unexpectedly references address lookup tables" in page
-    assert "provider.signAndSendTransaction(finalTx,{" in page
+    assert "provider.signTransaction(phantomInputTx)" in page
+    assert "connection.sendRawTransaction(signedWireBytes" in page
+    assert "assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes)" in page
+    assert "signature !== locallySignedSignature" in page
+    assert "actualSolBalanceAfter" in page
+    assert "Network fee estimate changed or became unavailable" in page
+    assert "Pool trade/creator fee schedule changed after review" in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
 
@@ -438,10 +494,11 @@ def test_wallet_capability_adapter_requires_legacy_before_quote_and_approval():
     assert 'advertised.has("legacy")' in source
     assert 'advertised.includes("legacy")' in source
     assert "walletCapabilities=detectWalletCapabilities(provider)" in source
-    assert 'advertised.has(0)||advertised.has("0")' in source
-    assert 'advertised.includes(0)||advertised.includes("0")' in source
-    assert "preparedIsV0?!walletCapabilities.v0:!walletCapabilities.legacy" in source
-    assert "Connected Phantom wallet exposes no supported transaction version." in source
+    assert "return {legacy:true,v0:false" in source
+    assert 'advertised.has(0)||advertised.has("0")' not in source
+    assert 'advertised.includes(0)||advertised.includes("0")' not in source
+    assert "if(!walletCapabilities.legacy || !prepared" in source
+    assert "Connected Phantom wallet does not expose the required legacy signTransaction capability." in source
 
 
 
@@ -467,10 +524,11 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
 
 
 
-def test_builder_minimum_output_error_reflects_configured_slippage():
+def test_builder_minimum_output_uses_automatic_protection():
     source = (Path(__file__).parents[1] / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
-    assert 'fail("configured slippage produces a zero minimum output")' in source
-    assert "calculated 1% slippage floor is zero" not in source
+    assert 'fail("automatic execution protection produces a zero minimum output")' in source
+    assert "calculateMinimumOutput" in source
+    assert "SWAP_SLIPPAGE_BPS" not in source
 
 
 def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reserve():
@@ -485,3 +543,12 @@ def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reser
     assert "0.05 SOL reserve" not in source
     assert 'id="temporaryFundingValue"' in source
     assert 'id="requiredBalanceValue"' in source
+
+def test_quote_liquidity_metrics_are_defined_before_protection_and_snapshot_use():
+    source = PAGE.read_text(encoding="utf-8")
+    declaration = "const liquidityMetrics=calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut)"
+    assert source.count(declaration) == 1
+    assert source.index(declaration) < source.index("liquidityUsd: liquidityMetrics.liquidityUsd")
+    assert source.index(declaration) < source.index("tradeUsd: liquidityMetrics.tradeUsd")
+    assert "const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve" in source
+    assert "const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve" in source
