@@ -829,7 +829,7 @@
     const seed=new TextDecoder().decode(create.data.slice(44,76));
     if (!/^[1-9A-HJ-NP-Za-km-z]{32}$/.test(seed)) fail("temporary WSOL account seed is malformed");
     const rentFunding=readU64(create.data,76);
-    if (rentFunding<decoded.amountIn || rentFunding-decoded.amountIn>5000000n) {
+    if (rentFunding<BigInt(String(quote.inputAmount)) || rentFunding-BigInt(String(quote.inputAmount))>5000000n) {
       fail("temporary WSOL account funding does not equal the requested input plus a bounded rent reserve");
     }
     if (initialize.data.length!==1 || initialize.data[0]!==1 ||
@@ -1201,7 +1201,10 @@
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
     const lamports = parseSolAmountToLamports($("amount").value);
     const slippageBps = parseSlippageBps($("slippage").value);
-    await refreshBalance();
+    // Fund the requested input plus a bounded rent/fee cushion before the SDK
+    // creates a blockhash. Any faucet activity therefore precedes transaction
+    // construction and cannot stale the reviewed message.
+    await ensureDevnetFunds(lamports + 10000000n);
     const tokenBalanceBefore = await tokenBalanceRaw();
 
     const {sdk,BN} = await loadDirectCpmmSdk();
@@ -1316,7 +1319,10 @@
     const temporaryWsolFundingLamports=BigInt(semanticAudit.temporaryWsolFundingLamports);
     const totalDebitLamports=BigInt(lamports)+persistentAtaRentLamports+BigInt(totalFee);
     const requiredBalanceLamports=temporaryWsolFundingLamports+persistentAtaRentLamports+BigInt(totalFee);
-    await ensureDevnetFunds(requiredBalanceLamports);
+    const fundedBalanceLamports=BigInt(await refreshBalance());
+    if(fundedBalanceLamports<requiredBalanceLamports) {
+      throw new Error("Wallet balance is below the exact rent and network-fee requirement after transaction construction. Build a fresh quote after funding; nothing has been signed or sent.");
+    }
     prepared={txs:[tx],reviewedBytes:[reviewedBytes],quote:q,impact,lamports,totalFee,
       outputAtaPresent:semanticAudit.runtime.outputAtaPresent,
       persistentAtaRentLamports:persistentAtaRentLamports.toString(),
