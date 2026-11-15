@@ -197,27 +197,46 @@
     }
     return true;
   }
-  function normalizeConfirmedLegacyMessage(message) {
-    if(!message || !message.header || !Array.isArray(message.accountKeys) ||
-       !Array.isArray(message.instructions) || typeof message.recentBlockhash!=="string") {
-      throw new Error("Confirmed RPC message is not a complete legacy message.");
+  function normalizeConfirmedMessage(message,meta) {
+    if(!message||!message.header||typeof message.recentBlockhash!=="string") {
+      throw new Error("Confirmed RPC message is incomplete.");
     }
-    return {
-      version:"legacy",
-      header:{
-        numRequiredSignatures:message.header.numRequiredSignatures,
-        numReadonlySignedAccounts:message.header.numReadonlySignedAccounts,
-        numReadonlyUnsignedAccounts:message.header.numReadonlyUnsignedAccounts
-      },
-      staticAccountKeys:message.accountKeys.map(key=>key.toBase58()),
-      recentBlockhash:message.recentBlockhash,
-      addressTableLookups:[],
+    if(Array.isArray(message.staticAccountKeys)&&Array.isArray(message.compiledInstructions)) {
+      const loaded=meta&&meta.loadedAddresses;
+      if(message.addressTableLookups?.length&&(!loaded||!Array.isArray(loaded.writable)||!Array.isArray(loaded.readonly))) {
+        throw new Error("Confirmed v0 transaction is missing RPC-resolved loaded addresses.");
+      }
+      const staticKeys=message.staticAccountKeys.map(key=>key.toBase58());
+      const writable=(loaded?.writable||[]).map(key=>key.toBase58());
+      const readonly=(loaded?.readonly||[]).map(key=>key.toBase58());
+      return {version:0,header:message.header,staticAccountKeys:staticKeys,
+        resolvedAccountKeys:[...staticKeys,...writable,...readonly],recentBlockhash:message.recentBlockhash,
+        addressTableLookups:message.addressTableLookups,
+        compiledInstructions:message.compiledInstructions.map(ix=>({
+          programIdIndex:ix.programIdIndex,accountKeyIndexes:Array.from(ix.accountKeyIndexes),data:Uint8Array.from(ix.data)
+        }))};
+    }
+    if(!Array.isArray(message.accountKeys)||!Array.isArray(message.instructions)) {
+      throw new Error("Confirmed RPC message is neither legacy nor v0.");
+    }
+    const keys=message.accountKeys.map(key=>key.toBase58());
+    return {version:"legacy",header:message.header,staticAccountKeys:keys,resolvedAccountKeys:keys,
+      recentBlockhash:message.recentBlockhash,addressTableLookups:[],
       compiledInstructions:message.instructions.map(ix=>({
-        programIdIndex:ix.programIdIndex,
-        accountKeyIndexes:Array.from(ix.accounts),
-        data:b58decode(ix.data)
-      }))
-    };
+        programIdIndex:ix.programIdIndex,accountKeyIndexes:Array.from(ix.accounts),data:b58decode(ix.data)
+      }))};
+  }
+  function normalizeReviewedMessageBytes(messageBytes) {
+    if(!(messageBytes instanceof Uint8Array)||messageBytes.length<3) throw new Error("reviewed message missing or truncated");
+    if(messageBytes[0]&0x80) {
+      const m=solanaWeb3.MessageV0.deserialize(messageBytes.slice(1));
+      return {version:0,header:m.header,staticAccountKeys:m.staticAccountKeys.map(k=>k.toBase58()),
+        recentBlockhash:m.recentBlockhash,addressTableLookups:m.addressTableLookups,
+        compiledInstructions:m.compiledInstructions.map(ix=>({
+          programIdIndex:ix.programIdIndex,accountKeyIndexes:Array.from(ix.accountKeyIndexes),data:Uint8Array.from(ix.data)
+        }))};
+    }
+    return normalizeReviewedLegacyMessageBytes(messageBytes);
   }
   function readMessageShortVec(bytes,state) {
     let value=0,shift=0;
@@ -293,8 +312,8 @@
        actualMessage.header.numReadonlySignedAccounts!==0) {
       differences.push("singleWalletSignerPolicy");
     }
-    const expectedKeys=expectedMessage.staticAccountKeys.map(key=>typeof key==="string"?key:key.toBase58());
-    const actualKeys=actualMessage.staticAccountKeys.map(key=>typeof key==="string"?key:key.toBase58());
+    const expectedKeys=(expectedMessage.resolvedAccountKeys||expectedMessage.staticAccountKeys).map(key=>typeof key==="string"?key:key.toBase58());
+    const actualKeys=(actualMessage.resolvedAccountKeys||actualMessage.staticAccountKeys).map(key=>typeof key==="string"?key:key.toBase58());
     if(expectedKeys[0]!==actualKeys[0]) differences.push("feePayer");
     if(expectedMessage.recentBlockhash!==actualMessage.recentBlockhash) differences.push("recentBlockhash");
 
@@ -378,8 +397,13 @@
     let confirmedBytes,expectedMessage,confirmedMessage;
     try {
       confirmedBytes=Uint8Array.from(transaction.message.serialize());
-      expectedMessage=normalizeReviewedLegacyMessageBytes(reviewedMessageBytes);
-      confirmedMessage=normalizeConfirmedLegacyMessage(transaction.message);
+      expectedMessage=normalizeReviewedMessageBytes(reviewedMessageBytes);
+      if(expectedMessage.addressTableLookups.length) {
+        const expectedResolved=await resolveV0Accounts({...expectedMessage,
+          staticAccountKeys:expectedMessage.staticAccountKeys.map(key=>new solanaWeb3.PublicKey(key))});
+        expectedMessage.resolvedAccountKeys=expectedResolved.resolved.map(key=>key.toBase58());
+      } else expectedMessage.resolvedAccountKeys=expectedMessage.staticAccountKeys;
+      confirmedMessage=normalizeConfirmedMessage(transaction.message,chainTx.meta);
     } catch(error) {
       throw new Error("CONFIRMED_BUT_UNVERIFIED: confirmed transaction message could not be decoded or serialized: "+
         (error&&error.message?error.message:String(error)));
@@ -389,22 +413,41 @@
     if(confirmedMessage.header.numRequiredSignatures!==1 || confirmedMessage.staticAccountKeys[0]!==wallet.toBase58()) {
       semanticDifferences.push("feePayerOrSignerPolicy");
     }
-    const cpmmInstructions=confirmedMessage.compiledInstructions.filter(ix=>confirmedMessage.staticAccountKeys[ix.programIdIndex]===CPMM);
+    const confirmedKeys=confirmedMessage.resolvedAccountKeys||confirmedMessage.staticAccountKeys;
+    const cpmmInstructions=confirmedMessage.compiledInstructions.filter(ix=>confirmedKeys[ix.programIdIndex]===CPMM);
     if(cpmmInstructions.length!==1) semanticDifferences.push("directCpmmInstructionCount");
     else {
       try { decodeCpmmSwapData(cpmmInstructions[0].data,BigInt(String(expectedMinimumRaw))); }
       catch { semanticDifferences.push("directCpmmInputOrMinimumOutput"); }
     }
+    const sumWalletUsdc=(rows)=>{
+      let total=0n;
+      for(const row of rows||[]) if(row.mint===USDC&&row.owner===wallet.toBase58()) {
+        if(typeof row.uiTokenAmount?.amount!=="string"||!/^[0-9]+$/.test(row.uiTokenAmount.amount)) {
+          throw new Error("malformed wallet USDC balance effect metadata");
+        }
+        total+=BigInt(row.uiTokenAmount.amount);
+      }
+      return total;
+    };
+    let actualOutputRaw=null;
+    try {
+      const before=sumWalletUsdc(chainTx.meta.preTokenBalances);
+      const after=sumWalletUsdc(chainTx.meta.postTokenBalances);
+      if(after<before||after-before<BigInt(String(expectedMinimumRaw))) semanticDifferences.push("walletUsdcBalanceDeltaBelowMinimum");
+      else actualOutputRaw=(after-before).toString();
+    } catch { semanticDifferences.push("walletUsdcBalanceEffectsUnavailable"); }
     const diagnostics={
       reviewedMessageLength:reviewedEvidence?.length ?? reviewedMessageBytes.length,
       confirmedMessageLength:confirmedBytes.length,
       reviewedMessageSha256:reviewedEvidence?.sha256 || await sha256Hex(reviewedMessageBytes),
       confirmedMessageSha256:await sha256Hex(confirmedBytes),
       firstByteDifference:firstByteDifference(reviewedMessageBytes,confirmedBytes),
-      semanticDifferences:[...new Set(semanticDifferences)]
+      semanticDifferences:[...new Set(semanticDifferences)],
+      actualOutputRaw
     };
     if(semanticDifferences.length) {
-      throw new Error("CONFIRMED_BUT_UNVERIFIED: independent legacy transaction semantic audit failed. Diagnostics: "+JSON.stringify(diagnostics));
+      throw new Error("CONFIRMED_BUT_UNVERIFIED: independent transaction semantic/effects audit failed. Diagnostics: "+JSON.stringify(diagnostics));
     }
     return {status:exact?"CONFIRMED_EXACT_MATCH":"CONFIRMED_SEMANTIC_MATCH_BUT_BYTE_MISMATCH",exactBytes:exact,semanticMatch:true,diagnostics};
   }
