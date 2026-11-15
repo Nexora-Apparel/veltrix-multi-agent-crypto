@@ -73,6 +73,7 @@ def build_funding_graph_providers(settings, *, session=None):
     """
     from .alchemy_funding import AlchemyBaseFundingGraphProvider
     from .helius_funding import HeliusSolanaFundingGraphProvider
+    from .etherscan_bsc_funding import EtherscanBscFundingGraphProvider
 
     providers = {}
     if getattr(settings, "helius_api_key", ""):
@@ -85,6 +86,15 @@ def build_funding_graph_providers(settings, *, session=None):
     if getattr(settings, "alchemy_api_key", ""):
         providers["base"] = AlchemyBaseFundingGraphProvider(
             settings.alchemy_api_key, session=session,
+            max_pages=getattr(settings, "funding_graph_max_pages", 100),
+            max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
+            max_total_pages=getattr(settings, "funding_graph_max_total_pages", 1_000),
+        )
+    etherscan_key = getattr(settings, "etherscan_api_key", "")
+    bsc_rpc = getattr(settings, "bsc_rpc_url", "")
+    if etherscan_key and bsc_rpc:
+        providers["bsc"] = EtherscanBscFundingGraphProvider(
+            etherscan_key, bsc_rpc, session=session,
             max_pages=getattr(settings, "funding_graph_max_pages", 100),
             max_wallets=getattr(settings, "funding_graph_max_wallets", 2_000),
             max_total_pages=getattr(settings, "funding_graph_max_total_pages", 1_000),
