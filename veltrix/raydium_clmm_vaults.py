@@ -83,7 +83,7 @@ class RaydiumFinalizedVaultSettlement:
 def verify_finalized_raydium_clmm_vault_settlement(
     evidence: ConfirmedTransactionEvidence,
     *,
-    vaults: tuple[RaydiumClmmVaultAccount, ...],
+    vault_snapshot: RaydiumClmmVaultSnapshot,
     expected_deltas: tuple[ExpectedRaydiumVaultDelta, ...],
     provider_id: str,
     cluster: str,
@@ -94,6 +94,9 @@ def verify_finalized_raydium_clmm_vault_settlement(
         raise RaydiumClmmVaultError("finalized transaction evidence is required")
     if evidence.inner_instructions_present is not True:
         raise RaydiumClmmVaultError("finalized transaction does not attest to captured inner instructions")
+    if not isinstance(vault_snapshot, RaydiumClmmVaultSnapshot):
+        raise RaydiumClmmVaultError("provider-backed verified Raydium vault snapshot is required")
+    vaults = vault_snapshot.vaults
     if not isinstance(vaults, tuple) or len(vaults) != 2 or any(
         not isinstance(item, RaydiumClmmVaultAccount) for item in vaults
     ):
@@ -112,8 +115,13 @@ def verify_finalized_raydium_clmm_vault_settlement(
         evidence.provider_id != provider_id
         or evidence.cluster != cluster
         or evidence.genesis_hash != genesis_hash
+        or vault_snapshot.provider_id != provider_id
+        or vault_snapshot.cluster != cluster
+        or vault_snapshot.genesis_hash != genesis_hash
     ):
-        raise RaydiumClmmVaultError("finalized transaction provider, cluster or genesis differs from pool evidence")
+        raise RaydiumClmmVaultError("finalized transaction and vault snapshot provider, cluster or genesis differ")
+    if vault_snapshot.context_slot < evidence.slot:
+        raise RaydiumClmmVaultError("vault snapshot context slot is older than the finalized transaction slot")
     if RAYDIUM_CLMM_PROGRAM_ID not in evidence.top_level_program_ids:
         raise RaydiumClmmVaultError("finalized transaction did not invoke the canonical Raydium CLMM program")
     if CLASSIC_SPL_TOKEN_PROGRAM_ID not in evidence.inner_program_ids:
@@ -216,6 +224,43 @@ def verify_finalized_raydium_clmm_vault_settlement(
         execution_ready=False,
     )
 
+
+
+
+def verify_finalized_raydium_clmm_vault_settlement_from_rpc(
+    signature: str,
+    *,
+    pool_evidence: DexPoolEvidenceSnapshot,
+    pool_checks: tuple[RaydiumClmmPoolRouteCheck, ...],
+    simulation: SimulationEvidence,
+    rpc_adapter: SolanaRpcSimulationAdapter,
+    expected_deltas: tuple[ExpectedRaydiumVaultDelta, ...],
+) -> RaydiumFinalizedVaultSettlement:
+    """Fetch finalized transaction then refetch pool vaults at/after its slot from the same RPC."""
+    if not isinstance(rpc_adapter, SolanaRpcSimulationAdapter):
+        raise RaydiumClmmVaultError("provider-pinned Solana RPC adapter is required")
+    if (
+        rpc_adapter.provider_id != simulation.provider_id
+        or rpc_adapter.cluster != simulation.cluster
+        or rpc_adapter.expected_genesis_hash != simulation.genesis_hash
+    ):
+        raise RaydiumClmmVaultError("transaction and vault verification must use the simulation's pinned RPC")
+    evidence = rpc_adapter.fetch_finalized_transaction(signature)
+    snapshot = fetch_raydium_clmm_vault_snapshot(
+        pool_evidence,
+        pool_checks=pool_checks,
+        simulation=simulation,
+        rpc_adapter=rpc_adapter,
+        minimum_context_slot=evidence.slot,
+    )
+    return verify_finalized_raydium_clmm_vault_settlement(
+        evidence,
+        vault_snapshot=snapshot,
+        expected_deltas=expected_deltas,
+        provider_id=rpc_adapter.provider_id,
+        cluster=rpc_adapter.cluster,
+        genesis_hash=rpc_adapter.expected_genesis_hash,
+    )
 
 
 def derive_raydium_clmm_vault_address(*, pool_address: str, mint: str) -> str:
