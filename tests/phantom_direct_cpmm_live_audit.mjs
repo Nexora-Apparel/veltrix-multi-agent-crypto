@@ -148,6 +148,22 @@ const semanticallySameMessage={
   recentBlockhash:confirmedMessageBase.recentBlockhash,instructions:confirmedMessageBase.instructions,
   serialize:()=>differentSerializedBytes
 };
+// Phantom may reorder the static account table and append bounded compute-budget
+// instructions. The semantic verifier must tolerate that compiler augmentation while
+// preserving the exact non-compute instruction identities, order and payloads.
+const augmentedTx=Transaction.from(semanticTx.serialize({requireAllSignatures:false,verifySignatures:false}));
+const computeBudgetProgram=new PublicKey(hooks.constants.COMPUTE_BUDGET);
+augmentedTx.add(
+  new TransactionInstruction({programId:computeBudgetProgram,keys:[],data:Buffer.from([2,0x20,0xa1,0x07,0x00])}),
+  new TransactionInstruction({programId:computeBudgetProgram,keys:[],data:Buffer.from([3,0x40,0x42,0x0f,0x00,0x00,0x00,0x00,0x00])})
+);
+const augmentedMessage=hooks.normalizedTransactionMessage(augmentedTx);
+assert.equal(hooks.compareLegacyMessageSemantics(immutableExpected,augmentedMessage).length,0,
+  "bounded Phantom ComputeBudget augmentation must not fail semantic reconciliation");
+const maliciousAugmentation=Transaction.from(augmentedTx.serialize({requireAllSignatures:false,verifySignatures:false}));
+maliciousAugmentation.add(new TransactionInstruction({programId:new PublicKey(hooks.constants.SYSTEM),keys:[],data:Buffer.from([1,2,3])}));
+assert.ok(hooks.compareLegacyMessageSemantics(immutableExpected,hooks.normalizedTransactionMessage(maliciousAugmentation)).length>0,
+  "non-ComputeBudget instruction injection must still fail semantic reconciliation");
 const semanticResult=await hooks.reconcileConfirmedTransaction({
   meta:{err:null},transaction:{signatures:["test-signature"],message:semanticallySameMessage}
 },reviewedMessageBytes,"test-signature","2411",{length:reviewedMessageBytes.length,sha256:"preapproval-test-sha256"});
