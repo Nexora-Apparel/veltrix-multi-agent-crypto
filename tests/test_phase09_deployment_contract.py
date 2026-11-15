@@ -129,7 +129,9 @@ def test_dashboard_dac_permissions_are_read_only_independently_of_mount_namespac
     unit = _unit("veltrix-paper.service")
     assert 'runuser -u veltrix-dashboard -- test ! -w "$DB"' in script
     assert 'runuser -u veltrix-dashboard -- test ! -w "$(dirname "$DB")"' in script
-    assert "stat -c '%a' \"$DB\"" in script
+    assert "stat -c '%U:%G:%a' \"$DB\"" in script
+    assert "stat -c '%U:%G:%a' \"$DB_DIR\"" in script
+    assert 'database directory must be a real canonical directory' in script
     assert '[[ ! -L "$DB" ]]' in script
     assert '[[ ! -L "$DB_DIR"' in script
     assert 'runuser -u veltrix-paper -- test -w "$DB"' in script
