@@ -49,6 +49,18 @@ EVM_LOCKER_CANDIDATES = {
 # project's public source. Other listed programs are discovery candidates,
 # not supported/certifying profiles until their deployed executable and IDL
 # are independently pinned.
+SOLANA_RAYDIUM_LOCKING_CANDIDATE = {
+    "program_id": "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE",
+    "authority_seed": "lock_cp_authority_seed",
+    "locked_liquidity_seed": "locked_liquidity",
+    "state_discriminator": "190aeec5cfea4916",
+    "state_size": 256,
+    # Raydium's public CPI interface publishes the exact state layout and PDA
+    # seeds; the deployed program remains closed-source and must be hash-pinned.
+    "source_ref": "https://github.com/raydium-io/raydium-cpi/blob/master/programs/locking-cpi/src/states.rs",
+    "program_ref": "https://github.com/raydium-io/raydium-docs-v1/blob/main/reference/program-addresses.mdx",
+}
+
 SOLANA_UNCX_PROGRAM_CANDIDATES = {
     "raydium-amm-v4": {
         "program_id": "GsSCS3vPWrtJ5Y9aEVVT65fmrex5P5RGHXdZvsdbWgfo",
