@@ -166,7 +166,7 @@ def main(argv=None):
             holder_providers=holders, funding_providers=funding,
             root_provider=roots, origin_resolvers=origins,
         )
-        exit_code = 0 if result["structural_pass"] else 1
+        exit_code = 0 if result["structural_pass"] and result["trust_ready"] else 1
     except Exception as exc:
         result = {
             "chain": args.chain,
@@ -183,6 +183,7 @@ def main(argv=None):
     )
     print(
         f"Developer evidence acceptance: {result['status']}; "
+        f"trust ready: {result.get('trust_ready', False)}; "
         f"capability certified: {result.get('capability_certified', False)}; "
         f"execution enabled: {result.get('live_execution_enabled', False)}"
     )
