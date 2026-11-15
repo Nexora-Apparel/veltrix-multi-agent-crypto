@@ -74,6 +74,7 @@ def test_solana_graph_traces_earliest_native_or_token_transfer_funder():
     requests = [call for call in session.calls if call["method"] == "getTransfersByAddress"]
     assert requests[0]["params"][1]["direction"] == "in"
     assert requests[0]["params"][1]["sortOrder"] == "asc"
+    assert requests[0]["params"][1]["commitment"] == "finalized"
     assert requests[0]["params"][1]["filters"]["slot"]["lte"] == 100
 
 
