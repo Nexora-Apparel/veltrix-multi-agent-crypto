@@ -1,0 +1,60 @@
+name: Cloudflare Pages dashboard CI
+on:
+  push:
+    branches: [main, "work/**"]
+    paths:
+      - "functions/**"
+      - "cloudflare-tests/**"
+      - "veltrix/dashboard_assets/**"
+      - "package.json"
+      - "wrangler.toml"
+      - ".github/workflows/cloudflare-pages-ci.yml"
+  pull_request:
+    paths:
+      - "functions/**"
+      - "cloudflare-tests/**"
+      - "veltrix/dashboard_assets/**"
+      - "package.json"
+      - "wrangler.toml"
+      - ".github/workflows/cloudflare-pages-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install pinned dashboard dependencies
+        run: npm install --ignore-scripts
+      - name: Run dashboard API security tests
+        run: npm test
+      - name: Smoke-test Pages static assets and unauthenticated API boundary
+        env:
+          TURSO_DATABASE_URL: libsql://veltrix-ci.aws-eu-central-1.turso.io
+          TURSO_AUTH_TOKEN: ci-dummy-token
+          DASHBOARD_API_TOKEN: veltrix-ci-dashboard-token-0123456789
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler pages dev veltrix/dashboard_assets --ip 127.0.0.1 --port 8788 > /tmp/veltrix-pages.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8788/ >/tmp/veltrix-index.html; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q "VELTRIX" /tmp/veltrix-index.html
+          curl --silent --fail http://127.0.0.1:8788/assets/dashboard.js | grep -q "api(\"/api/health\")"
+          status=$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" http://127.0.0.1:8788/api/health)
+          test "$status" = "401"
+          grep -q "unauthorized" /tmp/veltrix-unauthorized.json
