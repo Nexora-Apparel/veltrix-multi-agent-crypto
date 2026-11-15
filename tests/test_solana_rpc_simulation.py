@@ -1,6 +1,7 @@
 """Tests for the provider-pinned, read-only Solana simulation adapter."""
 import base64
 import dataclasses
+import hashlib
 
 import pytest
 from solders.hash import Hash
@@ -979,7 +980,8 @@ def test_fetches_finalized_transaction_and_resolves_token_cpi_program_ids():
         "commitment": "finalized",
         "maxSupportedTransactionVersion": 0,
     }
-    assert len(evidence.message_sha256) == 64
+    wire_bytes = base64.b64decode(session.wire_result["transaction"][0], validate=True)
+    assert evidence.message_sha256 == hashlib.sha256(wire_bytes[65:]).hexdigest()
 
 
 @pytest.mark.parametrize(
