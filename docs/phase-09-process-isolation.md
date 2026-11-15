@@ -160,3 +160,9 @@ an authentication substitute. Startup must fail closed when the token is absent,
 blank, or too short. The browser UI stores the operator-entered token only in
 session storage and sends it in the Authorization header; do not place token
 values in URLs, logs, screenshots, or repository files.
+
+
+CI on the current integration branch also runs `bash -n` against both host
+scripts before pytest. This validates shell syntax only; host-state acceptance
+still requires the actual systemd deployment and firewall evidence described
+above.
