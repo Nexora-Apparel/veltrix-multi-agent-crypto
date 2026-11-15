@@ -378,7 +378,7 @@ def test_direct_cpmm_builder_emits_phantom_compatible_legacy_transaction_without
     assert "resolveV0Accounts(message)" in page
     assert "duplicate public key in resolved v0 account set" in page
     assert "legacy transaction unexpectedly references address lookup tables" in page
-    assert "provider.signAndSendTransaction(finalTx,connection" in page
+    assert 'provider.signAndSendTransaction(finalTx,{'> in page
     assert "Transaction.from(bytes)" in harness
     assert 'assert.equal(artifact.transaction_version,"legacy")' in harness
 
