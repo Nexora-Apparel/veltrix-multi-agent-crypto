@@ -47,8 +47,8 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
 
     GoPlus can return useful risk signals, but its partial LP-holder data and
     creator concentration do not satisfy the complete liquidity/developer
-    claims. No developer-linked-holdings connector is currently
-    capability-certified. Launch indexers can attempt bundle analysis only when their
+    claims. Manual capability attestation flags are required after live acceptance
+    and independent provider review. Launch indexers can attempt bundle analysis only when their
     independent funding and trust configuration is present.
     """
     liquidity_trust = _trusted(settings, "trusted_liquidity_providers")
@@ -59,6 +59,12 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
     holder_trust = _trusted(settings, "trusted_holder_inventory_providers")
     developer_funding_trust = _trusted(settings, "trusted_developer_funding_providers")
     origin_trust = _trusted(settings, "trusted_launch_origin_providers")
+    liquidity_capability_attested = bool(
+        getattr(settings, "liquidity_evidence_capability_certified", False)
+    )
+    developer_capability_attested = bool(
+        getattr(settings, "developer_evidence_capability_certified", False)
+    )
     goplus_configured = True  # Public EVM endpoint; Solana beta is authenticated.
     helius = bool(getattr(settings, "helius_api_key", ""))
     etherscan = bool(getattr(settings, "etherscan_api_key", ""))
@@ -126,34 +132,34 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             liquidity_blockers.append(
                 f"{liquidity_provider_id} is not explicitly trusted for the liquidity-lock claim"
             )
-        liquidity_blockers.append(
-            "live read-only acceptance against production finalized state has not been recorded; provider capability remains disabled"
+        liquidity_trusted = liquidity_provider_id in liquidity_trust
+        if not liquidity_capability_attested:
+            liquidity_blockers.append(
+                "LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED is false; all three production acceptance runs and independent review are not attested"
+            )
+            if chain in {"base", "bsc"}:
+                liquidity_blockers.append(
+                    f"{chain} locker runtime hash, factory event coverage, lock history and LP custody reconciliation must pass live acceptance"
+                )
+            if chain == "base":
+                liquidity_blockers.append(
+                    "Base UNCX V2.1 candidate still requires live bytecode-hash and constructor-factory acceptance"
+                )
+            if chain == "solana":
+                liquidity_blockers.append(
+                    "UNCX V4 TokenLock and Raydium Burn & Earn CPMM lock PDAs and LP-vault reconciliation still require live acceptance"
+                )
+        liquidity_capability_complete = (
+            liquidity_capability_attested and reader_configured and liquidity_trusted
         )
-        if chain in {"base", "bsc"}:
-            liquidity_blockers.append(
-                f"{chain} locker runtime hash, factory event coverage, lock history and LP custody reconciliation must pass live acceptance"
-            )
-        if chain == "base":
-            liquidity_blockers.append(
-                "Base UNCX V2.1 candidate is 0xc4E637D37113192F4F1F060DaEbD7758De7F4131; its live bytecode hash and constructor factory still require acceptance"
-            )
-        if chain == "solana":
-            liquidity_blockers.append(
-                "Solana support is scoped to Raydium AMM V4 + CPMM; UNCX V4 TokenLock and Raydium Burn & Earn CPMM program hashes, lock PDAs and LP vault ownership must pass live acceptance"
-            )
-            liquidity_blockers.append(
-                "Raydium Burn & Earn CPMM lock-state PDA, fee-NFT authority and LP-vault reconciliation must pass live acceptance"
-            )
         rows.append(ClaimReadiness(
             chain, "liquidity_lock", reader_configured,
-            liquidity_provider_id in liquidity_trust,
-            False, (liquidity_provider_id,) if reader_configured else (),
+            liquidity_trusted, liquidity_capability_complete,
+            (liquidity_provider_id,) if reader_configured else (),
             tuple(liquidity_blockers),
         ))
 
-        developer_blockers = [
-            "no capability-certified connector proves complete developer-linked wallet holdings",
-        ]
+        developer_blockers = []
         if not root_url or not root_key:
             developer_blockers.append("signed independent developer-root endpoint or Ed25519 public key is missing")
         if root_provider_id not in root_trust:
@@ -161,12 +167,18 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
         if chain == "solana":
             holder_id, funding_id = "solana-rpc-holder-inventory", "helius-solana-funding-graph"
             holder_configured, funding_configured = solana_rpc, helius
+            developer_origin_id = None
+            developer_origin_trusted = True
         elif chain == "base":
             holder_id, funding_id = "base-rpc-holder-inventory", "alchemy-base-funding-graph"
             holder_configured, funding_configured = base_rpc, bool(getattr(settings, "alchemy_api_key", ""))
+            developer_origin_id = "base-rpc-launch-origin"
+            developer_origin_trusted = developer_origin_id in origin_trust
         else:
             holder_id, funding_id = "bsc-rpc-holder-inventory", "etherscan-v2-bsc-funding-graph"
             holder_configured, funding_configured = bsc_rpc, bool(etherscan)
+            developer_origin_id = "bsc-rpc-launch-origin"
+            developer_origin_trusted = developer_origin_id in origin_trust
         if not holder_configured:
             developer_blockers.append(f"{chain} holder inventory RPC is not configured")
         if holder_id not in holder_trust:
@@ -175,11 +187,39 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             developer_blockers.append(f"{chain} complete first-funder ancestry provider is unavailable")
         elif funding_id not in developer_funding_trust:
             developer_blockers.append(f"{funding_id} is not explicitly trusted for developer funding ancestry")
-        if not developer_trust:
-            developer_blockers.append("no provider is explicitly trusted for the developer-holdings claim")
+        developer_claim_provider_id = "developer-graph-provider"
+        if developer_claim_provider_id not in developer_trust:
+            developer_blockers.append(
+                f"{developer_claim_provider_id} is not explicitly trusted for the developer-holdings claim"
+            )
+        if developer_origin_id and not developer_origin_trusted:
+            developer_blockers.append(
+                f"{developer_origin_id} is not explicitly trusted for EVM deployment-block provenance"
+            )
+        developer_configured = bool(
+            root_url and root_key and holder_configured and funding_configured
+        )
+        developer_trusted = bool(
+            root_provider_id in root_trust
+            and holder_id in holder_trust
+            and funding_id in developer_funding_trust
+            and developer_claim_provider_id in developer_trust
+            and developer_origin_trusted
+        )
+        if not developer_capability_attested:
+            developer_blockers.append(
+                "DEVELOPER_EVIDENCE_CAPABILITY_CERTIFIED is false; all three production acceptance runs and independent root-identity review are not attested"
+            )
+        developer_capability_complete = (
+            developer_capability_attested and developer_configured and developer_trusted
+        )
+        developer_provider_ids = (
+            root_provider_id, holder_id, funding_id, developer_claim_provider_id
+        ) + ((developer_origin_id,) if developer_origin_id else ())
         rows.append(ClaimReadiness(
-            chain, "developer_holdings", False, bool(developer_trust), False, (),
-            tuple(developer_blockers),
+            chain, "developer_holdings", developer_configured,
+            developer_trusted, developer_capability_complete,
+            developer_provider_ids, tuple(developer_blockers),
         ))
 
         if chain == "solana":
