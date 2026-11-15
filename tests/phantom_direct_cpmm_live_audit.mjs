@@ -334,7 +334,11 @@ const audit=await hooks.inspectDirectCpmmTransaction(tx,{
   otherAmountThreshold:artifact.minimum_output_raw
 },bytes);
 assert.equal(audit.directCpmm,"verified");
-assert.equal(audit.temporaryWsolFundingLamports,"2488440");
+const temporaryFunding=BigInt(audit.temporaryWsolFundingLamports);
+const reviewedInput=BigInt(artifact.input_amount_lamports);
+assert.ok(temporaryFunding>=reviewedInput);
+assert.ok(temporaryFunding-reviewedInput<=5000000n,
+  "temporary WSOL rent reserve must remain bounded independently of the swap input");
 assert.ok(audit.resolvedAccountCount<=32);
 assert.equal(audit.lookupTables.length,0);
 assert.equal(audit.runtime.adversarialRejected,true);
