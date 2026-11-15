@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import hashlib
+import json
 
 from solders.pubkey import Pubkey
 
@@ -12,7 +13,11 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolRouteCheck,
 )
 from veltrix.simulation_gate import SimulationEvidence
-from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
+from veltrix.solana_rpc_simulation import (
+    SolanaRpcSimulationAdapter,
+    ConfirmedTransactionEvidence,
+    _decode_base58_instruction_data,
+)
 
 
 CLASSIC_SPL_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -50,6 +55,299 @@ class RaydiumClmmVaultSnapshot:
     context_slot: int
     vaults: tuple[RaydiumClmmVaultAccount, ...]
     execution_ready: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ExpectedRaydiumVaultDelta:
+    vault_address: str
+    delta_raw: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vault_address, str) or not self.vault_address:
+            raise RaydiumClmmVaultError("expected vault delta address is required")
+        if isinstance(self.delta_raw, bool) or not isinstance(self.delta_raw, int) or self.delta_raw == 0:
+            raise RaydiumClmmVaultError("expected vault delta must be a non-zero signed integer")
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumFinalizedVaultSettlement:
+    signature: str
+    finalized_slot: int
+    provider_id: str
+    cluster: str
+    genesis_hash: str
+    vault_deltas: tuple[ExpectedRaydiumVaultDelta, ...]
+    execution_ready: bool = False
+
+
+def verify_finalized_raydium_clmm_vault_settlement(
+    evidence: ConfirmedTransactionEvidence,
+    *,
+    simulation: SimulationEvidence,
+    vault_snapshot: RaydiumClmmVaultSnapshot,
+    expected_deltas: tuple[ExpectedRaydiumVaultDelta, ...],
+    provider_id: str,
+    cluster: str,
+    genesis_hash: str,
+) -> RaydiumFinalizedVaultSettlement:
+    """Verify finalized Token Program CPI transfers against exact pool-vault balance deltas."""
+    if not isinstance(evidence, ConfirmedTransactionEvidence):
+        raise RaydiumClmmVaultError("finalized transaction evidence is required")
+    if not isinstance(simulation, SimulationEvidence):
+        raise RaydiumClmmVaultError("the exact successful simulation evidence is required")
+    if simulation.simulation_error is not None:
+        raise RaydiumClmmVaultError("the exact simulated transaction did not complete successfully")
+    if not simulation.message_sha256 or evidence.message_sha256 != simulation.message_sha256:
+        raise RaydiumClmmVaultError("finalized transaction message does not match the exact simulated message")
+    if (
+        evidence.provider_id != simulation.provider_id
+        or evidence.cluster != simulation.cluster
+        or evidence.genesis_hash != simulation.genesis_hash
+    ):
+        raise RaydiumClmmVaultError("finalized transaction provenance differs from the exact simulation")
+    if evidence.inner_instructions_present is not True:
+        raise RaydiumClmmVaultError("finalized transaction does not attest to captured inner instructions")
+    if not isinstance(vault_snapshot, RaydiumClmmVaultSnapshot):
+        raise RaydiumClmmVaultError("provider-backed verified Raydium vault snapshot is required")
+    vaults = vault_snapshot.vaults
+    if not isinstance(vaults, tuple) or len(vaults) != 2 or any(
+        not isinstance(item, RaydiumClmmVaultAccount) for item in vaults
+    ):
+        raise RaydiumClmmVaultError("exactly two previously verified Raydium pool vaults are required")
+    if not isinstance(expected_deltas, tuple) or len(expected_deltas) != 2 or any(
+        not isinstance(item, ExpectedRaydiumVaultDelta) for item in expected_deltas
+    ):
+        raise RaydiumClmmVaultError("exactly two expected signed vault deltas are required")
+    if len({item.address for item in vaults}) != 2 or len({item.vault_address for item in expected_deltas}) != 2:
+        raise RaydiumClmmVaultError("vault accounts and expected deltas must be unique")
+    if {item.address for item in vaults} != {item.vault_address for item in expected_deltas}:
+        raise RaydiumClmmVaultError("expected delta addresses do not match the verified pool vault set")
+    if any(item.pool_address != vaults[0].pool_address for item in vaults):
+        raise RaydiumClmmVaultError("verified vaults do not belong to the same Raydium pool")
+    if (
+        evidence.provider_id != provider_id
+        or evidence.cluster != cluster
+        or evidence.genesis_hash != genesis_hash
+        or vault_snapshot.provider_id != provider_id
+        or vault_snapshot.cluster != cluster
+        or vault_snapshot.genesis_hash != genesis_hash
+    ):
+        raise RaydiumClmmVaultError("finalized transaction and vault snapshot provider, cluster or genesis differ")
+    if vault_snapshot.context_slot < evidence.slot:
+        raise RaydiumClmmVaultError("vault snapshot context slot is older than the finalized transaction slot")
+    if RAYDIUM_CLMM_PROGRAM_ID not in evidence.top_level_program_ids:
+        raise RaydiumClmmVaultError("finalized transaction did not invoke the canonical Raydium CLMM program")
+    if CLASSIC_SPL_TOKEN_PROGRAM_ID not in evidence.inner_program_ids:
+        raise RaydiumClmmVaultError("finalized transaction has no classic SPL Token Program CPI evidence")
+
+    try:
+        result = json.loads(evidence.raw_result_json)
+        transaction = result["transaction"]
+        message = transaction["message"]
+        meta = result["meta"]
+        inner_groups = meta["innerInstructions"]
+        pre_balances = meta["preTokenBalances"]
+        post_balances = meta["postTokenBalances"]
+        raw_signatures = transaction["signatures"]
+        raw_keys = message["accountKeys"]
+        raw_keys = [item.get("pubkey") if isinstance(item, dict) else item for item in raw_keys]
+        loaded = meta.get("loadedAddresses") or {"writable": [], "readonly": []}
+        resolved_keys = tuple(raw_keys + loaded.get("writable", []) + loaded.get("readonly", []))
+        if (
+            result.get("slot") != evidence.slot
+            or not isinstance(raw_signatures, list)
+            or not raw_signatures
+            or raw_signatures[0] != evidence.signature
+            or meta.get("err") is not None
+            or resolved_keys != evidence.account_keys
+        ):
+            raise RaydiumClmmVaultError("finalized transaction raw payload does not match its immutable evidence fields")
+
+        def resolve_program_ids(groups: list) -> tuple[str, ...]:
+            resolved = []
+            for group in groups:
+                instructions = group.get("instructions", []) if "index" in group else [group]
+                for instruction in instructions:
+                    index = instruction.get("programIdIndex")
+                    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(evidence.account_keys):
+                        raise RaydiumClmmVaultError("raw instruction program index is outside resolved account keys")
+                    resolved.append(evidence.account_keys[index])
+            return tuple(resolved)
+
+        if (
+            resolve_program_ids(message["instructions"]) != evidence.top_level_program_ids
+            or resolve_program_ids(inner_groups) != evidence.inner_program_ids
+            or pre_balances != json.loads(evidence.pre_token_balances_json)
+            or post_balances != json.loads(evidence.post_token_balances_json)
+            or tuple(meta.get("logMessages") or ()) != evidence.logs
+        ):
+            raise RaydiumClmmVaultError("finalized transaction raw payload differs from its immutable instruction or balance evidence")
+    except Exception as exc:
+        raise RaydiumClmmVaultError("finalized transaction raw evidence is incomplete or invalid") from exc
+
+    def balance_for(records: list, vault: RaydiumClmmVaultAccount) -> int:
+        matches = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            index = record.get("accountIndex")
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(evidence.account_keys):
+                raise RaydiumClmmVaultError("token balance record has an invalid account index")
+            if evidence.account_keys[index] == vault.address:
+                matches.append(record)
+        if len(matches) != 1:
+            raise RaydiumClmmVaultError("finalized transaction must contain exactly one token balance record per vault")
+        record = matches[0]
+        if (
+            record.get("mint") != vault.mint
+            or record.get("owner") != vault.pool_address
+            or record.get("programId") != CLASSIC_SPL_TOKEN_PROGRAM_ID
+        ):
+            raise RaydiumClmmVaultError("finalized vault token balance mint, owner or token program is inconsistent")
+        amount = record.get("uiTokenAmount", {}).get("amount")
+        if not isinstance(amount, str) or not amount.isdigit():
+            raise RaydiumClmmVaultError("finalized vault token balance amount is not a raw unsigned integer")
+        parsed = int(amount)
+        if parsed > (1 << 64) - 1:
+            raise RaydiumClmmVaultError("finalized vault token balance exceeds u64")
+        return parsed
+
+    expected = {item.vault_address: item.delta_raw for item in expected_deltas}
+    simulated_states = getattr(simulation, "account_states", ())
+    if not isinstance(simulated_states, tuple):
+        raise RaydiumClmmVaultError("simulation vault account-state evidence is malformed")
+    simulated_deltas: dict[str, int] = {}
+    for vault in vaults:
+        matches = [item for item in simulated_states if getattr(item, "address", None) == vault.address]
+        if len(matches) != 1:
+            raise RaydiumClmmVaultError("simulation must capture exactly one pre/post account state for each pool vault")
+        state = matches[0]
+        pre_data = getattr(state, "pre_data", None)
+        post_data = getattr(state, "post_data", None)
+        if (
+            getattr(state, "pre_owner", None) != CLASSIC_SPL_TOKEN_PROGRAM_ID
+            or getattr(state, "post_owner", None) != CLASSIC_SPL_TOKEN_PROGRAM_ID
+            or getattr(state, "pre_executable", None) is not False
+            or getattr(state, "post_executable", None) is not False
+            or not isinstance(pre_data, bytes)
+            or not isinstance(post_data, bytes)
+            or len(pre_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH
+            or len(post_data) != CLASSIC_SPL_TOKEN_ACCOUNT_LENGTH
+            or hashlib.sha256(pre_data).hexdigest() != getattr(state, "pre_data_sha256", None)
+            or hashlib.sha256(post_data).hexdigest() != getattr(state, "post_data_sha256", None)
+        ):
+            raise RaydiumClmmVaultError("simulated pool-vault account bytes, owner, or hashes are incomplete")
+        for account_data in (pre_data, post_data):
+            if (
+                str(Pubkey.from_bytes(account_data[0:32])) != vault.mint
+                or str(Pubkey.from_bytes(account_data[32:64])) != vault.pool_address
+                or account_data[108] != TOKEN_ACCOUNT_INITIALIZED
+            ):
+                raise RaydiumClmmVaultError("simulated pool-vault mint, authority, or initialized state is inconsistent")
+        simulated_before = int.from_bytes(pre_data[64:72], "little")
+        simulated_after = int.from_bytes(post_data[64:72], "little")
+        simulated_deltas[vault.address] = simulated_after - simulated_before
+    if simulated_deltas != expected:
+        raise RaydiumClmmVaultError("expected vault deltas differ from the exact simulation vault account-state deltas")
+
+    actual_deltas = {}
+    for vault in vaults:
+        before = balance_for(pre_balances, vault)
+        after = balance_for(post_balances, vault)
+        actual_deltas[vault.address] = after - before
+    if actual_deltas != expected:
+        raise RaydiumClmmVaultError("finalized pre/post vault balances do not equal the exact expected deltas")
+
+    transfer_amounts: dict[str, list[int]] = {item.address: [] for item in vaults}
+    vault_mints = {item.address: item.mint for item in vaults}
+    for group in inner_groups:
+        for instruction in group.get("instructions", []):
+            program_index = instruction.get("programIdIndex")
+            if isinstance(program_index, bool) or not isinstance(program_index, int) or not 0 <= program_index < len(evidence.account_keys):
+                raise RaydiumClmmVaultError("CPI program index is outside resolved transaction account keys")
+            if evidence.account_keys[program_index] != CLASSIC_SPL_TOKEN_PROGRAM_ID:
+                continue
+            data = _decode_base58_instruction_data(instruction.get("data"))
+            accounts = instruction.get("accounts")
+            if not isinstance(accounts, list):
+                raise RaydiumClmmVaultError("Token Program CPI account indexes are malformed")
+            if len(data) == 9 and data[0] == 3 and len(accounts) >= 3:
+                source_index, destination_index = accounts[0], accounts[1]
+                amount = int.from_bytes(data[1:9], "little")
+            elif len(data) == 10 and data[0] == 12 and len(accounts) >= 4:
+                source_index, destination_index = accounts[0], accounts[2]
+                mint_index = accounts[1]
+                if isinstance(mint_index, bool) or not isinstance(mint_index, int) or not 0 <= mint_index < len(evidence.account_keys):
+                    raise RaydiumClmmVaultError("TransferChecked CPI mint index is invalid")
+                amount = int.from_bytes(data[1:9], "little")
+            else:
+                continue
+            for account_index in (source_index, destination_index):
+                if isinstance(account_index, bool) or not isinstance(account_index, int) or not 0 <= account_index < len(evidence.account_keys):
+                    raise RaydiumClmmVaultError("Token Program CPI account index is invalid")
+            source = evidence.account_keys[source_index]
+            if len(data) == 10 and data[0] == 12:
+                for address in (source, evidence.account_keys[destination_index]):
+                    if address in vault_mints and evidence.account_keys[mint_index] != vault_mints[address]:
+                        raise RaydiumClmmVaultError("TransferChecked CPI mint differs from the verified pool vault mint")
+            destination = evidence.account_keys[destination_index]
+            if source in transfer_amounts:
+                transfer_amounts[source].append(-amount)
+            if destination in transfer_amounts:
+                transfer_amounts[destination].append(amount)
+
+    for address, delta in expected.items():
+        if transfer_amounts[address] != [delta]:
+            raise RaydiumClmmVaultError("Token Program CPI transfer amount/direction does not match the exact vault delta")
+
+    return RaydiumFinalizedVaultSettlement(
+        signature=evidence.signature,
+        finalized_slot=evidence.slot,
+        provider_id=evidence.provider_id,
+        cluster=evidence.cluster,
+        genesis_hash=evidence.genesis_hash,
+        vault_deltas=expected_deltas,
+        execution_ready=False,
+    )
+
+
+
+
+def verify_finalized_raydium_clmm_vault_settlement_from_rpc(
+    signature: str,
+    *,
+    pool_evidence: DexPoolEvidenceSnapshot,
+    pool_checks: tuple[RaydiumClmmPoolRouteCheck, ...],
+    simulation: SimulationEvidence,
+    rpc_adapter: SolanaRpcSimulationAdapter,
+    expected_deltas: tuple[ExpectedRaydiumVaultDelta, ...],
+) -> RaydiumFinalizedVaultSettlement:
+    """Fetch finalized transaction then refetch pool vaults at/after its slot from the same RPC."""
+    if not isinstance(rpc_adapter, SolanaRpcSimulationAdapter):
+        raise RaydiumClmmVaultError("provider-pinned Solana RPC adapter is required")
+    if (
+        rpc_adapter.provider_id != simulation.provider_id
+        or rpc_adapter.cluster != simulation.cluster
+        or rpc_adapter.expected_genesis_hash != simulation.genesis_hash
+    ):
+        raise RaydiumClmmVaultError("transaction and vault verification must use the simulation's pinned RPC")
+    evidence = rpc_adapter.fetch_finalized_transaction(signature)
+    snapshot = fetch_raydium_clmm_vault_snapshot(
+        pool_evidence,
+        pool_checks=pool_checks,
+        simulation=simulation,
+        rpc_adapter=rpc_adapter,
+        minimum_context_slot=evidence.slot,
+    )
+    return verify_finalized_raydium_clmm_vault_settlement(
+        evidence,
+        simulation=simulation,
+        vault_snapshot=snapshot,
+        expected_deltas=expected_deltas,
+        provider_id=rpc_adapter.provider_id,
+        cluster=rpc_adapter.cluster,
+        genesis_hash=rpc_adapter.expected_genesis_hash,
+    )
 
 
 def derive_raydium_clmm_vault_address(*, pool_address: str, mint: str) -> str:
@@ -185,6 +483,7 @@ def fetch_raydium_clmm_vault_snapshot(
     pool_checks: tuple[RaydiumClmmPoolRouteCheck, ...],
     simulation: SimulationEvidence,
     rpc_adapter: SolanaRpcSimulationAdapter,
+    minimum_context_slot: int | None = None,
 ) -> RaydiumClmmVaultSnapshot:
     """Fetch both pool vaults and verify their token-account mint/authority/PDA roles."""
     if not isinstance(pool_evidence, DexPoolEvidenceSnapshot):
@@ -198,6 +497,12 @@ def fetch_raydium_clmm_vault_snapshot(
         raise RaydiumClmmVaultError("Solana RPC simulation evidence is required")
     if not isinstance(rpc_adapter, SolanaRpcSimulationAdapter):
         raise RaydiumClmmVaultError("provider-pinned Solana RPC adapter is required")
+    if minimum_context_slot is not None and (
+        isinstance(minimum_context_slot, bool)
+        or not isinstance(minimum_context_slot, int)
+        or minimum_context_slot < 0
+    ):
+        raise RaydiumClmmVaultError("minimum vault context slot must be a non-negative integer")
     if (
         simulation.message_sha256 != pool_evidence.route_message_sha256
         or simulation.response_id != pool_evidence.simulation_response_id
@@ -233,7 +538,7 @@ def fetch_raydium_clmm_vault_snapshot(
     if not expected:
         raise RaydiumClmmVaultError("Raydium pool checks contain no vault accounts")
 
-    minimum_slot = max(simulation.context_slot, pool_evidence.context_slot)
+    minimum_slot = max(simulation.context_slot, pool_evidence.context_slot, minimum_context_slot or 0)
     snapshot = rpc_adapter.fetch_account_snapshot(tuple(sorted(expected)), min_context_slot=minimum_slot)
     if (
         snapshot.provider_id != simulation.provider_id

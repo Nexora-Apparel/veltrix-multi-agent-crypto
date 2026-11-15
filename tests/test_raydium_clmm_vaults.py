@@ -2,10 +2,13 @@
 import base64
 import dataclasses
 import hashlib
+import json
 import struct
 
 import pytest
+import veltrix.raydium_clmm_vaults as vault_module
 from solders.pubkey import Pubkey
+from solders.signature import Signature
 
 from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
 from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolRouteCheck, RaydiumClmmPoolState
@@ -16,9 +19,12 @@ from veltrix.raydium_clmm_vaults import (
     encode_raydium_clmm_vault_token_account,
     apply_raydium_clmm_vault_balance_delta,
     fetch_raydium_clmm_vault_snapshot,
+    ExpectedRaydiumVaultDelta,
+    verify_finalized_raydium_clmm_vault_settlement,
+    verify_finalized_raydium_clmm_vault_settlement_from_rpc,
 )
-from veltrix.simulation_gate import SimulationEvidence
-from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
+from veltrix.simulation_gate import SimulationEvidence, SimulatedAccountState
+from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter, ConfirmedTransactionEvidence
 
 
 class FakeResponse:
@@ -138,6 +144,32 @@ def fixture(*, slot=501, owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, state0=1, state1=1,
         close_authority=close0,
     )
     data1 = token_account(mint_b, pool_address, state=state1)
+    simulated_data0_post = token_account(
+        mint0 or mint_a, authority0 or pool_address, amount=1_000_100,
+        state=state0, delegate=delegate0, native=native0, close_authority=close0,
+    )
+    simulated_data1_post = token_account(mint_b, pool_address, amount=999_950, state=state1)
+    simulation = dataclasses.replace(
+        simulation,
+        account_states=(
+            SimulatedAccountState(
+                address=vault_a, pre_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+                post_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, pre_lamports=2_000_000,
+                post_lamports=2_000_000, pre_executable=False, post_executable=False,
+                pre_data=data0, post_data=simulated_data0_post,
+                pre_data_sha256=hashlib.sha256(data0).hexdigest(),
+                post_data_sha256=hashlib.sha256(simulated_data0_post).hexdigest(),
+            ),
+            SimulatedAccountState(
+                address=vault_b, pre_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID,
+                post_owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, pre_lamports=2_000_000,
+                post_lamports=2_000_000, pre_executable=False, post_executable=False,
+                pre_data=data1, post_data=simulated_data1_post,
+                pre_data_sha256=hashlib.sha256(data1).hexdigest(),
+                post_data_sha256=hashlib.sha256(simulated_data1_post).hexdigest(),
+            ),
+        ),
+    )
     if account_size != 165:
         data0 = data0[:account_size] if account_size < 165 else data0 + b"x" * (account_size - 165)
     accounts = {
@@ -170,13 +202,14 @@ def fixture(*, slot=501, owner=CLASSIC_SPL_TOKEN_PROGRAM_ID, state0=1, state1=1,
     return pool_evidence, checks, simulation, adapter, session, vault_a, vault_b, pool_address, mint_a, mint_b
 
 
-def fetch(values=None):
+def fetch(values=None, **kwargs):
     pool_evidence, checks, simulation, adapter, *_ = values or fixture()
     return fetch_raydium_clmm_vault_snapshot(
         pool_evidence,
         pool_checks=checks,
         simulation=simulation,
         rpc_adapter=adapter,
+        **kwargs,
     )
 
 
@@ -192,6 +225,14 @@ def test_fetches_both_vaults_at_or_after_the_pool_and_simulation_slot():
     assert all(item.token_authority == values[7] for item in result.vaults)
     request = next(call for call in values[4].calls if call["method"] == "getMultipleAccounts")
     assert request["params"][1]["minContextSlot"] == 500
+
+
+def test_fetch_honors_the_cpi_tick_snapshot_minimum_context_slot():
+    values = fixture(slot=600)
+    result = fetch(values, minimum_context_slot=550)
+    session = values[4]
+    assert result.context_slot == 600
+    assert session.calls[-1]["params"][1]["minContextSlot"] == 550
 
 
 def test_rejects_nonclassic_token_program_vault():
@@ -304,4 +345,238 @@ def test_vault_serializer_rejects_stale_hash_and_noncanonical_vault_pda():
     with pytest.raises(RaydiumClmmVaultError, match="canonical"):
         encode_raydium_clmm_vault_token_account(
             dataclasses.replace(vault, address=str(Pubkey.new_unique()))
+        )
+
+
+
+def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_cpis=True):
+    _, _, _, adapter, _, vault_a, vault_b, pool_address, mint_a, mint_b = values
+    raydium_program = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+    token_program = CLASSIC_SPL_TOKEN_PROGRAM_ID
+    user = str(Pubkey.new_unique())
+    keys = [raydium_program, vault_a, vault_b, token_program, user]
+    inner = []
+    if include_cpis:
+        # SPL Token Transfer: opcode 3 followed by a little-endian u64 amount.
+        data_a = base58_encode(bytes([3]) + amount_a.to_bytes(8, "little"))
+        data_b = base58_encode(bytes([3]) + amount_b.to_bytes(8, "little"))
+        inner = [
+            {"programIdIndex": 3, "accounts": [4, 1, 4], "data": data_a},
+            {"programIdIndex": 3, "accounts": [2, 4, 4], "data": data_b},
+        ]
+    records_pre = [
+        {"accountIndex": 1, "mint": mint_a, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": "1000"}},
+        {"accountIndex": 2, "mint": mint_b, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": "1000"}},
+    ]
+    signature = str(Signature.new_unique())
+    records_post = [
+        {"accountIndex": 1, "mint": mint_a, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": str(1000 + amount_a)}},
+        {"accountIndex": 2, "mint": mint_b, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": str(1000 - amount_b)}},
+    ]
+    raw = {
+        "slot": 800,
+        "transaction": {"signatures": [signature], "message": {
+            "accountKeys": keys,
+            "instructions": [{"programIdIndex": 0, "accounts": [1, 2], "data": "1"}],
+        }},
+        "meta": {
+            "err": None,
+            "innerInstructions": [{"index": 0, "instructions": inner}],
+            "preTokenBalances": records_pre,
+            "postTokenBalances": records_post,
+            "logMessages": ["Program log: swap complete"],
+        },
+    }
+    return ConfirmedTransactionEvidence(
+        signature=signature,
+        slot=800,
+        provider_id="rpc-primary",
+        cluster="mainnet-beta",
+        genesis_hash="genesis",
+        account_keys=tuple(keys),
+        top_level_program_ids=(raydium_program,),
+        inner_program_ids=(token_program, token_program) if include_cpis else (),
+        inner_instructions_present=True,
+        pre_token_balances_json=json.dumps(records_pre),
+        post_token_balances_json=json.dumps(records_post),
+        logs=("Program log: swap complete",),
+        raw_result_json=json.dumps(raw),
+        message_sha256=values[2].message_sha256,
+    )
+
+
+def base58_encode(raw):
+    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
+    number = int.from_bytes(raw, "big")
+    encoded = ""
+    while number:
+        number, remainder = divmod(number, 58)
+        encoded = alphabet[remainder] + encoded
+    return "1" * zeros + (encoded or ("" if zeros else "1"))
+
+
+def test_verifies_finalized_pool_vault_balance_deltas_against_token_cpis():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    evidence = finalized_settlement_evidence(values)
+    result = verify_finalized_raydium_clmm_vault_settlement(
+        evidence,
+        simulation=values[2],
+        vault_snapshot=snapshot,
+        expected_deltas=(
+            ExpectedRaydiumVaultDelta(values[5], 100),
+            ExpectedRaydiumVaultDelta(values[6], -50),
+        ),
+        provider_id="rpc-primary",
+        cluster="mainnet-beta",
+        genesis_hash="genesis",
+    )
+    assert result.signature == evidence.signature
+    assert result.finalized_slot == 800
+    assert result.execution_ready is False
+    assert {item.vault_address: item.delta_raw for item in result.vault_deltas} == {
+        values[5]: 100, values[6]: -50
+    }
+
+
+def test_rejects_finalized_transaction_that_is_not_the_exact_simulated_message():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    mismatched_simulation = dataclasses.replace(values[2], message_sha256="0" * 64)
+    with pytest.raises(RaydiumClmmVaultError, match="does not match the exact simulated message"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values),
+            simulation=mismatched_simulation,
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+def test_rejects_finalized_settlement_when_original_simulation_failed():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    failed_simulation = dataclasses.replace(values[2], simulation_error="InstructionError")
+    with pytest.raises(RaydiumClmmVaultError, match="did not complete successfully"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values),
+            simulation=failed_simulation,
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+def test_rejects_caller_expected_deltas_not_bound_to_simulated_vault_state():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    with pytest.raises(RaydiumClmmVaultError, match="differ from the exact simulation vault account-state deltas"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values, amount_a=101),
+            simulation=values[2],
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 101),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    with pytest.raises(RaydiumClmmVaultError, match="exact expected deltas"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values, amount_a=101),
+            simulation=values[2],
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+def test_rejects_finalized_vault_settlement_without_token_program_cpis():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    with pytest.raises(RaydiumClmmVaultError, match="no classic SPL Token"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values, include_cpis=False),
+            simulation=values[2],
+            vault_snapshot=snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+
+def test_from_rpc_fetches_finalized_transaction_then_post_finality_vault_snapshot(monkeypatch):
+    values = fixture(slot=801)
+    evidence = finalized_settlement_evidence(values)
+    events = []
+    minimum_slots = []
+
+    def fetch_transaction(self, signature):
+        events.append(("transaction", signature))
+        return evidence
+
+    original_fetch_snapshot = vault_module.fetch_raydium_clmm_vault_snapshot
+
+    def fetch_snapshot(*args, **kwargs):
+        events.append(("vaults", kwargs.get("minimum_context_slot")))
+        minimum_slots.append(kwargs.get("minimum_context_slot"))
+        return original_fetch_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(SolanaRpcSimulationAdapter, "fetch_finalized_transaction", fetch_transaction)
+    monkeypatch.setattr(vault_module, "fetch_raydium_clmm_vault_snapshot", fetch_snapshot)
+    result = verify_finalized_raydium_clmm_vault_settlement_from_rpc(
+        evidence.signature,
+        pool_evidence=values[0],
+        pool_checks=values[1],
+        simulation=values[2],
+        rpc_adapter=values[3],
+        expected_deltas=(
+            ExpectedRaydiumVaultDelta(values[5], 100),
+            ExpectedRaydiumVaultDelta(values[6], -50),
+        ),
+    )
+    assert events == [("transaction", evidence.signature), ("vaults", evidence.slot)]
+    assert minimum_slots == [evidence.slot]
+    assert result.finalized_slot == evidence.slot
+    assert result.execution_ready is False
+
+
+def test_rejects_vault_snapshot_older_than_finalized_transaction_slot():
+    values = fixture(slot=801)
+    snapshot = fetch(values)
+    stale_snapshot = dataclasses.replace(snapshot, context_slot=799)
+    with pytest.raises(RaydiumClmmVaultError, match="older than the finalized transaction slot"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values),
+            simulation=values[2],
+            vault_snapshot=stale_snapshot,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary",
+            cluster="mainnet-beta",
+            genesis_hash="genesis",
         )

@@ -91,6 +91,7 @@ def _validate_snapshot_binding(
         or snapshot.genesis_hash != tick_snapshot.genesis_hash
         or snapshot.context_slot < snapshot.simulation_context_slot
         or tick_snapshot.context_slot < tick_snapshot.simulation_context_slot
+        or snapshot.context_slot < tick_snapshot.context_slot
     ):
         raise RaydiumSwapVaultSettlementError("vault and CPI tick-array snapshots differ in route/simulation/provider provenance")
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import hashlib
+import json
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -132,6 +133,26 @@ def _parse_rpc_account_info(address: str, info: Any) -> RpcAccountInfo:
         address=address, owner=owner, lamports=lamports,
         executable=executable, data=data,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmedTransactionEvidence:
+    """Read-only finalized transaction evidence returned by one pinned RPC provider."""
+
+    signature: str
+    slot: int
+    provider_id: str
+    cluster: str
+    genesis_hash: str
+    account_keys: tuple[str, ...]
+    top_level_program_ids: tuple[str, ...]
+    inner_program_ids: tuple[str, ...]
+    inner_instructions_present: bool
+    pre_token_balances_json: str
+    post_token_balances_json: str
+    logs: tuple[str, ...]
+    raw_result_json: str
+    message_sha256: str = ""
 
 
 class SolanaRpcSimulationAdapter:
@@ -300,6 +321,186 @@ class SolanaRpcSimulationAdapter:
             genesis_hash=genesis_hash,
             context_slot=context_slot,
             accounts=tuple(accounts),
+        )
+
+
+    def fetch_finalized_transaction(
+        self,
+        signature: str,
+        *,
+        minimum_slot: int = 0,
+    ) -> ConfirmedTransactionEvidence:
+        """Fetch and structurally validate finalized transaction/CPI evidence; never submits."""
+        try:
+            parsed_signature = Signature.from_string(signature)
+            if str(parsed_signature) != signature:
+                raise ValueError("non-canonical")
+        except Exception as exc:
+            raise SolanaRpcAdapterError("transaction signature is not canonical base58") from exc
+        if isinstance(minimum_slot, bool) or not isinstance(minimum_slot, int) or minimum_slot < 0:
+            raise SolanaRpcAdapterError("minimum transaction slot must be a non-negative integer")
+
+        genesis_hash = self._rpc("getGenesisHash", [])
+        if genesis_hash != self.expected_genesis_hash:
+            raise SolanaRpcAdapterError("RPC genesis hash differs from the configured cluster")
+        result = self._rpc(
+            "getTransaction",
+            [
+                signature,
+                {
+                    "encoding": "json",
+                    "commitment": "finalized",
+                    "maxSupportedTransactionVersion": 0,
+                },
+            ],
+        )
+        if not isinstance(result, dict):
+            raise SolanaRpcAdapterError("finalized transaction is not yet available from the pinned provider")
+        slot = result.get("slot")
+        if isinstance(slot, bool) or not isinstance(slot, int) or slot < minimum_slot:
+            raise SolanaRpcAdapterError("finalized transaction slot is invalid or below the required minimum")
+        transaction = result.get("transaction")
+        meta = result.get("meta")
+        if not isinstance(transaction, dict) or not isinstance(meta, dict):
+            raise SolanaRpcAdapterError("finalized transaction omitted transaction or metadata")
+        if meta.get("err") is not None:
+            raise SolanaRpcAdapterError("finalized transaction metadata reports execution failure")
+        signatures = transaction.get("signatures")
+        if not isinstance(signatures, list) or not signatures or signatures[0] != signature:
+            raise SolanaRpcAdapterError("finalized transaction signature does not match the requested signature")
+        message = transaction.get("message")
+        if not isinstance(message, dict):
+            raise SolanaRpcAdapterError("finalized transaction omitted its compiled message")
+        raw_keys = message.get("accountKeys")
+        if not isinstance(raw_keys, list) or not raw_keys:
+            raise SolanaRpcAdapterError("finalized transaction message omitted account keys")
+        account_keys = []
+        for key in raw_keys:
+            value = key.get("pubkey") if isinstance(key, dict) else key
+            try:
+                if not isinstance(value, str) or str(Pubkey.from_string(value)) != value:
+                    raise ValueError("non-canonical")
+            except Exception as exc:
+                raise SolanaRpcAdapterError("finalized transaction contains an invalid account key") from exc
+            account_keys.append(value)
+        loaded = meta.get("loadedAddresses") or {"writable": [], "readonly": []}
+        if not isinstance(loaded, dict):
+            raise SolanaRpcAdapterError("finalized transaction loaded-address metadata is malformed")
+        for field in ("writable", "readonly"):
+            values = loaded.get(field, [])
+            if not isinstance(values, list):
+                raise SolanaRpcAdapterError("finalized transaction loaded-address list is malformed")
+            for value in values:
+                try:
+                    if not isinstance(value, str) or str(Pubkey.from_string(value)) != value:
+                        raise ValueError("non-canonical")
+                except Exception as exc:
+                    raise SolanaRpcAdapterError("finalized transaction contains an invalid loaded address") from exc
+                account_keys.append(value)
+
+        def resolve_program_id(instruction: Any) -> str:
+            if not isinstance(instruction, dict):
+                raise SolanaRpcAdapterError("finalized transaction contains a malformed compiled instruction")
+            index = instruction.get("programIdIndex")
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(account_keys):
+                raise SolanaRpcAdapterError("compiled instruction program index is outside resolved account keys")
+            accounts = instruction.get("accounts")
+            if not isinstance(accounts, list):
+                raise SolanaRpcAdapterError("compiled instruction account indexes are malformed")
+            if any(isinstance(item, bool) or not isinstance(item, int) or not 0 <= item < len(account_keys) for item in accounts):
+                raise SolanaRpcAdapterError("compiled instruction account index is outside resolved account keys")
+            data = instruction.get("data")
+            if not isinstance(data, str):
+                raise SolanaRpcAdapterError("compiled instruction data is missing")
+            _decode_base58_instruction_data(data)
+            return account_keys[index]
+
+        instructions = message.get("instructions")
+        if not isinstance(instructions, list) or not instructions:
+            raise SolanaRpcAdapterError("finalized transaction contains no top-level instructions")
+        top_level_program_ids = tuple(resolve_program_id(item) for item in instructions)
+        inner_groups = meta.get("innerInstructions")
+        if not isinstance(inner_groups, list):
+            raise SolanaRpcAdapterError("finalized transaction omitted inner-instruction CPI evidence")
+        inner_program_ids = []
+        for group in inner_groups:
+            if not isinstance(group, dict) or isinstance(group.get("index"), bool) or not isinstance(group.get("index"), int) or not isinstance(group.get("instructions"), list):
+                raise SolanaRpcAdapterError("finalized transaction contains malformed inner-instruction groups")
+            if not 0 <= group["index"] < len(instructions):
+                raise SolanaRpcAdapterError("inner-instruction group references an invalid outer instruction")
+            for instruction in group["instructions"]:
+                inner_program_ids.append(resolve_program_id(instruction))
+        pre_balances = meta.get("preTokenBalances")
+        post_balances = meta.get("postTokenBalances")
+        # Fetch the canonical wire transaction as well as the decoded JSON view.
+        # The decoded view is used for CPI/balance inspection; the wire bytes bind
+        # this finalized signature to the exact message that was simulated.
+        wire_result = self._rpc(
+            "getTransaction",
+            [
+                signature,
+                {
+                    "encoding": "base64",
+                    "commitment": "finalized",
+                    "maxSupportedTransactionVersion": 0,
+                },
+            ],
+        )
+        if not isinstance(wire_result, dict) or wire_result.get("slot") != slot:
+            raise SolanaRpcAdapterError("finalized wire transaction does not match the decoded transaction slot")
+        wire_meta = wire_result.get("meta")
+        if not isinstance(wire_meta, dict) or wire_meta.get("err") is not None:
+            raise SolanaRpcAdapterError("finalized wire transaction metadata is missing or reports execution failure")
+        wire_transaction = wire_result.get("transaction")
+        if (
+            not isinstance(wire_transaction, list)
+            or len(wire_transaction) != 2
+            or wire_transaction[1] != "base64"
+            or not isinstance(wire_transaction[0], str)
+        ):
+            raise SolanaRpcAdapterError("finalized RPC provider omitted the canonical base64 transaction bytes")
+        try:
+            wire_bytes = base64.b64decode(wire_transaction[0], validate=True)
+            # Solana's compact-u16 signature count is one byte for valid transactions
+            # (the protocol caps required signatures well below 128).
+            if not wire_bytes:
+                raise ValueError("empty transaction")
+            signature_count = wire_bytes[0]
+            message_offset = 1 + signature_count * 64
+            if signature_count < 1 or signature_count != len(signatures) or len(wire_bytes) <= message_offset:
+                raise ValueError("malformed signature vector")
+            if str(Signature.from_bytes(wire_bytes[1:65])) != signature:
+                raise ValueError("wire signature differs from requested signature")
+            message_bytes = wire_bytes[message_offset:]
+            parsed_message = from_bytes_versioned(message_bytes)
+            if to_bytes_versioned(parsed_message) != message_bytes:
+                raise ValueError("wire message is not canonically serialized")
+            message_sha256 = hashlib.sha256(message_bytes).hexdigest()
+        except Exception as exc:
+            raise SolanaRpcAdapterError("finalized wire transaction bytes or signature vector are malformed") from exc
+
+        logs = meta.get("logMessages")
+        if not isinstance(pre_balances, list) or not isinstance(post_balances, list):
+            raise SolanaRpcAdapterError("finalized transaction omitted pre/post token balance evidence")
+        if not isinstance(logs, list) or any(not isinstance(line, str) for line in logs):
+            raise SolanaRpcAdapterError("finalized transaction omitted valid execution logs")
+        if any(not isinstance(item, dict) for item in pre_balances + post_balances):
+            raise SolanaRpcAdapterError("finalized transaction contains malformed token balance records")
+        return ConfirmedTransactionEvidence(
+            signature=signature,
+            slot=slot,
+            provider_id=self.provider_id,
+            cluster=self.cluster,
+            genesis_hash=genesis_hash,
+            account_keys=tuple(account_keys),
+            top_level_program_ids=top_level_program_ids,
+            inner_program_ids=tuple(inner_program_ids),
+            inner_instructions_present=True,
+            pre_token_balances_json=json.dumps(pre_balances, sort_keys=True, separators=(",", ":")),
+            post_token_balances_json=json.dumps(post_balances, sort_keys=True, separators=(",", ":")),
+            logs=tuple(logs),
+            raw_result_json=json.dumps(result, sort_keys=True, separators=(",", ":")),
+            message_sha256=message_sha256,
         )
 
     def _resolve_lookup_tables(
