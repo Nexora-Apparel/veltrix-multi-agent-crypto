@@ -56,7 +56,7 @@ export function calculateFeeBreakdown({
   const output = asBigInt(outputRaw, "outputRaw");
   if (output <= 0n) fail("outputRaw must be positive");
   const normalize = (fee, label) => {
-    if (!fee) return { category: label, amountRaw: "0", currency: "unknown", disclosure: "not supplied" };
+    if (!fee) fail(label + " fee must be explicitly itemized, including an explicit zero");
     const amount = asBigInt(fee.amountRaw, label + ".amountRaw");
     if (typeof fee.currency !== "string" || !fee.currency.trim()) fail(label + " currency is missing");
     return { category: label, amountRaw: amount.toString(), currency: fee.currency, disclosure: fee.disclosure || "explicit" };
@@ -169,7 +169,7 @@ export function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now()) {
 export function reconcileWalletBalanceChanges({
   inputSolBefore, inputSolAfter, outputTokenBefore, outputTokenAfter,
   expectedInputLamports, actualNetworkFeeLamports, persistentRentLamports,
-  minimumOutputRaw, expectedPlatformFeeRaw = "0"
+  minimumOutputRaw, expectedPlatformFeeRaw = "0", actualPlatformFeeRaw = "0"
 }) {
   const solBefore = asBigInt(inputSolBefore, "inputSolBefore");
   const solAfter = asBigInt(inputSolAfter, "inputSolAfter");
@@ -180,12 +180,14 @@ export function reconcileWalletBalanceChanges({
   const rent = asBigInt(persistentRentLamports, "persistentRentLamports");
   const minimum = asBigInt(minimumOutputRaw, "minimumOutputRaw");
   const platform = asBigInt(expectedPlatformFeeRaw, "expectedPlatformFeeRaw");
+  const actualPlatform = asBigInt(actualPlatformFeeRaw, "actualPlatformFeeRaw");
   if (solAfter > solBefore || tokenAfter < tokenBefore) fail("wallet balance directions are inconsistent with a swap");
   const solDebit = solBefore - solAfter;
   const tokenCredit = tokenAfter - tokenBefore;
   const expectedSolDebit = input + network + rent;
   if (solDebit !== expectedSolDebit) fail("SOL debit does not reconcile to input, actual network fee and persistent account rent");
-  if (tokenCredit < minimum + platform) fail("received token balance delta is below minimum output plus disclosed platform fee");
+  if (tokenCredit < minimum) fail("received token balance delta is below the reviewed minimum output");
+  if (actualPlatform !== platform) fail("actual platform-fee transfer does not match the explicitly disclosed fee");
   return Object.freeze({
     reconciled: true,
     solDebitLamports: solDebit.toString(),
@@ -194,7 +196,7 @@ export function reconcileWalletBalanceChanges({
     persistentRentLamports: rent.toString(),
     outputTokenCreditRaw: tokenCredit.toString(),
     minimumOutputRaw: minimum.toString(),
-    platformFeeRaw: platform.toString()
+    platformFeeRaw: actualPlatform.toString()
   });
 }
 
