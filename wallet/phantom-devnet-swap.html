@@ -498,7 +498,7 @@
       }
       return total;
     };
-    let actualOutputRaw=null,actualSolDebitLamports=null,actualSolBalanceBefore=null;
+    let actualOutputRaw=null,actualSolDebitLamports=null,actualSolBalanceBefore=null,actualSolBalanceAfter=null;
     try {
       if(expectedSolBalanceBefore!==null) {
         const keys=transaction.message.accountKeys;
@@ -517,6 +517,7 @@
           semanticDifferences.push("walletSolBalanceDebitMismatch");
         }
         actualSolBalanceBefore=pre.toString();
+        actualSolBalanceAfter=post.toString();
         actualSolDebitLamports=(pre-post).toString();
       }
       const before=sumWalletUsdc(chainTx.meta.preTokenBalances);
@@ -534,7 +535,7 @@
       expectedInputRaw:String(expectedInputRaw),
       actualOutputRaw,
       expectedSolBalanceBefore:expectedSolBalanceBefore===null?null:String(expectedSolBalanceBefore),
-      actualSolBalanceBefore,actualSolDebitLamports,
+      actualSolBalanceBefore,actualSolBalanceAfter,actualSolDebitLamports,
       expectedPersistentRentLamports:String(expectedPersistentRentLamports),
       actualNetworkFeeLamports:chainTx.meta.fee==null?null:String(chainTx.meta.fee)
     };
@@ -1691,9 +1692,16 @@
           received.toString() !== reconciliation.diagnostics.actualOutputRaw) {
         throw new Error("CONFIRMED_BUT_UNVERIFIED: observed Devnet USDC balance increase does not match the reconciled transaction output or is below the reviewed minimum. Signature: " + signature);
       }
+      let finalSolBalance = BigInt(await refreshBalance());
+      for (let i=0;i<8 && finalSolBalance.toString()!==reconciliation.diagnostics.actualSolBalanceAfter;i++) {
+        await new Promise(resolve=>setTimeout(resolve,750));
+        finalSolBalance = BigInt(await refreshBalance());
+      }
+      if(finalSolBalance.toString()!==reconciliation.diagnostics.actualSolBalanceAfter) {
+        throw new Error("CONFIRMED_BUT_UNVERIFIED: live SOL balance does not match the confirmed transaction post-balance. Signature: " + signature);
+      }
       prepared = null;
       $("review").classList.add("hidden");
-      await refreshBalance();
       if(reconciliation.status==="CONFIRMED_EXACT_MATCH") {
         status("DEVNET SWAP CONFIRMED. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
           fmtFixedRaw(received,6) + " USDC. Exact reviewed message match verified. One-time test complete.","good");
