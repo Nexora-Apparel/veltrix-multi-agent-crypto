@@ -499,8 +499,8 @@
       return total;
     };
     let actualOutputRaw=null,actualSolDebitLamports=null,actualSolBalanceBefore=null,actualSolBalanceAfter=null;
-    try {
-      if(expectedSolBalanceBefore!==null) {
+    if(expectedSolBalanceBefore!==null) {
+      try {
         const keys=transaction.message.accountKeys;
         const walletIndex=keys.findIndex(key=>key.toBase58()===wallet.toBase58());
         if(walletIndex<0 || !Array.isArray(chainTx.meta.preBalances) || !Array.isArray(chainTx.meta.postBalances) ||
@@ -519,7 +519,9 @@
         actualSolBalanceBefore=pre.toString();
         actualSolBalanceAfter=post.toString();
         actualSolDebitLamports=(pre-post).toString();
-      }
+      } catch { semanticDifferences.push("walletSolBalanceEffectsUnavailable"); }
+    }
+    try {
       const before=sumWalletUsdc(chainTx.meta.preTokenBalances);
       const after=sumWalletUsdc(chainTx.meta.postTokenBalances);
       if(after<before||after-before<BigInt(String(expectedMinimumRaw))) semanticDifferences.push("walletUsdcBalanceDeltaBelowMinimum");
