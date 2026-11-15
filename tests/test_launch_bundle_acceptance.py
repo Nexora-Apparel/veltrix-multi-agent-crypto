@@ -88,7 +88,7 @@ def test_launch_bundle_acceptance_certifies_only_after_explicit_flag():
 
 def test_launch_bundle_acceptance_rejects_untrusted_launch_origin():
     try:
-        evaluate(batch(), origin=OriginResolver("untrusted-origin"))
+        evaluate(batch(), cfg=settings(trusted_launch_origin_providers=()))
     except ValueError as exc:
         assert "not explicitly trusted" in str(exc)
     else:
