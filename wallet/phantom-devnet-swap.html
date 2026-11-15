@@ -435,6 +435,9 @@
     }
     const semanticDifferences=compareLegacyMessageSemantics(expectedMessage,confirmedMessage);
     const exact=bytesEqual(confirmedBytes,reviewedMessageBytes);
+    // This path now broadcasts the exact Phantom-signed reviewed bytes. A semantic
+    // resemblance is not sufficient if the confirmed message differs at all.
+    if(!exact) semanticDifferences.push("serializedMessageBytes");
     if(confirmedMessage.header.numRequiredSignatures!==1 || confirmedMessage.staticAccountKeys[0]!==wallet.toBase58()) {
       semanticDifferences.push("feePayerOrSignerPolicy");
     }
