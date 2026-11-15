@@ -22,7 +22,7 @@
 </head>
 <body>
   <h1>VELTRIX · Devnet swap test</h1>
-  <div class="muted">User-approved Phantom signing · Solana Devnet only · SOL → Devnet USDC</div>
+  <div class="muted">Phantom legacy sign-only validation · Solana Devnet only · SOL → Devnet USDC</div>
   <section class="panel">
     <div class="row"><span>Network</span><strong>Solana Devnet</strong></div>
     <div class="row"><span>Connected wallet</span><span class="value" id="wallet">Not connected</span></div>
@@ -67,7 +67,7 @@
     <p class="muted tiny">Signing compatibility can be tested locally, but transaction submission is hard-disabled until CI, Android validation, exact-byte audits, fee reconciliation and adversarial gates are complete.</p>
   </section>
   <section class="panel"><div id="status" class="muted">Connect Phantom from the Phantom in-app browser. This page never asks for a recovery phrase, seed phrase or private key.</div></section>
-  <div class="tiny">This is an explicit, one-swap Devnet test interface. It does not enable mainnet or automated trading.</div>
+  <div class="tiny">This is an explicit, single-transaction Phantom signing test. It does not submit swaps, enable mainnet or enable automated trading.</div>
 
 <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
 <script>
