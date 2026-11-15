@@ -10,6 +10,16 @@ Price impact is quote information, not a universal rejection threshold. The user
 
 The current browser route is still a pinned direct Raydium CPMM SOL → Devnet USDC adapter. It does not claim to support every DEX or arbitrary route shape. The transaction builder must continue to respect actual Solana and protocol constraints.
 
+## Phantom KMS compatibility and exact-byte signing
+
+The current Android Phantom diagnostic recorded repeated KMS policy failures stating that loaded accounts were not provided while an address lookup table was used. The Devnet browser execution path therefore uses a legacy transaction with no address lookup tables.
+
+The wallet boundary is split into two operations:
+1. Phantom `signTransaction` presents the manual wallet approval and returns the signed transaction.
+2. Veltrix verifies the signed message bytes are identical to the immutable reviewed message, verifies the wallet signature and packet-size limit, then submits those exact signed bytes to canonical Devnet RPC.
+
+The application does not use Phantom `signAndSendTransaction` on this path because the wallet's send pipeline may rewrite the message (including ComputeBudget instructions) after review. Any signed-message mutation is rejected before broadcast. Post-confirmation reconciliation requires exact message-byte equality; semantic similarity alone is insufficient.
+
 ## Fees
 
 VELTRIX platform fee: **0%**.
@@ -68,3 +78,5 @@ The previously reported successful Phantom swap was performed against an earlier
 - Solana Devnet only.
 - Phantom approval remains manual.
 - No mainnet, automated signing, Veltrix platform fee or production release.
+
+Note: the platform-fee policy is being revised separately. No platform fee is charged until an explicit rate, recipient, transfer instruction and independent reconciliation policy are configured and audited.
