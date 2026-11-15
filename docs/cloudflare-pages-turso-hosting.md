@@ -85,8 +85,8 @@ The Cloudflare deployment workflow copies the three dashboard secrets into the P
 1. Add the GitHub Actions secrets above without posting their values in chat or committing them to the repository.
 2. Run `Initialize production Turso schema` manually from Actions. The script refuses the dedicated disposable conformance database, creates the application tables, creates an empty paper ledger account if absent, and verifies the expected schema. It does not run providers or activate paper trading.
 3. Run `Deploy VELTRIX Cloudflare Pages` manually. It creates the Pages project, sets production-only read-only bindings, deploys, and verifies the authenticated health response.
-4. The scheduled Solana pipeline workflow runs every two hours (UTC), with a four-minute job ceiling and non-overlapping concurrency. This conservative cadence is designed to keep the GitHub-hosted runner budget bounded. GitHub Actions schedule events can be delayed; they are not an exact-time SLA.
-5. The pipeline runs discovery, enrichment, market refresh, risk evidence and consensus only. Paper trading, Telegram, signing, transaction submission and live execution remain disabled.
+4. The Solana pipeline is exposed as a **manual workflow_dispatch only**. Automatic schedule triggers are deliberately blocked by the existing Stage 9.1 release policy and regression test. A two-hour UTC cadence is the proposed post-release setting, not an active schedule. Do not bypass the lock by substituting Cloudflare Cron or another external scheduler.
+5. The manual pipeline runs discovery, enrichment, market refresh, risk evidence and consensus only. Paper trading, Telegram, signing, transaction submission and live execution remain disabled.
 
 The scheduled pipeline requires a **read/write** production Turso token because it persists candidate, market, risk, consensus and orchestration records. The Cloudflare dashboard uses a distinct **read-only** token. Never reuse the disposable conformance token or database for production.
 
