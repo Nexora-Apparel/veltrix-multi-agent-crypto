@@ -22,6 +22,8 @@ vm.runInNewContext(script,context);
 const h = window.__VELTRIX_TEST_HOOKS__;
 assert.ok(h,"guarded browser verifier hooks are exposed in test mode");
 const C = h.constants;
+const INPUT_LAMPORTS = 5000000000n;
+const routerQuote = {inputAmount:INPUT_LAMPORTS.toString(),otherAmountThreshold:"3110"};
 const wallet = {toBase58:()=>C.WALLET};
 h.setWalletForTest(wallet);
 
@@ -37,8 +39,8 @@ function makeMessage() {
   const keys=[C.WALLET,"input-ata",C.SOL,"output-ata",C.USDC,"authority",C.POOL,
     "vault-in","vault-out","observation",C.ROUTER,C.TOKEN,C.TOKEN_2022,C.ATA_PROGRAM,
     C.SYSTEM,C.COMPUTE_BUDGET,"amm-config",C.CPMM];
-  const setup=[5,...u64(C.TEST_LAMPORTS)];
-  const route=[0,...u64(C.TEST_LAMPORTS),...u64(3110)];
+  const setup=[5,...u64(INPUT_LAMPORTS)];
+  const route=[0,...u64(INPUT_LAMPORTS),...u64(3110)];
   const cleanup=[6], price=[3,...u64(50000)], limit=[2,0x40,0x0d,0x03,0];
   const resolved=keys.map(value=>({toBase58:()=>value,equals(other){return this.toBase58()===other.toBase58();}}));
   const message={
@@ -58,6 +60,21 @@ function rejected(fn, label) {
   assert.throws(fn,/Transaction intent rejected:/,label);
 }
 
+// Exact amount and slippage parser boundaries.
+assert.equal(h.parseSolAmountToLamports("0.000000001"),1n);
+assert.equal(h.parseSolAmountToLamports("5"),5000000000n);
+assert.equal(h.parseSolAmountToLamports("12.345678901"),12345678901n);
+assert.equal(h.parseSlippageBps("0"),0);
+assert.equal(h.parseSlippageBps("0.25"),25);
+assert.equal(h.parseSlippageBps("1.00"),100);
+assert.equal(h.parseSlippageBps("99.99"),9999);
+assert.throws(()=>h.parseSolAmountToLamports("0"));
+assert.throws(()=>h.parseSolAmountToLamports("1.1234567890"));
+assert.throws(()=>h.parseSolAmountToLamports("18446744074"));
+assert.throws(()=>h.parseSlippageBps("100"));
+assert.throws(()=>h.parseSlippageBps("-1"));
+assert.throws(()=>h.parseSlippageBps("1.001"));
+
 // Primitive and ALT adversarial cases.
 const raw=Uint8Array.from([0,1,2,3,4,5,6,7,8]);
 assert.equal(h.readU64(raw,1),0x0807060504030201n);
@@ -74,27 +91,28 @@ rejected(()=>h.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},
 
 // Baseline router transaction passes the structural policy.
 const base=makeMessage();
-const baseline=h.decodeRouterPolicy(base.message,base.resolved,{otherAmountThreshold:"3110"});
+const baseline=h.decodeRouterPolicy(base.message,base.resolved,routerQuote);
 assert.equal(baseline.minOut,3110n);
+assert.equal(baseline.inputAmount,INPUT_LAMPORTS);
 assert.equal(baseline.programs.length,5);
 
 // CPMM instruction and SPL token-account adversarial cases.
 const cpmmDisc=[143,190,90,218,196,30,51,222];
-const cpmmData=Uint8Array.from([...cpmmDisc,...u64(C.TEST_LAMPORTS),...u64(0)]);
-const decodedCpmm=h.decodeCpmmSwapData(cpmmData);
-assert.equal(decodedCpmm.amountIn,BigInt(C.TEST_LAMPORTS));
+const cpmmData=Uint8Array.from([...cpmmDisc,...u64(INPUT_LAMPORTS),...u64(0)]);
+const decodedCpmm=h.decodeCpmmSwapData(cpmmData,0n,INPUT_LAMPORTS);
+assert.equal(decodedCpmm.amountIn,INPUT_LAMPORTS);
 assert.equal(decodedCpmm.minimumAmountOut,0n);
 {
   const bad=new Uint8Array(cpmmData); bad[0]^=1;
-  rejected(()=>h.decodeCpmmSwapData(bad),"wrong CPMM discriminator");
+  rejected(()=>h.decodeCpmmSwapData(bad,0n,INPUT_LAMPORTS),"wrong CPMM discriminator");
 }
 {
-  const bad=new Uint8Array(cpmmData); bad.set(u64(C.TEST_LAMPORTS+1),8);
-  rejected(()=>h.decodeCpmmSwapData(bad),"altered CPMM input");
+  const bad=new Uint8Array(cpmmData); bad.set(u64(INPUT_LAMPORTS+1n),8);
+  rejected(()=>h.decodeCpmmSwapData(bad,0n,INPUT_LAMPORTS),"altered CPMM input");
 }
 {
   const bad=new Uint8Array(cpmmData); bad.set(u64(1),16);
-  rejected(()=>h.decodeCpmmSwapData(bad),"unexpected CPMM inner minimum");
+  rejected(()=>h.decodeCpmmSwapData(bad,0n,INPUT_LAMPORTS),"unexpected CPMM inner minimum");
 }
 function tokenAccount(mint,owner,state=1,program=C.TOKEN) {
   const data=new Uint8Array(165);
@@ -112,38 +130,38 @@ rejected(()=>h.decodeTokenAccount(tokenAccount(C.USDC,C.WALLET,1,C.SYSTEM),C.USD
 // Each altered intent must be rejected.
 {
   const x=makeMessage(); x.message.compiledInstructions[1].data[1]++;
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"altered input amount");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"altered input amount");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[1].data.set(u64(3109),9);
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"reduced minimum output");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"reduced minimum output");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[0].accountKeyIndexes.reverse();
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"altered setup recipient/account order");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"altered setup recipient/account order");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[1].accountKeyIndexes[15]=6;
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"altered route vault account");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"altered route vault account");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[2].data[0]=5;
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"altered cleanup tag");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"altered cleanup tag");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[0].programIdIndex=11;
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"unknown setup program");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"unknown setup program");
 }
 {
   const x=makeMessage(); x.message.header.numReadonlyUnsignedAccounts=5;
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"router signer/writable privilege escalation");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"router signer/writable privilege escalation");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[3].data.set(u64(1000001),1);
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"excessive compute-unit price");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"excessive compute-unit price");
 }
 {
   const x=makeMessage(); x.message.compiledInstructions[4].data.set([0xff,0xff,0xff,0x7f],1);
-  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,{otherAmountThreshold:"3110"}),"excessive compute-unit limit");
+  rejected(()=>h.decodeRouterPolicy(x.message,x.resolved,routerQuote),"excessive compute-unit limit");
 }
 console.log("Phantom browser verifier adversarial tests passed: ALT lifecycle/index mutations, byte primitives, CPMM discriminator/amount/minimum, token mint/owner/program/state, router setup/route/cleanup, amount/minimum, account order, program identity, privilege escalation and compute-budget caps.");
