@@ -1668,7 +1668,15 @@
     let submissionAttempted = false;
     try {
       status("Rechecking wallet, Devnet funding, blockhash, pool quote, transaction version, resolved account set and exact bytes before opening Phantom approval…","muted");
-      await finalPreSignFreshnessGate();
+      const gateResult = await finalPreSignFreshnessGate();
+      if (gateResult?.refreshed) {
+        // A fresh quote is a new offer, not an authorization to continue with
+        // the previous transaction. Stop here and require a separate review.
+        return gateResult;
+      }
+      if (prepared !== reviewed) {
+        throw new Error("Prepared transaction changed during final freshness validation; no signing or submission is allowed.");
+      }
       const finalTx = assertExactReviewedBytes(reviewed.txs[0], reviewed.reviewedBytes[0]);
       // Snapshot the exact message before handing the mutable Transaction object to Phantom.
       // Wallet adapters may mutate their in-memory transaction after signing/submission.
