@@ -67,6 +67,12 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         assert "device-time" not in page
         assert "system-indicators" not in page
         assert "brand-island" not in page
+
+        request = Request(
+            base + "/assets/dashboard.js",
+            headers={"Authorization": "Bearer " + token},
+        )
+        dashboard_js = urlopen(request).read().decode("utf-8")
         assert "device-time" not in dashboard_js
         assert "data-screen=\"trades\"" in page
         assert "data-screen=\"agents\"" in page
@@ -75,11 +81,6 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         assert "id=\"access-token\"" in page
         assert "Unlock dashboard" in page
 
-        request = Request(
-            base + "/assets/dashboard.js",
-            headers={"Authorization": "Bearer " + token},
-        )
-        dashboard_js = urlopen(request).read().decode("utf-8")
         assert "renderAgents" in dashboard_js
         assert "No agent identities recorded in consensus history" in dashboard_js
         assert "Scout" not in dashboard_js
