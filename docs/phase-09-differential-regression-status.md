@@ -71,6 +71,20 @@ This is deterministic software differential evidence, not exhaustive swap-loop p
 7. **Host isolation proof:** validate process, filesystem, mount namespace, service, and key isolation on a real supported Linux host. Android Termux alone cannot prove systemd or mount-namespace isolation.
 8. **Independent review and canonical merge order:** reconcile historical PR #75/#76 behavior with the canonical dependency chain before merging any implementation PR. Keep PR #137 and its dependency chain unmerged until source review, full CI, and all dependent checks pass.
 
+## Phase 09.74 — finalized Devnet settlement inspection
+
+- Added a read-only inspector entry point that accepts an existing finalized transaction signature together with the exact typed pool evidence, route checks, simulation evidence, and expected signed vault deltas.
+- The inspector is Devnet-only and requires explicit endpoint, provider ID, independently pinned Devnet genesis hash, and exact hostname allowlist settings:
+  `VELTRIX_CLMM_DEVNET_RPC_URL`,
+  `VELTRIX_CLMM_DEVNET_RPC_PROVIDER_ID`,
+  `VELTRIX_CLMM_DEVNET_GENESIS_HASH`, and
+  `VELTRIX_CLMM_DEVNET_RPC_ALLOWED_HOSTS`.
+- The RPC adapter now fetches both decoded transaction metadata and canonical base64 wire bytes at finalized commitment. It validates the wire signature and canonical message serialization, then records the SHA-256 of the exact serialized message.
+- Settlement verification requires that finalized message hash to equal the message hash in the original simulation evidence, in addition to the existing same-provider/genesis, Raydium invocation, Token Program CPI, and exact vault-delta checks.
+- This closes a critical evidence-pairing gap: an unrelated finalized transaction can no longer be combined with an otherwise valid simulation record merely because it touched the same pool and produced matching vault deltas.
+- The inspector has no signing, wallet, transaction-submission, or broadcast path. Its result remains `execution_ready=False`.
+- This implementation is still awaiting CI confirmation and a real finalized Devnet signature. No live-chain settlement is certified yet.
+
 ## Safety state
 
 - No signing, wallet approval, Jupiter `/execute`, transaction submission, broadcast, or live trading was introduced by this work.
