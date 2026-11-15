@@ -352,7 +352,7 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
     ]
     raw = {
         "slot": 800,
-        "transaction": {"signatures": [str(Pubkey.new_unique())], "message": {
+        "transaction": {"signatures": [signature], "message": {
             "accountKeys": keys,
             "instructions": [{"programIdIndex": 0, "accounts": [1, 2], "data": "1"}],
         }},
