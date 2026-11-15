@@ -112,7 +112,7 @@ async function main() {
   if (tx.signatures.length !== 1 || tx.signatures.some(item=>item.signature !== null)) fail("SDK transaction is not unsigned with one empty wallet signature");
   if (tx.addressTableLookups?.length) fail("legacy transaction unexpectedly contains address lookup tables");
   const minimumOut = swapResult.outputAmount.mul(new BN(String(10000-SLIPPAGE_BPS))).div(new BN(10000));
-  if (minimumOut.lte(new BN(0))) fail("calculated 1% slippage floor is zero");
+  if (minimumOut.lte(new BN(0))) fail("configured slippage produces a zero minimum output");
   const directIx = tx.instructions.find(ix => ix.programId.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
   if (!directIx || directIx.data.length !== 24 || Buffer.from(directIx.data.slice(0,8)).toString("hex") !== "8fbe5adac41e33de") {
     fail("SDK CPMM instruction discriminator/layout mismatch");
