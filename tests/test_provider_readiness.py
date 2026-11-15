@@ -234,3 +234,66 @@ def test_launch_bundle_capability_stays_disabled_without_manual_attestation():
     assert not row.capability_complete
     assert any("LAUNCH_BUNDLE_EVIDENCE_CAPABILITY_CERTIFIED is false" in x
                for x in row.blockers)
+
+
+
+def test_all_stage5_claims_can_become_ready_only_with_all_chain_attestations():
+    report = build_provider_readiness(settings(
+        solana_liquidity_pool_rpc_url="https://solana-pool.example",
+        solana_liquidity_locker_rpc_url="https://solana-locker.example",
+        solana_raydium_amm_v4_executable_hash="a" * 64,
+        solana_raydium_cpmm_executable_hash="b" * 64,
+        solana_raydium_locking_executable_hash="c" * 64,
+        solana_liquidity_registry_complete=True,
+        base_liquidity_pool_rpc_url="https://base-pool.example",
+        base_liquidity_locker_rpc_url="https://base-locker.example",
+        base_liquidity_factories_json='[{"amm_id":"factory"}]',
+        base_liquidity_lockers_json='[{"amm_id":"locker"}]',
+        base_liquidity_registry_complete=True,
+        bsc_liquidity_pool_rpc_url="https://bsc-pool.example",
+        bsc_liquidity_locker_rpc_url="https://bsc-locker.example",
+        bsc_liquidity_factories_json='[{"amm_id":"factory"}]',
+        bsc_liquidity_lockers_json='[{"amm_id":"locker"}]',
+        bsc_liquidity_registry_complete=True,
+        solana_rpc_url="https://solana.example",
+        helius_api_key="helius",
+        base_rpc_url="https://base.example",
+        alchemy_api_key="alchemy",
+        bsc_rpc_url="https://bsc.example",
+        etherscan_api_key="etherscan",
+        developer_root_attestation_url="https://roots.example",
+        developer_root_attestation_public_key="public-key",
+        developer_root_attestation_provider_id="signed-developer-roots",
+        alchemy_quote_tokens_base=("0x" + "11" * 20,),
+        alchemy_quote_tokens_bsc=("0x" + "22" * 20,),
+        trusted_liquidity_providers=(
+            "solana-raydium-v4-cpmm-finalized-pool-inventory",
+            "base-finalized-all-factory-liquidity",
+            "bsc-finalized-all-factory-liquidity",
+        ),
+        trusted_developer_root_providers=("signed-developer-roots",),
+        trusted_holder_inventory_providers=(
+            "solana-rpc-holder-inventory", "base-rpc-holder-inventory",
+            "bsc-rpc-holder-inventory",
+        ),
+        trusted_developer_funding_providers=(
+            "helius-solana-funding-graph", "alchemy-base-funding-graph",
+            "etherscan-v2-bsc-funding-graph",
+        ),
+        trusted_developer_providers=("developer-graph-provider",),
+        trusted_bundle_providers=("helius-launch", "base-rpc-launch", "bsc-rpc-launch"),
+        trusted_funding_providers=("helius-funder", "base-quote-funder", "bsc-quote-funder"),
+        trusted_launch_origin_providers=(
+            "helius-launch-origin", "base-rpc-launch-origin", "bsc-rpc-launch-origin",
+        ),
+        liquidity_evidence_capability_certified=True,
+        developer_evidence_capability_certified=True,
+        launch_bundle_evidence_capability_certified=True,
+    ))
+    stage5 = [
+        row for row in report.claims
+        if row.claim in {"liquidity_lock", "developer_holdings", "launch_bundle"}
+    ]
+    assert len(stage5) == 9
+    assert all(row.configured and row.trusted and row.capability_complete
+               and row.eligible_to_attempt and not row.blockers for row in stage5)
