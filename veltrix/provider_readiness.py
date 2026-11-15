@@ -139,10 +139,10 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             )
         if chain == "solana":
             liquidity_blockers.append(
-                "Solana support is scoped to Raydium AMM V4 + CPMM; deployed program hashes, TokenLock PDAs and LP vault ownership must pass live acceptance"
+                "Solana support is scoped to Raydium AMM V4 + CPMM; UNCX V4 TokenLock and Raydium Burn & Earn CPMM program hashes, lock PDAs and LP vault ownership must pass live acceptance"
             )
             liquidity_blockers.append(
-                "no source-verifiable UNCX CPMM locker adapter exists; any discovered CPMM pool remains unverified and blocks the all-pool safety claim"
+                "Raydium Burn & Earn CPMM lock-state PDA, fee-NFT authority and LP-vault reconciliation must pass live acceptance"
             )
         rows.append(ClaimReadiness(
             chain, "liquidity_lock", reader_configured,
