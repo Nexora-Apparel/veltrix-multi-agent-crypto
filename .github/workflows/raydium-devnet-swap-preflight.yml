@@ -10,6 +10,7 @@ on:
       - 'scripts/build-devnet-cpmm-unsigned.mjs'
       - 'tests/phantom_direct_cpmm_live_audit.mjs'
       - 'wallet/automatic-exchange-pricing.mjs'
+      - 'automatic-exchange-pricing.mjs'
       - 'tests/automatic-exchange-pricing.test.mjs'
       - 'tests/test_phantom_devnet_swap_page.py'
       - 'docs/phantom-devnet-swap.md'
