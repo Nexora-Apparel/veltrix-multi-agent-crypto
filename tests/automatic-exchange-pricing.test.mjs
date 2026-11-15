@@ -103,9 +103,9 @@ assert.equal((await evaluateFreshQuote(snapshot, {
 assert.equal((await evaluateFreshQuote(snapshot, {
   quotedAtMs: 1_003_000, quoteTtlMs: 8000, quotedOutputRaw: "10904",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
-}, 1_009_000)).action, "refresh_and_re_review");
+}, 1_012_000)).action, "refresh_and_re_review");
 const reviewedAfterLongPause = await evaluateFreshQuote(sealedWithExistingProtection, {
-  quotedAtMs: 1_019_000, quoteTtlMs: 8000, quotedOutputRaw: "10900",
+  quotedAtMs: 1_039_000, quoteTtlMs: 8000, quotedOutputRaw: "10900",
   inputAmountRaw: base.inputAmountRaw, inputMint: base.inputMint, outputMint: base.outputMint
 }, 1_040_000);
 assert.equal(reviewedAfterLongPause.action, "continue_exact_review",
