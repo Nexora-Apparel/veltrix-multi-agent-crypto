@@ -355,12 +355,17 @@ async function consensus(client, tables) {
 async function markets(client, tables) {
   if (!tables.has("solana_market_snapshots")) return [];
   const selected = await rows(client, `SELECT m.* FROM solana_market_snapshots m
-    JOIN (
-      SELECT mint, MAX(id) AS latest_id FROM solana_market_snapshots GROUP BY mint
-    ) latest ON latest.latest_id=m.id
-    ORDER BY m.retrieved_at_ms DESC LIMIT 50`);
+    WHERE NOT EXISTS (
+      SELECT 1 FROM solana_market_snapshots newer
+      WHERE newer.mint=m.mint
+        AND (newer.retrieved_at_ms > m.retrieved_at_ms
+          OR (newer.retrieved_at_ms = m.retrieved_at_ms AND newer.id > m.id))
+    )
+    ORDER BY m.retrieved_at_ms DESC, m.id DESC LIMIT 50`);
   return selected.map((row) => ({
     ...row,
+    selected_pool_liquidity_usd: finiteNumber(row.liquidity_usd),
+    selected_pool_volume_h1_usd: finiteNumber(row.volume_h1_usd),
     quality_flags: decodeQualityFlags(row),
     retrieved_at: isoMilliseconds(row.retrieved_at_ms),
   }));
