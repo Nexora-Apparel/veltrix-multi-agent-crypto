@@ -1504,7 +1504,7 @@
           fmtFixedRaw(received,6) + " USDC. Exact reviewed message match verified. One-time test complete.","good");
       } else {
         status("DEVNET SWAP CONFIRMED — SEMANTIC MATCH. Signature: " + signature + "\nVerified Devnet USDC balance increase: " +
-          fmtFixedRaw(received,6) + " USDC. Fee payer, signer, account ordering, blockhash and every instruction match the reviewed transaction, but serialized message bytes differ. No retry is needed. Diagnostics: " +
+          fmtFixedRaw(received,6) + " USDC. Fee payer, signer, blockhash, resolved instruction identities and wallet USDC output effects match the reviewed swap, but serialized message bytes differ. No retry is needed. Diagnostics: " +
           JSON.stringify(reconciliation.diagnostics),"warning");
       }
     } catch (error) {
@@ -1531,7 +1531,11 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,resolveV0Accounts,normalizeConfirmedMessage,normalizeReviewedMessageBytes,compareLegacyMessageSemantics,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,normalizeConfirmedMessage,normalizeReviewedLegacyMessageBytes,normalizeReviewedMessageBytes,compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,resolveV0Accounts,
+      decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,
+      normalizedTransactionMessage,normalizeConfirmedMessage,normalizeReviewedLegacyMessageBytes,normalizeReviewedMessageBytes,
+      compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,
+      validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,ALT_PROGRAM,TEST_LAMPORTS}
