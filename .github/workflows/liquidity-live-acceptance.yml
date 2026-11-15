@@ -126,6 +126,7 @@ jobs:
       SOLANA_LIQUIDITY_LOCKER_RPC_URL: ${{ secrets.SOLANA_LIQUIDITY_LOCKER_RPC_URL }}
       SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH: ${{ secrets.SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH }}
       SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH: ${{ secrets.SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH }}
+      SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH: ${{ secrets.SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH }}
       SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE: ${{ secrets.SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE }}
       SAFETY_EVIDENCE_MAX_AGE_MS: "900000"
       LIQUIDITY_READER_MAX_POOLS: "20000"
@@ -145,7 +146,7 @@ jobs:
         id: config
         shell: bash
         run: |
-          if [[ -z "$SOLANA_LIQUIDITY_POOL_RPC_URL" || -z "$SOLANA_LIQUIDITY_LOCKER_RPC_URL" || -z "$SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH" || -z "$SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH" || "$SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
+          if [[ -z "$SOLANA_LIQUIDITY_POOL_RPC_URL" || -z "$SOLANA_LIQUIDITY_LOCKER_RPC_URL" || -z "$SOLANA_RAYDIUM_AMM_V4_EXECUTABLE_HASH" || -z "$SOLANA_RAYDIUM_CPMM_EXECUTABLE_HASH" || -z "$SOLANA_RAYDIUM_LOCKING_EXECUTABLE_HASH" || "$SOLANA_LIQUIDITY_AMM_REGISTRY_COMPLETE" != "true" ]]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Solana live acceptance skipped: independent RPC endpoints, both pinned Raydium program hashes and complete-scope attestation are not all configured."
           else
