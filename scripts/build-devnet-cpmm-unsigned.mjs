@@ -9,7 +9,19 @@ const WALLET = process.env.WALLET_ADDRESS || "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4
 const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo";
 const WSOL = "So11111111111111111111111111111111111111112";
 const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-const INPUT = 1_000_000;
+const U64_MAX = (1n << 64n) - 1n;
+function parseSolToLamports(value) {
+  const match = /^(0|[1-9][0-9]*)(?:\\.([0-9]{1,9}))?$/.exec(String(value).trim());
+  if (!match) throw new Error("SWAP_INPUT_SOL must be a positive decimal SOL amount with at most 9 decimals");
+  const amount = BigInt(match[1]) * 1000000000n + BigInt((match[2] || "").padEnd(9,"0") || "0");
+  if (amount <= 0n || amount > U64_MAX) throw new Error("SWAP_INPUT_SOL is outside the positive u64 lamport range");
+  return amount;
+}
+const INPUT = parseSolToLamports(process.env.SWAP_INPUT_SOL || "0.001");
+const SLIPPAGE_BPS = Number(process.env.SWAP_SLIPPAGE_BPS || "100");
+if (!Number.isSafeInteger(SLIPPAGE_BPS) || SLIPPAGE_BPS < 0 || SLIPPAGE_BPS >= 10000) {
+  throw new Error("SWAP_SLIPPAGE_BPS must be an integer from 0 through 9999");
+}
 const OUT = process.env.OUTPUT || "artifacts/devnet-cpmm-unsigned.json";
 const fail = message => { throw new Error("Devnet CPMM acquisition rejected: " + message); };
 
@@ -66,10 +78,10 @@ async function main() {
     rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB
   );
   if (!swapResult.outputAmount || swapResult.outputAmount.lte(new BN(0))) fail("pool quote output is zero");
-  const minOut = swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
+  const minOut = swapResult.outputAmount.mul(new BN(String(10000-SLIPPAGE_BPS))).div(new BN(10000));
   if (minOut.lte(new BN(0))) fail("computed minimum output is zero");
   const built = await raydium.cpmm.swap({
-    poolInfo,poolKeys,inputAmount,swapResult,slippage:0.01,baseIn,txVersion:TxVersion.LEGACY,
+    poolInfo,poolKeys,inputAmount,swapResult,slippage:SLIPPAGE_BPS/10000,baseIn,txVersion:TxVersion.LEGACY,
     ownerInfo:{wallet:new PublicKey(WALLET),useSOLBalance:true}
   });
   if (!built.transaction || typeof built.transaction.serialize !== "function" ||
@@ -91,7 +103,7 @@ async function main() {
   catch { fail("SDK did not return a legacy transaction; ALT-free compatibility is mandatory"); }
   if (tx.signatures.length !== 1 || tx.signatures.some(item=>item.signature !== null)) fail("SDK transaction is not unsigned with one empty wallet signature");
   if (tx.addressTableLookups?.length) fail("legacy transaction unexpectedly contains address lookup tables");
-  const minimumOut = swapResult.outputAmount.mul(new BN(9900)).div(new BN(10000));
+  const minimumOut = swapResult.outputAmount.mul(new BN(String(10000-SLIPPAGE_BPS))).div(new BN(10000));
   if (minimumOut.lte(new BN(0))) fail("calculated 1% slippage floor is zero");
   const directIx = tx.instructions.find(ix => ix.programId.toBase58() === "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
   if (!directIx || directIx.data.length !== 24 || Buffer.from(directIx.data.slice(0,8)).toString("hex") !== "8fbe5adac41e33de") {
@@ -152,7 +164,7 @@ async function main() {
     wallet:WALLET,pool:POOL,program:poolInfo.programId,
     input_mint:WSOL,output_mint:USDC,input_amount_lamports:String(INPUT),
     quoted_output_raw:swapResult.outputAmount.toString(),minimum_output_raw:minimumOut.toString(),actual_output_raw:actualOutput.toString(),
-    slippage_bps:100,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
+    slippage_bps:SLIPPAGE_BPS,transaction_version:"legacy",transaction_count:1,serialized_size_bytes:serialized.length,packet_size_limit_bytes:1232,
     unsigned_transaction_base64:Buffer.from(serialized).toString("base64"),
     static_account_keys:keys,instructions:ixSummary,
     address_lookup_tables:[],
