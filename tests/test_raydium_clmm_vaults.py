@@ -344,6 +344,7 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
         {"accountIndex": 2, "mint": mint_b, "owner": pool_address, "programId": token_program,
          "uiTokenAmount": {"amount": "1000"}},
     ]
+    signature = str(Signature.new_unique())
     records_post = [
         {"accountIndex": 1, "mint": mint_a, "owner": pool_address, "programId": token_program,
          "uiTokenAmount": {"amount": str(1000 + amount_a)}},
@@ -364,7 +365,6 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
             "logMessages": ["Program log: swap complete"],
         },
     }
-    signature = str(Signature.new_unique())
     return ConfirmedTransactionEvidence(
         signature=signature,
         slot=800,
