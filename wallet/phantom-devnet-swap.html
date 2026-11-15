@@ -62,7 +62,9 @@
     <div class="row"><span>Devnet SOL required (faucet top-up)</span><strong class="value" id="requiredBalanceValue">—</strong></div>
     <p class="muted tiny">The temporary wrapped-SOL account must be funded before it is closed, so its full temporary funding amount must be available during execution. Its rent reserve is returned in the same transaction. If your Devnet USDC token account does not already exist, its rent is paid once and remains locked until that USDC account is closed.</p>
     <p class="muted warning">The next button opens Phantom approval for this exact reviewed Devnet transaction. Nothing is sent unless you approve it in Phantom. Do not approve if the displayed pair, amount, minimum output, account rent or total debit differs from your review.</p>
-    <button id="execute" disabled>Review and approve in Phantom</button>
+    <button id="signTest" class="secondary" disabled>Verify Phantom legacy signing (no broadcast)</button>
+    <button id="execute" disabled>Execution locked pending validation</button>
+    <p class="muted tiny">Signing compatibility can be tested locally, but transaction submission is hard-disabled until CI, Android validation, exact-byte audits, fee reconciliation and adversarial gates are complete.</p>
   </section>
   <section class="panel"><div id="status" class="muted">Connect Phantom from the Phantom in-app browser. This page never asks for a recovery phrase, seed phrase or private key.</div></section>
   <div class="tiny">This is an explicit, one-swap Devnet test interface. It does not enable mainnet or automated trading.</div>
@@ -72,6 +74,7 @@
 (() => {
   "use strict";
   const RPC = "https://api.devnet.solana.com";
+  const EXECUTION_RELEASE_ENABLED = false;
   const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
     const SOL = "So11111111111111111111111111111111111111112";
   const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
@@ -158,7 +161,8 @@
     busy = value;
     $("connect").disabled = value;
     $("quote").disabled = value || !wallet;
-    $("execute").disabled = value || !prepared || !!prepared.executionStarted;
+    $("execute").disabled = true;
+    $("signTest").disabled = value || !prepared || !!prepared.signingTestStarted;
     $("amount").disabled = value;
   }
   function getProvider() {
@@ -1464,14 +1468,16 @@
     $("temporaryFundingValue").textContent=fmtFixedRaw(temporaryWsolFundingLamports,9)+" SOL (rent returned when account closes)";
     $("requiredBalanceValue").textContent=fmtFixedRaw(requiredBalanceLamports,9)+" SOL (available after faucet top-up)";
     $("review").classList.remove("hidden");
-    $("execute").disabled=false;
-    $("execute").textContent="Review and approve in Phantom";
-    status("Fresh single-pool CPMM transaction built and independently audited. Select the approval button to open Phantom. No transaction has been signed or sent yet.","good");
+    $("signTest").disabled=false;
+    $("execute").disabled=true;
+    $("execute").textContent="Execution locked pending validation";
+    status("Fresh single-pool CPMM transaction built and independently audited. The available action tests Phantom legacy signing only; no transaction can be submitted.","good");
   }
   function invalidatePrepared(reason) {
     prepared = null;
     $("review").classList.add("hidden");
     $("execute").disabled = true;
+    $("signTest").disabled = true;
     if (reason) status(reason, "warning");
   }
   async function finalPreSignFreshnessGate() {
@@ -1610,7 +1616,47 @@
     assertExactReviewedBytes(tx,prepared.reviewedBytes[0]);
     return {blockhashValid:true,quoteFresh:true,accountAuditFresh:true,exactBytes:true,audit};
   }
+  async function testLegacyPhantomSigning() {
+    if (busy) return;
+    if (!provider || !wallet || typeof provider.signTransaction !== "function" ||
+        !prepared || !(prepared.txs?.[0] instanceof solanaWeb3.Transaction)) {
+      throw new Error("A prepared legacy transaction and Phantom signTransaction provider are required.");
+    }
+    if (prepared.signingTestStarted) throw new Error("Phantom signing compatibility test is already running.");
+    prepared.signingTestStarted = true;
+    setBusy(true);
+    try {
+      status("Running final Devnet freshness and exact-byte checks before a sign-only Phantom compatibility test…","muted");
+      await finalPreSignFreshnessGate();
+      const finalTx = assertExactReviewedBytes(prepared.txs[0],prepared.reviewedBytes[0]);
+      const reviewedMessageBytes = Uint8Array.from(serializeTransactionMessage(finalTx));
+      if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
+        throw new Error("Phantom wallet changed before sign-only compatibility test.");
+      }
+      status("Phantom is opening a legacy transaction signature prompt. This test verifies the signature locally and will NOT submit or broadcast the transaction.","warning");
+      const signedTx = await provider.signTransaction(finalTx);
+      if (!(signedTx instanceof solanaWeb3.Transaction)) throw new Error("Phantom returned a non-legacy transaction type.");
+      const signedMessageBytes = Uint8Array.from(serializeTransactionMessage(signedTx));
+      assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
+      const signedWireBytes = Uint8Array.from(signedTx.serialize({requireAllSignatures:true,verifySignatures:true}));
+      if (signedWireBytes.length > 1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit.");
+      const walletSignatureEntry = signedTx.signatures.find(item=>item.publicKey.equals(wallet));
+      if (!walletSignatureEntry || !walletSignatureEntry.signature ||
+          b58decode(b58encode(walletSignatureEntry.signature)).length !== 64) {
+        throw new Error("Phantom wallet signature failed local verification.");
+      }
+      prepared.signingValidatedAt = Date.now();
+      status("PHANTOM LEGACY SIGNING VERIFIED. The signed message is byte-for-byte identical to the reviewed message and the wallet signature verifies locally. No transaction was submitted, broadcast or executed. Execution remains locked.","good");
+      return {legacy:true,exactMessage:true,signatureVerified:true,submitted:false,broadcast:false};
+    } finally {
+      if (prepared) prepared.signingTestStarted = false;
+      setBusy(false);
+    }
+  }
   async function execute() {
+    if (EXECUTION_RELEASE_ENABLED !== true) {
+      throw new Error("Execution is hard-disabled until the complete CI suite, Android legacy-signing test, exact-byte verification, fee/balance reconciliation and adversarial release gates pass.");
+    }
     if (busy) return;
     if (!provider || !wallet || typeof provider.signTransaction !== "function") {
       throw new Error("Connected Phantom provider does not support manual signTransaction approval.");
@@ -1765,7 +1811,7 @@
       detectWalletCapabilities,assertSignedMessageUnchanged,
       validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
-      parseSolAmountToLamports,
+      parseSolAmountToLamports,testLegacyPhantomSigning,
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,ALT_PROGRAM,U64_MAX}
     };
@@ -1794,6 +1840,10 @@
   });
   $("quote").addEventListener("click", async () => {
     setBusy(true); try { await prepareQuote(); } catch(e) { prepared=null; $("execute").disabled=true; status(e.message || String(e),"warning"); } finally { setBusy(false); }
+  });
+  $("signTest").addEventListener("click", async () => {
+    try { await testLegacyPhantomSigning(); }
+    catch(e) { status("PHANTOM SIGN-ONLY TEST FAILED. No transaction was submitted or broadcast. "+(e.message || String(e)),"warning"); }
   });
   $("execute").addEventListener("click", async () => {
     try { await execute(); } catch(e) { status(e.message || String(e),"warning"); }
