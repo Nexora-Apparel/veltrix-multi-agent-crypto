@@ -1263,7 +1263,6 @@
     if (!wallet) throw new Error("Connect Phantom first.");
     prepared = null; $("review").classList.add("hidden"); setBusy(true);
     const lamports = parseSolAmountToLamports($("amount").value);
-    const quoteCapturedAtMs = Date.now();
     const quoteTtlMs = 15000;
     // Fund the requested input plus a bounded rent/fee cushion before the SDK
     // creates a blockhash. Any faucet activity therefore precedes transaction
@@ -1285,6 +1284,7 @@
       }
     });
     const pool = await raydium.cpmm.getPoolInfoFromRpc(POOL);
+    const quoteCapturedAtMs = Date.now();
     const {poolInfo,poolKeys,rpcData}=pool;
     if (poolInfo.id !== POOL || poolInfo.programId !== CPMM) throw new Error("Live RPC pool identity/program mismatch.");
     const mintA=poolInfo.mintA.address, mintB=poolInfo.mintB.address;
