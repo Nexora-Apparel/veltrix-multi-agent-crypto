@@ -888,13 +888,25 @@ class FinalizedTransactionSession:
         self.result = result
         self.genesis = genesis
         self.calls = []
+        self.wire_result = None
+        if isinstance(result, dict):
+            signature = result["transaction"]["signatures"][0]
+            payer = Pubkey.new_unique()
+            message = Message.new_with_blockhash([], payer, Hash.default())
+            wire_bytes = bytes([1]) + bytes(Signature.from_string(signature)) + to_bytes_versioned(message)
+            self.wire_result = {
+                "slot": result["slot"],
+                "transaction": [base64.b64encode(wire_bytes).decode("ascii"), "base64"],
+                "meta": {"err": None},
+            }
 
     def post(self, endpoint, *, json, headers, timeout, allow_redirects):
         self.calls.append(json)
         if json["method"] == "getGenesisHash":
             result = self.genesis
         elif json["method"] == "getTransaction":
-            result = self.result
+            encoding = json["params"][1]["encoding"]
+            result = self.result if encoding == "json" else self.wire_result
         else:
             raise AssertionError(json["method"])
         return FakeResponse({"jsonrpc": "2.0", "id": json["id"], "result": result})
@@ -954,12 +966,14 @@ def test_fetches_finalized_transaction_and_resolves_token_cpi_program_ids():
     assert evidence.inner_instructions_present is True
     assert len(evidence.pre_token_balances_json) > 0
     assert evidence.logs[-1] == "Program log: success"
-    request = next(call for call in session.calls if call["method"] == "getTransaction")
-    assert request["params"][1] == {
+    requests = [call for call in session.calls if call["method"] == "getTransaction"]
+    assert [request["params"][1]["encoding"] for request in requests] == ["json", "base64"]
+    assert requests[0]["params"][1] == {
         "encoding": "json",
         "commitment": "finalized",
         "maxSupportedTransactionVersion": 0,
     }
+    assert len(evidence.message_sha256) == 64
 
 
 @pytest.mark.parametrize(
