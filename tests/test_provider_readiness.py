@@ -142,7 +142,7 @@ def test_base_readiness_reports_live_uncx_deployment_verification_requirement():
     report = build_provider_readiness(settings())
     row = next(row for row in report.claims
                if row.chain == "base" and row.claim == "liquidity_lock")
-    assert any("live bytecode hash and constructor factory still require acceptance" in item
+    assert any("Base UNCX V2.1 candidate still requires live bytecode-hash and constructor-factory acceptance" in item
                for item in row.blockers)
 
 
