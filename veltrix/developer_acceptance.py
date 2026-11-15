@@ -78,7 +78,9 @@ def run_developer_acceptance(*, chain, token_address, settings,
         "root_provider_trusted": root.provider in trusted_roots,
         "holder_provider_trusted": holder.provider in trusted_holders,
         "funding_provider_trusted": funding.provider in trusted_funding,
-        "developer_claim_allowlist_configured": bool(settings.trusted_developer_providers),
+        "developer_claim_provider_trusted": (
+            "developer-graph-provider" in frozenset(settings.trusted_developer_providers)
+        ),
         "launch_origin_provider_trusted": origin_provider_trusted if chain in {"base", "bsc"} else True,
     }
     trust_ready = all(trust.values())
@@ -164,7 +166,7 @@ def main(argv=None):
             holder_providers=holders, funding_providers=funding,
             root_provider=roots, origin_resolvers=origins,
         )
-        exit_code = 0 if result["structural_pass"] else 1
+        exit_code = 0 if result["structural_pass"] and result["trust_ready"] else 1
     except Exception as exc:
         result = {
             "chain": args.chain,
@@ -181,6 +183,7 @@ def main(argv=None):
     )
     print(
         f"Developer evidence acceptance: {result['status']}; "
+        f"trust ready: {result.get('trust_ready', False)}; "
         f"capability certified: {result.get('capability_certified', False)}; "
         f"execution enabled: {result.get('live_execution_enabled', False)}"
     )
