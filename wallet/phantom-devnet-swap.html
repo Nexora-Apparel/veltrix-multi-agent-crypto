@@ -1591,7 +1591,6 @@
     const reserveIn=baseIn?rpcData.baseReserve:rpcData.quoteReserve;
     const reserveOut=baseIn?rpcData.quoteReserve:rpcData.baseReserve;
     const inputAmount=new BN(String(prepared.lamports));
-    const freshLiquidityMetrics=calculatePoolLiquidityUsd(inputAmount,reserveIn,reserveOut);
     const freshCreatorFeeOnInput=rpcData.feeOn===FeeOn.BothToken || rpcData.feeOn===FeeOn.OnlyTokenB;
     const freshResult=CurveCalculator.swapBaseInput(
       inputAmount,reserveIn,reserveOut,rpcData.configInfo.tradeFeeRate,
@@ -1610,13 +1609,10 @@
     const reviewedMinimum = BigInt(prepared.quote.otherAmountThreshold);
     const freshOutputRaw = BigInt(freshResult.outputAmount.toString());
     const pricing = await loadPricingEngine();
-    const freshVolatilityBps = await measurePoolVolatilityBps(raydium, baseIn);
     const freshness = await pricing.evaluateFreshQuote(prepared.quoteSnapshot, {
       quotedAtMs: freshQuoteAtMs, quoteTtlMs: prepared.quoteSnapshot.expiresAtMs - prepared.quoteSnapshot.quotedAtMs,
       quotedOutputRaw: freshOutputRaw.toString(), inputAmountRaw: prepared.quote.inputAmount,
-      inputMint: SOL, outputMint: USDC,
-      liquidityUsd: freshLiquidityMetrics.liquidityUsd, tradeUsd: freshLiquidityMetrics.tradeUsd,
-      volatilityBps: freshVolatilityBps, routeHops: 1
+      inputMint: SOL, outputMint: USDC
     }, Date.now());
     if (freshness.action !== "continue_exact_review") {
       return await refreshQuoteForReview("Quote protection requires a new review: " + freshness.reason);
