@@ -60,6 +60,15 @@ function rejected(fn, label) {
   assert.throws(fn,/Transaction intent rejected:/,label);
 }
 
+// Phantom KMS compatibility: require signTransaction and legacy messages only.
+assert.equal(h.detectWalletCapabilities({signTransaction(){}}).legacy,true);
+assert.equal(h.detectWalletCapabilities({signTransaction(){},supportedTransactionVersions:new Set(["legacy"])}).legacy,true);
+assert.equal(h.detectWalletCapabilities({signTransaction(){},supportedTransactionVersions:new Set([0])}).legacy,false);
+assert.equal(h.detectWalletCapabilities({signAndSendTransaction(){}}).legacy,false);
+const reviewedMessage=Uint8Array.from([1,2,3,4]);
+assert.equal(h.assertSignedMessageUnchanged(reviewedMessage,Uint8Array.from([1,2,3,4])),true);
+rejected(()=>h.assertSignedMessageUnchanged(reviewedMessage,Uint8Array.from([1,2,3,4,5])),"Phantom-injected compute-budget/message mutation");
+
 // Exact amount and slippage parser boundaries.
 assert.equal(h.parseSolAmountToLamports("0.000000001"),1n);
 assert.equal(h.parseSolAmountToLamports("5"),5000000000n);
