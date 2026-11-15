@@ -44,7 +44,7 @@
     <div class="row"><span>Minimum output</span><span class="value" id="minimumValue">—</span></div>
     <div class="row"><span>Minimum output (raw units)</span><span class="value" id="minimumRawValue">—</span></div>
     <div class="row"><span>Automatic execution protection</span><span class="value" id="protectionValue">—</span></div>
-    <div class="row"><span>Quote expires</span><span class="value" id="quoteExpiryValue">—</span></div>
+    <div class="row"><span>Reference quote captured</span><span class="value" id="quoteExpiryValue">—</span></div>
     <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
     <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
     <div class="row"><span>Transaction format</span><strong class="value" id="transactionFormatValue">—</strong></div>
@@ -1495,7 +1495,7 @@
     $("minimumValue").textContent=fmtFixedRaw(minimumRaw,6)+" USDC";
     $("minimumRawValue").textContent=minimumRaw.toString()+" raw units";
     $("protectionValue").textContent=protectionBps+" bps (automatic)";
-    $("quoteExpiryValue").textContent=new Date(quoteSnapshot.expiresAtMs).toLocaleTimeString();
+    $("quoteExpiryValue").textContent=new Date(quoteSnapshot.quotedAtMs).toLocaleTimeString();
     $("dexFeeValue").textContent=fmtRaw(quoteSnapshot.fees.dex.amountRaw,9)+" SOL (trade fee; embedded)";
     $("creatorFeeValue").textContent=fmtRaw(quoteSnapshot.fees.creator.amountRaw,quoteSnapshot.fees.creator.currency==="SOL"?9:6)+" "+quoteSnapshot.fees.creator.currency+" (embedded)";
     $("routeFeeValue").textContent="0 USDC (direct single pool)";
