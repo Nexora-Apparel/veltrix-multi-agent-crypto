@@ -17,6 +17,16 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt
       - run: python -m compileall -q veltrix tests
+      - run: bash -n deployment/verify_phase09_isolation.sh deployment/phase09_host_preflight.sh
+      - name: Validate systemd unit templates
+        run: |
+          set -euo pipefail
+          temp_units="$(mktemp -d)"
+          trap 'rm -rf "$temp_units"' EXIT
+          python_bin="$(readlink -f "$(command -v python3)")"
+          sed "s|/opt/veltrix/venv/bin/python|$python_bin|g" deployment/systemd/veltrix-paper.service > "$temp_units/veltrix-paper.service"
+          sed "s|/opt/veltrix/venv/bin/python|$python_bin|g" deployment/systemd/veltrix-dashboard.service > "$temp_units/veltrix-dashboard.service"
+          systemd-analyze verify "$temp_units/veltrix-paper.service" "$temp_units/veltrix-dashboard.service"
       - run: pytest -q
       - name: Live Solana discovery provider smoke
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/phase-3-solana-discovery')

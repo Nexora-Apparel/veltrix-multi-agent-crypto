@@ -96,3 +96,29 @@ Implemented in `veltrix/execution_policy.py` with regression coverage in `tests/
 - LIVE policy objects exist only to test authorization binding semantics. Runtime environment construction can only produce PAPER, and no signer or transaction submission code is present.
 
 This is an implementation milestone, not a release approval. The SQLite consumer has restart, concurrent-consumption, malformed-input, and authorization-integration tests. CI on the final PR head and code review are still required.
+
+
+## Stage 09.2 — host isolation controls
+
+The repository defines separate paper/dashboard operating-system identities,
+read-only wallet-observation domain types, hardened systemd unit templates,
+read-only host preflight, and a root-only verifier for effective UIDs/GIDs,
+supplementary groups, systemd sandbox properties, mount namespaces, SQLite
+permissions, WAL/SHM sidecars and cross-service credential isolation.
+
+The paper service's state directory and database use DAC permissions that grant
+write access to the paper owner and read-only access to the shared database
+group (`UMask=0027`, `StateDirectoryMode=2750`, database/WAL/SHM mode `0640`).
+The dashboard must pass DAC checks independently of its read-only mount
+namespace. Dashboard authentication requires a 32-character bearer token on
+every bind address, including loopback.
+
+These source controls and CI tests do not prove a real host has been provisioned.
+Phase 09.2 remains blocked on actual Linux/systemd host evidence and independent
+provider-egress firewall verification. The wallet observer and signer remain
+unimplemented; live execution remains disabled.
+
+
+The Phase 09.2 host verifier also rejects symlinked database directories,
+database files, environment files and SQLite WAL/SHM sidecars, and checks the
+paper owner's DAC write access independently of the dashboard's mount namespace.
