@@ -7,6 +7,7 @@ import struct
 
 import pytest
 from solders.pubkey import Pubkey
+from solders.signature import Signature
 
 from veltrix.dex_pool_evidence import DexPoolEvidenceSnapshot
 from veltrix.raydium_clmm_pool_state import RaydiumClmmPoolRouteCheck, RaydiumClmmPoolState
@@ -361,7 +362,7 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
             "logMessages": ["Program log: swap complete"],
         },
     }
-    signature = str(Pubkey.new_unique())  # canonical base58 identifier for evidence fixture
+    signature = str(Signature.new_unique())
     return ConfirmedTransactionEvidence(
         signature=signature,
         slot=800,
