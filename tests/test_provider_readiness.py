@@ -10,6 +10,12 @@ def settings(**overrides):
         trusted_launch_origin_providers=(), goplus_access_token="",
         helius_api_key="", etherscan_api_key="", base_rpc_url="", bsc_rpc_url="",
         alchemy_quote_tokens_base=(), alchemy_quote_tokens_bsc=(),
+        trusted_developer_root_providers=(), trusted_holder_inventory_providers=(),
+        trusted_developer_funding_providers=(), developer_root_attestation_url="",
+        developer_root_attestation_public_key="",
+        developer_root_attestation_provider_id="signed-developer-roots",
+        liquidity_evidence_capability_certified=False,
+        developer_evidence_capability_certified=False,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -90,7 +96,7 @@ def test_liquidity_readiness_names_missing_chain_specific_snapshot_readers():
     assert all(any("RPC endpoints" in item and "separate" in item
                    for item in row.blockers) for row in rows.values())
     assert any("runtime hash" in item for item in rows["base"].blockers)
-    assert any("UNCX V4 TokenLock and Raydium Burn & Earn CPMM program hashes" in item
+    assert any("UNCX V4 TokenLock and Raydium Burn & Earn CPMM lock PDAs" in item
                for item in rows["solana"].blockers)
 
 
@@ -107,7 +113,7 @@ def test_configured_liquidity_reader_still_requires_live_acceptance_and_explicit
                if row.chain == "base" and row.claim == "liquidity_lock")
     assert row.configured and row.trusted
     assert not row.capability_complete
-    assert any("live read-only acceptance" in item for item in row.blockers)
+    assert any("LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED is false" in item for item in row.blockers)
 
 
 def test_solana_liquidity_reader_requires_pinned_raydium_executable_hash():
@@ -128,7 +134,7 @@ def test_solana_readiness_exposes_missing_cpmm_locker_adapter():
     report = build_provider_readiness(settings())
     row = next(row for row in report.claims
                if row.chain == "solana" and row.claim == "liquidity_lock")
-    assert any("Raydium Burn & Earn CPMM lock-state PDA, fee-NFT authority and LP-vault reconciliation must pass live acceptance" in item
+    assert any("LIQUIDITY_EVIDENCE_CAPABILITY_CERTIFIED is false" in item
                for item in row.blockers)
 
 
@@ -146,3 +152,39 @@ def test_evm_liquidity_readiness_does_not_report_solana_program_blockers():
     for chain in ("base", "bsc"):
         assert not any("Solana support is scoped" in item or "UNCX CPMM locker" in item
                        for item in rows[chain].blockers)
+
+
+
+def test_liquidity_capability_attestation_requires_configured_and_trusted_reader():
+    report = build_provider_readiness(settings(
+        base_liquidity_pool_rpc_url="https://base-pool.example",
+        base_liquidity_locker_rpc_url="https://base-locker.example",
+        base_liquidity_factories_json='[{"amm_id":"uniswap-v2"}]',
+        base_liquidity_lockers_json='[{"amm_id":"uniswap-v2"}]',
+        base_liquidity_registry_complete=True,
+        trusted_liquidity_providers=("base-finalized-all-factory-liquidity",),
+        liquidity_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "base" and row.claim == "liquidity_lock")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
+
+
+def test_developer_capability_attestation_requires_all_chain_providers_and_trust():
+    report = build_provider_readiness(settings(
+        solana_rpc_url="https://solana.example",
+        helius_api_key="configured",
+        developer_root_attestation_url="https://roots.example",
+        developer_root_attestation_public_key="public-key",
+        developer_root_attestation_provider_id="signed-developer-roots",
+        trusted_developer_root_providers=("signed-developer-roots",),
+        trusted_holder_inventory_providers=("solana-rpc-holder-inventory",),
+        trusted_developer_funding_providers=("helius-solana-funding-graph",),
+        trusted_developer_providers=("developer-graph-provider",),
+        developer_evidence_capability_certified=True,
+    ))
+    row = next(row for row in report.claims
+               if row.chain == "solana" and row.claim == "developer_holdings")
+    assert row.configured and row.trusted and row.capability_complete
+    assert row.eligible_to_attempt
