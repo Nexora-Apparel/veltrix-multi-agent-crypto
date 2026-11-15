@@ -206,8 +206,13 @@ class SolanaRiskEvidenceWorker:
             if cursor.rowcount != 1:
                 raise LeaseBusy("risk evidence completion lost its row claim")
 
-    def _fail(self, mint: str, error: Exception, now: int,
-              context: RunContext | None = None) -> None:
+    def _fail(
+        self,
+        mint: str,
+        error: Exception,
+        now: int,
+        context: RunContext | None = None,
+    ) -> None:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if context is not None:
@@ -231,16 +236,10 @@ class SolanaRiskEvidenceWorker:
                 WHERE mint = ? AND status = 'processing'
                   AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
             """, (
-                WHERE mint = ? AND status = 'processing'
-                  AND (? IS NULL OR (claimed_by_owner_id=? AND claim_fencing_token=?))
-            """, (
                 failures, now + delay, f"{type(error).__name__}", now, mint,
                 context.owner_id if context else None,
                 context.owner_id if context else None,
                 context.fencing_token if context else None,
-            ))
-            if cursor.rowcount != 1:
-                raise LeaseBusy("risk evidence failure update lost its row claim")
             ))
             if cursor.rowcount != 1:
                 raise LeaseBusy("risk evidence failure update lost its row claim")
