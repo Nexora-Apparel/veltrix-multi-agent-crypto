@@ -1648,11 +1648,17 @@
       if(signedWireBytes.length>1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit; nothing was broadcast.");
       status("Phantom signed the exact reviewed transaction. Broadcasting those unchanged signed bytes to Devnet…","warning");
       submissionAttempted=true;
+      const walletSignatureEntry=signedTx.signatures.find(item=>item.publicKey.equals(wallet));
+      if(!walletSignatureEntry || !walletSignatureEntry.signature) {
+        throw new Error("Signed transaction is missing the connected wallet signature; nothing was broadcast.");
+      }
+      const locallySignedSignature=b58encode(walletSignatureEntry.signature);
       signature=await connection.sendRawTransaction(signedWireBytes,{
         skipPreflight:false,preflightCommitment:"confirmed",maxRetries:3
       });
-      if (typeof signature !== "string" || b58decode(signature).length !== 64) {
-        throw new Error("Phantom returned an invalid transaction signature. Check wallet activity before retrying.");
+      if (typeof signature !== "string" || b58decode(signature).length !== 64 ||
+          signature !== locallySignedSignature) {
+        throw new Error("RPC submission signature does not match the exact locally signed transaction. Check wallet activity before retrying.");
       }
       status("Phantom approved and submitted the Devnet transaction. Waiting for confirmation… Signature: " + signature,"warning");
       const confirmation = await connection.confirmTransaction(signature,"confirmed");
