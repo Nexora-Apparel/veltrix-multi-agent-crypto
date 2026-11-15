@@ -155,8 +155,7 @@ function positionMark(market, entryPrice, nowMs, maxMarketAgeMs) {
   return { price, status: "FRESH", age, flags: [] };
 }
 
-async function health(client) {
-  const tables = await tableNames(client);
+async function health(client, tables) {
   return {
     ok: true,
     database: "connected",
@@ -465,7 +464,7 @@ export async function handleDashboardRequest(request, env, injectedClient = null
     switch (path) {
       case "/api/health":
         payload = {
-          ...(await health(client)),
+          ...(await health(client, tables)),
           database_read_only: true,
           live_execution: false,
         };
