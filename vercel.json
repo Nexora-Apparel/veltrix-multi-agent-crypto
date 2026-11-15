@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "wallet/phantom-devnet-swap.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "wallet/automatic-exchange-pricing.mjs",
+      "use": "@vercel/static"
+    }
+  ]
+}
