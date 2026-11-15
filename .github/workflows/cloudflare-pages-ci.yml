@@ -35,6 +35,8 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run dashboard API security tests
         run: npm test
+      - name: Build the Pages static bundle
+        run: npm run build:pages
       - name: Smoke-test Pages static assets and unauthenticated API boundary
         env:
           TURSO_DATABASE_URL: libsql://veltrix-ci.aws-eu-central-1.turso.io
@@ -43,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler pages dev veltrix/dashboard_assets --ip 127.0.0.1 --port 8788 > /tmp/veltrix-pages.log 2>&1 &
+          npx wrangler pages dev dist --ip 127.0.0.1 --port 8788 > /tmp/veltrix-pages.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 30); do
