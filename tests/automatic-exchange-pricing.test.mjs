@@ -77,6 +77,13 @@ assert.throws(() => calculateFeeBreakdown({
 }), /verified transaction instruction/);
 
 const snapshot = await createQuoteSnapshot(base, 1_002_000);
+const sealedWithExistingProtection = await createQuoteSnapshot({
+  ...base, quotedAtMs: 1_010_000, protectionBps: snapshot.protectionBps
+}, 1_010_000);
+assert.equal(sealedWithExistingProtection.protectionBps, snapshot.protectionBps,
+  "sealing the review package must preserve the protection already applied to the transaction");
+assert.equal(sealedWithExistingProtection.expiresAtMs, 1_018_000,
+  "quote expiry begins when the completed review package is sealed");
 const sameSnapshot = await createQuoteSnapshot(base, 1_002_000);
 assert.equal(snapshot.snapshotSha256, sameSnapshot.snapshotSha256, "canonical quote snapshots must hash deterministically");
 assert.equal(snapshot.minimumOutputRaw, calculateMinimumOutput(snapshot.quotedOutputRaw, snapshot.protectionBps));
