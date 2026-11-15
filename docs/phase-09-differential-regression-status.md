@@ -84,8 +84,8 @@ This is deterministic software differential evidence, not exhaustive swap-loop p
 - The expected signed vault deltas are now independently bound to the original simulation's raw pre/post account-state bytes for both pool vaults. Each simulated account must be the classic SPL Token account with matching mint, pool authority, initialized state, and verified SHA-256 commitments; caller-supplied expected deltas that do not equal those simulated byte-level changes are rejected. The simulation must capture all non-program message accounts so the pool vaults are present in `SimulationEvidence.account_states`.
 - This closes a critical evidence-pairing gap: an unrelated finalized transaction can no longer be combined with an otherwise valid simulation record merely because it touched the same pool and produced matching vault deltas.
 - The inspector has no signing, wallet, transaction-submission, or broadcast path. Its result remains `execution_ready=False`.
-- [Python CI run #43689173575](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43689173575): **1,530 passed, 5 skipped**; compilation passed. The five skipped checks are live-provider smoke tests and are not counted as on-chain validation.
-- [Pinned Rust differential run #43689173636](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43689173636): **19 passed, 0 failed** against the pinned upstream Raydium source.
+- [Python CI run #43689429196](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43689429196): **1,531 passed, 5 skipped**; compilation passed. The five skipped checks are live-provider smoke tests and are not counted as on-chain validation.
+- [Pinned Rust differential run #43689429188](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43689429188): **19 passed, 0 failed** against the pinned upstream Raydium source.
 - CI confirms software regression behavior only. A real finalized Devnet signature and matching original simulation/pool evidence are still required before any live-chain settlement claim.
 
 ## Safety state
