@@ -49,6 +49,58 @@ vm.runInNewContext(script,context);
 const hooks=window.__VELTRIX_TEST_HOOKS__;
 assert.ok(hooks,"browser verifier test hooks unavailable");
 hooks.setWalletForTest(new PublicKey(artifact.wallet));
+
+// Lookup resolution is account-set driven: multiple unrelated tables are accepted,
+// and the verifier resolves each selected writable/readonly index independently.
+const maxU64=(1n<<64n)-1n;
+const altAddresses=[
+  [11,12,13,14].map(n=>new PublicKey(Uint8Array.from({length:32},()=>n))),
+  [21,22,23,24].map(n=>new PublicKey(Uint8Array.from({length:32},()=>n)))
+];
+const selectionA=hooks.validateLookupSelection({writableIndexes:[1],readonlyIndexes:[0]},{
+  deactivationSlot:maxU64,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+},100);
+const selectionB=hooks.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[3]},{
+  deactivationSlot:maxU64,lastExtendedSlot:91n,lastExtendedSlotStartIndex:0,addresses:altAddresses[1]
+},100);
+assert.equal(selectionA.writable[0].toBase58(),altAddresses[0][1].toBase58());
+assert.equal(selectionA.readonly[0].toBase58(),altAddresses[0][0].toBase58());
+assert.equal(selectionB.writable[0].toBase58(),altAddresses[1][2].toBase58());
+assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[4],readonlyIndexes:[]},{
+  deactivationSlot:maxU64,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+},100),/ALT index out of range/);
+assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[1],readonlyIndexes:[]},{
+  deactivationSlot:99n,lastExtendedSlot:90n,lastExtendedSlotStartIndex:0,addresses:altAddresses[0]
+},100),/deactivated/);
+assert.throws(()=>hooks.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},{
+  deactivationSlot:maxU64,lastExtendedSlot:100n,lastExtendedSlotStartIndex:2,addresses:altAddresses[0]
+},100),/extended in the current slot/);
+
+// Confirmed v0 account keys include RPC-loaded writable then readonly addresses.
+// Semantic comparison follows resolved identities, not compiler-assigned indexes.
+const resolvedV0=hooks.normalizeConfirmedMessage({
+  header:{numRequiredSignatures:1,numReadonlySignedAccounts:0,numReadonlyUnsignedAccounts:1},
+  staticAccountKeys:[new PublicKey(artifact.wallet)],
+  addressTableLookups:[{accountKey:new PublicKey(Uint8Array.from({length:32},()=>31)),writableIndexes:[0],readonlyIndexes:[0]}],
+  recentBlockhash:new PublicKey(Uint8Array.from({length:32},()=>32)).toBase58(),
+  compiledInstructions:[{programIdIndex:1,accountKeyIndexes:[2],data:Uint8Array.from([7,8,9])}]
+},{loadedAddresses:{writable:[altAddresses[0][1]],readonly:[altAddresses[0][0]]}});
+assert.equal(resolvedV0.resolvedAccountKeys.length,3);
+assert.equal(resolvedV0.resolvedAccountKeys[1],altAddresses[0][1].toBase58());
+assert.equal(resolvedV0.resolvedAccountKeys[2],altAddresses[0][0].toBase58());
+const expectedResolved={
+  header:resolvedV0.header,staticAccountKeys:[artifact.wallet],
+  resolvedAccountKeys:[artifact.wallet,altAddresses[0][0].toBase58(),altAddresses[0][1].toBase58()],
+  recentBlockhash:resolvedV0.recentBlockhash,
+  compiledInstructions:[{programIdIndex:2,accountKeyIndexes:[1],data:Uint8Array.from([7,8,9])}]
+};
+const actualResolved={
+  ...resolvedV0,
+  resolvedAccountKeys:[artifact.wallet,altAddresses[0][0].toBase58(),altAddresses[0][1].toBase58()],
+  compiledInstructions:[{programIdIndex:2,accountKeyIndexes:[1],data:Uint8Array.from([7,8,9])}]
+};
+assert.equal(hooks.compareLegacyMessageSemantics(expectedResolved,actualResolved).length,0,
+  "v0 account-table reordering must preserve resolved instruction semantics");
 const normalized=hooks.normalizedTransactionMessage(tx);
 const directPolicy=hooks.decodeDirectCpmmPolicy(normalized,normalized.staticAccountKeys,{
   otherAmountThreshold:artifact.minimum_output_raw
