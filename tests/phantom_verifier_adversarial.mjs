@@ -102,10 +102,11 @@ rejected(()=>h.validateLookupSelection({writableIndexes:[2],readonlyIndexes:[]},
 }
 {
   const expectedFixture=makeMessage(),actualFixture=makeMessage();
-  const expected={...expectedFixture.message,resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
+  const expected={...expectedFixture.message,
+    compiledInstructions:expectedFixture.message.compiledInstructions.filter(item=>item.programIdIndex!==15),
+    resolvedAccountKeys:expectedFixture.resolved.map(k=>k.toBase58())};
   const actual={...actualFixture.message,resolvedAccountKeys:actualFixture.resolved.map(k=>k.toBase58())};
-  actual.compiledInstructions.push(ix(15,[],Uint8Array.from([2,0x40,0x0d,0x03,0])));
-  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0,"Phantom-added compute limit must be accepted");
+  assert.equal(h.compareLegacyMessageSemantics(expected,actual).length,0,"Phantom-added compute limit and priority price must be accepted");
 
 }
 
