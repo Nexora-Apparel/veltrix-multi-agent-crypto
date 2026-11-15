@@ -47,6 +47,7 @@ def test_acceptance_cli_fails_closed_when_reader_acceptance_is_blocked(monkeypat
 def test_acceptance_requires_live_lock_positions_for_every_configured_locker():
     from types import SimpleNamespace
     batch = SimpleNamespace(
+        chain="solana",
         deployments=(
             SimpleNamespace(address="uncx-locker"),
             SimpleNamespace(address="raydium-burn-earn"),
@@ -61,6 +62,7 @@ def test_acceptance_requires_live_lock_positions_for_every_configured_locker():
 def test_acceptance_rejects_a_token_without_any_live_lock_position():
     from types import SimpleNamespace
     batch = SimpleNamespace(
+        chain="solana",
         deployments=(SimpleNamespace(address="uncx-locker"),),
         positions=(),
     )
