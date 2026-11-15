@@ -135,6 +135,9 @@ def test_solana_graph_ignores_transfer_fee_rows_when_resolving_first_funder():
     def handler(method, params):
         if method == "getSlot":
             return 100
+        address, _query = params
+        if address != wallet:
+            return {"data": [], "paginationToken": None}
         fee = transfer("fee-only", 5, "fee-collector", wallet, "mint")
         fee["type"] = "transferFee"
         actual = transfer("real-transfer", 10, "actual-funder", wallet, "mint")
