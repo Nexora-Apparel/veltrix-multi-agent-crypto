@@ -550,15 +550,21 @@
       if(tx.signatures.length!==1||tx.signatures.some(x=>x.signature!==null)) fail("legacy transaction must have one empty wallet signature slot");
     } else if(tx.signatures.length!==1||tx.signatures.some(x=>x.some(b=>b!==0))) fail("versioned transaction must have one empty wallet signature slot");
   }
-  function replaceDirectCpmmData(tx,data) {
+  function findDirectCpmmInstructionIndex(tx,resolvedKeys) {
     if(tx instanceof solanaWeb3.Transaction) {
-      const i=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
-      if(i<0) fail("legacy transaction has no direct CPMM instruction");
-      tx.instructions[i].data=Uint8Array.from(data); return;
+      return tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
     }
-    const m=tx.message,i=m.compiledInstructions.findIndex(ix=>m.staticAccountKeys[ix.programIdIndex]?.toBase58()===CPMM);
-    if(i<0) fail("versioned transaction has no direct CPMM instruction");
-    m.compiledInstructions[i].data=Uint8Array.from(data);
+    if(!(tx instanceof solanaWeb3.VersionedTransaction)||tx.message.version!==0) {
+      fail("unsupported transaction class while locating direct CPMM instruction");
+    }
+    const keys=resolvedKeys||tx.message.staticAccountKeys;
+    return tx.message.compiledInstructions.findIndex(ix=>keys[ix.programIdIndex]?.toBase58()===CPMM);
+  }
+  function replaceDirectCpmmData(tx,data,resolvedKeys) {
+    const i=findDirectCpmmInstructionIndex(tx,resolvedKeys);
+    if(i<0) fail("transaction has no direct CPMM instruction");
+    if(tx instanceof solanaWeb3.Transaction) tx.instructions[i].data=Uint8Array.from(data);
+    else tx.message.compiledInstructions[i].data=Uint8Array.from(data);
   }
   function serializeTransactionMessage(tx) {
     return tx instanceof solanaWeb3.Transaction?tx.compileMessage().serialize():tx.message.serialize();
@@ -1242,7 +1248,9 @@
     if(message.header.numRequiredSignatures!==1||!message.staticAccountKeys[0].equals(wallet)) {
       fail("SDK transaction fee payer or signer policy mismatch");
     }
-    const cpmmIndex=tx.instructions.findIndex(ix=>ix.programId.toBase58()===CPMM);
+    const buildResolvedKeys=tx instanceof solanaWeb3.VersionedTransaction
+      ? (await resolveV0Accounts(tx.message)).resolved : message.staticAccountKeys;
+    const cpmmIndex=findDirectCpmmInstructionIndex(tx,buildResolvedKeys);
     if(cpmmIndex<0) fail("SDK-built transaction does not contain a direct CPMM instruction");
     const cpmmData=new Uint8Array(tx.instructions[cpmmIndex].data);
     if(cpmmData.length!==24 || [...cpmmData.slice(0,8)].map(x=>x.toString(16).padStart(2,"0")).join("")!==CPMM_SWAP_DISC ||
@@ -1258,7 +1266,8 @@
       fail("computed 1% minimum output is invalid for the final quote");
     }
     for(let i=0;i<8;i++) cpmmData[16+i]=Number((minimumRawCanonical>>BigInt(i*8))&255n);
-    tx.instructions[cpmmIndex].data=Uint8Array.from(cpmmData);
+    if(tx instanceof solanaWeb3.Transaction) tx.instructions[cpmmIndex].data=Uint8Array.from(cpmmData);
+    else tx.message.compiledInstructions[cpmmIndex].data=Uint8Array.from(cpmmData);
     q.otherAmountThreshold=minimumRawCanonical.toString();
     const reviewedBytes=snapshotUnsignedTransaction(tx);
     const semanticAudit=await inspectDirectCpmmTransaction(tx,q,reviewedBytes);
