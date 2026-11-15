@@ -44,9 +44,6 @@ def main() -> None:
         database_path=url,
         settings_obj=settings(),
         paper_enabled=False,
-        max_runtime_seconds=180.0,
-        lease_ttl_ms=240_000,
-        max_items=150,
     )
     result = pipeline.run_once(idempotency_key=idempotency_key)
     payload = {
