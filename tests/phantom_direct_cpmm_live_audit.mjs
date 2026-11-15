@@ -18,6 +18,11 @@ assert.equal(artifact.transaction_count,1);
 assert.equal(artifact.signed,false);
 assert.equal(artifact.submitted,false);
 assert.equal(artifact.broadcast,false);
+assert.ok(Number.isFinite(Number(artifact.price_impact_pct)));
+if(process.env.EXPECT_IMPACT_ABOVE_2==="true") {
+  assert.ok(Number(artifact.price_impact_pct)>2,
+    "CI fixture must exercise a quote whose informational price impact exceeds the former 2% cutoff");
+}
 
 const bytes=Uint8Array.from(Buffer.from(artifact.unsigned_transaction_base64,"base64"));
 const tx=Transaction.from(bytes);
