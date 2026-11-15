@@ -138,3 +138,48 @@ test("API responses never include database credentials", async () => {
   assert.equal(body.includes("test-read-only-token"), false);
   assert.equal(body.includes("veltrix-test.aws-eu-central-1.turso.io"), false);
 });
+
+test("markets endpoint preserves the existing dashboard field contract", async () => {
+  const client = {
+    async execute(statement) {
+      if (statement.sql.includes("sqlite_master")) {
+        return {
+          columns: ["name"],
+          rows: [{ name: "solana_market_snapshots" }],
+        };
+      }
+      if (statement.sql.includes("SELECT m.* FROM solana_market_snapshots")) {
+        return {
+          columns: [
+            "id", "mint", "symbol", "price_usd", "liquidity_usd",
+            "volume_h1_usd", "retrieved_at_ms", "quality_flags_json",
+          ],
+          rows: [{
+            id: 7,
+            mint: "So11111111111111111111111111111111111111112",
+            symbol: "SOL",
+            price_usd: "145.5",
+            liquidity_usd: "25000",
+            volume_h1_usd: "8500",
+            retrieved_at_ms: 1760000000000,
+            quality_flags_json: "[]",
+          }],
+        };
+      }
+      throw new Error("unexpected SQL in market response contract test");
+    },
+  };
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/markets", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }),
+    env(),
+    client,
+  );
+  assert.equal(response.status, 200);
+  const [market] = await response.json();
+  assert.equal(market.selected_pool_liquidity_usd, 25000);
+  assert.equal(market.selected_pool_volume_h1_usd, 8500);
+  assert.deepEqual(market.quality_flags, []);
+  assert.ok(market.retrieved_at);
+});
