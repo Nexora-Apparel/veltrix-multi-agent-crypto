@@ -1421,7 +1421,10 @@
       throw new Error("Connected Phantom provider does not support user-approved transaction submission.");
     }
     walletCapabilities=detectWalletCapabilities(provider);
-    if(!walletCapabilities.legacy) throw new Error("Connected Phantom provider does not support the required legacy transaction format; signing is blocked.");
+    const preparedIsV0=prepared?.txs?.[0] instanceof solanaWeb3.VersionedTransaction;
+    if(preparedIsV0?!walletCapabilities.v0:!walletCapabilities.legacy) {
+      throw new Error("Connected Phantom provider does not advertise support for the prepared transaction version.");
+    }
     if (!prepared || prepared.executionStarted) throw new Error("No unused audited transaction is available. Build a fresh quote.");
     prepared.executionStarted = true;
     setBusy(true);
@@ -1527,7 +1530,7 @@
   }
   if (window.__VELTRIX_TEST__ === true) {
     window.__VELTRIX_TEST_HOOKS__ = {
-      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,normalizeConfirmedLegacyMessage,normalizeReviewedLegacyMessageBytes,compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
+      b58decode,b58encode,readU64,effectivePrivileges,validateLookupSelection,resolveV0Accounts,normalizeConfirmedMessage,normalizeReviewedMessageBytes,compareLegacyMessageSemantics,decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,normalizedTransactionMessage,normalizeConfirmedLegacyMessage,normalizeReviewedLegacyMessageBytes,compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       constants:{WALLET:"FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U",ROUTER,CPMM,TOKEN,TOKEN_2022,
         ATA_PROGRAM,SYSTEM,COMPUTE_BUDGET,SOL,USDC,POOL,ALT_ADDRESS,TEST_LAMPORTS}
