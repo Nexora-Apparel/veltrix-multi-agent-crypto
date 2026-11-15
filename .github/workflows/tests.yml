@@ -18,6 +18,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m compileall -q veltrix tests
       - run: bash -n deployment/verify_phase09_isolation.sh deployment/phase09_host_preflight.sh
+      - run: systemd-analyze verify deployment/systemd/veltrix-paper.service deployment/systemd/veltrix-dashboard.service
       - run: pytest -q
       - name: Live Solana discovery provider smoke
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/phase-3-solana-discovery')
