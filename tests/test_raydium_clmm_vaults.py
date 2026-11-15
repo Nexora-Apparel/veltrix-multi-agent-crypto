@@ -2,6 +2,7 @@
 import base64
 import dataclasses
 import hashlib
+import json
 import struct
 
 import pytest
@@ -16,9 +17,11 @@ from veltrix.raydium_clmm_vaults import (
     encode_raydium_clmm_vault_token_account,
     apply_raydium_clmm_vault_balance_delta,
     fetch_raydium_clmm_vault_snapshot,
+    ExpectedRaydiumVaultDelta,
+    verify_finalized_raydium_clmm_vault_settlement,
 )
 from veltrix.simulation_gate import SimulationEvidence
-from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
+from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter, ConfirmedTransactionEvidence
 
 
 class FakeResponse:
@@ -313,4 +316,128 @@ def test_vault_serializer_rejects_stale_hash_and_noncanonical_vault_pda():
     with pytest.raises(RaydiumClmmVaultError, match="canonical"):
         encode_raydium_clmm_vault_token_account(
             dataclasses.replace(vault, address=str(Pubkey.new_unique()))
+        )
+
+
+
+def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_cpis=True):
+    _, _, _, adapter, _, vault_a, vault_b, pool_address, mint_a, mint_b = values
+    raydium_program = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+    token_program = CLASSIC_SPL_TOKEN_PROGRAM_ID
+    user = str(Pubkey.new_unique())
+    keys = [raydium_program, vault_a, vault_b, token_program, user]
+    inner = []
+    if include_cpis:
+        # SPL Token Transfer: opcode 3 followed by a little-endian u64 amount.
+        data_a = base58_encode(bytes([3]) + amount_a.to_bytes(8, "little"))
+        data_b = base58_encode(bytes([3]) + amount_b.to_bytes(8, "little"))
+        inner = [
+            {"programIdIndex": 3, "accounts": [4, 1, 4], "data": data_a},
+            {"programIdIndex": 3, "accounts": [2, 4, 4], "data": data_b},
+        ]
+    records_pre = [
+        {"accountIndex": 1, "mint": mint_a, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": "1000"}},
+        {"accountIndex": 2, "mint": mint_b, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": "1000"}},
+    ]
+    records_post = [
+        {"accountIndex": 1, "mint": mint_a, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": str(1000 + amount_a)}},
+        {"accountIndex": 2, "mint": mint_b, "owner": pool_address, "programId": token_program,
+         "uiTokenAmount": {"amount": str(1000 - amount_b)}},
+    ]
+    raw = {
+        "slot": 800,
+        "transaction": {"signatures": [str(Pubkey.new_unique())], "message": {
+            "accountKeys": keys,
+            "instructions": [{"programIdIndex": 0, "accounts": [1, 2], "data": "1"}],
+        }},
+        "meta": {
+            "err": None,
+            "innerInstructions": [{"index": 0, "instructions": inner}],
+            "preTokenBalances": records_pre,
+            "postTokenBalances": records_post,
+            "logMessages": ["Program log: swap complete"],
+        },
+    }
+    signature = str(Pubkey.new_unique())  # canonical base58 identifier for evidence fixture
+    return ConfirmedTransactionEvidence(
+        signature=signature,
+        slot=800,
+        provider_id="rpc-primary",
+        cluster="mainnet-beta",
+        genesis_hash="genesis",
+        account_keys=tuple(keys),
+        top_level_program_ids=(raydium_program,),
+        inner_program_ids=(token_program,) if include_cpis else (),
+        inner_instructions_present=True,
+        pre_token_balances_json=json.dumps(records_pre),
+        post_token_balances_json=json.dumps(records_post),
+        logs=("Program log: swap complete",),
+        raw_result_json=json.dumps(raw),
+    )
+
+
+def base58_encode(raw):
+    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    zeros = len(raw) - len(raw.lstrip(b"\\x00"))
+    number = int.from_bytes(raw, "big")
+    encoded = ""
+    while number:
+        number, remainder = divmod(number, 58)
+        encoded = alphabet[remainder] + encoded
+    return "1" * zeros + (encoded or ("" if zeros else "1"))
+
+
+def test_verifies_finalized_pool_vault_balance_deltas_against_token_cpis():
+    values = fixture()
+    snapshot = fetch(values)
+    evidence = finalized_settlement_evidence(values)
+    result = verify_finalized_raydium_clmm_vault_settlement(
+        evidence,
+        vaults=snapshot.vaults,
+        expected_deltas=(
+            ExpectedRaydiumVaultDelta(values[5], 100),
+            ExpectedRaydiumVaultDelta(values[6], -50),
+        ),
+        provider_id="rpc-primary",
+        cluster="mainnet-beta",
+        genesis_hash="genesis",
+    )
+    assert result.signature == evidence.signature
+    assert result.finalized_slot == 800
+    assert result.execution_ready is False
+    assert {item.vault_address: item.delta_raw for item in result.vault_deltas} == {
+        values[5]: 100, values[6]: -50
+    }
+
+
+def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
+    values = fixture()
+    snapshot = fetch(values)
+    with pytest.raises(RaydiumClmmVaultError, match="exact expected deltas"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values, amount_a=101),
+            vaults=snapshot.vaults,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
+        )
+
+
+def test_rejects_finalized_vault_settlement_without_token_program_cpis():
+    values = fixture()
+    snapshot = fetch(values)
+    with pytest.raises(RaydiumClmmVaultError, match="no classic SPL Token"):
+        verify_finalized_raydium_clmm_vault_settlement(
+            finalized_settlement_evidence(values, include_cpis=False),
+            vaults=snapshot.vaults,
+            expected_deltas=(
+                ExpectedRaydiumVaultDelta(values[5], 100),
+                ExpectedRaydiumVaultDelta(values[6], -50),
+            ),
+            provider_id="rpc-primary", cluster="mainnet-beta", genesis_hash="genesis",
         )
