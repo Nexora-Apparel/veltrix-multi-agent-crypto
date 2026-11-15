@@ -516,10 +516,6 @@ class SolanaRaydiumV4CpmmSnapshotReader:
              "withContext": True, "minContextSlot": slot,
              "filters": [
                  {"dataSize": RAYDIUM_LOCKED_CP_LIQUIDITY_SIZE},
-                 {"memcmp": {"offset": 0,
-                             "bytes": base64.b64encode(
-                                 RAYDIUM_LOCKED_CP_LIQUIDITY_DISCRIMINATOR
-                             ).decode()}},
                  {"memcmp": {"offset": 64, "bytes": pool["amm_id"]}},
              ]},
         ])
