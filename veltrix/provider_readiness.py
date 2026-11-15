@@ -47,8 +47,8 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
 
     GoPlus can return useful risk signals, but its partial LP-holder data and
     creator concentration do not satisfy the complete liquidity/developer
-    claims. No complete developer-linked-holdings connector is currently
-    implemented. Launch indexers can attempt bundle analysis only when their
+    claims. No developer-linked-holdings connector is currently
+    capability-certified. Launch indexers can attempt bundle analysis only when their
     independent funding and trust configuration is present.
     """
     liquidity_trust = _trusted(settings, "trusted_liquidity_providers")
