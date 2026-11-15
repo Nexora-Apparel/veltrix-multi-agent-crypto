@@ -1,62 +1,61 @@
 # VELTRIX Swap Execution Policy
 
-Status: implementation contract for the Devnet swap path. This document does not enable mainnet or automated wallet signing.
+Status: Devnet-only transaction policy. Phantom approval remains manual and user-controlled. This document does not enable mainnet or automated wallet signing.
 
 ## Product behavior
 
-VELTRIX should not impose arbitrary business limits on otherwise valid swaps. The swap builder should accept any positive amount that the wallet can fund and that the selected route/program can encode and execute. It must not hard-code a single test amount, a universal price-impact ceiling, a fixed number of route accounts, or a fixed ALT address.
+VELTRIX does not impose an arbitrary fixed SOL input amount. The browser accepts positive decimal SOL amounts up to Solana's u64 lamport encoding limit, parses them with integer arithmetic, and carries the exact raw input amount through quote construction, instruction decoding, CPI evidence, simulation and confirmed-transaction reconciliation.
 
-The builder should discover the route, pool state, token accounts, required program accounts, and every address lookup table from the selected quote and the actual compiled message. Supported transaction versions are selected from the connected wallet's advertised capabilities.
+Price impact is quote information, not a universal rejection threshold. The user chooses the maximum slippage from 0% to 99.99%. The resulting minimum output is calculated in integer raw units, encoded into the CPMM instruction, displayed in the review, rechecked before Phantom approval and verified after confirmation. A minimum output that rounds to zero is rejected.
 
-## Limits: remove versus retain
+The current browser route is still a pinned direct Raydium CPMM SOL → Devnet USDC adapter. It does not claim to support every DEX or arbitrary route shape. The transaction builder must continue to respect actual Solana and protocol constraints.
 
-Remove application-imposed limits that are not required by Solana or the selected protocol:
-- fixed 0.001 SOL amount and TEST_LAMPORTS assumptions;
-- universal 2% price-impact ceiling;
-- fixed route/pool/account/ALT counts and fixed ALT addresses;
-- arbitrary one-request faucet ceilings in production funding paths;
-- assumptions that compiled instruction indexes or static account ordering remain unchanged.
+## Fees
 
-Do not confuse those with protocol constraints. The Solana packet-size limit, integer/account encoding bounds, actual wallet balance, rent requirements, blockhash validity, RPC/provider quotas, and protocol-defined swap constraints are real execution constraints. The builder should surface these constraints accurately and avoid inventing additional policy ceilings.
+VELTRIX platform fee: **0%**.
 
-Price impact should be shown as quote information. The user-selected minimum output/slippage protection remains encoded in the transaction and shown before wallet approval; it is not replaced by a universal impact threshold.
+No Veltrix treasury recipient, platform-fee transfer, hidden deduction or platform-fee reconciliation is configured or included. The user pays only the Solana network fee and the applicable DEX/liquidity-pool fee. Those are distinct from Veltrix revenue.
 
-## Automatic Veltrix fee
+## Real execution constraints
 
-The application fee is calculated from the actual input or output amount using integer arithmetic and a configured basis-point rate. The fee transfer is added to the same transaction where the chosen route/protocol supports atomic fee collection. The transaction review must display:
-- swap amount;
-- Veltrix fee rate and exact fee amount;
-- fee asset and destination;
-- network fee and rent separately;
-- expected net wallet debit and minimum received output.
+Retain constraints required by Solana, the wallet, RPC provider or the selected protocol:
+- positive input amount encoded as a u64 number of lamports;
+- actual wallet balance, temporary WSOL funding, token-account rent and network fee;
+- pool reserves, liquidity, protocol arithmetic and executable swap constraints;
+- transaction packet-size limit, signer/fee-payer requirements and valid blockhash;
+- canonical Devnet identity, address-lookup-table validity and resolved account indexes;
+- RPC/faucet quotas and service availability.
 
-The fee is collected automatically as part of the approved swap transaction. There is no separate manual fee step. Fee accounting is persisted with the transaction signature and reconciled against confirmed chain effects.
+A faucet request chunk size is a faucet transport detail, not a swap-input ceiling. If the faucet cannot provide the required test balance, the user must fund the connected Devnet wallet; the builder must not silently reduce the requested swap amount.
 
-Required configuration:
-- `VELTRIX_FEE_RECIPIENT`: public wallet address controlled by Veltrix;
-- `VELTRIX_FEE_BPS`: integer fee rate in basis points;
-- `VELTRIX_FEE_ASSET`: explicit fee denomination (input or output asset).
+## Transaction integrity
 
-These values must be supplied by the project owner. They must never be guessed, embedded as a fabricated address, or silently defaulted to an undisclosed charge. If configuration is absent, fee collection is marked unconfigured and the swap UI must not claim a Veltrix fee was collected. Network fees charged by Solana and pool/protocol fees charged by the AMM are separate and must not be mislabeled as Veltrix revenue.
+The user approves the reviewed transaction in Phantom. Before approval, the browser independently audits the exact unsigned message, signer/fee payer, program identities, account identities and privileges, pool/mint/vault relationships, exact input amount, configured minimum output, temporary WSOL funding, token-account setup, CPI transfer evidence and simulated output.
 
-## Transaction acceptance and reconciliation
+The final pre-sign gate refreshes pool state and verifies that the new quote still clears the exact minimum output already encoded in the reviewed transaction. Price impact is not used as a universal cutoff. If the quote, wallet, blockhash, account state or reviewed bytes become stale, the transaction is invalidated and must be rebuilt.
 
-The user approves the transaction in Phantom. The browser audits the exact transaction being presented, including signer/fee payer, route program identities, writable privileges, source and destination token accounts, amount bounds, fee destination, and all asset movements. Unknown instructions are not accepted merely to avoid a failure; the route adapter must understand the instruction and its effects before it can be enabled.
+After submission, reconciliation checks the confirmed signature, confirmed CPMM instruction input and minimum output, transaction semantics, and wallet USDC token-balance effects. The final wallet USDC balance delta must equal the independently reconciled actual output and meet the reviewed minimum. A confirmed signature with unavailable or inconsistent metadata is reported as confirmed-but-unverified; it must never be treated as a failed swap that should be retried automatically.
 
-After submission, reconciliation uses the confirmed transaction and token/native balance effects. It records the signature, actual input debit, actual output credit, Veltrix fee transfer, network fee, and execution error. A confirmed signature with unavailable metadata is reported as confirmed-but-unverified, never as a failed swap that should be retried.
+## Current implementation status
 
-## Implementation sequence
+Implemented in `wallet/phantom-devnet-swap.html` on this branch:
+- exact decimal SOL-to-lamports parsing using BigInt, with no fixed 0.001 SOL assertion;
+- dynamic input binding in the direct CPMM instruction, router compatibility policy, CPI transfers, simulation event/log checks and confirmation decoder;
+- configurable slippage in basis points, with the calculated minimum encoded in the transaction and shown in review;
+- removal of the universal 2% price-impact rejection from quote and final freshness gates;
+- pre-funding before SDK transaction construction so faucet activity does not stale the transaction blockhash;
+- confirmed instruction input/minimum validation and exact reconciliation between confirmed wallet token-balance delta and actual output.
 
-1. Refactor amount handling so the actual quote amount is passed through all outer and CPI audits; remove global fixed-amount assumptions.
-2. Replace the universal impact ceiling with quote display plus explicit minimum-output/slippage handling.
-3. Replace fixed route/account/ALT assumptions with route-adapter-driven discovery and resolved account identities.
-4. Add the fee configuration contract and integer fee calculator; validate destination and denomination.
-5. Add atomic fee transfer to each supported route adapter and include it in the reviewed transaction.
-6. Extend post-confirmation reconciliation to prove the exact fee transfer and net asset effects.
-7. Add tests for zero/large amounts within protocol encoding, fee rounding, missing configuration, fee destination substitution, unexpected transfers, multi-ALT routes, and transaction-size boundary behavior.
+Still required before release:
+- run the repository's full regression and adversarial verifier suite against the new commit;
+- run a fresh unsigned Devnet quote/build/simulation at multiple input sizes and slippage settings;
+- test both legacy and v0 wallet paths where supported;
+- perform a fresh manual Phantom Devnet approval only after those checks pass.
 
-## Current implementation gap
+The previously reported successful Phantom swap was performed against an earlier deployed build. It is not evidence that this new dynamic-amount/slippage build has passed a live test.
 
-The existing `wallet/phantom-devnet-swap.html` is still a narrow Devnet test path: it pins a direct CPMM pool, hard-codes 0.001 SOL in multiple instruction/CPI checks, applies a 2% price-impact ceiling and 1% minimum-output floor, and has no configured Veltrix fee recipient/rate or platform-fee transfer. Those are known implementation gaps; this policy document does not represent them as already fixed.
+## Release boundary
 
-The next code change must refactor the transaction intent/evidence objects to carry the requested raw input amount and fee plan end-to-end. Do not perform a partial text-only removal of constants while leaving the CPI and post-confirmation audits pinned to 1,000,000 lamports.
+- Solana Devnet only.
+- Phantom approval remains manual.
+- No mainnet, automated signing, Veltrix platform fee or production release.
