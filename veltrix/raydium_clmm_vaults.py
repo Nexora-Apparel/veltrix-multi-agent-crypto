@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import hashlib
+import json
 
 from solders.pubkey import Pubkey
 
@@ -12,7 +13,11 @@ from veltrix.raydium_clmm_pool_state import (
     RaydiumClmmPoolRouteCheck,
 )
 from veltrix.simulation_gate import SimulationEvidence
-from veltrix.solana_rpc_simulation import SolanaRpcSimulationAdapter
+from veltrix.solana_rpc_simulation import (
+    SolanaRpcSimulationAdapter,
+    ConfirmedTransactionEvidence,
+    _decode_base58_instruction_data,
+)
 
 
 CLASSIC_SPL_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -50,6 +55,160 @@ class RaydiumClmmVaultSnapshot:
     context_slot: int
     vaults: tuple[RaydiumClmmVaultAccount, ...]
     execution_ready: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ExpectedRaydiumVaultDelta:
+    vault_address: str
+    delta_raw: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vault_address, str) or not self.vault_address:
+            raise RaydiumClmmVaultError("expected vault delta address is required")
+        if isinstance(self.delta_raw, bool) or not isinstance(self.delta_raw, int) or self.delta_raw == 0:
+            raise RaydiumClmmVaultError("expected vault delta must be a non-zero signed integer")
+
+
+@dataclass(frozen=True, slots=True)
+class RaydiumFinalizedVaultSettlement:
+    signature: str
+    finalized_slot: int
+    provider_id: str
+    cluster: str
+    genesis_hash: str
+    vault_deltas: tuple[ExpectedRaydiumVaultDelta, ...]
+    execution_ready: bool = False
+
+
+def verify_finalized_raydium_clmm_vault_settlement(
+    evidence: ConfirmedTransactionEvidence,
+    *,
+    vaults: tuple[RaydiumClmmVaultAccount, ...],
+    expected_deltas: tuple[ExpectedRaydiumVaultDelta, ...],
+    provider_id: str,
+    cluster: str,
+    genesis_hash: str,
+) -> RaydiumFinalizedVaultSettlement:
+    """Verify finalized Token Program CPI transfers against exact pool-vault balance deltas."""
+    if not isinstance(evidence, ConfirmedTransactionEvidence):
+        raise RaydiumClmmVaultError("finalized transaction evidence is required")
+    if not isinstance(vaults, tuple) or len(vaults) != 2 or any(
+        not isinstance(item, RaydiumClmmVaultAccount) for item in vaults
+    ):
+        raise RaydiumClmmVaultError("exactly two previously verified Raydium pool vaults are required")
+    if not isinstance(expected_deltas, tuple) or len(expected_deltas) != 2 or any(
+        not isinstance(item, ExpectedRaydiumVaultDelta) for item in expected_deltas
+    ):
+        raise RaydiumClmmVaultError("exactly two expected signed vault deltas are required")
+    if len({item.address for item in vaults}) != 2 or len({item.vault_address for item in expected_deltas}) != 2:
+        raise RaydiumClmmVaultError("vault accounts and expected deltas must be unique")
+    if {item.address for item in vaults} != {item.vault_address for item in expected_deltas}:
+        raise RaydiumClmmVaultError("expected delta addresses do not match the verified pool vault set")
+    if any(item.pool_address != vaults[0].pool_address for item in vaults):
+        raise RaydiumClmmVaultError("verified vaults do not belong to the same Raydium pool")
+    if (
+        evidence.provider_id != provider_id
+        or evidence.cluster != cluster
+        or evidence.genesis_hash != genesis_hash
+    ):
+        raise RaydiumClmmVaultError("finalized transaction provider, cluster or genesis differs from pool evidence")
+    if RAYDIUM_CLMM_PROGRAM_ID not in evidence.top_level_program_ids:
+        raise RaydiumClmmVaultError("finalized transaction did not invoke the canonical Raydium CLMM program")
+    if CLASSIC_SPL_TOKEN_PROGRAM_ID not in evidence.inner_program_ids:
+        raise RaydiumClmmVaultError("finalized transaction has no classic SPL Token Program CPI evidence")
+
+    try:
+        result = json.loads(evidence.raw_result_json)
+        meta = result["meta"]
+        inner_groups = meta["innerInstructions"]
+        pre_balances = meta["preTokenBalances"]
+        post_balances = meta["postTokenBalances"]
+    except Exception as exc:
+        raise RaydiumClmmVaultError("finalized transaction raw evidence is incomplete or invalid") from exc
+
+    def balance_for(records: list, vault: RaydiumClmmVaultAccount) -> int:
+        matches = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            index = record.get("accountIndex")
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(evidence.account_keys):
+                raise RaydiumClmmVaultError("token balance record has an invalid account index")
+            if evidence.account_keys[index] == vault.address:
+                matches.append(record)
+        if len(matches) != 1:
+            raise RaydiumClmmVaultError("finalized transaction must contain exactly one token balance record per vault")
+        record = matches[0]
+        if (
+            record.get("mint") != vault.mint
+            or record.get("owner") != vault.pool_address
+            or record.get("programId") != CLASSIC_SPL_TOKEN_PROGRAM_ID
+        ):
+            raise RaydiumClmmVaultError("finalized vault token balance mint, owner or token program is inconsistent")
+        amount = record.get("uiTokenAmount", {}).get("amount")
+        if not isinstance(amount, str) or not amount.isdigit():
+            raise RaydiumClmmVaultError("finalized vault token balance amount is not a raw unsigned integer")
+        parsed = int(amount)
+        if parsed > (1 << 64) - 1:
+            raise RaydiumClmmVaultError("finalized vault token balance exceeds u64")
+        return parsed
+
+    actual_deltas = {}
+    for vault in vaults:
+        before = balance_for(pre_balances, vault)
+        after = balance_for(post_balances, vault)
+        actual_deltas[vault.address] = after - before
+    expected = {item.vault_address: item.delta_raw for item in expected_deltas}
+    if actual_deltas != expected:
+        raise RaydiumClmmVaultError("finalized pre/post vault balances do not equal the exact expected deltas")
+
+    transfer_amounts: dict[str, list[int]] = {item.address: [] for item in vaults}
+    for group in inner_groups:
+        for instruction in group.get("instructions", []):
+            program_index = instruction.get("programIdIndex")
+            if isinstance(program_index, bool) or not isinstance(program_index, int) or not 0 <= program_index < len(evidence.account_keys):
+                raise RaydiumClmmVaultError("CPI program index is outside resolved transaction account keys")
+            if evidence.account_keys[program_index] != CLASSIC_SPL_TOKEN_PROGRAM_ID:
+                continue
+            data = _decode_base58_instruction_data(instruction.get("data"))
+            accounts = instruction.get("accounts")
+            if not isinstance(accounts, list):
+                raise RaydiumClmmVaultError("Token Program CPI account indexes are malformed")
+            if len(data) == 9 and data[0] == 3 and len(accounts) >= 3:
+                source_index, destination_index = accounts[0], accounts[1]
+                amount = int.from_bytes(data[1:9], "little")
+            elif len(data) == 10 and data[0] == 12 and len(accounts) >= 4:
+                source_index, destination_index = accounts[0], accounts[2]
+                mint_index = accounts[1]
+                if isinstance(mint_index, bool) or not isinstance(mint_index, int) or not 0 <= mint_index < len(evidence.account_keys):
+                    raise RaydiumClmmVaultError("TransferChecked CPI mint index is invalid")
+                amount = int.from_bytes(data[1:9], "little")
+            else:
+                continue
+            for account_index in (source_index, destination_index):
+                if isinstance(account_index, bool) or not isinstance(account_index, int) or not 0 <= account_index < len(evidence.account_keys):
+                    raise RaydiumClmmVaultError("Token Program CPI account index is invalid")
+            source = evidence.account_keys[source_index]
+            destination = evidence.account_keys[destination_index]
+            if source in transfer_amounts:
+                transfer_amounts[source].append(-amount)
+            if destination in transfer_amounts:
+                transfer_amounts[destination].append(amount)
+
+    for address, delta in expected.items():
+        if transfer_amounts[address] != [delta]:
+            raise RaydiumClmmVaultError("Token Program CPI transfer amount/direction does not match the exact vault delta")
+
+    return RaydiumFinalizedVaultSettlement(
+        signature=evidence.signature,
+        finalized_slot=evidence.slot,
+        provider_id=evidence.provider_id,
+        cluster=evidence.cluster,
+        genesis_hash=evidence.genesis_hash,
+        vault_deltas=expected_deltas,
+        execution_ready=False,
+    )
+
 
 
 def derive_raydium_clmm_vault_address(*, pool_address: str, mint: str) -> str:
