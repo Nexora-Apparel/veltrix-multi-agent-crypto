@@ -139,18 +139,6 @@ class EtherscanBscFundingGraphProvider:
                 page += 1
             else:
                 raise ProviderError("BSC funding graph exceeded page budget")
-            if len(action_rows) and len(action_rows) % self.page_size == 0:
-                # A full last page is ambiguous: it may be an exact endpoint
-                # boundary or a truncated index. Require a short/empty next page.
-                if page > self.max_pages or total_pages >= page_budget:
-                    raise ProviderError("BSC funding history pagination is incomplete")
-                rows = self._api_page(wallet, action, end_block, page)
-                total_pages += 1
-                action_rows.extend(rows)
-                if len(rows) == self.page_size:
-                    raise ProviderError(
-                        f"BSC {action} history reached the explorer's 10,000-record ceiling"
-                    )
             rows_by_action[action] = action_rows
         candidates = []
         for action, rows in rows_by_action.items():
