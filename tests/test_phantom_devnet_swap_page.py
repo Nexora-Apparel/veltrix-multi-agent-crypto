@@ -145,7 +145,7 @@ def test_browser_v0_decoder_resolves_canonical_devnet_alt_and_privileges():
     assert "lookup.writableIndexes" in source
     assert "lookup.readonlyIndexes" in source
     assert "effectivePrivileges(message, resolved)" in source
-    assert "compiled instruction index out of bounds" in source
+    assert "compiled instruction index outside dynamically resolved account set" in source
 
 
 def test_browser_router_policy_checks_full_setup_route_cleanup_and_compute_budget():
