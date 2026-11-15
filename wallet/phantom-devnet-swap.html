@@ -434,7 +434,7 @@
       return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
     } catch { return "unavailable"; }
   }
-  async function reconcileConfirmedTransaction(chainTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence,expectedInputRaw) {
+  async function reconcileConfirmedTransaction(chainTx,reviewedMessageBytes,signature,expectedMinimumRaw,reviewedEvidence,expectedInputRaw,expectedSolBalanceBefore=null,expectedPersistentRentLamports="0") {
     if(!chainTx) throw new Error("SUBMISSION_STATUS_UNKNOWN: confirmed signature transaction details are not yet available.");
     if(!chainTx.meta) throw new Error("CONFIRMED_BUT_UNVERIFIED: RPC transaction metadata is missing.");
     if(chainTx.meta.err) throw new Error("FAILED_ON_CHAIN: Solana recorded an execution error: "+JSON.stringify(chainTx.meta.err));
@@ -484,8 +484,27 @@
       }
       return total;
     };
-    let actualOutputRaw=null;
+    let actualOutputRaw=null,actualSolDebitLamports=null,actualSolBalanceBefore=null;
     try {
+      if(expectedSolBalanceBefore!==null) {
+        const keys=transaction.message.accountKeys;
+        const walletIndex=keys.findIndex(key=>key.toBase58()===wallet.toBase58());
+        if(walletIndex<0 || !Array.isArray(chainTx.meta.preBalances) || !Array.isArray(chainTx.meta.postBalances) ||
+           !Number.isSafeInteger(chainTx.meta.fee) || chainTx.meta.fee<0 ||
+           !Number.isSafeInteger(chainTx.meta.preBalances[walletIndex]) || !Number.isSafeInteger(chainTx.meta.postBalances[walletIndex])) {
+          throw new Error("wallet SOL balance effects or actual network fee are unavailable");
+        }
+        const pre=BigInt(chainTx.meta.preBalances[walletIndex]);
+        const post=BigInt(chainTx.meta.postBalances[walletIndex]);
+        const fee=BigInt(chainTx.meta.fee);
+        const expectedBefore=BigInt(String(expectedSolBalanceBefore));
+        const expectedDebit=BigInt(String(expectedInputRaw))+fee+BigInt(String(expectedPersistentRentLamports));
+        if(pre!==expectedBefore || post>pre || pre-post!==expectedDebit) {
+          semanticDifferences.push("walletSolBalanceDebitMismatch");
+        }
+        actualSolBalanceBefore=pre.toString();
+        actualSolDebitLamports=(pre-post).toString();
+      }
       const before=sumWalletUsdc(chainTx.meta.preTokenBalances);
       const after=sumWalletUsdc(chainTx.meta.postTokenBalances);
       if(after<before||after-before<BigInt(String(expectedMinimumRaw))) semanticDifferences.push("walletUsdcBalanceDeltaBelowMinimum");
@@ -499,7 +518,11 @@
       firstByteDifference:firstByteDifference(reviewedMessageBytes,confirmedBytes),
       semanticDifferences:[...new Set(semanticDifferences)],
       expectedInputRaw:String(expectedInputRaw),
-      actualOutputRaw
+      actualOutputRaw,
+      expectedSolBalanceBefore:expectedSolBalanceBefore===null?null:String(expectedSolBalanceBefore),
+      actualSolBalanceBefore,actualSolDebitLamports,
+      expectedPersistentRentLamports:String(expectedPersistentRentLamports),
+      actualNetworkFeeLamports:chainTx.meta.fee==null?null:String(chainTx.meta.fee)
     };
     if(semanticDifferences.length) {
       throw new Error("CONFIRMED_BUT_UNVERIFIED: independent transaction semantic/effects audit failed. Diagnostics: "+JSON.stringify(diagnostics));
@@ -1247,6 +1270,7 @@
     // construction and cannot stale the reviewed message.
     await ensureDevnetFunds(lamports + 10000000n);
     const tokenBalanceBefore = await tokenBalanceRaw();
+    const solBalanceBefore = BigInt(await refreshBalance());
 
     const {sdk,BN} = await loadDirectCpmmSdk();
     const {Raydium,TxVersion,CurveCalculator,FeeOn} = sdk;
@@ -1387,6 +1411,7 @@
       totalDebitLamports:totalDebitLamports.toString(),
       requiredBalanceLamports:requiredBalanceLamports.toString(),
       programs:semanticAudit.programs,tokenBalanceBefore:tokenBalanceBefore.toString(),
+      solBalanceBefore:solBalanceBefore.toString(),
       preparedAt:Date.now(),walletAddress:wallet.toBase58(),protectionBps,semanticAudit};
     $("inputValue").textContent=fmtRaw(lamports,9)+" SOL";
     const quotedRaw=BigInt(q.outputAmount);
@@ -1446,6 +1471,10 @@
     }
     const currentBalance = await refreshBalance();
     const requiredBalance = BigInt(prepared.requiredBalanceLamports);
+    if (BigInt(currentBalance) !== BigInt(prepared.solBalanceBefore)) {
+      invalidatePrepared("Wallet SOL balance changed after review. Build a fresh transaction.");
+      throw new Error("Pre-sign SOL balance baseline changed.");
+    }
     if (BigInt(currentBalance) < requiredBalance) {
       invalidatePrepared("Devnet SOL is below the transaction funding amount. Request a fresh quote to top up from the faucet.");
       throw new Error("Pre-sign Devnet funding check failed.");
@@ -1616,7 +1645,8 @@
       }
       try {
         reconciliation=await reconcileConfirmedTransaction(
-          chainTx,reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence,reviewed.quote.inputAmount
+          chainTx,reviewedMessageBytes,signature,reviewed.quote.otherAmountThreshold,reviewedMessageEvidence,
+          reviewed.quote.inputAmount,reviewed.solBalanceBefore,reviewed.persistentAtaRentLamports
         );
       } catch (reconciliationError) {
         throw new Error((reconciliationError.message || String(reconciliationError)) + " Signature: " + signature);
