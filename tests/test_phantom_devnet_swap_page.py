@@ -292,14 +292,16 @@ def test_direct_cpmm_builder_is_pinned_and_never_signs_or_submits():
     assert '"@raydium-io/raydium-sdk-v2": "0.2.64-alpha"' in package
     assert 'const POOL = "5QYRTeSXweZXLRcMocdJcDZ6HCUJCzPgK8HZYvjoMiwo"' in source
     assert 'const INPUT = parseSolToLamports(process.env.SWAP_INPUT_SOL || "0.001")' in source
-    assert 'process.env.SWAP_SLIPPAGE_BPS || "100"' in source
-    assert "slippage:SLIPPAGE_BPS/10000" in source
+    assert "computeProtectionBps" in source
+    assert "calculateMinimumOutput" in source
+    assert "slippage:protectionBps/10000" in source
+    assert "SWAP_SLIPPAGE_BPS" not in source
     assert "priceImpactPct" in source
-    assert "no universal threshold blocks the build" in source
+    assert "observed short-window volatility" in source
     assert "priceImpactPct >" not in source
     assert 'SWAP_INPUT_SOL: "0.005"' in workflow
-    assert 'SWAP_SLIPPAGE_BPS: "250"' in workflow
-    assert 'EXPECT_IMPACT_ABOVE_2: "true"' in workflow
+    assert "SWAP_SLIPPAGE_BPS" not in workflow
+    assert "EXPECT_IMPACT_ABOVE_2" not in workflow
     assert 'cluster:"devnet"' in source
     assert "getPoolInfoFromRpc(POOL)" in source
     assert "raydium.cpmm.swap(" in source
@@ -476,10 +478,11 @@ def test_direct_cpmm_runtime_passes_live_output_ata_presence_to_cpi_verifier():
 
 
 
-def test_builder_minimum_output_error_reflects_configured_slippage():
+def test_builder_minimum_output_uses_automatic_protection():
     source = (Path(__file__).parents[1] / "scripts" / "build-devnet-cpmm-unsigned.mjs").read_text(encoding="utf-8")
-    assert 'fail("configured slippage produces a zero minimum output")' in source
-    assert "calculated 1% slippage floor is zero" not in source
+    assert 'fail("automatic protection produces a zero minimum output")' in source
+    assert "calculateMinimumOutput" in source
+    assert "SWAP_SLIPPAGE_BPS" not in source
 
 
 def test_funding_calculation_covers_temporary_wsol_peak_without_artificial_reserve():
