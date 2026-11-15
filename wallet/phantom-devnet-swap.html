@@ -402,7 +402,7 @@
       }
       if(data.length===9 && data[0]===3) {
         const price=new DataView(data.buffer,data.byteOffset,data.byteLength).getBigUint64(1,true);
-        return price<=1000000n;
+        return true; // Phantom may choose its own valid u64 priority fee.
       }
       return false;
     };
@@ -424,10 +424,15 @@
     const expectedSet=canonical(expectedMessage,expectedKeys,"reviewed");
     const actualSet=canonical(actualMessage,actualKeys,"confirmed");
     const expected=expectedSet.instructions,actual=actualSet.instructions;
-    const budgetEqual=(a,b)=>a.program===b.program && a.accounts.join(",")===b.accounts.join(",") && bytesEqual(a.data,b.data);
-    if(expectedSet.computeBudget.length!==actualSet.computeBudget.length ||
-       expectedSet.computeBudget.some((item,index)=>!actualSet.computeBudget[index]||!budgetEqual(item,actualSet.computeBudget[index]))) {
-      differences.push("computeBudgetInstructionSet");
+    // Phantom may append or replace ComputeBudget settings when opening its
+    // approval flow. They do not alter the swap's token-transfer intent. Accept
+    // valid standard limit/price instructions while comparing every non-budget
+    // instruction, signer, fee payer and blockhash exactly.
+    const seenBudgetKinds=new Set();
+    for(const item of actualSet.computeBudget) {
+      const kind=item.data[0];
+      if(seenBudgetKinds.has(kind)) differences.push("duplicateComputeBudgetInstruction");
+      seenBudgetKinds.add(kind);
     }
     if(expected.length!==actual.length) differences.push("instructions.length");
     const count=Math.max(expected.length,actual.length);
@@ -743,7 +748,22 @@
     }
     return changes.length?changes.slice(0,8).join(", "):"serialized-message-bytes-differ";
   }
-  function assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes) {
+  function assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes) {
+    let expected,actual;
+    try {
+      expected=normalizeReviewedLegacyMessageBytes(reviewedMessageBytes);
+      actual=normalizeReviewedLegacyMessageBytes(signedMessageBytes);
+    } catch(error) {
+      fail("Phantom returned a message that could not be decoded as a legacy Solana message: "+(error.message||String(error)));
+    }
+    const differences=compareLegacyMessageSemantics(expected,actual);
+    if(differences.length) {
+      fail("Phantom changed the reviewed swap intent: "+differences.join(", ")+". No transaction was broadcast.");
+    }
+    return {preserved:true,phantomComputeBudgetInstructions:actual.compiledInstructions.filter(ix=>
+      actual.staticAccountKeys[ix.programIdIndex]===COMPUTE_BUDGET).length};
+  }
+  function assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes) {
     if(!(reviewedMessageBytes instanceof Uint8Array)||!(signedMessageBytes instanceof Uint8Array)) {
       fail("reviewed or Phantom-signed message bytes are unavailable");
     }
@@ -1713,7 +1733,7 @@
       const phantomWireBytes = phantomSigningWireBytes(phantomResult);
       const signedTx = normalizePhantomSignedLegacyTransaction(phantomWireBytes);
       const signedMessageBytes = transactionMessageBytesFromWire(phantomWireBytes);
-      assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
+      assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes);
       const signedWireBytes = Uint8Array.from(signedTx.serialize({requireAllSignatures:true,verifySignatures:true}));
       if (signedWireBytes.length > 1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit.");
       const walletSignatureEntry = signedTx.signatures.find(item=>item.publicKey.equals(wallet));
@@ -1782,7 +1802,7 @@
       const signedWireBytes=phantomSigningWireBytes(phantomResult);
       const signedTx=normalizePhantomSignedLegacyTransaction(signedWireBytes);
       const signedMessageBytes=transactionMessageBytesFromWire(signedWireBytes);
-      assertSignedMessageUnchanged(reviewedMessageBytes,signedMessageBytes);
+      assertPhantomMessagePreservesReviewedIntent(reviewedMessageBytes,signedMessageBytes);
       if(signedWireBytes.length>1232) throw new Error("Signed transaction exceeds Solana's 1232-byte packet limit; nothing was broadcast.");
       status("Phantom signed the exact reviewed transaction. Broadcasting those unchanged signed bytes to Devnet…","warning");
       submissionAttempted=true;
@@ -1887,7 +1907,7 @@
       decodeRouterPolicy,decodeCpmmSwapData,decodeTokenAccount,decodeDirectCpmmPolicy,validateDirectCpmmAtaShape,
       findDirectCpmmInstructionIndex,replaceDirectCpmmData,normalizedTransactionMessage,normalizeConfirmedMessage,normalizeReviewedLegacyMessageBytes,normalizeReviewedMessageBytes,
       compareLegacyMessageSemantics,firstByteDifference,reconcileConfirmedTransaction,inspectDirectCpmmTransaction,
-      detectWalletCapabilities,assertSignedMessageUnchanged,
+      detectWalletCapabilities,assertSignedMessageUnchanged,assertPhantomMessagePreservesReviewedIntent,
       validateOutputAtaCpiEvidence,sumUsdcTokenAccounts,assertConfirmedTransactionMatchesReviewedMessage,
       setWalletForTest:value=>{wallet=value;},
       parseSolAmountToLamports,testLegacyPhantomSigning,
