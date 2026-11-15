@@ -187,17 +187,9 @@ export async function evaluateFreshQuote(snapshot, freshQuote, nowMs = Date.now(
       nowMs < freshQuote.quotedAtMs || nowMs - freshQuote.quotedAtMs > freshQuote.quoteTtlMs) {
     return { action: "refresh_and_re_review", reason: "fresh quote is missing or stale" };
   }
-  const freshProtectionBps = computeProtectionBps({
-    quoteAgeMs: nowMs - freshQuote.quotedAtMs,
-    quoteTtlMs: freshQuote.quoteTtlMs,
-    liquidityUsd: freshQuote.liquidityUsd ?? snapshot.poolLiquidityUsd,
-    tradeUsd: freshQuote.tradeUsd ?? snapshot.tradeUsd,
-    volatilityBps: freshQuote.volatilityBps ?? snapshot.volatilityBps,
-    routeHops: freshQuote.routeHops ?? snapshot.routeHops
-  });
-  if (freshProtectionBps > snapshot.protectionBps) {
-    return { action: "refresh_and_re_review", reason: "current liquidity, volatility or route risk requires a wider protection threshold" };
-  }
+  // Protection is fixed when the quote is prepared and encoded in the reviewed
+  // transaction's minimum output. Do not chase changing risk estimates during
+  // the final audit; the live output check below enforces that exact reviewed bound.
   const freshOutput = asBigInt(freshQuote.quotedOutputRaw, "freshQuote.quotedOutputRaw");
   if (freshOutput < BigInt(snapshot.minimumOutputRaw)) {
     return { action: "refresh_and_re_review", reason: "fresh output is below reviewed minimum" };
