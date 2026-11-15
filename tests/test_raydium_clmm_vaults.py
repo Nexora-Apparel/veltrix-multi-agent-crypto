@@ -379,6 +379,7 @@ def finalized_settlement_evidence(values, *, amount_a=100, amount_b=50, include_
         post_token_balances_json=json.dumps(records_post),
         logs=("Program log: swap complete",),
         raw_result_json=json.dumps(raw),
+        message_sha256=values[2].message_sha256,
     )
 
 
@@ -399,6 +400,7 @@ def test_verifies_finalized_pool_vault_balance_deltas_against_token_cpis():
     evidence = finalized_settlement_evidence(values)
     result = verify_finalized_raydium_clmm_vault_settlement(
         evidence,
+        simulation=values[2],
         vault_snapshot=snapshot,
         expected_deltas=(
             ExpectedRaydiumVaultDelta(values[5], 100),
@@ -422,6 +424,7 @@ def test_rejects_finalized_vault_deltas_that_do_not_match_expected_amounts():
     with pytest.raises(RaydiumClmmVaultError, match="exact expected deltas"):
         verify_finalized_raydium_clmm_vault_settlement(
             finalized_settlement_evidence(values, amount_a=101),
+            simulation=values[2],
             vault_snapshot=snapshot,
             expected_deltas=(
                 ExpectedRaydiumVaultDelta(values[5], 100),
@@ -437,6 +440,7 @@ def test_rejects_finalized_vault_settlement_without_token_program_cpis():
     with pytest.raises(RaydiumClmmVaultError, match="no classic SPL Token"):
         verify_finalized_raydium_clmm_vault_settlement(
             finalized_settlement_evidence(values, include_cpis=False),
+            simulation=values[2],
             vault_snapshot=snapshot,
             expected_deltas=(
                 ExpectedRaydiumVaultDelta(values[5], 100),
@@ -490,6 +494,7 @@ def test_rejects_vault_snapshot_older_than_finalized_transaction_slot():
     with pytest.raises(RaydiumClmmVaultError, match="older than the finalized transaction slot"):
         verify_finalized_raydium_clmm_vault_settlement(
             finalized_settlement_evidence(values),
+            simulation=values[2],
             vault_snapshot=stale_snapshot,
             expected_deltas=(
                 ExpectedRaydiumVaultDelta(values[5], 100),
