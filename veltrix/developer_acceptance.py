@@ -31,6 +31,14 @@ def run_developer_acceptance(*, chain, token_address, settings,
     if holder_provider is None or funding_provider is None:
         raise ValueError("Required holder or funding provider is not configured")
     root = root_provider.fetch_attestation(chain, token_address)
+    same_token = (
+        root.token_address.lower() == token_address.lower()
+        if chain in {"base", "bsc"} and isinstance(root.token_address, str)
+        else root.token_address == token_address
+    )
+    if (root.chain != chain or not same_token or root.signature_verified is not True
+            or root.coverage_complete is not True or not root.roots or not root.evidence_id):
+        raise ValueError("Developer-root attestation is not verified, complete and token-bound")
 
     deployment_block = None
     origin_provider_id = None
