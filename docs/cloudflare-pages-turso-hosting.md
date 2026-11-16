@@ -60,7 +60,7 @@ npm run pages:deploy
 
 The deployment is not accepted until the production URL serves the dashboard, authenticated API health reports the correct database and read-only state, unauthenticated calls return 401, and the end-to-end persistence/recovery checks pass.
 
-## Automated deployment and production scheduling
+## Automated deployment and manual pipeline execution
 
 The `.github/workflows/cloudflare-pages-deploy.yml` workflow creates the Pages project if needed, uploads the production-only secrets, deploys the static bundle plus Pages Function, then verifies the live dashboard and authenticated read-only database health.
 
