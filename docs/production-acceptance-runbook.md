@@ -24,6 +24,7 @@ A successful schema initialization or dashboard health check does not authorize 
 - [ ] Review the final diff and all required checks on the exact final head.
 - [ ] Integrate the PR into `main` only through the repository's explicitly authorized merge process.
 - [ ] Confirm `.github/workflows/turso-production-init.yml` is now present on `main`. GitHub cannot manually dispatch a `workflow_dispatch` workflow that exists only on a feature branch.
+- [ ] Require the post-merge H3 remote conformance workflow to pass on the exact merge commit. Its target must remain the dedicated disposable H0 database, never production.
 - [ ] Confirm the production initializer, Pages deployment and manual pipeline workflows still declare the safety environment variables above.
 
 **Stop condition:** If the workflow is absent from `main`, do not retry its Actions URL. If the PR head changes, rerun the relevant checks against the new exact head.
