@@ -145,3 +145,43 @@ The repository's Node test suite is `npm test` (`node --test cloudflare-tests/*.
 ## Documentation reconciliation
 
 This audit is the current source-level acceptance record for the dashboard. Earlier sections of `production-acceptance-progress-2026-11-16.md` and `production-acceptance-runbook.md` contain pre-deployment statements and must not be read as the current deployment status. The verified deployment run above supersedes those historical statements for the Pages deployment milestone.
+
+
+## Follow-on implementation updates — 2026-11-16
+
+The source-level findings above describe the initial audit baseline. Two implementation PRs have since been merged:
+
+- [PR #203](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/203), merge commit `f278e807179a2d829aff2d8dbd5d4800c650a9b0`: added Overview, Solana, Base, BSC, History and Diagnostics navigation; direct hash routes; responsive navigation; honest diagnostics labels; and static UI regression tests.
+- [PR #204](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/204), merge commit `859d0937f3b34b3b6742d8de08bdd8880788eab9`: added authenticated GET-only `/api/chain-markets?chain=solana|base|bsc` backed by existing `events.MARKET_OBSERVATION` records, with Base/BSC tables, bounded reads, strict chain filtering and API regression tests.
+
+### Updated acceptance state
+
+| Area | Updated result |
+|---|---|
+| Navigation routes | IMPLEMENTED; CI passed |
+| Solana market view | Existing dedicated snapshot endpoint retained |
+| Base/BSC market views | IMPLEMENTED against persisted generic market events; zero observations are shown as zero, not chain health |
+| Diagnostics | Database/read-only/paper-schema/live-execution fields rendered from the health endpoint |
+| Agent heartbeat/provider live status | STILL NOT EXPOSED; historical consensus is not treated as live agent health |
+| History | Existing decisions, consensus and fills retained |
+| Execution isolation | No write routes or execution controls added |
+
+### CI evidence
+
+- PR #203 dashboard CI run [43949234262](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43949234262): success.
+- PR #203 Python CI run [43949234286](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43949234286): success.
+- PR #204 dashboard CI run [43949658563](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43949658563): success.
+- PR #204 Python CI run [43949658314](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43949658314): success.
+
+The Pages CI validates the API/UI tests, static bundle build and local Pages smoke test. Python CI validates the repository compile and test suite. Neither proves that production Base/BSC event rows currently exist.
+
+### Remaining acceptance gates
+
+1. Verify the post-merge Cloudflare Pages deployment and its exact production SHA. The current execution environment could not resolve the production host, so no post-merge live verification is claimed here.
+2. Test all six routes on an actual mobile browser and at narrow viewport widths.
+3. Verify Base/BSC data population from the configured runtime database; the endpoint may correctly return zero rows if the monitor has not persisted observations into that database.
+4. Add real agent heartbeat and provider-readiness evidence before presenting agent/provider status as healthy.
+5. Exercise authenticated 401, invalid-chain 400, missing-table, empty-data, malformed-record and backend 503 states in a browser.
+6. Keep scheduler, paper trading, live execution, signing, transaction submission and broadcast disabled.
+
+The audit remains a record of verified implementation and explicit remaining gates, not a declaration that full production functional acceptance has passed.
