@@ -23,6 +23,7 @@ const ROUTES = new Set([
   "/api/decisions",
   "/api/consensus",
   "/api/markets",
+  "/api/chain-markets",
   "/api/equity-curve",
   "/api/costs",
 ]);
@@ -371,6 +372,47 @@ async function markets(client, tables) {
   }));
 }
 
+
+async function chainMarkets(client, tables, chain) {
+  if (!tables.has("events")) {
+    return { chain, available: false, observation_count: 0, latest_observed_at: null, observations: [] };
+  }
+  // Read normalized MARKET_OBSERVATION payloads from the existing generic ledger.
+  const selected = await rows(
+    client,
+    "SELECT payload, created_at FROM events WHERE event='MARKET_OBSERVATION' ORDER BY id DESC LIMIT ?",
+    [1000],
+  );
+  const observations = [];
+  for (const row of selected) {
+    let payload;
+    try { payload = JSON.parse(row.payload); } catch { continue; }
+    if (!payload || payload.chain !== chain ||
+        typeof payload.token !== "string" || !payload.token.trim()) continue;
+    observations.push({
+      chain,
+      token: payload.token,
+      pair: typeof payload.pair === "string" ? payload.pair : null,
+      symbol: typeof payload.symbol === "string" ? payload.symbol : null,
+      price_usd: finiteNumber(payload.price_usd),
+      liquidity_usd: finiteNumber(payload.liquidity_usd),
+      volume_h1_usd: finiteNumber(payload.volume_h1_usd),
+      price_change_m5_pct: finiteNumber(payload.price_change_m5_pct, null),
+      source: typeof payload.source === "string" ? payload.source : null,
+      observed_at: isoMilliseconds(payload.observed_at_ms),
+      recorded_at: isoSeconds(row.created_at),
+    });
+    if (observations.length >= 100) break;
+  }
+  return {
+    chain,
+    available: true,
+    observation_count: observations.length,
+    latest_observed_at: observations[0]?.observed_at ?? null,
+    observations,
+  };
+}
+
 async function equityCurve(client, tables) {
   const account = tables.has("account")
     ? await first(client, "SELECT starting_balance FROM account WHERE id=1") : null;
@@ -452,6 +494,11 @@ export async function handleDashboardRequest(request, env, injectedClient = null
   if (!equalSecret(supplied, config.dashboardToken)) {
     return json({ error: "unauthorized" }, 401);
   }
+  const chain = path === "/api/chain-markets"
+    ? new URL(request.url).searchParams.get("chain") : null;
+  if (path === "/api/chain-markets" && !["solana", "base", "bsc"].includes(chain)) {
+    return json({ error: "chain must be one of solana, base, or bsc" }, 400);
+  }
 
   let client = injectedClient;
   let ownsClient = false;
@@ -491,6 +538,9 @@ export async function handleDashboardRequest(request, env, injectedClient = null
         break;
       case "/api/markets":
         payload = await markets(client, tables);
+        break;
+      case "/api/chain-markets":
+        payload = await chainMarkets(client, tables, chain);
         break;
       case "/api/equity-curve":
         payload = await equityCurve(client, tables);
