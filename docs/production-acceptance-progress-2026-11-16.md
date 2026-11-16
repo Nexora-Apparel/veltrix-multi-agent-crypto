@@ -16,7 +16,9 @@
 - Tested SHA: `6c2296bab7f5810b188476e4b3aa3164bc0fb0bf`.
 - Exact-commit checkout: passed.
 - Dedicated disposable H0 host/credential preflight: passed.
-- Remote DB-API, schema, orchestration, worker and pipeline tests: in progress at the time of this record. Do not treat this as a pass until the workflow concludes successfully.
+- Final result: **passed** (workflow completed successfully at `2026-11-16T17:38:55Z`).
+- Exact-commit checkout, dedicated disposable H0 host/credential preflight, and remote DB-API, schema, orchestration, worker and pipeline conformance: all passed.
+- Job `remote-db-conformance` (job ID `133481964397`): success.
 
 ## Production initializer
 
@@ -29,9 +31,9 @@
 
 - Automatic main-push workflow: [run 43919309205](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43919309205).
 - Result: failed at the required-secret preflight before build or deployment.
-- Confirmed missing secret: `CLOUDFLARE_API_TOKEN`.
-- `CLOUDFLARE_ACCOUNT_ID` and `DASHBOARD_API_TOKEN` were also empty in the runner environment.
-- `TURSO_DATABASE_URL` and `TURSO_READONLY_AUTH_TOKEN` were populated (masked in logs); their values and permissions remain unverified.
+- Previous run failed at required-secret preflight: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `DASHBOARD_API_TOKEN` were empty/missing in that run.
+- User reports that all three Cloudflare/dashboard deployment values have now been generated. Their presence in GitHub Actions secrets and validity have **not yet been independently verified**; values must remain private.
+- Previous run showed `TURSO_DATABASE_URL` and `TURSO_READONLY_AUTH_TOKEN` populated (masked); their values and permissions remain unverified.
 - Pages build, read-only-token probe, project binding, deployment and post-deployment health checks were skipped.
 - No Cloudflare Pages deployment occurred.
 
@@ -46,10 +48,11 @@
 
 ## Remaining acceptance gates
 
-1. Record the final result of H0 run `43919309094` on the exact merge commit.
-2. Manually dispatch the production initializer from GitHub Actions after confirming the production endpoint and RW token roles. Capture the run URL and verify `SCHEMA_READY`, 20 tables, 6 indexes, and all disabled-execution flags.
-3. Verify the separate production read-only token against the same Turso database; do not use the RW token for Pages.
-4. Configure the missing Cloudflare deployment secrets, then rerun the Pages deployment workflow only after the schema and read-only-token gates pass.
-5. Verify deployed authenticated/unauthenticated health behavior and keep all execution/notification controls disabled.
+1. H0 run `43919309094` is complete and passed on exact merge commit `6c2296bab7f5810b188476e4b3aa3164bc0fb0bf`.
+2. Confirm the three reported deployment values are saved under the exact GitHub Actions secret/variable names and validate the production endpoint plus RW/RO token roles.
+3. Manually dispatch the production initializer from GitHub Actions after the production credential/role checks. Capture the run URL and verify `SCHEMA_READY`, 20 tables, 6 indexes, and all disabled-execution flags.
+4. Verify the separate production read-only token against the same Turso database; do not use the RW token for Pages.
+5. Rerun the Pages deployment workflow only after the schema and read-only-token gates pass; inspect preflight, build, deployment and post-deployment health checks.
+6. Verify deployed authenticated/unauthenticated health behavior and keep all execution/notification controls disabled.
 
 This progress record separates repository integration, disposable conformance, production schema setup, and Pages deployment. Passing one gate does not imply the next gate has passed.
