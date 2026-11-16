@@ -14,10 +14,16 @@ from veltrix.database import connect_database, is_remote_database, row_factory_f
 from veltrix.foundation import validate_runtime_controls
 from veltrix.ledger import PaperBroker
 from veltrix.orchestration import OrchestrationStore
+from veltrix.solana_meme.consensus import ConsensusEngine
 from veltrix.solana_meme.consensus_store import ConsensusStore
+from veltrix.solana_meme.consensus_worker import ConsensusWorker
+from veltrix.solana_meme.enrichment import CandidateEnrichmentWorker
 from veltrix.solana_meme.launch_stream import LaunchStore
+from veltrix.solana_meme.market_data import SolanaMarketData
+from veltrix.solana_meme.market_refresh import MarketRefreshWorker
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
+from veltrix.solana_meme.risk_worker import SolanaRiskEvidenceWorker
 
 CONFORMANCE_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io"
 EXPECTED_INDEXES = {
@@ -25,6 +31,10 @@ EXPECTED_INDEXES = {
     "idx_solana_market_mint_time",
     "idx_solana_risk_mint_time",
     "idx_solana_consensus_mint_time",
+    "idx_solana_enrichment_due",
+    "idx_solana_market_refresh_due",
+    "idx_solana_risk_evidence_due",
+    "idx_solana_consensus_due",
     "idx_orchestration_jobs_due",
     "idx_paper_decisions_token_time",
 }
@@ -63,16 +73,27 @@ def main() -> None:
     config = settings()
     # Constructors create their own schema and indexes. No market/provider calls
     # are made here. PaperBroker inserts the initial account row only if absent.
-    LaunchStore(url)
-    MarketSnapshotStore(url)
-    SolanaRiskEvidenceStore(url)
-    ConsensusStore(url)
-    PaperBroker(
+    launch_store = LaunchStore(url)
+    market_store = MarketSnapshotStore(url)
+    risk_store = SolanaRiskEvidenceStore(url)
+    consensus_store = ConsensusStore(url)
+    broker = PaperBroker(
         url,
         starting_balance=config.balance,
         max_positions=config.max_open,
         max_position_usd=config.max_position,
         stop_loss_pct=config.stop_loss,
+    )
+
+    # Worker constructors initialize their durable queue schemas only. Their
+    # run/process methods are never called, and the placeholder dependencies
+    # cannot reach providers or execute trades during this schema-only step.
+    market_data = SolanaMarketData(object())
+    CandidateEnrichmentWorker(launch_store, market_data, market_store)
+    MarketRefreshWorker(launch_store, market_data, market_store)
+    SolanaRiskEvidenceWorker(launch_store, market_store, object(), risk_store)
+    ConsensusWorker(
+        launch_store, market_store, risk_store, ConsensusEngine(), consensus_store
     )
     OrchestrationStore(url).initialize()
 
