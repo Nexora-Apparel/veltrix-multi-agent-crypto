@@ -64,6 +64,7 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         page = urlopen(request).read().decode("utf-8")
         assert "VELTRIX" in page
         assert "SIMULATION ONLY" in page
+        assert "READ-ONLY" in page
 
         request = Request(
             base + "/assets/dashboard.js",
