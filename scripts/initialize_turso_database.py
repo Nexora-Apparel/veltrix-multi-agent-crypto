@@ -20,6 +20,14 @@ from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
 
 CONFORMANCE_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io"
+EXPECTED_INDEXES = {
+    "idx_launch_outages_active_source",
+    "idx_solana_market_mint_time",
+    "idx_solana_risk_mint_time",
+    "idx_solana_consensus_mint_time",
+    "idx_orchestration_jobs_due",
+    "idx_paper_decisions_token_time",
+}
 EXPECTED_TABLES = {
     "solana_launch_candidates", "launch_feed_events", "launch_feed_outages",
     "solana_market_snapshots", "solana_risk_evidence_reports",
@@ -77,16 +85,28 @@ def main() -> None:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
+        actual_indexes = {
+            row["name"]
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            ).fetchall()
+        }
     finally:
         db.close()
     missing = sorted(EXPECTED_TABLES - actual)
     if missing:
-        raise SystemExit("production schema verification failed: " + ", ".join(missing))
+        raise SystemExit("production table verification failed: " + ", ".join(missing))
+    missing_indexes = sorted(EXPECTED_INDEXES - actual_indexes)
+    if missing_indexes:
+        raise SystemExit(
+            "production index verification failed: " + ", ".join(missing_indexes)
+        )
 
     print(json.dumps({
         "status": "SCHEMA_READY",
         "database_host": parsed.hostname,
         "tables_verified": len(EXPECTED_TABLES),
+        "indexes_verified": len(EXPECTED_INDEXES),
         "paper_ledger_initialized": True,
         "paper_trading_enabled": False,
         "live_execution_enabled": False,
