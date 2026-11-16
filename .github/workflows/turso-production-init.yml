@@ -20,6 +20,7 @@ jobs:
       SCHEDULER_ENABLED: "false"
       LIVE_TRADING: "false"
       PAPER_TRADING_ENABLED: "false"
+      PYTHONPATH: ${{ github.workspace }}
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
     steps:
