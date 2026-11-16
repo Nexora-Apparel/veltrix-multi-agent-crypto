@@ -109,6 +109,22 @@ def test_core_paper_pipeline_stores_initialize_on_turso(monkeypatch):
                 ).fetchall()
             }
             assert expected <= actual
+
+            expected_indexes = {
+                "idx_launch_outages_active_source",
+                "idx_solana_market_mint_time",
+                "idx_solana_risk_mint_time",
+                "idx_solana_consensus_mint_time",
+                "idx_orchestration_jobs_due",
+                "idx_paper_decisions_token_time",
+            }
+            actual_indexes = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                ).fetchall()
+            }
+            assert expected_indexes <= actual_indexes
         finally:
             connection.close()
     finally:
