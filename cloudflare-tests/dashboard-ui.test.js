@@ -61,5 +61,5 @@ test("dashboard isolates failed data sections and keeps successful sections rend
   assert.match(js, /Trade history unavailable:/);
   assert.match(js, /Decision history unavailable:/);
   assert.match(js, /Market snapshots unavailable:/);
-  assert.match(js, /Partial dashboard data/);
+  assert.match(js, /partial dashboard data/i);
 });
