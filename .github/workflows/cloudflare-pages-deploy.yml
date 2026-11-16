@@ -62,7 +62,7 @@ jobs:
           list_response_file="$(mktemp)"
           list_http_status="$(curl --silent --show-error --output "$list_response_file" --write-out "%{http_code}" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects?per_page=100")"
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects")"
           if [ "$list_http_status" -lt 200 ] || [ "$list_http_status" -ge 300 ]; then
             echo "Cloudflare Pages project listing failed (HTTP $list_http_status)." >&2
             jq -c '{success, errors, messages}' "$list_response_file" >&2 || cat "$list_response_file" >&2
