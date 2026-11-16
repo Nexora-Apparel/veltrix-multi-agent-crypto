@@ -5,6 +5,14 @@ on:
     branches: [main, work/hosting-integration-reconcile-20261115]
     paths:
       - ".github/workflows/turso-h3-remote-conformance.yml"
+      - "scripts/initialize_turso_database.py"
+      - "tests/test_turso_application_schema.py"
+      - "veltrix/ledger.py"
+      - "veltrix/orchestration.py"
+      - "veltrix/solana_meme/launch_stream.py"
+      - "veltrix/solana_meme/market_store.py"
+      - "veltrix/solana_meme/risk_store.py"
+      - "veltrix/solana_meme/consensus_store.py"
   workflow_dispatch:
 
 permissions:
