@@ -413,3 +413,10 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - Runbook requires 20 expected tables and 6 named indexes, authenticated Pages health (200), unauthenticated health (401), read-only database state, and all execution/notification/scheduler controls disabled.
 - Corrected the hosting guide section heading to describe manual pipeline execution rather than production scheduling.
 - Production remains uninitialized and undeployed. PR #195 remains open/draft/unmerged; no production workflow was dispatched.
+
+## 11. H0 schema-index conformance coverage — 2026-11-16
+
+- Extended `tests/test_turso_application_schema.py` to assert all six required production index names against the disposable H0 Turso database, in addition to the 20-table assertion.
+- Expanded the H3 remote conformance workflow path filters so a merge to `main` that changes the production initializer, schema test or relevant store/index constructors triggers disposable H0 conformance.
+- The H3 job remains isolated to the exact H0 disposable host and credentials; it must never target production.
+- This strengthens future post-merge verification. It does not constitute a new H3 run; the last recorded H3 evidence remains on the earlier core commit.
