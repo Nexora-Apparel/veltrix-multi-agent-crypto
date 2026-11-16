@@ -14,6 +14,41 @@
   const signed = (value) => (Number(value) > 0 ? "+" : "") + money(value);
   let refreshing = false;
 
+  const pageMeta = {
+    overview: ["System overview", "Shared ledger, portfolio state and recent intelligence activity."],
+    solana: ["Solana intelligence", "Persisted Solana market observations and data quality."],
+    base: ["Base intelligence", "Chain-specific dashboard integration status."],
+    bsc: ["BSC intelligence", "BNB Smart Chain dashboard integration status."],
+    history: ["Decision and ledger history", "Persisted consensus decisions, paper outcomes and fills."],
+    diagnostics: ["System diagnostics", "Authenticated health and read-only safety checks."]
+  };
+
+  function setPage(page) {
+    const selected = Object.hasOwn(pageMeta, page) ? page : "overview";
+    for (const view of document.querySelectorAll("[data-page]")) {
+      view.hidden = view.dataset.page !== selected;
+    }
+    for (const link of document.querySelectorAll("[data-route]")) {
+      if (link.dataset.route === selected) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    }
+    $("page-title").textContent = pageMeta[selected][0];
+    $("page-description").textContent = pageMeta[selected][1];
+    if (location.hash !== "#" + selected) history.replaceState(null, "", "#" + selected);
+  }
+
+  function renderDiagnostics(health) {
+    $("diag-database").textContent = health.database || "UNKNOWN";
+    $("diag-readonly").textContent = health.database_read_only === true ? "READ-ONLY" :
+      health.database_read_only === false ? "WRITE ACCESS REPORTED" : "UNKNOWN";
+    $("diag-paper").textContent = health.paper_ledger_initialized === true ? "INITIALIZED" :
+      health.paper_ledger_initialized === false ? "INCOMPLETE" : "UNKNOWN";
+    $("diag-live").textContent = health.live_execution === false ? "DISABLED" :
+      health.live_execution === true ? "ENABLED — INVESTIGATE" : "UNKNOWN";
+    $("diag-missing").textContent = (health.missing_paper_tables || []).join(", ") || "None reported";
+  }
+
+
   async function api(path) {
     const token = sessionStorage.getItem(tokenKey) || "";
     const headers = token ? { Authorization: "Bearer " + token } : {};
@@ -228,8 +263,11 @@
       $("health-led").className = "status-led";
       $("health-label").textContent = health.database === "connected"
         ? "Database connected · read-only" : "Database health requires review";
-      $("health-detail").textContent = "Live execution: disabled · Missing paper tables: " +
-        (health.missing_paper_tables || []).join(", ") || "None";
+      $("health-detail").textContent = "Live execution: " +
+        (health.live_execution === false ? "disabled" : "state unverified") +
+        " · Missing paper tables: " + ((health.missing_paper_tables || []).join(", ") || "none");
+      renderDiagnostics(health);
+      $("market-count").textContent = number(markets.length, 0);
       $("last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
     } catch (error) {
       $("health-led").className = "status-led bad";
@@ -240,6 +278,12 @@
       refreshing = false;
     }
   }
+
+  for (const link of document.querySelectorAll("[data-route]")) {
+    link.addEventListener("click", () => setPage(link.dataset.route));
+  }
+  window.addEventListener("hashchange", () => setPage(location.hash.slice(1)));
+  setPage(location.hash.slice(1) || "overview");
 
   $("refresh").addEventListener("click", refresh);
   $("save-token").addEventListener("click", () => {
