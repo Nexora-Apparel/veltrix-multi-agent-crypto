@@ -6,6 +6,7 @@ from veltrix.solana_meme.enrichment import CandidateEnrichmentWorker
 from veltrix.solana_meme.launch_stream import LaunchStore
 from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_store import MarketSnapshotStore
+from veltrix.orchestration import LeaseBusy, OrchestrationStore, RunContext, run_once
 
 MINT_A = "So11111111111111111111111111111111111111112"
 MINT_B = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -202,3 +203,68 @@ def test_expired_lease_at_attempt_limit_becomes_dead(tmp_path):
     assert result.processed == 0
     assert worker.status()["dead"] == 1
     assert worker.status()["retry"] == 0
+
+
+def test_worker_pipeline_run_uses_global_fence_and_atomic_snapshot_write(tmp_path):
+    launches, snapshots, _, worker = setup_worker(tmp_path)
+    launches.record_candidate(launch(MINT_A))
+    orchestration = OrchestrationStore(str(launches.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(limit=25, context=context)
+        assert result.enriched == 1
+
+    result = run_once(
+        orchestration,
+        idempotency_key="enrichment-window-001",
+        job_type="enrichment",
+        payload={"limit": 25},
+        handler=handler,
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    assert snapshots.count(MINT_A) == 1
+    assert worker.status()["completed"] == 1
+
+
+def test_stale_row_claim_cannot_persist_market_snapshot(tmp_path):
+    launches, snapshots, _, worker = setup_worker(tmp_path)
+    launches.record_candidate(launch(MINT_A))
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: None,
+    )
+    worker._discover_jobs(10_000, context)
+    assert worker._claim(10_000, 1, context) == [MINT_A]
+
+    with worker._connect() as db:
+        db.execute(
+            "UPDATE solana_enrichment_jobs SET claim_fencing_token=8 WHERE mint=?",
+            (MINT_A,),
+        )
+    item = SolanaMarketData(
+        FakeMarketProvider([market_event(MINT_A)]), clock_ms=lambda: 10_001
+    ).fetch(MINT_A, now_ms=10_001)
+
+    with pytest.raises(LeaseBusy, match="row claim"):
+        worker._complete(item, 10_001, context)
+    assert snapshots.count(MINT_A) == 0
+    assert worker.status()["processing"] == 1
+
+
+def test_transaction_fence_loss_prevents_enrichment_claim(tmp_path):
+    launches, _, _, worker = setup_worker(tmp_path)
+    launches.record_candidate(launch(MINT_A))
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: (_ for _ in ()).throw(
+            LeaseBusy("global lease lost")
+        ),
+    )
+    with pytest.raises(LeaseBusy, match="global lease lost"):
+        worker.run_once(context=context)
+    assert worker.status()["pending"] == 0
+    assert worker.status()["processing"] == 0

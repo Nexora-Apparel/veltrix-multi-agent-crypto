@@ -1,0 +1,78 @@
+name: Cloudflare Pages dashboard CI
+on:
+  push:
+    branches: [main, "work/**"]
+    paths:
+      - "functions/**"
+      - "cloudflare-tests/**"
+      - "veltrix/dashboard_assets/**"
+      - "package.json"
+      - "wrangler.toml"
+      - ".github/workflows/cloudflare-pages-ci.yml"
+      - ".github/workflows/cloudflare-pages-deploy.yml"
+  pull_request:
+    paths:
+      - "functions/**"
+      - "cloudflare-tests/**"
+      - "veltrix/dashboard_assets/**"
+      - "package.json"
+      - "wrangler.toml"
+      - ".github/workflows/cloudflare-pages-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned dashboard dependencies
+        run: npm install --ignore-scripts
+      - name: Run dashboard API security tests
+        run: npm test
+      - name: Syntax-check production token verifier
+        run: node --check scripts/verify-turso-readonly-token.mjs
+      - name: Validate Wrangler production deployment commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler pages project create --help | grep -q -- "--production-branch"
+          npx wrangler pages secret put --help | grep -q -- "--env"
+          npx wrangler pages deploy --help | grep -q -- "--project-name"
+      - name: Build the Pages static bundle
+        run: npm run build:pages
+      - name: Smoke-test Pages static assets and unauthenticated API boundary
+        env:
+          TURSO_DATABASE_URL: libsql://veltrix-ci.aws-eu-central-1.turso.io
+          TURSO_AUTH_TOKEN: ci-dummy-token
+          DASHBOARD_API_TOKEN: veltrix-ci-dashboard-token-0123456789
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'TURSO_DATABASE_URL=%s\nTURSO_AUTH_TOKEN=%s\nDASHBOARD_API_TOKEN=%s\n' \
+            "$TURSO_DATABASE_URL" "$TURSO_AUTH_TOKEN" "$DASHBOARD_API_TOKEN" > .dev.vars
+          npx wrangler pages dev dist --ip 127.0.0.1 --port 8788 > /tmp/veltrix-pages.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8788/ >/tmp/veltrix-index.html; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q "VELTRIX" /tmp/veltrix-index.html
+          curl --silent --fail http://127.0.0.1:8788/assets/dashboard.js | grep -q "api(\"/api/health\")"
+          status=$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" http://127.0.0.1:8788/api/health)
+          echo "Unauthenticated API status: $status"
+          if [ "$status" != "401" ]; then
+            cat /tmp/veltrix-unauthorized.json
+            cat /tmp/veltrix-pages.log
+            exit 1
+          fi
+          grep -q "unauthorized" /tmp/veltrix-unauthorized.json

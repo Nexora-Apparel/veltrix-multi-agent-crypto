@@ -1,9 +1,9 @@
 # VELTRIX Multi-Agent Crypto — Project Progress Ledger
 
-**Last audited:** 2026-11-15 (UTC)  
+**Last audited:** 2026-11-16 (UTC)  
 **Repository:** `Nexora-Apparel/veltrix-multi-agent-crypto`  
 **Default branch:** `main`  
-**Audited main baseline:** `6158a5995c7f241a7c1ba56dc20161c3fd7e4fa2`  
+**Audited main baseline:** `604db7ea59db1f4a6839654ff80816d8c22e7a92`  
 **Document status:** Initial repository-wide baseline; update after every completed project task.
 
 > This ledger distinguishes merged implementation, unmerged branch work, automated test results, live/provider evidence, and release authorization. A green unit-test suite is not production acceptance. An open PR is not a completed stage.
@@ -302,3 +302,121 @@ For every task:
 | 2026-11-15 | Stage 09.2 current-main integration | PR #191, `work/phase-9.2-isolation-current-main` | Rebuilt host-isolation integration on current main because PR #23 was 52 commits behind/diverged. Added systemd templates, preflight/verifier, runbook, wallet-domain types, loopback dashboard authentication, DAC hardening, symlink rejection and CI validation. |
 | 2026-11-15 | Stage 09.2 CI and systemd template validation | PR #191 head `76a9b54131c1c67b29ba533e4c7758b8c20b42b0`; runs `43767022608`, `43767121211`, `43767229327`, `43767439888`, `43767513662` | Final exact-head run `43767513662` passed: 886 passed / 5 skipped; compileall, `bash -n` and `systemd-analyze verify` passed. Intermediate failures were recorded and corrected: host-specific ExecStart path in raw unit verification, then stale static-test expectation after DAC verifier hardening. No actual host install or host acceptance. |
 | 2026-11-15 | Stage 09.3 dependent signer-boundary contract | PR #192, `work/phase-9.3-signer-contract-after-9.2` head `8b2cef7eb57ba22bcd9a307ba51495c45821182d`; runs `43767720194`, `43767800370` | Added typed chain/network immutable envelopes, canonical policy hashes and metadata-binding tests. Explicitly documented that metadata equality does not verify signed bytes or cryptographic signatures. Final exact-head CI passed: 919 passed / 5 skipped; compileall, shell syntax and systemd template verification passed. PR #192 remains draft and stacked on #191; no signer implementation. |
+
+## 7. Hosting implementation status correction — 2026-11-15
+
+This section is authoritative where earlier wording in this ledger conflicts with it.
+
+### Selected hosting direction
+
+The project direction remains the previously selected **$0/no-bank-card serverless architecture**:
+- **GitHub Actions hosted Linux runners:** bounded scheduled/batch Python work and CI; not an always-on API server.
+- **Turso Free:** remote SQLite-compatible persistence, subject to the existing driver/SQL compatibility and production migration gates.
+- **Cloudflare Pages + Workers:** static dashboard hosting and a narrow read-only API/runtime layer, subject to a verified implementation and deployment.
+- **GitHub repository:** source control and CI/CD.
+
+Do not treat a dedicated Linux VPS or systemd host as a prerequisite for this selected deployment. Preserve PR #191's useful isolation controls as an optional alternate deployment path or translate applicable controls into serverless equivalents.
+
+### What is actually complete
+
+- PR #13 records the architecture decision and compatibility audit; it is documentation, not deployment.
+- PRs #14–#18 contain Turso DB-API/conformance and adapter work.
+- PRs #19–#22 contain bounded orchestration, worker fencing and one-shot pipeline integration.
+- Remote Turso conformance passed in Actions run `42912477053` (five DB-API/schema/orchestration/worker/pipeline suites, 325.57 seconds) against a dedicated disposable database. Integrated H1.1/H2/H3 conformance also passed in run `42964334567`.
+- These tests do **not** certify production credentials, production database migration, data cutover, Cloudflare deployment, DNS/HTTPS routing, deployed API health, scheduled production operation, or disaster recovery.
+- SQLite remains the default/rollback data store until a separately approved and verified migration.
+- PR #22 remains an open draft integration candidate and must be checked for current head, ancestry, diff and CI before merge; do not assume the recorded historical branch state is still current.
+
+### Hosting acceptance work order
+
+1. Re-audit current `main`, PRs #13–#22, and the existing serverless branch before changing implementation. Record current SHAs and CI, and do not repeat already-passed disposable Turso conformance unnecessarily.
+2. Verify the Python runtime split: which modules run as bounded GitHub Actions jobs, which functions need a Cloudflare Worker/API boundary, and whether the current Python dashboard/API can run there without an unsupported runtime assumption. Define an explicit compatibility adapter or a supported runtime split; do not assume Python code runs unchanged inside Workers.
+3. Finish and merge the reviewed H1.1/H2/H3 integration only after current-head synchronization, regression CI, security review, and a clear rollback plan.
+4. Build and test Cloudflare Pages/Workers deployment configuration, API authentication, environment separation, least-privilege secrets, health checks, logs, and rollback. No deployment is complete until the deployed URLs and runtime health are verified.
+5. Add scheduled bounded pipeline invocations through GitHub Actions only after idempotency, fencing, retry, concurrency, rate limits and WAT schedule semantics are verified. GitHub Actions schedules are not a guarantee of exact-minute execution or continuous WebSocket capture.
+6. Provision and verify a separate production Turso database identity; test schema migrations, transactions, backup/restore and recovery against a disposable copy first. Never reuse destructive conformance credentials for production.
+7. Perform a controlled production data migration only after export/import row counts, schema, constraints, ledger integrity and rollback are independently verified. Keep SQLite intact until cutover acceptance.
+8. Verify end-to-end dashboard/API → worker → Turso operation, schedule delay/retry behaviour, provider egress and emergency stop. Only then mark hosting operational.
+
+### Stage 09.2 disposition
+
+The systemd/real-host requirement in the earlier Stage 09.2 row applies only to the **optional PR #191 host-isolation path**. It is not a blocker for the selected GitHub Actions + Turso + Cloudflare architecture. Serverless isolation acceptance must instead cover ephemeral job boundaries, workflow permissions, environment/secret scoping, Cloudflare runtime isolation, API authentication, Turso database identity and token scope, concurrency/fencing, egress controls, observability, backup/restore and operational stop controls.
+
+PR #191 remains optional and unmerged; do not make PR #192's dependency on #191 a reason to delay hosting. Keep all signing, transaction submission, broadcasting and live execution disabled. Hosting completion does not grant execution authorization.
+
+## 8. Hosting implementation progress — 2026-11-15
+
+This section supersedes the earlier provisional hosting work order where the actual implementation status has changed. It does not imply production deployment.
+
+### Reconciled worker/database integration
+
+- **Implemented/unmerged:** PR #22's H1.1/H2/H3 code has been reconciled with current `main` on `work/hosting-integration-reconcile-20261115`, then composed into `work/hosting-complete-20261115`.
+- The reconciled branch preserves current-main release locks, dashboard behavior, provider error sanitization and validation. It does not force-merge the 57-ahead/65-behind original PR #22 branch.
+- Added transaction-scoped persistence for launch candidates, market snapshots, risk evidence and consensus decisions. Transaction methods re-run domain validators before writes.
+- Added production schema initializer `scripts/initialize_turso_database.py`. It refuses the disposable H0 conformance database, initializes the application and empty paper-ledger schema, verifies expected tables, and performs no provider calls or data migration.
+- Added one-shot entrypoint `scripts/run_solana_pipeline.py` and a manual-only Actions workflow. It uses a stable two-hour idempotency bucket and keeps paper trading, Telegram, scheduler activation and live execution disabled.
+- Exact reconciled Python CI run `43771310697` on `work/hosting-integration-reconcile-20261115` head `e411dd4aafec396f19c051f68c44bb945a186983`: **914 passed / 10 skipped**, compileall included `scripts/`. The 10 skips are not counted as passes.
+- Remote Turso conformance run `43770940483` passed against exact reconciled core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`: **5 passed in 391.62s** across remote DB-API, application schema, orchestration, worker and pipeline conformance on the dedicated disposable database. This does not certify production Turso credentials or migration.
+
+### Cloudflare Pages and Worker API
+
+- **Implemented/unmerged:** static Pages bundle, Wrangler configuration, Pages Functions API and automated deploy workflow are included in `work/hosting-complete-20261115`.
+- The Pages Function uses `@libsql/client/web` and exposes fixed GET-only dashboard routes. It requires a 32+ character bearer token, validates a credential-free production `libsql://*.turso.io` URL, fails closed when bindings are missing, and has no write, signer, submitter or live-execution endpoint.
+- Dashboard API uses a distinct read-only Turso token. The deployment workflow verifies that the token cannot execute a no-row UPDATE inside a rolled-back transaction before deploying.
+- Node security suite and local Pages static/API smoke passed on the latest Cloudflare implementation branch head `e87c2172965f5d1141e1544aab6e4069ed0da774`: run `43771483897`, **10 passed / 0 failed**. This run also syntax-checked the read-only-token verifier, validated Wrangler project/secret/deploy CLI flags, built the Pages bundle and verified static/API auth behavior. Python CI run `43771483835` passed: **858 passed / 5 skipped**. The final composed branch still requires exact-head CI.
+- The deployment workflow creates the Pages project if needed, writes production-only secrets, deploys assets and Functions, then checks the deployed dashboard and authenticated API health. No deployment has yet been performed.
+
+### Scheduling and execution disposition
+
+- The repository's Stage 9.1 release policy and `tests/test_foundation.py::test_existing_workflows_do_not_define_scheduled_triggers` explicitly prohibit scheduled workflow triggers. An attempted cron workflow failed this guard and was converted to `workflow_dispatch` only.
+- Do not bypass this lock using Cloudflare Cron or another external scheduler. A two-hour UTC cadence is only a proposed post-release setting; no automatic schedule is active.
+- Paper trading, Telegram delivery, signing, transaction submission, broadcasting and live execution remain disabled.
+
+### Production acceptance and manual setup
+
+Production hosting is **not yet accepted**. Required operator setup is:
+1. Create a separate production Turso database (not the H0 conformance database).
+2. Add GitHub Actions secrets: `TURSO_DATABASE_URL`, read/write `TURSO_AUTH_TOKEN`, read-only `TURSO_READONLY_AUTH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `DASHBOARD_API_TOKEN`, and either `SOLANA_RPC_URL` or `HELIUS_API_KEY`. Optional `GOPLUS_ACCESS_TOKEN` may be configured separately.
+3. Run the manual production schema initializer; then run the Cloudflare Pages deploy workflow and inspect its deployed API health check.
+4. Run the manual one-shot pipeline and verify candidate/market/risk/consensus persistence, idempotent retry and recovery against the production database.
+5. Independently verify Turso backup/restore and operational recovery before calling hosting complete.
+
+Do not send secret values in chat. Secret inventory is not exposed by the repository audit tools, so current production-secret presence is **not checked**.
+
+The repository tree contains no tracked SQLite database file. The initializer creates a new empty paper ledger account and does not migrate untracked local data. If an existing local SQLite file must be preserved, obtain that exact file and perform a separately tested export/import reconciliation before cutover.
+
+### Current classification
+
+- **Implemented/unmerged:** reconciled H1.1/H2/H3 integration, production schema initializer, manual one-shot runner, Cloudflare Pages static bundle and read-only Pages Function.
+- **CI verified:** 914 passed / 10 skipped for reconciled Python integration; 10 passed / 0 failed for the prior Cloudflare Pages API test run. Recheck exact final branch CI after PR creation.
+- **CI verified on consolidated PR #195 head `fbb8c7056e66d5ddd6ca411b45c507f5b7d3b5c2`:** Python CI run `43771654664` passed **914 / skipped 10**; Cloudflare Pages CI run `43771673368` passed **10 / failed 0**, including token-verifier syntax, Wrangler CLI checks, static bundle build and local Pages/API smoke.
+- **Remote Turso conformance passed** on the exact reconciled core commit in run `43770940483`: 5 passed in 391.62s against the disposable H0 database.
+- **Pending:** production database provisioning, controlled data migration (if a source DB exists), production Pages deployment, authenticated production health, scheduled release authorization, backup/restore and end-to-end operational acceptance.
+- **Blocked by operator setup:** production Turso credentials, Cloudflare API/account credentials, dashboard access token, and Solana RPC/Helius credentials.
+| 2026-11-15 | Consolidated hosting implementation PR | PR #195, `work/hosting-complete-20261115` head `fbb8c7056e66d5ddd6ca411b45c507f5b7d3b5c2` | Open draft, unmerged, mergeable. Consolidates reconciled H1.1/H2/H3, production schema initializer, manual pipeline runner, Cloudflare Pages Functions API and deployment workflow. Exact-head Python CI `43771654664`: 914 passed / 10 skipped. Exact-head Cloudflare CI `43771673368`: 10 passed / 0 failed. Remote disposable Turso conformance `43770940483`: 5 passed in 391.62s on reconciled core commit. No production DB or Cloudflare deployment yet. |
+| 2026-11-15 | Hosting deployment acceptance hardening and live-state audit | PR #195 branch `work/hosting-complete-20261115`; workflow change `474f45fc41206a49fd051dbccc20007c73901ad1` | Added production deployment assertions for unauthenticated `/api/health` returning 401, authenticated health `ok=true`, initialized paper ledger, read-only DB and disabled live execution. Exact workflow-code-head validation: Python CI `43772199490` passed 914 / skipped 10; Cloudflare Pages CI `43772195100` passed 10 / failed 0. Subsequent ledger-only head `c8068e144b2460213fa70830fa06a071ff4e366d` also passed Python CI `43772217822` (914 / 10) and Pages CI `43772222801` (10 / 0). Audit: `main` is `604db7ea59db1f4a6839654ff80816d8c22e7a92`; PR #22 remains draft and diverged (57 ahead / 65 behind); PR #193 is a one-commit documentation-only status correction; PR #194 is draft, 27 ahead / 0 behind; consolidated PR #195 was draft/mergeable at `3ebc356e41185a38c47bb76adc3f95c02ac33e1b` (118 ahead / 0 behind). At that exact head Python CI `43771732813` passed 914 / skipped 10; Cloudflare Pages CI `43771732839` passed 10 / failed 0. Remote Turso conformance `43770940483` passed 5 suites in 391.62s against disposable H0 at core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; the subsequent 40 commits add hosting/deployment/docs only and leave the tested Turso runtime files unchanged. No production Turso DB, Cloudflare deployment, active schedule or end-to-end production acceptance exists. Secret inventory remains not checked. |
+| 2026-11-15 | Final exact-head hosting CI confirmation | PR #195, pre-ledger code head `474f45fc41206a49fd051dbccc20007c73901ad1`; subsequent ledger head `c8068e144b2460213fa70830fa06a071ff4e366d` | Workflow-code head Python CI `43772199490`: 914 passed / 10 skipped; Cloudflare Pages CI `43772195100`: 10 passed / 0 failed. The subsequent documentation-only ledger head also passed Python CI `43772217822`: 914 passed / 10 skipped, and Cloudflare Pages CI `43772222801`: 10 passed / 0 failed. Production deployment and Turso initialization workflows have no observed runs. Runtime code unchanged after the workflow-code-head checks. |
+
+## 9. Hosting review continuation — 2026-11-16
+
+- Rechecked PR #195: open, draft and unmerged; head was `49172d1e0a7657b0fd7833714153850b75db8e8e` before these review commits; base `main` at `604db7ea59db1f4a6839654ff80816d8c22e7a92`. GitHub's mergeability field is transient during branch updates and must be rechecked after CI.
+- Exact-head pull-request CI remains green: Python CI run `43772337372` (914 passed / 10 skipped) and Cloudflare Pages CI run `43772337449` (10 passed / 0 failed).
+- Remote Turso H3 run `43770940483` remains successful (5 passed / 391.62s) on earlier core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; it is not an exact-final-head run.
+- Hosting documentation corrected to state manual-only pipeline execution, distinguish named index verification from table verification, and avoid implying automatic scheduling.
+- Production initializer strengthened to verify six required named indexes in addition to the expected table set. It still performs no migration/provider calls and leaves paper/live execution disabled.
+- These edits are on the hosting feature branch only. No production schema initialization, Cloudflare deployment, workflow dispatch, PR merge or execution activation was performed. Re-run exact-head CI after this commit before considering PR readiness. Current head and CI state are tracked from live PR #195 metadata; this ledger entry is a historical checkpoint.
+
+## 10. Production acceptance runbook — 2026-11-16
+
+- Added `docs/production-acceptance-runbook.md` with gated acceptance for repository integration, credential roles, Turso preflight, schema initialization, Pages deployment, optional bounded pipeline verification, recovery and release evidence.
+- Explicitly distinguishes schema initialization from SQLite migration; the initializer creates schema and an initial account row only and does not migrate historical data.
+- Runbook requires 20 expected tables and 6 named indexes, authenticated Pages health (200), unauthenticated health (401), read-only database state, and all execution/notification/scheduler controls disabled.
+- Corrected the hosting guide section heading to describe manual pipeline execution rather than production scheduling.
+- Production remains uninitialized and undeployed. PR #195 remains open/draft/unmerged; no production workflow was dispatched.
+
+## 11. H0 schema-index conformance coverage — 2026-11-16
+
+- Extended `tests/test_turso_application_schema.py` to assert all six required production index names against the disposable H0 Turso database, in addition to the 20-table assertion.
+- Expanded the H3 remote conformance workflow path filters so a merge to `main` that changes the production initializer, schema test or relevant store/index constructors triggers disposable H0 conformance.
+- The H3 job remains isolated to the exact H0 disposable host and credentials; it must never target production.
+- This strengthens future post-merge verification. It does not constitute a new H3 run; the last recorded H3 evidence remains on the earlier core commit.

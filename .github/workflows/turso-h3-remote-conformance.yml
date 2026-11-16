@@ -2,9 +2,17 @@ name: Turso H3 pipeline and worker conformance
 
 on:
   push:
-    branches: [main]
+    branches: [main, work/hosting-integration-reconcile-20261115]
     paths:
       - ".github/workflows/turso-h3-remote-conformance.yml"
+      - "scripts/initialize_turso_database.py"
+      - "tests/test_turso_application_schema.py"
+      - "veltrix/ledger.py"
+      - "veltrix/orchestration.py"
+      - "veltrix/solana_meme/launch_stream.py"
+      - "veltrix/solana_meme/market_store.py"
+      - "veltrix/solana_meme/risk_store.py"
+      - "veltrix/solana_meme/consensus_store.py"
   workflow_dispatch:
 
 permissions:
@@ -19,10 +27,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out reviewed H1.1/H2/H3 integration commit
+      - name: Check out the exact commit that triggered remote conformance
         uses: actions/checkout@v4
         with:
-          ref: 021d3e6c01fc5a27dc8f5faeca2b6f9859b08ed5
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

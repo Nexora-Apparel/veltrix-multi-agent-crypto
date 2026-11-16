@@ -1,0 +1,38 @@
+name: Manual Solana intelligence pipeline (scheduler locked)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-solana-intelligence-pipeline
+  cancel-in-progress: false
+
+jobs:
+  one-shot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      VELTRIX_DEPLOYMENT_TARGET: ci
+      TELEGRAM_ENABLED: "false"
+      SCHEDULER_ENABLED: "false"
+      LIVE_TRADING: "false"
+      PAPER_TRADING_ENABLED: "false"
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+      HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+      GOPLUS_ACCESS_TOKEN: ${{ secrets.GOPLUS_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install application and pinned Turso adapter
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-turso.txt
+      - name: Run one bounded read-only Solana analysis attempt
+        run: python scripts/run_solana_pipeline.py

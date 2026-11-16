@@ -1,4 +1,5 @@
 import sqlite3
+import pytest
 
 from veltrix.providers.base import MarketEvent
 from veltrix.whales import WalletBuyEvent
@@ -11,6 +12,7 @@ from veltrix.solana_meme.market_data import SolanaMarketData
 from veltrix.solana_meme.market_store import MarketSnapshotStore
 from veltrix.solana_meme.risk_evidence import SolanaRiskEvidenceCollector
 from veltrix.solana_meme.risk_store import SolanaRiskEvidenceStore
+from veltrix.orchestration import LeaseBusy, OrchestrationStore, RunContext, run_once
 
 MINT = "So11111111111111111111111111111111111111112"
 WALLET_A = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -264,3 +266,44 @@ def test_consensus_worker_does_not_log_or_persist_wallet_provider_exception_text
         ).fetchone()[0]
     assert last_error == "RuntimeError"
     assert secret not in last_error
+
+def test_consensus_pipeline_fences_decision_and_job_state_in_one_transaction(tmp_path):
+    launches, _, _, store, worker, _ = setup_worker(tmp_path)
+    orchestration = OrchestrationStore(str(launches.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(context=context)
+        assert result.recorded == 1
+
+    result = run_once(
+        orchestration, idempotency_key="consensus-window-1",
+        job_type="consensus", payload={}, handler=handler,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert store.count(MINT) == 1
+    assert worker.status()["processing"] == 0
+    assert store.latest(MINT)["execution_authorized"] is False
+
+
+def test_consensus_worker_rejects_replaced_claim_after_wallet_provider_read(tmp_path):
+    launches, _, _, store, worker, _ = setup_worker(tmp_path)
+    context = RunContext(
+        "run-1", "key-1", 1, 100.0, 5, lambda: 1.0, 7, lambda: None,
+        owner_id="worker-a",
+        _assert_fence_in_transaction=lambda db: None,
+    )
+
+    def replace_claim(mints, now_ms):
+        with worker._connect() as db:
+            db.execute(
+                "UPDATE solana_consensus_jobs SET claim_fencing_token=8 WHERE mint=?",
+                (MINT,),
+            )
+        return ()
+
+    worker.wallet_event_batch_provider = replace_claim
+    with pytest.raises(LeaseBusy, match="row claim"):
+        worker.run_once(context=context)
+    assert store.count(MINT) == 0
+    assert worker.status()["processing"] == 1
