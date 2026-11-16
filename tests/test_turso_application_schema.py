@@ -115,6 +115,10 @@ def test_core_paper_pipeline_stores_initialize_on_turso(monkeypatch):
                 "idx_solana_market_mint_time",
                 "idx_solana_risk_mint_time",
                 "idx_solana_consensus_mint_time",
+                "idx_solana_enrichment_due",
+                "idx_solana_market_refresh_due",
+                "idx_solana_risk_evidence_due",
+                "idx_solana_consensus_due",
                 "idx_orchestration_jobs_due",
                 "idx_paper_decisions_token_time",
             }
