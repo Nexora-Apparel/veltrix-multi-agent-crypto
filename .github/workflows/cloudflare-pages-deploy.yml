@@ -63,11 +63,19 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects?per_page=100")"
           if ! printf '%s' "$projects" | jq -e --arg name "$PROJECT_NAME" '.result[]? | select(.name == $name)' >/dev/null; then
-            curl --fail --silent --show-error --request POST \
+            response_file="$(mktemp)"
+            http_status="$(curl --silent --show-error --output "$response_file" --write-out "%{http_code}" --request POST \
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json" \
-              --data "{\"name\":\"$PROJECT_NAME\",\"production_branch\":\"main\"}" >/dev/null
+              --data "{\"name\":\"$PROJECT_NAME\",\"production_branch\":\"main\"}")"
+            if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
+              echo "Cloudflare Pages project creation failed (HTTP $http_status)." >&2
+              jq -c '{success, errors, messages}' "$response_file" >&2 || cat "$response_file" >&2
+              rm -f "$response_file"
+              exit 1
+            fi
+            rm -f "$response_file"
           fi
       - name: Bind production-only dashboard secrets
         shell: bash
