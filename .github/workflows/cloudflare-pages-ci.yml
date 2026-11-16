@@ -67,7 +67,8 @@ jobs:
             sleep 1
           done
           grep -q "VELTRIX" /tmp/veltrix-index.html
-          curl --silent --fail http://127.0.0.1:8788/assets/dashboard.js | grep -q "api(\"/api/health\")"
+          curl --silent --fail http://127.0.0.1:8788/assets/dashboard.js -o /tmp/veltrix-dashboard.js
+          grep -q "api(\"/api/health\")" /tmp/veltrix-dashboard.js
           status=$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" http://127.0.0.1:8788/api/health)
           echo "Unauthenticated API status: $status"
           if [ "$status" != "401" ]; then
