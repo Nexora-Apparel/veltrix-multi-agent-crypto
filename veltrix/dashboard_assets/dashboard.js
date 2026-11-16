@@ -307,10 +307,12 @@
       const names = ["health", "overview", "positions", "trades", "decisions",
         "consensus", "markets", "equity curve", "costs"];
       const errors = [];
+      const failures = [];
       const value = (index) => {
         const result = results[index];
         if (result.status === "fulfilled") return result.value;
-        errors.push(names[index] + ": " + result.reason.message);
+        failures[index] = result.reason?.message || "request failed";
+        errors.push(names[index] + ": " + failures[index]);
         return null;
       };
       const health = value(0);
@@ -333,24 +335,24 @@
         $("exposure-pct").textContent = "Unavailable";
       }
       if (positions) renderPositions(positions);
-      else renderRows("positions-body", "positions-empty", [], () => {}, "Positions unavailable: " + errors.at(-1));
+      else renderRows("positions-body", "positions-empty", [], () => {}, "Positions unavailable: " + failures[2]);
       if (trades) renderTrades(trades);
-      else renderRows("trades-body", "trades-empty", [], () => {}, "Trade history unavailable: " + errors.at(-1));
+      else renderRows("trades-body", "trades-empty", [], () => {}, "Trade history unavailable: " + failures[3]);
       if (decisions) renderDecisions(decisions);
-      else renderRows("decisions-body", "decisions-empty", [], () => {}, "Decision history unavailable: " + errors.at(-1));
+      else renderRows("decisions-body", "decisions-empty", [], () => {}, "Decision history unavailable: " + failures[4]);
       if (consensus) renderConsensus(consensus);
-      else renderRows("consensus-body", "consensus-empty", [], () => {}, "Consensus history unavailable: " + errors.at(-1));
+      else renderRows("consensus-body", "consensus-empty", [], () => {}, "Consensus history unavailable: " + failures[5]);
       if (markets) {
         renderMarkets(markets);
         $("market-count").textContent = number(markets.length, 0);
       } else {
-        renderRows("markets-body", "markets-empty", [], () => {}, "Market snapshots unavailable: " + errors.at(-1));
+        renderRows("markets-body", "markets-empty", [], () => {}, "Market snapshots unavailable: " + failures[6]);
         $("market-count").textContent = "—";
       }
       if (curve) renderEquityCurve(curve);
       else {
         renderEquityCurve({ points: [] });
-        $("chart-empty").textContent = "Equity curve unavailable: " + errors.at(-1);
+        $("chart-empty").textContent = "Equity curve unavailable: " + failures[7];
       }
       if (costs) renderCosts(costs);
       else {
