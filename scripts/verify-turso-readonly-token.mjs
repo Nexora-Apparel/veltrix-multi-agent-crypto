@@ -15,26 +15,38 @@ if (parsed.protocol !== "libsql:" || !parsed.hostname.endsWith(".turso.io") ||
 }
 
 const client = createClient({ url, authToken });
-let transaction;
 try {
+  // A successful read is required before testing the token's write boundary.
+  // The production initializer must have created the account table first.
   await client.execute("SELECT 1 FROM account WHERE id = 1");
-  transaction = await client.transaction("write");
-  await transaction.execute({
-    sql: "UPDATE account SET cash = cash WHERE id = -1",
-  });
-  await transaction.rollback();
-  transaction = null;
-  throw new Error("Dashboard database token is write-capable; a read-only token is required");
-} catch (error) {
-  if (transaction) {
-    try { await transaction.rollback(); } catch { /* transaction may already be aborted */ }
+
+  let writeRejected = false;
+  let writeError = "";
+  let transaction;
+  try {
+    transaction = await client.transaction("write");
+    await transaction.execute({
+      sql: "UPDATE account SET cash = cash WHERE id = -1",
+    });
+    await transaction.rollback();
+    transaction = null;
+  } catch (error) {
+    writeError = String(error?.message || error);
+    if (transaction) {
+      try { await transaction.rollback(); } catch { /* transaction may already be aborted */ }
+    }
+    transaction = null;
+    if (/read.?only|permission|forbidden|not authorized|unauthorized/i.test(writeError)) {
+      writeRejected = true;
+    } else {
+      throw new Error(`Read-only probe write failed for a non-permission reason: ${writeError}`);
+    }
   }
-  const message = String(error?.message || error);
-  if (/read.?only|permission|forbidden|not authorized|unauthorized/i.test(message)) {
-    console.log("Verified: production dashboard token cannot perform a write statement.");
-  } else {
-    throw new Error("Could not verify the production dashboard token as read-only");
+
+  if (!writeRejected) {
+    throw new Error("Dashboard database token is write-capable; a read-only token is required");
   }
+  console.log("Verified: production dashboard token can read the account table and cannot perform a write.");
 } finally {
   await client.close();
 }
