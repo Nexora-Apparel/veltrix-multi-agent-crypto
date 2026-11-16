@@ -30,7 +30,7 @@ These are release invariants for every acceptance test and follow-up change:
 
 The canonical Pages source is `veltrix/dashboard_assets/index.html`, copied into `dist/index.html` by `scripts/build-pages.mjs`.
 
-The current page is a single analytics screen. It contains:
+At the audited baseline, the page was a single analytics screen. It contained:
 - Portfolio metrics and realized equity curve.
 - Open positions.
 - Trading costs.
@@ -46,7 +46,7 @@ There is no section navigation, chain selector, or distinct route/view for Solan
 
 ### 2. Agent status and data retrieval
 
-The Pages API currently allows only:
+At the audited baseline, the Pages API allowed only:
 - `/api/health`
 - `/api/overview`
 - `/api/positions`
@@ -65,17 +65,17 @@ The browser refresh requests all nine endpoints with `Promise.all`. If any reque
 
 ### 3. Solana, Base and BSC intelligence
 
-The Pages API's current market, risk, consensus and latest-update queries are Solana-specific. The production initializer defines and verifies 20 tables, including Solana discovery/enrichment/market/risk/consensus queues and the paper ledger. No dedicated Base or BSC intelligence tables are included in that production schema.
+At the audited baseline, the Pages API's market, risk, consensus and latest-update queries were Solana-specific. The production initializer defines and verifies 20 tables, including Solana discovery/enrichment/market/risk/consensus queues and the paper ledger. No dedicated Base or BSC intelligence tables are included in that production schema.
 
-The current dashboard therefore cannot truthfully render Base/BSC persisted intelligence from its existing API/schema. Repository-level Base research and qualification modules exist, but they are not wired into this Pages API contract. A corresponding BSC dashboard data contract was not found in the audited dashboard/schema paths.
+At that baseline, the dashboard could not truthfully render Base/BSC persisted intelligence from its API/schema. Repository-level Base research and qualification modules exist, but they are not wired into this Pages API contract. A corresponding BSC dashboard data contract was not found in the audited dashboard/schema paths.
 
 **Status:** Solana market/consensus view exists. Base and BSC dashboard views are not implemented. Do not fabricate empty chain health or sample market rows as live intelligence.
 
 ### 4. Database-backed history and diagnostics
 
-Current persisted history endpoints cover paper positions, trades, paper decisions, consensus decisions, market snapshots, equity curve, and modeled costs. Health reports database connectivity, read-only status, available table names, paper schema completeness, and live-execution false.
+At the audited baseline, persisted history endpoints covered paper positions, trades, paper decisions, consensus decisions, market snapshots, equity curve, and modeled costs. Health reports database connectivity, read-only status, available table names, paper schema completeness, and live-execution false.
 
-There is no dedicated diagnostics endpoint for provider connectivity, agent heartbeat, stale pipeline queues, last successful ingestion per chain, or API latency/error summaries.
+At the audited baseline, there was no dedicated diagnostics endpoint for provider connectivity, agent heartbeat, stale pipeline queues, last successful ingestion per chain, or API latency/error summaries.
 
 The API handler uses parameterized values for mint lookups, a strict route allowlist, GET-only enforcement, bearer authentication, and generic 503 errors that do not return database exception details.
 
