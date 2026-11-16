@@ -1,9 +1,9 @@
 # VELTRIX Multi-Agent Crypto — Project Progress Ledger
 
-**Last audited:** 2026-11-15 (UTC)  
+**Last audited:** 2026-11-16 (UTC)  
 **Repository:** `Nexora-Apparel/veltrix-multi-agent-crypto`  
 **Default branch:** `main`  
-**Audited main baseline:** `6158a5995c7f241a7c1ba56dc20161c3fd7e4fa2`  
+**Audited main baseline:** `604db7ea59db1f4a6839654ff80816d8c22e7a92`  
 **Document status:** Initial repository-wide baseline; update after every completed project task.
 
 > This ledger distinguishes merged implementation, unmerged branch work, automated test results, live/provider evidence, and release authorization. A green unit-test suite is not production acceptance. An open PR is not a completed stage.
@@ -396,3 +396,12 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 | 2026-11-15 | Consolidated hosting implementation PR | PR #195, `work/hosting-complete-20261115` head `fbb8c7056e66d5ddd6ca411b45c507f5b7d3b5c2` | Open draft, unmerged, mergeable. Consolidates reconciled H1.1/H2/H3, production schema initializer, manual pipeline runner, Cloudflare Pages Functions API and deployment workflow. Exact-head Python CI `43771654664`: 914 passed / 10 skipped. Exact-head Cloudflare CI `43771673368`: 10 passed / 0 failed. Remote disposable Turso conformance `43770940483`: 5 passed in 391.62s on reconciled core commit. No production DB or Cloudflare deployment yet. |
 | 2026-11-15 | Hosting deployment acceptance hardening and live-state audit | PR #195 branch `work/hosting-complete-20261115`; workflow change `474f45fc41206a49fd051dbccc20007c73901ad1` | Added production deployment assertions for unauthenticated `/api/health` returning 401, authenticated health `ok=true`, initialized paper ledger, read-only DB and disabled live execution. Exact workflow-code-head validation: Python CI `43772199490` passed 914 / skipped 10; Cloudflare Pages CI `43772195100` passed 10 / failed 0. Subsequent ledger-only head `c8068e144b2460213fa70830fa06a071ff4e366d` also passed Python CI `43772217822` (914 / 10) and Pages CI `43772222801` (10 / 0). Audit: `main` is `604db7ea59db1f4a6839654ff80816d8c22e7a92`; PR #22 remains draft and diverged (57 ahead / 65 behind); PR #193 is a one-commit documentation-only status correction; PR #194 is draft, 27 ahead / 0 behind; consolidated PR #195 was draft/mergeable at `3ebc356e41185a38c47bb76adc3f95c02ac33e1b` (118 ahead / 0 behind). At that exact head Python CI `43771732813` passed 914 / skipped 10; Cloudflare Pages CI `43771732839` passed 10 / failed 0. Remote Turso conformance `43770940483` passed 5 suites in 391.62s against disposable H0 at core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; the subsequent 40 commits add hosting/deployment/docs only and leave the tested Turso runtime files unchanged. No production Turso DB, Cloudflare deployment, active schedule or end-to-end production acceptance exists. Secret inventory remains not checked. |
 | 2026-11-15 | Final exact-head hosting CI confirmation | PR #195, pre-ledger code head `474f45fc41206a49fd051dbccc20007c73901ad1`; subsequent ledger head `c8068e144b2460213fa70830fa06a071ff4e366d` | Workflow-code head Python CI `43772199490`: 914 passed / 10 skipped; Cloudflare Pages CI `43772195100`: 10 passed / 0 failed. The subsequent documentation-only ledger head also passed Python CI `43772217822`: 914 passed / 10 skipped, and Cloudflare Pages CI `43772222801`: 10 passed / 0 failed. Production deployment and Turso initialization workflows have no observed runs. Runtime code unchanged after the workflow-code-head checks. |
+
+## 9. Hosting review continuation — 2026-11-16
+
+- Rechecked PR #195: open, draft, unmerged, mergeable; head `49172d1e0a7657b0fd7833714153850b75db8e8e`; base `main` at `604db7ea59db1f4a6839654ff80816d8c22e7a92`.
+- Exact-head pull-request CI remains green: Python CI run `43772337372` (914 passed / 10 skipped) and Cloudflare Pages CI run `43772337449` (10 passed / 0 failed).
+- Remote Turso H3 run `43770940483` remains successful (5 passed / 391.62s) on earlier core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; it is not an exact-final-head run.
+- Hosting documentation corrected to state manual-only pipeline execution, distinguish named index verification from table verification, and avoid implying automatic scheduling.
+- Production initializer strengthened to verify six required named indexes in addition to the expected table set. It still performs no migration/provider calls and leaves paper/live execution disabled.
+- These edits are on the hosting feature branch only. No production schema initialization, Cloudflare deployment, workflow dispatch, PR merge or execution activation was performed. Re-run exact-head CI after this commit before considering PR readiness.
