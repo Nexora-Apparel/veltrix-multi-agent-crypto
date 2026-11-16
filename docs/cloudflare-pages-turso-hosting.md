@@ -80,7 +80,7 @@ Optional `GOPLUS_ACCESS_TOKEN` can be added for the optional GoPlus evidence ada
 
 The Cloudflare deployment workflow copies the three dashboard secrets into the Pages **production** environment. Preview deployments receive no production credentials and fail closed.
 
-### Production initialization and scheduled execution
+### Production initialization and manual execution
 
 1. Add the GitHub Actions secrets above without posting their values in chat or committing them to the repository.
 2. Run `Initialize production Turso schema` manually from Actions. The script refuses the dedicated disposable conformance database, creates the application tables, creates an empty paper ledger account if absent, and verifies the expected tables and required named indexes. It does not run providers or activate paper trading.
