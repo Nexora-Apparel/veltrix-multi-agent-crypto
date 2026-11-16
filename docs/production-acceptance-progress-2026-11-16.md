@@ -56,3 +56,31 @@
 6. Verify deployed authenticated/unauthenticated health behavior and keep all execution/notification controls disabled.
 
 This progress record separates repository integration, disposable conformance, production schema setup, and Pages deployment. Passing one gate does not imply the next gate has passed.
+
+
+## Follow-up verification attempt — 2026-11-16
+
+### Workflow contract review
+
+- Production initializer reads `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from GitHub Actions secrets and explicitly sets Telegram, scheduler, live trading and paper trading to false.
+- The initializer validates a credential-free production `libsql://*.turso.io` URL, refuses the disposable H0 conformance host, creates/verifies the application schema, and reports `SCHEMA_READY`, 20 expected tables and 6 expected indexes. It does not migrate SQLite history or call market providers.
+- Pages deployment requires non-empty `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TURSO_DATABASE_URL`, `TURSO_READONLY_AUTH_TOKEN`, and `DASHBOARD_API_TOKEN`; it also checks dashboard token length is at least 32 characters.
+- Pages workflow runs `scripts/verify-turso-readonly-token.mjs` before deployment. That script first reads the production `account` table, then attempts a no-op write in a transaction and requires the write to be rejected as read-only.
+- After deployment, the workflow checks public unauthenticated `/api/health` returns 401, authenticated health returns 200, the database is connected and read-only, the paper ledger is initialized, no paper tables are missing, and live execution is false.
+- The Pages workflow binds `TURSO_READONLY_AUTH_TOKEN` into the Pages runtime secret named `TURSO_AUTH_TOKEN`; the separate worker/initializer `TURSO_AUTH_TOKEN` remains the production read-write credential.
+
+### Execution status and blockers
+
+- The GitHub integration does not expose repository Actions secret read/write APIs or a workflow-dispatch action. Secret values cannot be read back from GitHub; presence and validity must be established by running the workflows, without printing values.
+- User reports all three Cloudflare/dashboard values have been generated. This does not establish that they have been saved under the exact secret names.
+- No production credential probe was run in this session. Production read-write and read-only credentials therefore remain unverified.
+- Production initializer was not dispatched; 20-table/6-index production verification has not occurred.
+- Pages deployment was not rerun; no deployed endpoint authentication/database test has occurred.
+- Manual operator dispatch remains required through GitHub Actions UI because no dispatch action is available to this integration.
+
+### Exact remaining operator sequence
+
+1. Confirm repository Actions secrets exist with exact names: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `DASHBOARD_API_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TURSO_READONLY_AUTH_TOKEN`. Never disclose values in logs or chat.
+2. In Actions, manually run **Initialize production Turso schema**. Require successful output with `SCHEMA_READY`, `tables_verified: 20`, `indexes_verified: 6`, and paper/live execution false. This run also tests the production RW URL/token pair.
+3. Only after initializer success, manually run **Deploy VELTRIX Cloudflare Pages**. Its pre-deploy read-only-token probe verifies the production RO token; its post-deploy checks verify auth boundary and read-only database health.
+4. Record both run URLs, exact commit SHAs, and final conclusions here. Do not enable Telegram, scheduler, paper trading, live trading, signing or broadcast.
