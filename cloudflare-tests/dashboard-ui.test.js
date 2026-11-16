@@ -52,3 +52,14 @@ test("dashboard contains no execution, signing, transaction submission or schedu
   assert.doesNotMatch(html, /<button[^>]*(trade|execute|sign|submit|broadcast|schedule)/i);
   assert.doesNotMatch(html, /name=["'](private_key|seed_phrase|wallet_secret)["']/i);
 });
+
+test("dashboard isolates failed data sections and keeps successful sections renderable", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(js, /Promise\.allSettled\(/);
+  assert.match(js, /const failures = \[\]/);
+  assert.match(js, /Positions unavailable:/);
+  assert.match(js, /Trade history unavailable:/);
+  assert.match(js, /Decision history unavailable:/);
+  assert.match(js, /Market snapshots unavailable:/);
+  assert.match(js, /Partial dashboard data/);
+});
