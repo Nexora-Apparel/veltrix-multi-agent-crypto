@@ -185,3 +185,25 @@ The Pages CI validates the API/UI tests, static bundle build and local Pages smo
 6. Keep scheduler, paper trading, live execution, signing, transaction submission and broadcast disabled.
 
 The audit remains a record of verified implementation and explicit remaining gates, not a declaration that full production functional acceptance has passed.
+
+
+## Additional follow-up implementation — 2026-11-16
+
+Two further changes have been merged after the updates above:
+
+- [PR #205](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/205), merge commit `25be6a3995931be6cd3ec8dfa132f9eb135e00d2`: Diagnostics now renders the latest persisted market, risk, consensus and paper-decision timestamps plus pipeline record counts from the existing `/api/overview` response. Agent heartbeat and provider connectivity remain explicitly unavailable; historical consensus timestamps are not represented as live agent health.
+- [PR #206](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/206), merge commit `03fb329edcf077fb91be61cd7934adce0a2174c3`: dashboard refresh now uses `Promise.allSettled` so a failed endpoint no longer suppresses successful sections. Failed sections show their own error state while health status remains separate.
+
+### Additional CI evidence
+
+- PR #205 dashboard CI [43950004730](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43950004730): success.
+- PR #205 Python CI [43950004052](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43950004052): success.
+- PR #206 dashboard CI [43950380060](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43950380060): success.
+- PR #206 Python CI [43950380049](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43950380049): success.
+
+### Current mainline checkpoint
+
+- Main SHA after PR #206: `03fb329edcf077fb91be61cd7934adce0a2174c3`.
+- Dashboard navigation, multi-chain market-history API, persisted pipeline diagnostics, and partial endpoint-failure isolation are merged and CI-verified.
+- Production deployment of this latest mainline SHA has not been independently verified in this environment. DNS resolution for the Cloudflare Pages host failed from the available runtime; do not infer deployment success from merge or CI alone.
+- Real-device mobile acceptance, actual production Base/BSC event population, live agent heartbeat and provider connectivity remain open acceptance gates.
