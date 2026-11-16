@@ -13,6 +13,7 @@
     ? value.slice(0, 8) + "…" + value.slice(-7) : (value || "—");
   const signed = (value) => (Number(value) > 0 ? "+" : "") + money(value);
   let refreshing = false;
+  const chainRequests = new Map();
 
   const pageMeta = {
     overview: ["System overview", "Shared ledger, portfolio state and recent intelligence activity."],
@@ -35,6 +36,7 @@
     $("page-title").textContent = pageMeta[selected][0];
     $("page-description").textContent = pageMeta[selected][1];
     if (location.hash !== "#" + selected) history.replaceState(null, "", "#" + selected);
+    if (selected === "base" || selected === "bsc") loadChainMarkets(selected);
   }
 
   function renderDiagnostics(health) {
@@ -179,6 +181,49 @@
     }, "No market snapshots available.");
   }
 
+
+  function renderChainMarkets(chain, data) {
+    const observations = Array.isArray(data.observations) ? data.observations : [];
+    const status = $(chain + "-data-status");
+    if (!data.available) {
+      status.textContent = "Generic events ledger is not available in this database.";
+      renderRows(chain + "-markets-body", chain + "-markets-empty", [],
+        () => {}, "The persisted events table is not initialized.");
+      return;
+    }
+    status.textContent = "Read-only events ledger available · " +
+      number(data.observation_count, 0) + " persisted " + chain.toUpperCase() + " observations";
+    renderRows(chain + "-markets-body", chain + "-markets-empty", observations, (row, item) => {
+      textCell(row, (item.symbol ? item.symbol + " · " : "") + short(item.token));
+      textCell(row, number(item.price_usd, 10));
+      textCell(row, money(item.liquidity_usd));
+      textCell(row, money(item.volume_h1_usd));
+      textCell(row, item.price_change_m5_pct === null ? "—" :
+        number(item.price_change_m5_pct) + "%",
+        Number(item.price_change_m5_pct) >= 0 ? "positive" : "negative");
+      textCell(row, item.source);
+      textCell(row, date(item.observed_at));
+    }, "No persisted " + chain.toUpperCase() + " market observations have been recorded.");
+  }
+
+  async function loadChainMarkets(chain) {
+    if (chainRequests.has(chain)) return chainRequests.get(chain);
+    const task = (async () => {
+      const status = $(chain + "-data-status");
+      status.textContent = "Loading persisted " + chain.toUpperCase() + " observations...";
+      try {
+        const data = await api("/api/chain-markets?chain=" + encodeURIComponent(chain));
+        renderChainMarkets(chain, data);
+      } catch (error) {
+        status.textContent = "Chain market history query failed.";
+        renderRows(chain + "-markets-body", chain + "-markets-empty", [],
+          () => {}, error.message);
+      }
+    })();
+    chainRequests.set(chain, task);
+    try { await task; } finally { chainRequests.delete(chain); }
+  }
+
   function renderEquityCurve(data) {
     const svg = $("equity-chart");
     svg.replaceChildren();
@@ -285,7 +330,11 @@
   window.addEventListener("hashchange", () => setPage(location.hash.slice(1)));
   setPage(location.hash.slice(1) || "overview");
 
-  $("refresh").addEventListener("click", refresh);
+  $("refresh").addEventListener("click", () => {
+    refresh();
+    const selected = location.hash.slice(1);
+    if (selected === "base" || selected === "bsc") loadChainMarkets(selected);
+  });
   $("save-token").addEventListener("click", () => {
     const value = $("api-token").value.trim();
     if (value) sessionStorage.setItem(tokenKey, value);
