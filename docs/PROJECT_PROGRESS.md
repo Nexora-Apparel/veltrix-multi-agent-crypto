@@ -405,3 +405,11 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - Hosting documentation corrected to state manual-only pipeline execution, distinguish named index verification from table verification, and avoid implying automatic scheduling.
 - Production initializer strengthened to verify six required named indexes in addition to the expected table set. It still performs no migration/provider calls and leaves paper/live execution disabled.
 - These edits are on the hosting feature branch only. No production schema initialization, Cloudflare deployment, workflow dispatch, PR merge or execution activation was performed. Re-run exact-head CI after this commit before considering PR readiness. Current head and CI state are tracked from live PR #195 metadata; this ledger entry is a historical checkpoint.
+
+## 10. Production acceptance runbook — 2026-11-16
+
+- Added `docs/production-acceptance-runbook.md` with gated acceptance for repository integration, credential roles, Turso preflight, schema initialization, Pages deployment, optional bounded pipeline verification, recovery and release evidence.
+- Explicitly distinguishes schema initialization from SQLite migration; the initializer creates schema and an initial account row only and does not migrate historical data.
+- Runbook requires 20 expected tables and 6 named indexes, authenticated Pages health (200), unauthenticated health (401), read-only database state, and all execution/notification/scheduler controls disabled.
+- Corrected the hosting guide section heading to describe manual pipeline execution rather than production scheduling.
+- Production remains uninitialized and undeployed. PR #195 remains open/draft/unmerged; no production workflow was dispatched.
