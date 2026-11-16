@@ -39,7 +39,7 @@
     if (selected === "base" || selected === "bsc") loadChainMarkets(selected);
   }
 
-  function renderDiagnostics(health) {
+  function renderDiagnostics(health, overview) {
     $("diag-database").textContent = health.database || "UNKNOWN";
     $("diag-readonly").textContent = health.database_read_only === true ? "READ-ONLY" :
       health.database_read_only === false ? "WRITE ACCESS REPORTED" : "UNKNOWN";
@@ -48,6 +48,14 @@
     $("diag-live").textContent = health.live_execution === false ? "DISABLED" :
       health.live_execution === true ? "ENABLED — INVESTIGATE" : "UNKNOWN";
     $("diag-missing").textContent = (health.missing_paper_tables || []).join(", ") || "None reported";
+    const latest = overview.latest_updates || {};
+    $("diag-last-market").textContent = date(latest.market);
+    $("diag-last-risk").textContent = date(latest.risk);
+    $("diag-last-consensus").textContent = date(latest.consensus);
+    $("diag-last-paper").textContent = date(latest.paper);
+    const pipeline = overview.pipeline || {};
+    $("diag-pipeline").textContent = Object.entries(pipeline)
+      .map(([key, value]) => key + ": " + number(value, 0)).join(" · ") || "No counts returned";
   }
 
 
@@ -311,7 +319,7 @@
       $("health-detail").textContent = "Live execution: " +
         (health.live_execution === false ? "disabled" : "state unverified") +
         " · Missing paper tables: " + ((health.missing_paper_tables || []).join(", ") || "none");
-      renderDiagnostics(health);
+      renderDiagnostics(health, overview);
       $("market-count").textContent = number(markets.length, 0);
       $("last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
     } catch (error) {
