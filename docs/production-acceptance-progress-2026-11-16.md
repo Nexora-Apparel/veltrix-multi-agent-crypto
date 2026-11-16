@@ -24,7 +24,7 @@
 
 - Workflow: `.github/workflows/turso-production-init.yml` (manual `workflow_dispatch` only).
 - Production schema initialization: not run.
-- The initializer creates/verifies the empty production schema (20 expected tables and 6 named indexes); it does not migrate SQLite history, call market providers, or enable paper/live execution.
+- The initializer creates/verifies the empty production schema (20 expected tables and 10 named indexes); it does not migrate SQLite history, call market providers, or enable paper/live execution.
 - Dispatch is an authenticated write operation. The available GitHub connection in this session supports repository/workflow reads but does not expose a workflow-dispatch action. Manual dispatch through GitHub Actions UI is therefore a logged operator step.
 
 ## Cloudflare Pages deployment
@@ -50,7 +50,7 @@
 
 1. H0 run `43919309094` is complete and passed on exact merge commit `6c2296bab7f5810b188476e4b3aa3164bc0fb0bf`.
 2. Confirm the three reported deployment values are saved under the exact GitHub Actions secret/variable names and validate the production endpoint plus RW/RO token roles.
-3. Manually dispatch the production initializer from GitHub Actions after the production credential/role checks. Capture the run URL and verify `SCHEMA_READY`, 20 tables, 6 indexes, and all disabled-execution flags.
+3. Manually dispatch the production initializer from GitHub Actions after the production credential/role checks. Capture the run URL and verify `SCHEMA_READY`, 20 tables, 10 indexes, and all disabled-execution flags.
 4. Verify the separate production read-only token against the same Turso database; do not use the RW token for Pages.
 5. Rerun the Pages deployment workflow only after the schema and read-only-token gates pass; inspect preflight, build, deployment and post-deployment health checks.
 6. Verify deployed authenticated/unauthenticated health behavior and keep all execution/notification controls disabled.
@@ -81,6 +81,45 @@ This progress record separates repository integration, disposable conformance, p
 ### Exact remaining operator sequence
 
 1. Confirm repository Actions secrets exist with exact names: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `DASHBOARD_API_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `TURSO_READONLY_AUTH_TOKEN`. Never disclose values in logs or chat.
-2. In Actions, manually run **Initialize production Turso schema**. Require successful output with `SCHEMA_READY`, `tables_verified: 20`, `indexes_verified: 6`, and paper/live execution false. This run also tests the production RW URL/token pair.
+2. In Actions, manually run **Initialize production Turso schema**. Require successful output with `SCHEMA_READY`, `tables_verified: 20`, `indexes_verified: 10`, and paper/live execution false. This run also tests the production RW URL/token pair.
 3. Only after initializer success, manually run **Deploy VELTRIX Cloudflare Pages**. Its pre-deploy read-only-token probe verifies the production RO token; its post-deploy checks verify auth boundary and read-only database health.
 4. Record both run URLs, exact commit SHAs, and final conclusions here. Do not enable Telegram, scheduler, paper trading, live trading, signing or broadcast.
+
+
+## Schema initializer correction — 2026-11-16
+
+### Root cause
+
+- Production initializer workflow run [43934711033](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43934711033) first failed with HTTP 401 because the configured production token could not access the configured database.
+- After the production RW token was replaced, the next attempt authenticated successfully but failed schema verification because four durable worker queue tables had not been initialized:
+  - `solana_enrichment_jobs`
+  - `solana_market_refresh_jobs`
+  - `solana_risk_evidence_jobs`
+  - `solana_consensus_jobs`
+- The four tables are owned by the existing enrichment, market-refresh, risk-evidence and consensus worker schema initializers. The production initializer previously initialized the base stores but did not invoke those schema owners.
+
+### Correction merged
+
+- PR [#197](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/197): merged.
+- Merge commit: `89ec6003c14e90d53dcbbccb1570dfc37220b8f6`.
+- Changed:
+  - Invoke the four existing worker constructors in schema-initialization-only mode, with inert provider/collector placeholders.
+  - Do not call worker run/process methods.
+  - Expand production index verification from 6 to 10, including the four worker queue indexes.
+  - Extend disposable Turso conformance assertions to require all 10 indexes.
+- Production acceptance target remains 20 tables and is now 10 named indexes.
+- Runtime safety controls remain unchanged: scheduler, paper trading and live execution remain disabled.
+
+### Verification on merged commit
+
+- Python CI: [run 43938465850](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43938465850) — passed.
+- CI result: 914 passed, 10 skipped; Python compileall passed. Provider smoke checks were skipped.
+- Automatic H0 remote conformance: [run 43938465886](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/43938465886) — status was in progress when this record was prepared. It checks the exact merged commit and includes remote schema, worker and pipeline conformance.
+- Production initializer has not yet been rerun against the production database. The schema is not yet certified ready.
+- Cloudflare Pages deployment remains blocked pending successful production initialization and the separate read-only-token verification.
+
+### Next acceptance action
+
+- Manually dispatch [Initialize production Turso schema](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/workflows/turso-production-init.yml) from GitHub Actions on the merged `main` commit.
+- Require output `SCHEMA_READY`, `tables_verified: 20`, `indexes_verified: 10`, `paper_ledger_initialized: true`, `paper_trading_enabled: false`, and `live_execution_enabled: false`.
+- Only then proceed to the Pages read-only-token preflight and deployment workflow.
