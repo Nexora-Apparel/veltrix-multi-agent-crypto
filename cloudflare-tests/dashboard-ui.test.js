@@ -13,12 +13,15 @@ test("dashboard exposes all required navigation routes and matching page views",
   }
 });
 
-test("Base and BSC views fail visibly closed when dashboard data contracts are absent", async () => {
+test("Base and BSC views render only persisted chain-specific market history", async () => {
   const html = await readFile(new URL("index.html", root), "utf8");
-  assert.match(html, /Base intelligence connectors and research components exist/);
-  assert.match(html, /BSC intelligence components exist in parts of the repository/);
-  assert.match(html, /NOT CONNECTED TO DASHBOARD/);
-  assert.match(html, /No synthetic market rows, agent health, or chain-readiness claims are displayed/);
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(html, /Persisted Base observations/);
+  assert.match(html, /Persisted BSC observations/);
+  assert.match(html, /id="base-markets-body"/);
+  assert.match(html, /id="bsc-markets-body"/);
+  assert.match(js, /api\("\/api\/chain-markets\?chain="/);
+  assert.match(js, /No persisted /);
 });
 
 test("diagnostics distinguish API health fields from unavailable agent and provider telemetry", async () => {

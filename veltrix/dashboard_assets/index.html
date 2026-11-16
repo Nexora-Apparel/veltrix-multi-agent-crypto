@@ -85,22 +85,18 @@
     </section>
 
     <section class="page-view" data-page="base" hidden>
-      <section class="chain-state">
-        <p class="eyebrow">BASE / CHAIN INTELLIGENCE</p>
-        <h2>Dashboard integration unavailable</h2>
-        <p>Base intelligence connectors and research components exist in the repository, but the production Pages API does not currently expose a Base-specific persisted market or agent-status contract.</p>
-        <span class="state-label">NOT CONNECTED TO DASHBOARD</span>
-        <p class="footnote">No synthetic market rows, agent health, or chain-readiness claims are displayed.</p>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">BASE / MARKET HISTORY</p><h2>Persisted Base observations</h2><p class="panel-note" id="base-data-status">Waiting for read-only ledger query.</p></div><span class="count-pill">Base</span></div>
+        <div class="table-scroll"><table><thead><tr><th>Token</th><th>Price</th><th>Liquidity</th><th>1h volume</th><th>5m change</th><th>Source</th><th>Observed</th></tr></thead><tbody id="base-markets-body"></tbody></table></div>
+        <div id="base-markets-empty" class="empty-state">No persisted Base market observations have been recorded.</div>
       </section>
     </section>
 
     <section class="page-view" data-page="bsc" hidden>
-      <section class="chain-state">
-        <p class="eyebrow">BNB SMART CHAIN / CHAIN INTELLIGENCE</p>
-        <h2>Dashboard integration unavailable</h2>
-        <p>BSC intelligence components exist in parts of the repository, but the production Pages API does not currently expose a BSC-specific persisted market or agent-status contract.</p>
-        <span class="state-label">NOT CONNECTED TO DASHBOARD</span>
-        <p class="footnote">No synthetic market rows, agent health, or chain-readiness claims are displayed.</p>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">BNB SMART CHAIN / MARKET HISTORY</p><h2>Persisted BSC observations</h2><p class="panel-note" id="bsc-data-status">Waiting for read-only ledger query.</p></div><span class="count-pill">BSC</span></div>
+        <div class="table-scroll"><table><thead><tr><th>Token</th><th>Price</th><th>Liquidity</th><th>1h volume</th><th>5m change</th><th>Source</th><th>Observed</th></tr></thead><tbody id="bsc-markets-body"></tbody></table></div>
+        <div id="bsc-markets-empty" class="empty-state">No persisted BSC market observations have been recorded.</div>
       </section>
     </section>
 
