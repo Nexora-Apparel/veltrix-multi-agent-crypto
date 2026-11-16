@@ -4,33 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>VELTRIX — Paper Trading Intelligence</title>
+  <title>VELTRIX — Multi-Agent Crypto Intelligence</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script defer src="/assets/dashboard.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="VELTRIX dashboard home">
+    <a class="brand" href="#overview" aria-label="VELTRIX dashboard home">
       <span class="brand-mark">V</span>
       <span><strong>VELTRIX</strong><small>CRYPTO INTELLIGENCE</small></span>
     </a>
     <div class="top-actions">
-      <span class="mode-pill"><i></i> SIMULATION ONLY</span>
+      <span class="mode-pill"><i></i> SIMULATION ONLY · READ-ONLY</span>
       <button id="refresh" class="button button-quiet" type="button">Refresh</button>
     </div>
   </header>
 
   <main class="shell">
+    <nav class="primary-nav" aria-label="Dashboard sections">
+      <a href="#overview" data-route="overview" aria-current="page">Overview</a>
+      <a href="#solana" data-route="solana">Solana</a>
+      <a href="#base" data-route="base">Base</a>
+      <a href="#bsc" data-route="bsc">BSC</a>
+      <a href="#history" data-route="history">History</a>
+      <a href="#diagnostics" data-route="diagnostics">Diagnostics</a>
+    </nav>
+
     <section class="page-heading">
       <div>
-        <p class="eyebrow">PHASE 08 / ANALYTICS</p>
-        <h1>Paper trading overview</h1>
-        <p class="subheading">Consensus-driven virtual positions, execution costs and evidence freshness.</p>
+        <p class="eyebrow">MULTI-AGENT / READ-ONLY ANALYTICS</p>
+        <h1 id="page-title">System overview</h1>
+        <p class="subheading" id="page-description">Shared ledger, portfolio state and recent intelligence activity.</p>
       </div>
-      <div class="updated">
-        <span class="live-dot"></span>
-        <span id="last-updated">Waiting for database</span>
-      </div>
+      <div class="updated"><span class="live-dot"></span><span id="last-updated">Waiting for database</span></div>
     </section>
 
     <section class="status-strip" aria-live="polite">
@@ -38,63 +44,98 @@
       <p id="health-detail">Read-only data access · No order controls</p>
     </section>
 
-    <section class="metrics-grid" id="metrics">
-      <article class="metric-card"><span>Portfolio equity</span><strong id="equity">$—</strong><small id="return">— total return</small></article>
-      <article class="metric-card"><span>Available cash</span><strong id="cash">$—</strong><small>Virtual account balance</small></article>
-      <article class="metric-card"><span>Realized P&amp;L</span><strong id="realized">$—</strong><small id="closed-fills">— exit fills</small></article>
-      <article class="metric-card"><span>Unrealized P&amp;L</span><strong id="unrealized">$—</strong><small>Fresh marks only where available</small></article>
-      <article class="metric-card"><span>Open positions</span><strong id="open-count">—</strong><small id="stale-count">— stale / unmarked</small></article>
-      <article class="metric-card"><span>Portfolio exposure</span><strong id="exposure">$—</strong><small id="exposure-pct">— of starting balance</small></article>
+    <section class="page-view" data-page="overview">
+      <section class="metrics-grid" id="metrics">
+        <article class="metric-card"><span>Portfolio equity</span><strong id="equity">$—</strong><small id="return">— total return</small></article>
+        <article class="metric-card"><span>Available cash</span><strong id="cash">$—</strong><small>Virtual account balance</small></article>
+        <article class="metric-card"><span>Realized P&amp;L</span><strong id="realized">$—</strong><small id="closed-fills">— exit fills</small></article>
+        <article class="metric-card"><span>Unrealized P&amp;L</span><strong id="unrealized">$—</strong><small>Fresh marks only where available</small></article>
+        <article class="metric-card"><span>Open positions</span><strong id="open-count">—</strong><small id="stale-count">— stale / unmarked</small></article>
+        <article class="metric-card"><span>Portfolio exposure</span><strong id="exposure">$—</strong><small id="exposure-pct">— of starting balance</small></article>
+      </section>
+      <section class="panel chart-panel">
+        <div class="panel-heading"><div><p class="eyebrow">PERFORMANCE</p><h2>Realized equity curve</h2><p class="panel-note">Starting balance plus settled exit-fill P&amp;L. Open-position value is excluded.</p></div><span class="legend"><i></i> Realized equity</span></div>
+        <div class="chart-wrap"><svg id="equity-chart" viewBox="0 0 900 240" role="img" aria-label="Realized equity curve"></svg></div>
+        <div id="chart-empty" class="empty-state">No settled paper exits recorded yet.</div>
+      </section>
+      <section class="content-grid">
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">LEDGER</p><h2>Open positions</h2></div><span class="count-pill" id="position-count">0</span></div>
+          <div class="table-scroll"><table><thead><tr><th>Token</th><th>Entry</th><th>Mark</th><th>Value</th><th>Unrealized</th><th>Mark age</th></tr></thead><tbody id="positions-body"></tbody></table></div>
+          <div id="positions-empty" class="empty-state">No open paper positions.</div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">EXECUTION QUALITY</p><h2>Trading costs</h2></div><span class="count-pill">USD</span></div>
+          <div class="cost-total"><span>Total modeled costs</span><strong id="total-costs">$—</strong></div>
+          <div class="cost-row"><span>Fees</span><strong id="fees">$—</strong></div>
+          <div class="cost-row"><span>Slippage</span><strong id="slippage">$—</strong></div>
+          <div class="cost-bars"><div><span>Entry</span><i id="entry-cost-bar"></i><b id="entry-cost">$—</b></div><div><span>Exit</span><i id="exit-cost-bar"></i><b id="exit-cost">$—</b></div></div>
+          <p class="footnote">Fee and slippage values are configured simulation assumptions, not observed exchange fills.</p>
+        </article>
+      </section>
     </section>
 
-    <section class="panel chart-panel">
-      <div class="panel-heading">
-        <div><p class="eyebrow">PERFORMANCE</p><h2>Realized equity curve</h2><p class="panel-note">Starting balance plus settled exit-fill P&amp;L. Open-position value is excluded.</p></div>
-        <span class="legend"><i></i> Realized equity</span>
-      </div>
-      <div class="chart-wrap"><svg id="equity-chart" viewBox="0 0 900 240" role="img" aria-label="Realized equity curve"></svg></div>
-      <div id="chart-empty" class="empty-state">No settled paper exits recorded yet.</div>
+    <section class="page-view" data-page="solana" hidden>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">SOLANA / MARKET INTELLIGENCE</p><h2>Latest Solana snapshots</h2><p class="panel-note">Persisted market observations returned by the read-only dashboard API.</p></div><span class="count-pill" id="market-count">0</span></div>
+        <div class="table-scroll"><table><thead><tr><th>Token</th><th>Price</th><th>Liquidity</th><th>1h volume</th><th>5m change</th><th>Quality</th><th>Updated</th></tr></thead><tbody id="markets-body"></tbody></table></div>
+        <div id="markets-empty" class="empty-state">No Solana market snapshots available.</div>
+      </section>
+      <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOLANA / COVERAGE</p><h2>Data interpretation</h2></div></div><p class="panel-note">This view shows only persisted snapshots supplied by the dashboard API. A missing row means no snapshot was returned; it is not evidence that the chain or its providers are healthy.</p></section>
     </section>
 
-    <section class="content-grid">
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">LIVE LEDGER</p><h2>Open positions</h2></div><span class="count-pill" id="position-count">0</span></div>
-        <div class="table-scroll"><table><thead><tr><th>Token</th><th>Entry</th><th>Mark</th><th>Value</th><th>Unrealized</th><th>Mark age</th></tr></thead><tbody id="positions-body"></tbody></table></div>
-        <div id="positions-empty" class="empty-state">No open paper positions.</div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">EXECUTION QUALITY</p><h2>Trading costs</h2></div><span class="count-pill">USD</span></div>
-        <div class="cost-total"><span>Total modeled costs</span><strong id="total-costs">$—</strong></div>
-        <div class="cost-row"><span>Fees</span><strong id="fees">$—</strong></div>
-        <div class="cost-row"><span>Slippage</span><strong id="slippage">$—</strong></div>
-        <div class="cost-bars"><div><span>Entry</span><i id="entry-cost-bar"></i><b id="entry-cost">$—</b></div><div><span>Exit</span><i id="exit-cost-bar"></i><b id="exit-cost">$—</b></div></div>
-        <p class="footnote">Fee and slippage values are configured simulation assumptions, not observed exchange fills.</p>
-      </article>
+    <section class="page-view" data-page="base" hidden>
+      <section class="chain-state">
+        <p class="eyebrow">BASE / CHAIN INTELLIGENCE</p>
+        <h2>Dashboard integration unavailable</h2>
+        <p>Base intelligence connectors and research components exist in the repository, but the production Pages API does not currently expose a Base-specific persisted market or agent-status contract.</p>
+        <span class="state-label">NOT CONNECTED TO DASHBOARD</span>
+        <p class="footnote">No synthetic market rows, agent health, or chain-readiness claims are displayed.</p>
+      </section>
     </section>
 
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">DECISION AUDIT</p><h2>Paper execution decisions</h2><p class="panel-note">Why a consensus decision opened, skipped or blocked a virtual position.</p></div></div>
-      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Consensus</th><th>Paper outcome</th><th>Notional</th><th>Reason</th></tr></thead><tbody id="decisions-body"></tbody></table></div>
-      <div id="decisions-empty" class="empty-state">No paper decisions recorded.</div>
+    <section class="page-view" data-page="bsc" hidden>
+      <section class="chain-state">
+        <p class="eyebrow">BNB SMART CHAIN / CHAIN INTELLIGENCE</p>
+        <h2>Dashboard integration unavailable</h2>
+        <p>BSC intelligence components exist in parts of the repository, but the production Pages API does not currently expose a BSC-specific persisted market or agent-status contract.</p>
+        <span class="state-label">NOT CONNECTED TO DASHBOARD</span>
+        <p class="footnote">No synthetic market rows, agent health, or chain-readiness claims are displayed.</p>
+      </section>
     </section>
 
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">MULTI-AGENT</p><h2>Consensus activity</h2><p class="panel-note">Latest persisted Scout, Whale, Sniper and Shield dispositions.</p></div></div>
-      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Disposition</th><th>Support</th><th>Paper review</th><th>Reason</th></tr></thead><tbody id="consensus-body"></tbody></table></div>
-      <div id="consensus-empty" class="empty-state">No consensus decisions recorded.</div>
+    <section class="page-view" data-page="history" hidden>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">DECISION AUDIT</p><h2>Paper execution decisions</h2><p class="panel-note">Why a consensus decision opened, skipped or blocked a virtual position.</p></div></div>
+        <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Consensus</th><th>Paper outcome</th><th>Notional</th><th>Reason</th></tr></thead><tbody id="decisions-body"></tbody></table></div>
+        <div id="decisions-empty" class="empty-state">No paper decisions recorded.</div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">MULTI-AGENT</p><h2>Consensus activity</h2><p class="panel-note">Latest persisted Scout, Whale, Sniper and Shield dispositions.</p></div></div>
+        <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Disposition</th><th>Support</th><th>Paper review</th><th>Reason</th></tr></thead><tbody id="consensus-body"></tbody></table></div>
+        <div id="consensus-empty" class="empty-state">No consensus decisions recorded.</div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">LEDGER HISTORY</p><h2>Recent fills</h2></div><span class="count-pill">Last 100</span></div>
+        <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Fill price</th><th>Notional</th><th>Realized P&amp;L</th><th>Fee</th><th>Slippage</th></tr></thead><tbody id="trades-body"></tbody></table></div>
+        <div id="trades-empty" class="empty-state">No paper fills recorded.</div>
+      </section>
     </section>
 
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">MARKET INTELLIGENCE</p><h2>Latest Solana snapshots</h2></div><span class="count-pill" id="market-count">0</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Token</th><th>Price</th><th>Liquidity</th><th>1h volume</th><th>5m change</th><th>Quality</th><th>Updated</th></tr></thead><tbody id="markets-body"></tbody></table></div>
-      <div id="markets-empty" class="empty-state">No market snapshots available.</div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">LEDGER HISTORY</p><h2>Recent fills</h2></div><span class="count-pill">Last 100</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Fill price</th><th>Notional</th><th>Realized P&amp;L</th><th>Fee</th><th>Slippage</th></tr></thead><tbody id="trades-body"></tbody></table></div>
-      <div id="trades-empty" class="empty-state">No paper fills recorded.</div>
+    <section class="page-view" data-page="diagnostics" hidden>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">SYSTEM / DIAGNOSTICS</p><h2>Verified dashboard health</h2><p class="panel-note">Fields below come from the authenticated read-only health endpoint.</p></div></div>
+        <dl class="diagnostic-list">
+          <div><dt>Database connection</dt><dd id="diag-database">Not checked</dd></div>
+          <div><dt>Database access mode</dt><dd id="diag-readonly">Not checked</dd></div>
+          <div><dt>Paper ledger schema</dt><dd id="diag-paper">Not checked</dd></div>
+          <div><dt>Live execution</dt><dd id="diag-live">Not checked</dd></div>
+          <div><dt>Missing paper tables</dt><dd id="diag-missing">Not checked</dd></div>
+          <div><dt>Agent heartbeat</dt><dd>Not exposed by current API</dd></div>
+          <div><dt>Provider connectivity</dt><dd>Not exposed by current API</dd></div>
+          <div><dt>Base / BSC ingestion freshness</dt><dd>Not exposed by current API</dd></div>
+        </dl>
+      </section>
     </section>
 
     <details class="access-panel">
@@ -105,9 +146,6 @@
     </details>
   </main>
 
-  <footer class="footer">
-    <span>VELTRIX / READ-ONLY ANALYTICS</span>
-    <span>Virtual positions only · Live execution disabled</span>
-  </footer>
+  <footer class="footer"><span>VELTRIX / READ-ONLY ANALYTICS</span><span>Paper and live execution controls are unavailable</span></footer>
 </body>
 </html>
