@@ -399,9 +399,9 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 
 ## 9. Hosting review continuation — 2026-11-16
 
-- Rechecked PR #195: open, draft, unmerged, mergeable; head `49172d1e0a7657b0fd7833714153850b75db8e8e`; base `main` at `604db7ea59db1f4a6839654ff80816d8c22e7a92`.
+- Rechecked PR #195: open, draft and unmerged; head was `49172d1e0a7657b0fd7833714153850b75db8e8e` before these review commits; base `main` at `604db7ea59db1f4a6839654ff80816d8c22e7a92`. GitHub's mergeability field is transient during branch updates and must be rechecked after CI.
 - Exact-head pull-request CI remains green: Python CI run `43772337372` (914 passed / 10 skipped) and Cloudflare Pages CI run `43772337449` (10 passed / 0 failed).
 - Remote Turso H3 run `43770940483` remains successful (5 passed / 391.62s) on earlier core commit `8dd58136880c3e6de853b446310ffaa704bc1dd7`; it is not an exact-final-head run.
 - Hosting documentation corrected to state manual-only pipeline execution, distinguish named index verification from table verification, and avoid implying automatic scheduling.
 - Production initializer strengthened to verify six required named indexes in addition to the expected table set. It still performs no migration/provider calls and leaves paper/live execution disabled.
-- These edits are on the hosting feature branch only. No production schema initialization, Cloudflare deployment, workflow dispatch, PR merge or execution activation was performed. Re-run exact-head CI after this commit before considering PR readiness.
+- These edits are on the hosting feature branch only. No production schema initialization, Cloudflare deployment, workflow dispatch, PR merge or execution activation was performed. Re-run exact-head CI after this commit before considering PR readiness. Latest branch head after the review edits: `e344596c73a27908cbc7df0637e8842fe14615b1`.
