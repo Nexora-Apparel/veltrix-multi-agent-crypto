@@ -299,34 +299,86 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      const [health, overview, positions, trades, decisions, consensus, markets, curve, costs] =
-        await Promise.all([
-          api("/api/health"), api("/api/overview"), api("/api/positions"),
-          api("/api/trades"), api("/api/decisions"), api("/api/consensus"),
-          api("/api/markets"), api("/api/equity-curve"), api("/api/costs")
-        ]);
-      renderMetrics(overview);
-      renderPositions(positions);
-      renderTrades(trades);
-      renderDecisions(decisions);
-      renderConsensus(consensus);
-      renderMarkets(markets);
-      renderEquityCurve(curve);
-      renderCosts(costs);
-      $("health-led").className = "status-led";
-      $("health-label").textContent = health.database === "connected"
-        ? "Database connected · read-only" : "Database health requires review";
-      $("health-detail").textContent = "Live execution: " +
-        (health.live_execution === false ? "disabled" : "state unverified") +
-        " · Missing paper tables: " + ((health.missing_paper_tables || []).join(", ") || "none");
-      renderDiagnostics(health, overview);
-      $("market-count").textContent = number(markets.length, 0);
-      $("last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
-    } catch (error) {
-      $("health-led").className = "status-led bad";
-      $("health-label").textContent = "Dashboard data unavailable";
-      $("health-detail").textContent = error.message;
-      $("last-updated").textContent = "Refresh failed";
+      const results = await Promise.allSettled([
+        api("/api/health"), api("/api/overview"), api("/api/positions"),
+        api("/api/trades"), api("/api/decisions"), api("/api/consensus"),
+        api("/api/markets"), api("/api/equity-curve"), api("/api/costs")
+      ]);
+      const names = ["health", "overview", "positions", "trades", "decisions",
+        "consensus", "markets", "equity curve", "costs"];
+      const errors = [];
+      const value = (index) => {
+        const result = results[index];
+        if (result.status === "fulfilled") return result.value;
+        errors.push(names[index] + ": " + result.reason.message);
+        return null;
+      };
+      const health = value(0);
+      const overview = value(1);
+      const positions = value(2);
+      const trades = value(3);
+      const decisions = value(4);
+      const consensus = value(5);
+      const markets = value(6);
+      const curve = value(7);
+      const costs = value(8);
+
+      if (overview) renderMetrics(overview);
+      else {
+        ["equity", "cash", "realized", "unrealized", "open-count", "exposure",
+          "position-count"].forEach((id) => $(id).textContent = "—");
+        $("return").textContent = "Overview unavailable";
+        $("closed-fills").textContent = "Unavailable";
+        $("stale-count").textContent = "Unavailable";
+        $("exposure-pct").textContent = "Unavailable";
+      }
+      if (positions) renderPositions(positions);
+      else renderRows("positions-body", "positions-empty", [], () => {}, "Positions unavailable: " + errors.at(-1));
+      if (trades) renderTrades(trades);
+      else renderRows("trades-body", "trades-empty", [], () => {}, "Trade history unavailable: " + errors.at(-1));
+      if (decisions) renderDecisions(decisions);
+      else renderRows("decisions-body", "decisions-empty", [], () => {}, "Decision history unavailable: " + errors.at(-1));
+      if (consensus) renderConsensus(consensus);
+      else renderRows("consensus-body", "consensus-empty", [], () => {}, "Consensus history unavailable: " + errors.at(-1));
+      if (markets) {
+        renderMarkets(markets);
+        $("market-count").textContent = number(markets.length, 0);
+      } else {
+        renderRows("markets-body", "markets-empty", [], () => {}, "Market snapshots unavailable: " + errors.at(-1));
+        $("market-count").textContent = "—";
+      }
+      if (curve) renderEquityCurve(curve);
+      else {
+        renderEquityCurve({ points: [] });
+        $("chart-empty").textContent = "Equity curve unavailable: " + errors.at(-1);
+      }
+      if (costs) renderCosts(costs);
+      else {
+        ["fees", "slippage", "total-costs", "entry-cost", "exit-cost"]
+          .forEach((id) => $(id).textContent = "Unavailable");
+        $("entry-cost-bar").style.setProperty("--fill", "0%");
+        $("exit-cost-bar").style.setProperty("--fill", "0%");
+      }
+
+      renderDiagnostics(health || {}, overview || {});
+      if (health) {
+        $("health-led").className = health.database === "connected"
+          ? "status-led" : "status-led bad";
+        $("health-label").textContent = health.database === "connected"
+          ? (errors.length ? "Database connected · partial dashboard data" : "Database connected · read-only")
+          : "Database health requires review";
+        $("health-detail").textContent = "Live execution: " +
+          (health.live_execution === false ? "disabled" : "state unverified") +
+          " · Missing paper tables: " + ((health.missing_paper_tables || []).join(", ") || "none") +
+          (errors.length ? " · Section errors: " + errors.length : "");
+      } else {
+        $("health-led").className = "status-led bad";
+        $("health-label").textContent = "Health check unavailable";
+        $("health-detail").textContent = errors[0] || "Health endpoint failed.";
+      }
+      $("last-updated").textContent = errors.length
+        ? "Partial update " + new Date().toLocaleTimeString()
+        : "Updated " + new Date().toLocaleTimeString();
     } finally {
       refreshing = false;
     }
