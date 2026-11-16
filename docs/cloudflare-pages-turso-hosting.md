@@ -2,7 +2,7 @@
 
 ## Runtime split
 
-- GitHub Actions runs the bounded Python discovery/enrichment/market/risk/consensus pipeline as a scheduled one-shot job.
+- GitHub Actions runs the bounded Python discovery/enrichment/market/risk/consensus pipeline through a manual `workflow_dispatch` one-shot job; automatic scheduling is disabled by release policy.
 - Turso is the shared remote persistence target after the reviewed H1.1/H2/H3 adapter integration is rebased onto current `main`, revalidated, and accepted.
 - Cloudflare Pages serves the existing static dashboard assets from `veltrix/dashboard_assets`.
 - Cloudflare Pages Functions implements the dashboard's existing read-only `/api/*` contract. It uses the web-only `@libsql/client/web` entry point to query Turso; the database token never reaches the browser.
@@ -43,7 +43,7 @@ Preview deployments must not receive production credentials. Use separate previe
 ## Database acceptance before cutover
 
 1. Create a separate production database; never reuse the disposable H0 conformance database.
-2. Run the application schema initializer using the rebased Python adapter and verify all Phase 03–07 tables/indexes.
+2. Run the application schema initializer using the rebased Python adapter and verify all expected application tables and the required named indexes.
 3. Validate the read-only token against the actual database and confirm that the Pages API can perform SELECT queries only.
 4. Migrate data from the selected SQLite source only after export/import row counts, uniqueness constraints, timestamps, append-only ledgers and paper state reconcile.
 5. Retain the original SQLite file and a tested restore copy until production cutover is accepted.
@@ -83,12 +83,12 @@ The Cloudflare deployment workflow copies the three dashboard secrets into the P
 ### Production initialization and scheduled execution
 
 1. Add the GitHub Actions secrets above without posting their values in chat or committing them to the repository.
-2. Run `Initialize production Turso schema` manually from Actions. The script refuses the dedicated disposable conformance database, creates the application tables, creates an empty paper ledger account if absent, and verifies the expected schema. It does not run providers or activate paper trading.
+2. Run `Initialize production Turso schema` manually from Actions. The script refuses the dedicated disposable conformance database, creates the application tables, creates an empty paper ledger account if absent, and verifies the expected tables and required named indexes. It does not run providers or activate paper trading.
 3. Run `Deploy VELTRIX Cloudflare Pages` manually. It creates the Pages project, sets production-only read-only bindings, deploys, and verifies the authenticated health response.
 4. The Solana pipeline is exposed as a **manual workflow_dispatch only**. Automatic schedule triggers are deliberately blocked by the existing Stage 9.1 release policy and regression test. A two-hour UTC cadence is the proposed post-release setting, not an active schedule. Do not bypass the lock by substituting Cloudflare Cron or another external scheduler.
 5. The manual pipeline runs discovery, enrichment, market refresh, risk evidence and consensus only. Paper trading, Telegram, signing, transaction submission and live execution remain disabled.
 
-The scheduled pipeline requires a **read/write** production Turso token because it persists candidate, market, risk, consensus and orchestration records. The Cloudflare dashboard uses a distinct **read-only** token. Never reuse the disposable conformance token or database for production.
+The manual one-shot pipeline requires a **read/write** production Turso token because it persists candidate, market, risk, consensus and orchestration records. The Cloudflare dashboard uses a distinct **read-only** token. Never reuse the disposable conformance token or database for production.
 
 ### Existing SQLite data
 
