@@ -258,7 +258,10 @@ class CandidateEnrichmentWorker:
         if context is not None:
             context.checkpoint(items=len(claimed))
         try:
-            batch = self.market_data.fetch_many(claimed, now_ms=self.clock_ms())
+            # Let the market adapter timestamp retrieval after the provider response.
+            # Passing the worker's pre-request clock here makes response events
+            # appear future-dated and causes valid pairs to be discarded.
+            batch = self.market_data.fetch_many(claimed)
             if not isinstance(batch, MarketDataBatch):
                 raise TypeError("market data adapter returned an invalid batch")
         except Exception as exc:

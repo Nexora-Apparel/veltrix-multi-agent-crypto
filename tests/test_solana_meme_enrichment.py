@@ -77,6 +77,33 @@ def test_worker_batches_discovered_mints_and_persists_market_snapshots(tmp_path)
     assert provider.calls == [("solana", sorted([MINT_A, MINT_B]))]
 
 
+
+def test_worker_uses_post_response_clock_for_market_freshness(tmp_path):
+    clock = {"now": 10_000}
+
+    class ResponseTimedProvider(FakeMarketProvider):
+        def fetch_token_pairs(self, chain, token_addresses):
+            clock["now"] += 250
+            self.events = [market_event(MINT_A, observed=clock["now"])]
+            return super().fetch_token_pairs(chain, token_addresses)
+
+    path = tmp_path / "response-timestamp.sqlite3"
+    launches = LaunchStore(path)
+    snapshots = MarketSnapshotStore(path)
+    provider = ResponseTimedProvider()
+    market = SolanaMarketData(provider, clock_ms=lambda: clock["now"])
+    worker = CandidateEnrichmentWorker(
+        launches, market, snapshots, clock_ms=lambda: clock["now"]
+    )
+    launches.record_candidate(launch(MINT_A))
+
+    result = worker.run_once()
+
+    assert result.enriched == 1
+    assert result.failed == 0
+    assert snapshots.count(MINT_A) == 1
+    assert worker.status()["completed"] == 1
+
 def test_completed_candidate_is_not_reprocessed(tmp_path):
     launches, snapshots, provider, worker = setup_worker(tmp_path)
     launches.record_candidate(launch(MINT_A))
