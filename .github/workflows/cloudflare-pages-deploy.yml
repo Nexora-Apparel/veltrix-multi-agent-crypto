@@ -110,12 +110,51 @@ jobs:
           subdomain="$(printf '%s' "$project" | jq -r '.result.subdomain')"
           test -n "$subdomain"
           base="https://$subdomain"
-          curl --fail --silent --show-error "$base/" | grep -q "VELTRIX"
-          unauthenticated_status="$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" "$base/api/health")"
-          test "$unauthenticated_status" = "401"
+
+          # Cloudflare Pages can take a short interval to propagate a new
+          # deployment to the stable project hostname. Capture status/body
+          # separately so a transient or persistent 5xx is diagnosable.
+          homepage_status="000"
+          for attempt in $(seq 1 12); do
+            homepage_status="$(curl --silent --show-error --output /tmp/veltrix-homepage.html --write-out "%{http_code}" "$base/" || true)"
+            if [ "$homepage_status" = "200" ] && grep -q "VELTRIX" /tmp/veltrix-homepage.html; then
+              break
+            fi
+            echo "Pages homepage verification attempt $attempt: HTTP $homepage_status"
+            sleep 5
+          done
+          if [ "$homepage_status" != "200" ] || ! grep -q "VELTRIX" /tmp/veltrix-homepage.html; then
+            echo "Pages homepage did not become healthy at $base/." >&2
+            head -c 500 /tmp/veltrix-homepage.html >&2 || true
+            exit 1
+          fi
+
+          unauthenticated_status="000"
+          for attempt in $(seq 1 6); do
+            unauthenticated_status="$(curl --silent --show-error --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" "$base/api/health" || true)"
+            if [ "$unauthenticated_status" = "401" ]; then break; fi
+            echo "Unauthenticated API verification attempt $attempt: HTTP $unauthenticated_status"
+            sleep 5
+          done
+          if [ "$unauthenticated_status" != "401" ]; then
+            echo "Expected unauthenticated API status 401; got $unauthenticated_status" >&2
+            cat /tmp/veltrix-unauthorized.json >&2 || true
+            exit 1
+          fi
           jq -e '.error == "unauthorized"' /tmp/veltrix-unauthorized.json >/dev/null
-          status="$(curl --silent --output /tmp/veltrix-health.json --write-out "%{http_code}" \
-            -H "Authorization: Bearer $DASHBOARD_API_TOKEN" "$base/api/health")"
-          test "$status" = "200"
+
+          status="000"
+          for attempt in $(seq 1 6); do
+            status="$(curl --silent --show-error --output /tmp/veltrix-health.json --write-out "%{http_code}" \
+              -H "Authorization: Bearer $DASHBOARD_API_TOKEN" "$base/api/health" || true)"
+            if [ "$status" = "200" ]; then break; fi
+            echo "Authenticated read-only API verification attempt $attempt: HTTP $status"
+            sleep 5
+          done
+          if [ "$status" != "200" ]; then
+            echo "Authenticated API health failed at $base/api/health (HTTP $status)." >&2
+            cat /tmp/veltrix-health.json >&2 || true
+            exit 1
+          fi
           jq -e '.ok == true and .database == "connected" and .database_read_only == true and .paper_ledger_initialized == true and .live_execution == false and (.missing_paper_tables | length == 0)' /tmp/veltrix-health.json >/dev/null
           echo "Production Pages deployment, public auth boundary and authenticated read-only Turso API verified at $base"
