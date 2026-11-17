@@ -34,7 +34,7 @@ test("diagnostics distinguish API health fields from unavailable agent and provi
   assert.match(html, /id="diag-last-market"/);
   assert.match(html, /id="diag-last-consensus"/);
   assert.match(html, /id="diag-pipeline"/);
-  assert.match(js, /function renderDiagnostics\(health, overview\)/);
+  assert.match(js, /function renderDiagnostics\(health, overview, runtime\)/);
   assert.match(js, /health\.database_read_only === true/);
   assert.match(js, /health\.live_execution === false/);
   assert.match(js, /overview\.latest_updates/);
