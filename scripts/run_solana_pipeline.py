@@ -66,6 +66,10 @@ def main() -> None:
     payload = {
         "job": result.job,
         "stages": asdict(result.stages) if result.stages is not None else None,
+        "stage_progress": list(result.stage_progress),
+        "market_data_diagnostics": getattr(
+            pipeline.enrichment.market_data, "last_diagnostics", {}
+        ),
         "database_host": parsed.hostname,
         "paper_enabled": False,
         "live_execution_enabled": False,
