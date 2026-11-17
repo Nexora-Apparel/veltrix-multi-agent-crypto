@@ -221,3 +221,12 @@ The dashboard was retained and extended in place.
 - PR #209 is open and its exact-head CI must pass before merge. Production deployment, production Base/BSC population, actual telemetry generation and physical Android testing remain separate acceptance gates.
 
 **Important distinction:** a green Playwright mobile-emulation run does not certify a physical Android device; a successful collector code path does not certify production Base/BSC data population until the manual workflow has run against production and the dashboard confirms the stored observations.
+
+
+### PR #209 CI evidence — 2026-11-17
+
+- Runtime/code head `17fabe13b65c356404e6bba196e347c61cd435d5` passed Python CI run [44069976031](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44069976031): **920 passed / 10 skipped**.
+- Cloudflare Pages CI run [44069976051](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44069976051): **28 passed / 0 failed**, Pages build and local Pages smoke passed.
+- Playwright acceptance passed six routes, 390px/360px mobile emulation, 401 revoked-token handling, HTTP 503 and offline failures.
+- This is simulated mobile browser acceptance. Physical Android device interaction remains unverified.
+- Production deployment and production Base/BSC data population are not certified by PR CI; the post-merge deployment workflow and manual production collector must be verified separately.
