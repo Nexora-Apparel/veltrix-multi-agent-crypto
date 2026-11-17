@@ -116,8 +116,8 @@ test("chain market history reports EMPTY distinctly and does not duplicate the s
     observed_at_ms: 1760000000000,
   });
   const client = clientWithEvents([
-    { payload, created_at: 1760000000 },
     { payload: payload.replace('"price_usd":2', '"price_usd":3'), created_at: 1760000001 },
+    { payload, created_at: 1760000000 },
   ]);
   const response = await handleDashboardRequest(request("bsc"), environment(), client);
   const body = await response.json();
