@@ -63,11 +63,17 @@
       ? [job.job_type, job.status, "attempt " + number(job.attempt, 0), date(job.updated_at)].join(" · ")
       : "No persisted orchestration job";
     const agents = runtime.agents || {};
-    $("diag-agent-heartbeat").textContent = agents.heartbeat_source_available
-      ? (agents.status || "UNKNOWN") : "UNKNOWN · no per-agent heartbeat source";
+    const agentItems = Array.isArray(agents.items) ? agents.items : [];
+    $("diag-agent-heartbeat").textContent = agentItems.length
+      ? agentItems.map((item) => item.name + ": " + (item.status || "UNKNOWN") +
+        (item.last_stance ? " (" + item.last_stance + ")" : "")).join(" · ")
+      : (agents.status || "UNKNOWN");
     const providers = runtime.providers || {};
-    $("diag-provider-connectivity").textContent = providers.connectivity_probe_available
-      ? (providers.status || "UNKNOWN") : "UNKNOWN · no connectivity probe";
+    const providerItems = Array.isArray(providers.items) ? providers.items : [];
+    $("diag-provider-connectivity").textContent = providerItems.length
+      ? providerItems.map((item) => item.provider + "/" + item.chain + ": " +
+        (item.status || "UNKNOWN") + " · " + number(item.latency_ms, 0) + " ms").join(" · ")
+      : (providers.status || "UNKNOWN");
     $("diag-runtime-checked").textContent = date(runtime.checked_at);
   }
 
@@ -76,7 +82,10 @@
     const token = sessionStorage.getItem(tokenKey) || "";
     const headers = token ? { Authorization: "Bearer " + token } : {};
     const response = await fetch(path, { headers, cache: "no-store" });
-    if (response.status === 401) throw new Error("Dashboard access token required.");
+    if (response.status === 401) {
+      sessionStorage.removeItem(tokenKey);
+      throw new Error("Dashboard token expired or was revoked. Enter a current token.");
+    }
     if (!response.ok) throw new Error("Dashboard request failed (" + response.status + ").");
     return response.json();
   }
@@ -212,8 +221,11 @@
         () => {}, "The persisted events table is not initialized.");
       return;
     }
-    status.textContent = "Read-only events ledger available · " +
-      number(data.observation_count, 0) + " persisted " + chain.toUpperCase() + " observations";
+    status.textContent = "Persisted events ledger · " +
+      number(data.observation_count, 0) + " " + chain.toUpperCase() +
+      " observations" + (data.latest_observed_at
+        ? " · latest " + date(data.latest_observed_at)
+        : " · no observations yet");
     renderRows(chain + "-markets-body", chain + "-markets-empty", observations, (row, item) => {
       textCell(row, (item.symbol ? item.symbol + " · " : "") + short(item.token));
       textCell(row, number(item.price_usd, 10));

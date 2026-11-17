@@ -1,0 +1,59 @@
+name: Collect VELTRIX chain market observations
+
+on:
+  workflow_dispatch:
+    inputs:
+      solana_tokens:
+        description: "Comma-separated Solana token mints (optional)"
+        required: false
+        type: string
+      base_tokens:
+        description: "Comma-separated Base token addresses (optional)"
+        required: false
+        type: string
+      bsc_tokens:
+        description: "Comma-separated BSC token addresses (optional)"
+        required: false
+        type: string
+      discover_latest_profiles:
+        description: "Also ingest bounded candidates from DexScreener latest token profiles"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veltrix-chain-market-observation-collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      LIVE_TRADING: "false"
+      PAPER_TRADING_ENABLED: "false"
+      VELTRIX_SOLANA_MARKET_TOKENS: ${{ inputs.solana_tokens }}
+      VELTRIX_BASE_MARKET_TOKENS: ${{ inputs.base_tokens }}
+      VELTRIX_BSC_MARKET_TOKENS: ${{ inputs.bsc_tokens }}
+      VELTRIX_DISCOVER_LATEST_PROFILES: ${{ inputs.discover_latest_profiles }}
+      VELTRIX_CHAIN_MARKET_LIMIT_PER_CHAIN: "25"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Validate collector and runtime controls
+        run: |
+          python -m compileall -q veltrix scripts
+          python -m pytest -q tests/test_chain_market_ingestion.py tests/test_runtime_telemetry.py
+      - name: Collect and persist bounded market observations
+        run: python scripts/collect_chain_market_observations.py

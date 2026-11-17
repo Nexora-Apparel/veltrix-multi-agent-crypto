@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator
 
 from ..database import connect_database, row_factory_for
 from ..orchestration import LeaseBusy, RunContext
+from ..runtime_telemetry import RuntimeTelemetryStore
 
 from .launch_stream import LaunchStore
 from .market_data import MarketDataBatch, MarketDataUnavailable, SolanaMarketData
@@ -66,6 +67,7 @@ class MarketRefreshWorker:
         self.retry_max_ms = retry_max_ms
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._initialize()
+        self.telemetry = RuntimeTelemetryStore(self.database_path)
 
     @contextmanager
     def _connect(self) -> Iterator[Any]:
@@ -256,15 +258,32 @@ class MarketRefreshWorker:
         refreshed = unchanged = failed = 0
         if context is not None:
             context.checkpoint(items=len(claimed))
+        provider = getattr(self.market_data, "provider", None)
+        provider_id = (
+            getattr(provider, "provider_id", None)
+            or getattr(provider, "name", None)
+            or (type(provider).__name__.lower() if provider is not None else "market-data-provider")
+        )
+        probe_started = time.monotonic()
+        probe_at = self.clock_ms()
         try:
-            batch = self.market_data.fetch_many(claimed, now_ms=self.clock_ms())
+            batch = self.market_data.fetch_many(claimed, now_ms=probe_at)
             if not isinstance(batch, MarketDataBatch):
                 raise TypeError("market data adapter returned an invalid batch")
         except Exception as exc:
+            self.telemetry.record_provider_probe(
+                provider_id, "solana", succeeded=False, observed_at_ms=probe_at,
+                latency_ms=int((time.monotonic() - probe_started) * 1000),
+                error_code=type(exc).__name__,
+            )
             for mint in claimed:
                 self._fail(mint, exc, self.clock_ms(), context)
             failed = len(claimed)
         else:
+            self.telemetry.record_provider_probe(
+                provider_id, "solana", succeeded=True, observed_at_ms=probe_at,
+                latency_ms=int((time.monotonic() - probe_started) * 1000),
+            )
             for mint in claimed:
                 snapshot = batch.snapshots.get(mint)
                 if snapshot is None:

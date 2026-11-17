@@ -82,6 +82,9 @@ def test_consensus_worker_generates_and_persists_read_only_decision(tmp_path):
     assert decision["status"] == "ABSTAIN"
     assert decision["execution_authorized"] is False
     assert worker.status()["succeeded"] == 1
+    with sqlite3.connect(worker.database_path) as db:
+        heartbeats = db.execute("SELECT COUNT(*) FROM events WHERE event='AGENT_HEARTBEAT'").fetchone()[0]
+    assert heartbeats == 4
 
 
 def test_consensus_worker_respects_refresh_interval(tmp_path):

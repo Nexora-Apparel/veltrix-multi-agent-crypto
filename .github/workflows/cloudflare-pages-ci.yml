@@ -7,6 +7,7 @@ on:
       - "cloudflare-tests/**"
       - "veltrix/dashboard_assets/**"
       - "package.json"
+      - "scripts/**"
       - "wrangler.toml"
       - ".github/workflows/cloudflare-pages-ci.yml"
       - ".github/workflows/cloudflare-pages-deploy.yml"
@@ -16,6 +17,7 @@ on:
       - "cloudflare-tests/**"
       - "veltrix/dashboard_assets/**"
       - "package.json"
+      - "scripts/**"
       - "wrangler.toml"
       - ".github/workflows/cloudflare-pages-ci.yml"
   workflow_dispatch:
@@ -26,7 +28,7 @@ permissions:
 jobs:
   dashboard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,6 +36,10 @@ jobs:
           node-version: "22"
       - name: Install pinned dashboard dependencies
         run: npm install --ignore-scripts
+      - name: Install ephemeral Playwright browser test dependency
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.0
+          npx playwright install --with-deps chromium
       - name: Run dashboard API security tests
         run: npm test
       - name: Syntax-check production token verifier
@@ -67,6 +73,7 @@ jobs:
             sleep 1
           done
           grep -q "VELTRIX" /tmp/veltrix-index.html
+          VELTRIX_PAGES_TEST_URL=http://127.0.0.1:8788 node scripts/dashboard-browser-acceptance.mjs
           curl --silent --fail http://127.0.0.1:8788/assets/dashboard.js -o /tmp/veltrix-dashboard.js
           grep -q "api(\"/api/health\")" /tmp/veltrix-dashboard.js
           status=$(curl --silent --output /tmp/veltrix-unauthorized.json --write-out "%{http_code}" http://127.0.0.1:8788/api/health)
