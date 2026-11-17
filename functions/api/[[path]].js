@@ -24,6 +24,7 @@ const ROUTES = new Set([
   "/api/consensus",
   "/api/markets",
   "/api/chain-markets",
+  "/api/runtime-status",
   "/api/equity-curve",
   "/api/costs",
 ]);
@@ -413,6 +414,60 @@ async function chainMarkets(client, tables, chain) {
   };
 }
 
+async function runtimeStatus(client, tables) {
+  const now = Date.now();
+  const hasLeaseTable = tables.has("orchestration_worker_lease");
+  const hasJobsTable = tables.has("orchestration_jobs");
+  let lease = null;
+  let latestJob = null;
+  if (hasLeaseTable) {
+    lease = await first(client, `SELECT lease_name, fencing_token, acquired_at_ms, expires_at_ms
+      FROM orchestration_worker_lease WHERE lease_name='global-worker' LIMIT 1`);
+  }
+  if (hasJobsTable) {
+    latestJob = await first(client, `SELECT job_type, status, attempt, updated_at_ms,
+      started_at_ms, finished_at_ms, error_code
+      FROM orchestration_jobs ORDER BY updated_at_ms DESC LIMIT 1`);
+  }
+  let leaseStatus = "UNKNOWN";
+  if (!hasLeaseTable) leaseStatus = "UNAVAILABLE";
+  else if (lease) leaseStatus = finiteNumber(lease.expires_at_ms, 0) > now ? "ACTIVE" : "STALE";
+  return {
+    checked_at: new Date(now).toISOString(),
+    orchestration: {
+      lease_table_available: hasLeaseTable,
+      jobs_table_available: hasJobsTable,
+      lease_status: leaseStatus,
+      lease_acquired_at: lease ? isoMilliseconds(lease.acquired_at_ms) : null,
+      lease_expires_at: lease ? isoMilliseconds(lease.expires_at_ms) : null,
+      latest_job: latestJob ? {
+        job_type: String(latestJob.job_type || ""),
+        status: String(latestJob.status || "UNKNOWN"),
+        attempt: finiteNumber(latestJob.attempt),
+        updated_at: isoMilliseconds(latestJob.updated_at_ms),
+        started_at: isoMilliseconds(latestJob.started_at_ms),
+        finished_at: isoMilliseconds(latestJob.finished_at_ms),
+        error_code: latestJob.error_code ? String(latestJob.error_code) : null,
+      } : null,
+    },
+    agents: {
+      status: "UNKNOWN",
+      heartbeat_source_available: false,
+      reason: "Per-agent heartbeat records are not implemented; persisted consensus is not live health.",
+      items: ["Scout", "Whale", "Sniper", "Shield"].map((name) => ({
+        name, status: "UNKNOWN", last_heartbeat: null,
+      })),
+    },
+    providers: {
+      status: "UNKNOWN",
+      connectivity_probe_available: false,
+      reason: "No persisted provider connectivity probe is available to this read-only dashboard.",
+    },
+    read_only: true,
+    live_execution: false,
+  };
+}
+
 async function equityCurve(client, tables) {
   const account = tables.has("account")
     ? await first(client, "SELECT starting_balance FROM account WHERE id=1") : null;
@@ -541,6 +596,9 @@ export async function handleDashboardRequest(request, env, injectedClient = null
         break;
       case "/api/chain-markets":
         payload = await chainMarkets(client, tables, chain);
+        break;
+      case "/api/runtime-status":
+        payload = await runtimeStatus(client, tables);
         break;
       case "/api/equity-curve":
         payload = await equityCurve(client, tables);

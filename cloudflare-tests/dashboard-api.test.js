@@ -183,3 +183,58 @@ test("markets endpoint preserves the existing dashboard field contract", async (
   assert.deepEqual(market.quality_flags, []);
   assert.ok(market.retrieved_at);
 });
+
+test("runtime status exposes worker lease evidence but never fabricates agent or provider health", async () => {
+  const client = {
+    async execute(statement) {
+      if (statement.sql.includes("sqlite_master")) {
+        return { columns: ["name"], rows: [
+          { name: "orchestration_worker_lease" }, { name: "orchestration_jobs" },
+        ] };
+      }
+      if (statement.sql.includes("FROM orchestration_worker_lease")) {
+        return { columns: ["lease_name", "fencing_token", "acquired_at_ms", "expires_at_ms"], rows: [] };
+      }
+      if (statement.sql.includes("FROM orchestration_jobs")) {
+        return { columns: ["job_type", "status", "attempt", "updated_at_ms", "started_at_ms", "finished_at_ms", "error_code"], rows: [{
+          job_type: "solana_pipeline", status: "SUCCEEDED", attempt: 1,
+          updated_at_ms: 1760000000000, started_at_ms: 1759999990000,
+          finished_at_ms: 1760000000000, error_code: null,
+        }] };
+      }
+      throw new Error("unexpected SQL in runtime status test");
+    },
+  };
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/runtime-status", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }), env(), client,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.orchestration.lease_status, "UNKNOWN");
+  assert.equal(body.orchestration.latest_job.status, "SUCCEEDED");
+  assert.equal(body.agents.status, "UNKNOWN");
+  assert.equal(body.agents.heartbeat_source_available, false);
+  assert.equal(body.agents.items.length, 4);
+  assert.equal(body.providers.status, "UNKNOWN");
+  assert.equal(body.providers.connectivity_probe_available, false);
+  assert.equal(body.read_only, true);
+  assert.equal(body.live_execution, false);
+});
+
+test("runtime status reports missing orchestration tables as unavailable without writes", async () => {
+  const client = fakeClient();
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/runtime-status", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }), env(), client,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.orchestration.lease_status, "UNAVAILABLE");
+  assert.equal(body.orchestration.jobs_table_available, false);
+  assert.equal(body.agents.status, "UNKNOWN");
+  assert.equal(body.providers.status, "UNKNOWN");
+  assert.equal(client.calls.length, 1);
+});

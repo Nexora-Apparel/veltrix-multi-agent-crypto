@@ -29,11 +29,12 @@ test("diagnostics distinguish API health fields from unavailable agent and provi
   const js = await readFile(new URL("dashboard.js", root), "utf8");
   assert.match(html, /Agent heartbeat/);
   assert.match(html, /Provider connectivity/);
-  assert.match(html, /Not exposed by current API/);
+  assert.match(html, /id="diag-agent-heartbeat"/);
+  assert.match(html, /id="diag-provider-connectivity"/);
   assert.match(html, /id="diag-last-market"/);
   assert.match(html, /id="diag-last-consensus"/);
   assert.match(html, /id="diag-pipeline"/);
-  assert.match(js, /function renderDiagnostics\(health, overview\)/);
+  assert.match(js, /function renderDiagnostics\(health, overview, runtime\)/);
   assert.match(js, /health\.database_read_only === true/);
   assert.match(js, /health\.live_execution === false/);
   assert.match(js, /overview\.latest_updates/);
@@ -62,4 +63,17 @@ test("dashboard isolates failed data sections and keeps successful sections rend
   assert.match(js, /Decision history unavailable:/);
   assert.match(js, /Market snapshots unavailable:/);
   assert.match(js, /partial dashboard data/i);
+});
+
+test("diagnostics render orchestration lease and keep agent/provider telemetry explicitly unknown", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  for (const id of ["diag-worker-lease", "diag-worker-job", "diag-agent-heartbeat",
+    "diag-provider-connectivity", "diag-runtime-checked"]) {
+    assert.match(html, new RegExp('id="' + id + '"'));
+  }
+  assert.match(js, /api\("\/api\/runtime-status"\)/);
+  assert.match(js, /UNKNOWN · no per-agent heartbeat source/);
+  assert.match(js, /UNKNOWN · no connectivity probe/);
+  assert.match(js, /runtime\.orchestration/);
 });
