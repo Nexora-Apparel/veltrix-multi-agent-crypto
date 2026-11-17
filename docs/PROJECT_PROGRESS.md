@@ -450,3 +450,12 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - Playwright browser acceptance passed for all six routes, 390px/360px mobile emulation, revoked-token handling, backend HTTP 503 and offline requests.
 - Live Solana provider smoke tests were skipped because no live provider credentials were supplied to the PR workflow. These CI results do not certify production provider connectivity or production Base/BSC row population.
 - The remaining documentation-only commits update this ledger and the acceptance audit; they do not change the tested runtime code.
+
+
+## 13. Post-merge Pages deployment verification — 2026-11-17
+
+- PR #209 merged as `17eab663eb3a52d208036538858bc22f76ded2e0`; latest `main` now contains the runtime telemetry, manual chain-market collector, browser acceptance and ledger updates.
+- Cloudflare Pages deployment workflow run [44070246448](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44070246448) was triggered by that exact `main` SHA. Production credential checks, Pages build, read-only token verification, project check, secret binding and asset/function upload all succeeded. Wrangler reported deployment URL `https://98364d78.veltrix-multi-agent-crypto.pages.dev`.
+- The final stable-host verification step failed with HTTP 500 before it could certify the production homepage/authenticated API. The existing step used opaque curl failure handling, so the precise failing request was not isolated in that run. **Do not claim the latest deployment is production-verified.**
+- Opened PR #210, branch `fix/pages-production-verification-retries`, to add bounded propagation retries and capture each endpoint's HTTP status/body without exposing credentials. It will rerun deployment after merge and make the failing endpoint diagnosable.
+- Production runtime SHA deployment remains pending verified success. Physical Android acceptance and manual Base/BSC data collection also remain outstanding.
