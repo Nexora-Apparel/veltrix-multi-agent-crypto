@@ -13,7 +13,7 @@ concurrency:
 jobs:
   one-shot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 4
+    timeout-minutes: 10
     env:
       PYTHONPATH: ${{ github.workspace }}
       VELTRIX_DEPLOYMENT_TARGET: ci
