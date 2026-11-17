@@ -268,3 +268,31 @@ def test_transaction_fence_loss_prevents_enrichment_claim(tmp_path):
         worker.run_once(context=context)
     assert worker.status()["pending"] == 0
     assert worker.status()["processing"] == 0
+
+
+def test_slow_market_response_keeps_enrichment_claim_valid_for_bounded_pipeline(tmp_path):
+    clock = {"now": 10_000}
+
+    class SlowUnavailableProvider(FakeMarketProvider):
+        def fetch_token_pairs(self, chain, token_addresses):
+            clock["now"] += 150_001
+            return []
+
+    path = tmp_path / "slow-provider.sqlite3"
+    launches = LaunchStore(path)
+    snapshots = MarketSnapshotStore(path)
+    provider = SlowUnavailableProvider()
+    market = SolanaMarketData(provider, clock_ms=lambda: clock["now"])
+    worker = CandidateEnrichmentWorker(
+        launches, market, snapshots, clock_ms=lambda: clock["now"]
+    )
+    launches.record_candidate(launch(MINT_A, observed=9_000))
+
+    result = worker.run_once(limit=25)
+
+    assert result.processed == 1
+    assert result.enriched == 0
+    assert result.failed == 1
+    assert worker.status()["retry"] == 1
+    assert worker.status()["processing"] == 0
+    assert snapshots.count(MINT_A) == 0
