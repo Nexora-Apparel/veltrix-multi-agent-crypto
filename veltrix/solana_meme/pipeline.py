@@ -7,7 +7,7 @@ explicitly disabled until the paper broker supports transaction-scoped fencing.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..orchestration import OrchestrationStore, RunContext, run_once as execute_job
@@ -33,6 +33,7 @@ class SolanaPipelineStages:
 class SolanaPipelineRun:
     job: dict[str, Any]
     stages: SolanaPipelineStages | None
+    stage_progress: tuple[dict[str, Any], ...] = ()
 
 
 class OneShotSolanaPipeline:
@@ -79,26 +80,74 @@ class OneShotSolanaPipeline:
         self.lease_ttl_ms = lease_ttl_ms
         self.max_items = max_items
 
-    def _execute_stages(self, context: RunContext, payload: dict[str, Any]) -> SolanaPipelineStages:
-        # Enforce the cooperative deadline and revalidate the lease between every
-        # bounded stage. Without these boundaries, a slow provider stage could
-        # run past the global lease TTL and the next stage would fail its fence.
+    @staticmethod
+    def _run_stage(
+        name: str,
+        operation: Any,
+        progress: list[dict[str, Any]],
+    ) -> Any:
+        try:
+            result = operation()
+        except Exception as exc:
+            # Exception messages may contain provider payloads or token addresses.
+            progress.append({
+                "stage": name,
+                "status": "FAILED",
+                "error_type": type(exc).__name__,
+            })
+            raise
+        progress.append({
+            "stage": name,
+            "status": "COMPLETED",
+            "result": asdict(result),
+        })
+        return result
+
+    def _execute_stages(
+        self,
+        context: RunContext,
+        payload: dict[str, Any],
+        progress: list[dict[str, Any]],
+    ) -> SolanaPipelineStages:
+        # Preserve bounded execution and global lease fencing between every stage.
         context.checkpoint(items=0)
-        discovery = self.discovery.poll_once(context=context, limit=25)
-        context.checkpoint(items=0)
-        enrichment = self.enrichment.run_once(limit=25, context=context)
-        context.checkpoint(items=0)
-        market_refresh = self.market_refresh.run_once(limit=25, context=context)
-        context.checkpoint(items=0)
-        risk = self.risk.run_once(limit=5, context=context)
-        context.checkpoint(items=0)
-        consensus = self.consensus.run_once(limit=10, context=context)
-        context.checkpoint(items=0)
-        paper = (
-            self.paper_worker.run_once(limit=25, context=context)
-            if self.paper_enabled and self.paper_worker is not None
-            else None
+        discovery = self._run_stage(
+            "discovery",
+            lambda: self.discovery.poll_once(context=context, limit=25),
+            progress,
         )
+        context.checkpoint(items=0)
+        enrichment = self._run_stage(
+            "enrichment",
+            lambda: self.enrichment.run_once(limit=25, context=context),
+            progress,
+        )
+        context.checkpoint(items=0)
+        market_refresh = self._run_stage(
+            "market_refresh",
+            lambda: self.market_refresh.run_once(limit=25, context=context),
+            progress,
+        )
+        context.checkpoint(items=0)
+        risk = self._run_stage(
+            "risk",
+            lambda: self.risk.run_once(limit=5, context=context),
+            progress,
+        )
+        context.checkpoint(items=0)
+        consensus = self._run_stage(
+            "consensus",
+            lambda: self.consensus.run_once(limit=10, context=context),
+            progress,
+        )
+        context.checkpoint(items=0)
+        paper = None
+        if self.paper_enabled and self.paper_worker is not None:
+            paper = self._run_stage(
+                "paper",
+                lambda: self.paper_worker.run_once(limit=25, context=context),
+                progress,
+            )
         context.checkpoint(items=0)
         return SolanaPipelineStages(
             discovery=discovery,
@@ -114,9 +163,10 @@ class OneShotSolanaPipeline:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
         stage_results: list[SolanaPipelineStages] = []
+        stage_progress: list[dict[str, Any]] = []
 
         def handler(context: RunContext, payload: dict[str, Any]) -> None:
-            stage_results.append(self._execute_stages(context, payload))
+            stage_results.append(self._execute_stages(context, payload, stage_progress))
 
         job = execute_job(
             self.orchestration,
@@ -145,6 +195,7 @@ class OneShotSolanaPipeline:
         return SolanaPipelineRun(
             job=job,
             stages=stage_results[0] if stage_results else None,
+            stage_progress=tuple(stage_progress),
         )
 
 
