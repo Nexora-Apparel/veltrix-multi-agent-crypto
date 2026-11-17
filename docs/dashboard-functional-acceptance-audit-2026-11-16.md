@@ -230,3 +230,13 @@ The dashboard was retained and extended in place.
 - Playwright acceptance passed six routes, 390px/360px mobile emulation, 401 revoked-token handling, HTTP 503 and offline failures.
 - This is simulated mobile browser acceptance. Physical Android device interaction remains unverified.
 - Production deployment and production Base/BSC data population are not certified by PR CI; the post-merge deployment workflow and manual production collector must be verified separately.
+
+
+## Production acceptance probe results — 2026-11-17
+
+- Latest production deployment verified at exact main SHA `c29004f70e08139e9974fcb12b76835c7ded6a53` by [workflow run 44071107818](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44071107818).
+- Production homepage and authenticated health/runtime APIs passed. Missing/invalid bearer tokens returned 401. The health API confirmed the read-only database boundary and disabled live execution.
+- Base/BSC APIs are deployed and contract-verified, but production observation counts are both zero. The manual collector workflow must be run to populate the existing ledger.
+- Production agent/provider telemetry is currently UNKNOWN because the one-shot production intelligence pipeline has not yet emitted heartbeat/probe events. The telemetry instrumentation is deployed and will report freshness only after real executions.
+- Latest-main Python CI: 920 passed / 10 skipped. Latest-main Pages CI: 28 passed / 0 failed, including Playwright six-route mobile emulation and 401/503/offline paths.
+- Physical Android device testing remains outstanding.
