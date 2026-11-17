@@ -5,7 +5,7 @@ buy signals, liquidity guarantees, or proof of executable sell depth.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 import math
 import time
 from typing import Callable, Protocol, Sequence
@@ -162,6 +162,7 @@ def validate_market_snapshot(snapshot: object) -> SolanaMarketSnapshot:
 class MarketDataBatch:
     snapshots: dict[str, SolanaMarketSnapshot]
     unavailable: dict[str, str]
+    diagnostics: dict[str, int] = field(default_factory=dict)
 
 
 class SolanaMarketData:
@@ -192,6 +193,7 @@ class SolanaMarketData:
         self.max_response_age_ms = max_response_age_ms
         self.minimum_liquidity_usd = float(minimum_liquidity_usd)
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+        self.last_diagnostics: dict[str, int] = {}
 
     @staticmethod
     def _nonnegative(value: object, field: str, *, optional: bool = False) -> float | None:
@@ -240,12 +242,9 @@ class SolanaMarketData:
         for event in events:
             if not isinstance(event, MarketEvent):
                 continue
-            if (
-                not isinstance(event.quality_flags, tuple)
-                or any(not isinstance(flag, str) or not flag.strip() for flag in event.quality_flags)
-            ):
+            if event.chain != "solana":
                 continue
-            if event.chain != "solana" or event.token_address != mint:
+            if event.token_address != mint:
                 continue
             if not isinstance(event.pair_address, str) or not event.pair_address.strip():
                 continue
@@ -257,6 +256,11 @@ class SolanaMarketData:
                 continue
             response_age = retrieved_at_ms - event.observed_at_ms
             if response_age < 0 or response_age > self.max_response_age_ms:
+                continue
+            if (
+                not isinstance(event.quality_flags, tuple)
+                or any(not isinstance(flag, str) or not flag.strip() for flag in event.quality_flags)
+            ):
                 continue
             if event.pair_created_at_ms is not None and (
                 isinstance(event.pair_created_at_ms, bool)
@@ -396,6 +400,12 @@ class SolanaMarketData:
         try:
             events = self.provider.fetch_token_pairs("solana", canonical_mints)
         except ProviderError as exc:
+            provider_diagnostics = getattr(self.provider, "last_fetch_diagnostics", {})
+            self.last_diagnostics = {
+                **{f"provider_{key}": int(value) for key, value in provider_diagnostics.items()
+                   if isinstance(value, int) and not isinstance(value, bool)},
+                "provider_errors": 1,
+            }
             raise MarketDataUnavailable(str(exc)) from exc
         if not isinstance(events, (list, tuple)):
             raise MarketDataUnavailable("market provider returned an invalid event collection")
@@ -414,14 +424,64 @@ class SolanaMarketData:
 
         snapshots: dict[str, SolanaMarketSnapshot] = {}
         unavailable: dict[str, str] = {}
+        diagnostics: dict[str, int] = {
+            "requested_mints": len(canonical_mints),
+            "normalized_events": len(events),
+            "mints_with_events": 0,
+            "mints_without_events": 0,
+            "usable_pairs": 0,
+            "unavailable_mints": 0,
+            "rejected_stale_pairs": 0,
+            "rejected_future_pairs": 0,
+            "rejected_invalid_fields": 0,
+            "rejected_missing_pair_address": 0,
+            "rejected_invalid_observation_timestamp": 0,
+        }
+        provider_diagnostics = getattr(self.provider, "last_fetch_diagnostics", {})
+        for key, value in provider_diagnostics.items():
+            if isinstance(value, int) and not isinstance(value, bool):
+                diagnostics[f"provider_{key}"] = value
         for mint in canonical_mints:
+            if grouped[mint]:
+                diagnostics["mints_with_events"] += 1
+            else:
+                diagnostics["mints_without_events"] += 1
+            for event in grouped[mint]:
+                if not isinstance(event.pair_address, str) or not event.pair_address.strip():
+                    diagnostics["rejected_missing_pair_address"] += 1
+                    continue
+                observed = event.observed_at_ms
+                if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
+                    diagnostics["rejected_invalid_observation_timestamp"] += 1
+                    continue
+                age = retrieved - observed
+                if age < 0:
+                    diagnostics["rejected_future_pairs"] += 1
+                    continue
+                if age > self.max_response_age_ms:
+                    diagnostics["rejected_stale_pairs"] += 1
+                    continue
+                try:
+                    self._nonnegative(event.price_usd, "price_usd")
+                    self._nonnegative(event.liquidity_usd, "liquidity_usd")
+                    self._nonnegative(event.volume_h1_usd, "volume_h1_usd")
+                    if not isinstance(event.quality_flags, tuple) or any(
+                        not isinstance(flag, str) or not flag.strip()
+                        for flag in event.quality_flags
+                    ):
+                        raise MarketDataUnavailable("invalid quality flags")
+                except MarketDataUnavailable:
+                    diagnostics["rejected_invalid_fields"] += 1
             try:
                 snapshots[mint] = self._snapshot(
                     mint, grouped[mint], retrieved_at_ms=retrieved
                 )
+                diagnostics["usable_pairs"] += snapshots[mint].pair_count
             except MarketDataUnavailable as exc:
                 unavailable[mint] = str(exc)
-        return MarketDataBatch(snapshots, unavailable)
+                diagnostics["unavailable_mints"] += 1
+        self.last_diagnostics = diagnostics
+        return MarketDataBatch(snapshots, unavailable, diagnostics)
 
     def fetch(self, mint: str, *, now_ms: int | None = None) -> SolanaMarketSnapshot:
         canonical = canonical_mint(mint)

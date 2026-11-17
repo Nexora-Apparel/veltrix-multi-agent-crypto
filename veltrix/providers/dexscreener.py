@@ -38,6 +38,7 @@ class DexScreenerProvider:
         self.timeout = float(timeout)
         self.session = session or requests.Session()
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+        self.last_fetch_diagnostics: dict[str, int] = {}
 
     def fetch_token_pairs(self, chain: str, token_addresses: Sequence[str]) -> list[MarketEvent]:
         chain_id = CHAIN_IDS.get(str(chain).lower())
@@ -58,7 +59,17 @@ class DexScreenerProvider:
             return []
 
         events: list[MarketEvent] = []
+        diagnostics = {
+            "requested_mints": len(addresses),
+            "request_batches": 0,
+            "response_pairs": 0,
+            "matching_token_pairs": 0,
+            "normalized_events": 0,
+            "normalization_rejections": 0,
+            "provider_errors": 0,
+        }
         for offset in range(0, len(addresses), self.batch_size):
+            diagnostics["request_batches"] += 1
             batch = addresses[offset:offset + self.batch_size]
             url = f"{self.base_url}/tokens/v1/{chain_id}/" + ",".join(batch)
             try:
@@ -66,15 +77,22 @@ class DexScreenerProvider:
                 response.raise_for_status()
                 payload = response.json()
             except (requests.RequestException, ValueError) as exc:
+                diagnostics["provider_errors"] += 1
+                self.last_fetch_diagnostics = diagnostics
                 raise ProviderError(
                     f"DexScreener request failed ({type(exc).__name__})"
                 ) from None
             except Exception as exc:
+                diagnostics["provider_errors"] += 1
+                self.last_fetch_diagnostics = diagnostics
                 raise ProviderError(
                     f"DexScreener request failed ({type(exc).__name__})"
                 ) from None
             if not isinstance(payload, list):
+                diagnostics["provider_errors"] += 1
+                self.last_fetch_diagnostics = diagnostics
                 raise ProviderError("Unexpected DexScreener response shape")
+            diagnostics["response_pairs"] += len(payload)
 
             observed_at_ms = self.clock_ms()
             if (
@@ -85,14 +103,28 @@ class DexScreenerProvider:
                 raise ProviderError("Invalid local provider response timestamp")
             for pair in payload:
                 for requested_address in batch:
+                    if isinstance(pair, dict):
+                        base = pair.get("baseToken")
+                        quote = pair.get("quoteToken")
+                        if (
+                            isinstance(base, dict) and base.get("address") == requested_address
+                        ) or (
+                            isinstance(quote, dict) and quote.get("address") == requested_address
+                        ):
+                            diagnostics["matching_token_pairs"] += 1
                     try:
                         event = self._normalize(
                             pair, chain_id, observed_at_ms, requested_address
                         )
                     except ProviderError:
+                        diagnostics["normalization_rejections"] += 1
                         continue
                     if event is not None:
                         events.append(event)
+                        diagnostics["normalized_events"] += 1
+                    else:
+                        diagnostics["normalization_rejections"] += 1
+        self.last_fetch_diagnostics = diagnostics
         return events
 
     @staticmethod

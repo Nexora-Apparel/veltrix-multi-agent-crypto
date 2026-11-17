@@ -217,3 +217,25 @@ def test_optional_paper_stage_runs_after_consensus_under_same_fence(tmp_path):
     assert result.stages.paper.skipped_decisions == 1
     assert broker.snapshot()["open_positions"] == []
     assert broker.paper_decisions(limit=1)[0]["execution_status"] == "NOT_ELIGIBLE"
+
+
+
+def test_pipeline_preserves_completed_stage_counts_when_later_stage_fails(tmp_path):
+    pipeline, *_ = build_pipeline(tmp_path)
+
+    def fail_refresh(**kwargs):
+        raise RuntimeError("synthetic refresh failure")
+
+    pipeline.market_refresh.run_once = fail_refresh
+    result = pipeline.run_once(idempotency_key="stage-progress-failure-case")
+
+    assert result.job["status"] != "SUCCEEDED"
+    assert result.stages is None
+    assert [item["stage"] for item in result.stage_progress] == [
+        "discovery", "enrichment", "market_refresh"
+    ]
+    assert [item["status"] for item in result.stage_progress] == [
+        "COMPLETED", "COMPLETED", "FAILED"
+    ]
+    assert result.stage_progress[-1]["error_type"] == "RuntimeError"
+    assert "synthetic refresh failure" not in str(result.stage_progress)

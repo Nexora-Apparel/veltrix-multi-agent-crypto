@@ -283,3 +283,23 @@ def test_missing_liquidity_is_not_classified_as_below_minimum():
     ).fetch(MINT_A)
     assert "liquidity_usd_missing" in snapshot.quality_flags
     assert "below_configured_minimum_liquidity" not in snapshot.quality_flags
+
+
+
+def test_market_diagnostics_count_stale_future_and_invalid_pairs_without_addresses():
+    provider = FakeMarketProvider([
+        event(pair="fresh", observed=199_500),
+        event(pair="stale", observed=1),
+        event(pair="future", observed=201_000),
+        replace(event(pair="invalid", observed=199_500), liquidity_usd=float("nan")),
+    ])
+    batch = SolanaMarketData(provider, clock_ms=lambda: 200_000).fetch_many([MINT_A])
+
+    assert batch.snapshots[MINT_A].pair_count == 1
+    assert batch.diagnostics["requested_mints"] == 1
+    assert batch.diagnostics["normalized_events"] == 4
+    assert batch.diagnostics["usable_pairs"] == 1
+    assert batch.diagnostics["rejected_stale_pairs"] == 1
+    assert batch.diagnostics["rejected_future_pairs"] == 1
+    assert batch.diagnostics["rejected_invalid_fields"] == 1
+    assert "MINT_A" not in str(batch.diagnostics)
