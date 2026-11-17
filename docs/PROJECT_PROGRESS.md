@@ -547,3 +547,11 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - The correction adds cooperative checkpoints before/between/after every pipeline stage, raises the bounded execution budget from 180 to the supported 240 seconds, and sets the lease TTL to 300 seconds (the maximum accepted by the lease store), preserving a 60-second margin over the enforced deadline. This makes the deadline effective between stages and prevents normal stage transitions from reaching an expired lease. Individual blocking provider calls remain subject to their own configured timeouts.
 - Both workflows remain manual-only. No cron/scheduler, Telegram, paper trading, live execution, signing, transaction submission or broadcast is enabled.
 - **Acceptance pending:** exact-head CI must pass, then both manual workflows must be rerun. The collector must persist new market-observation rows; the Solana pipeline must return `SUCCEEDED` and persist genuine runtime telemetry. A code fix or passing unit tests alone does not establish production persistence.
+
+
+### PR #216 merge and post-merge CI — 2026-11-17
+
+- PR [#216](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/216) passed exact-head Python CI on `c024fcb0b154263198ba5924d845becff08a9bb0`: run [44093629235](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44093629235) completed successfully; compileall passed and pytest reported **921 passed / 10 skipped**.
+- PR #216 was squash-merged to `main` as `370f94775acdb2748f93bf50a4122c89c6d46221`.
+- Post-merge Python CI on that exact main SHA, run [44093728189](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44093728189), completed successfully. Compileall and pytest passed; live provider smoke tests were skipped because credentials are not supplied to the CI workflow.
+- Production acceptance remains pending: manually rerun the chain-market collector and Solana one-shot workflow, then inspect the new job logs and verify persisted `MARKET_OBSERVATION`, `PROVIDER_PROBE`, and `AGENT_HEARTBEAT` events in production Turso. Do not claim production writes or runtime telemetry until verified.
