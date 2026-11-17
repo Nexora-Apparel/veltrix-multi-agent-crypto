@@ -65,3 +65,27 @@ def test_dexscreener_distinguishes_empty_response_from_normalization_failure():
     assert provider.last_fetch_diagnostics["response_pairs"] == 0
     assert provider.last_fetch_diagnostics["normalized_events"] == 0
     assert provider.last_fetch_diagnostics["normalization_rejections"] == 0
+
+
+
+def test_dexscreener_does_not_count_nonmatching_mints_as_normalization_rejections():
+    provider = DexScreenerProvider(
+        session=Session([{
+            "chainId": "solana",
+            "dexId": "raydium",
+            "pairAddress": "pool-1",
+            "baseToken": {"address": MINT, "symbol": "SOL"},
+            "quoteToken": {"address": QUOTE, "symbol": "USDC"},
+            "priceUsd": "100",
+            "liquidity": {"usd": 1000},
+            "volume": {"h1": 500},
+        }]),
+        clock_ms=lambda: 1000,
+    )
+
+    events = provider.fetch_token_pairs("solana", [MINT, "unmatched-mint"])
+
+    assert len(events) == 1
+    assert provider.last_fetch_diagnostics["matching_token_pairs"] == 1
+    assert provider.last_fetch_diagnostics["normalized_events"] == 1
+    assert provider.last_fetch_diagnostics["normalization_rejections"] == 0
