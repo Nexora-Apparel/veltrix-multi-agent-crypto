@@ -222,3 +222,23 @@ def test_market_refresh_rejects_replaced_row_claim_after_provider_read(tmp_path)
         worker.run_once(context=context)
     assert store.count(MINT) == 1
     assert worker.status()["processing"] == 1
+
+
+
+def test_refresh_worker_uses_retrieval_time_after_provider_response(tmp_path):
+    launches, store, provider, worker = setup(tmp_path)
+    launches.record_candidate(launch())
+    seed_snapshot(store)
+
+    # The provider's response arrives after request-start telemetry is recorded.
+    # It must still be accepted because retrieval time is captured after the fetch.
+    provider.observed = 10_002
+    worker.market_data.clock_ms = lambda: 10_003
+    clock_values = iter((10_000, 10_001, 10_004))
+    worker.clock_ms = lambda: next(clock_values)
+
+    result = worker.run_once()
+
+    assert (result.processed, result.refreshed, result.failed) == (1, 1, 0)
+    assert store.count(MINT) == 2
+    assert store.latest(MINT)["price_usd"] == provider.price
