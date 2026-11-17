@@ -82,3 +82,33 @@ def test_chain_market_collector_rejects_empty_input_without_discovery(tmp_path):
     collector = ChainMarketObservationCollector(str(tmp_path / "empty.db"))
     with pytest.raises(ValueError, match="at least one chain token"):
         collector.run_once({})
+
+
+
+def test_remote_write_connection_opens_only_after_provider_io(tmp_path, monkeypatch):
+    import veltrix.chain_market_ingestion as ingestion
+
+    path = str(tmp_path / "connection-order.db")
+    connection_opened = {"value": False}
+
+    class OrderedProvider(FakeMarketProvider):
+        def fetch_token_pairs(self, chain, addresses):
+            assert connection_opened["value"] is False
+            return [market_event(chain=chain, token=addresses[0])]
+
+    real_connect = ingestion.connect_database
+
+    def tracked_connect(database_path):
+        connection_opened["value"] = True
+        return real_connect(database_path)
+
+    monkeypatch.setattr(ingestion, "connect_database", tracked_connect)
+    collector = ChainMarketObservationCollector(
+        path,
+        provider=OrderedProvider(),
+        clock_ms=lambda: 1_700_000_000_000,
+    )
+    result = collector.run_once({"base": ["0xToken"]})
+
+    assert connection_opened["value"] is True
+    assert result["observations_inserted"]["base"] == 1
