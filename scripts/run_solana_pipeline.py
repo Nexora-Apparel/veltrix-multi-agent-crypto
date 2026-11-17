@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
 import json
 import os
+import re
+import uuid
 from urllib.parse import urlsplit
 
 from veltrix.config import settings
@@ -13,6 +14,25 @@ from veltrix.foundation import validate_runtime_controls
 from veltrix.solana_meme.pipeline import build_one_shot_pipeline
 
 CONFORMANCE_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.turso.io"
+
+
+def build_idempotency_key(environ: dict[str, str] | None = None) -> str:
+    """Give each GitHub Actions dispatch/attempt a distinct durable job identity.
+
+    Date/hour keys permanently deduplicate later dispatches against an earlier
+    FAILED job. GitHub run IDs identify a dispatch; run attempts distinguish
+    explicit Actions re-runs. Local invocations receive a fresh UUID.
+    """
+    env = os.environ if environ is None else environ
+    run_id = str(env.get("GITHUB_RUN_ID", "")).strip()
+    run_attempt = str(env.get("GITHUB_RUN_ATTEMPT", "1")).strip() or "1"
+    if run_id:
+        if not re.fullmatch(r"[0-9]+", run_id):
+            raise ValueError("GITHUB_RUN_ID must contain only decimal digits")
+        if not re.fullmatch(r"[0-9]+", run_attempt):
+            raise ValueError("GITHUB_RUN_ATTEMPT must contain only decimal digits")
+        return f"solana-intelligence-v2-{run_id}-attempt-{run_attempt}"
+    return f"solana-intelligence-v2-manual-{uuid.uuid4()}"
 
 
 def main() -> None:
@@ -37,15 +57,12 @@ def main() -> None:
     if not os.getenv("SOLANA_RPC_URL", "").strip() and not os.getenv("HELIUS_API_KEY", "").strip():
         raise SystemExit("configure SOLANA_RPC_URL or HELIUS_API_KEY for Phase 05 risk evidence")
 
-    now = datetime.now(timezone.utc)
-    bucket_hour = now.hour - (now.hour % 2)
-    idempotency_key = f"solana-intelligence-v1-{now:%Y%m%d}-{bucket_hour:02d}z"
     pipeline = build_one_shot_pipeline(
         database_path=url,
         settings_obj=settings(),
         paper_enabled=False,
     )
-    result = pipeline.run_once(idempotency_key=idempotency_key)
+    result = pipeline.run_once(idempotency_key=build_idempotency_key())
     payload = {
         "job": result.job,
         "stages": asdict(result.stages) if result.stages is not None else None,
