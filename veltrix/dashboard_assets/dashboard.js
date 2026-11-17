@@ -221,8 +221,11 @@
         () => {}, "The persisted events table is not initialized.");
       return;
     }
-    status.textContent = "Read-only events ledger available · " +
-      number(data.observation_count, 0) + " persisted " + chain.toUpperCase() + " observations";
+    status.textContent = "Persisted events ledger · " +
+      number(data.observation_count, 0) + " " + chain.toUpperCase() +
+      " observations" + (data.latest_observed_at
+        ? " · latest " + date(data.latest_observed_at)
+        : " · no observations yet");
     renderRows(chain + "-markets-body", chain + "-markets-empty", observations, (row, item) => {
       textCell(row, (item.symbol ? item.symbol + " · " : "") + short(item.token));
       textCell(row, number(item.price_usd, 10));
