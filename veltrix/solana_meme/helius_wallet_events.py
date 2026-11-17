@@ -61,6 +61,8 @@ class StoredMarketSpotPriceResolver:
 class HeliusWalletEventBatchProvider:
     """Fetch one bounded Helius wallet scan for a batch of candidate mints."""
 
+    provider_id = "helius"
+
     def __init__(
         self,
         *,
