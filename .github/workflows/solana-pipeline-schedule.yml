@@ -15,16 +15,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      PYTHONPATH: \${{ github.workspace }}
+      PYTHONPATH: ${{ github.workspace }}
       VELTRIX_DEPLOYMENT_TARGET: ci
       SCHEDULER_ENABLED: "false"
       LIVE_TRADING: "false"
       PAPER_TRADING_ENABLED: "false"
-      TURSO_DATABASE_URL: \${{ secrets.TURSO_DATABASE_URL }}
-      TURSO_AUTH_TOKEN: \${{ secrets.TURSO_AUTH_TOKEN }}
-      SOLANA_RPC_URL: \${{ secrets.SOLANA_RPC_URL }}
-      HELIUS_API_KEY: \${{ secrets.HELIUS_API_KEY }}
-      GOPLUS_ACCESS_TOKEN: \${{ secrets.GOPLUS_ACCESS_TOKEN }}
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+      HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+      GOPLUS_ACCESS_TOKEN: ${{ secrets.GOPLUS_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,7 +40,7 @@ jobs:
         if: always()
         continue-on-error: true
         env:
-          PYTHONPATH: \${{ github.workspace }}
-          TURSO_DATABASE_URL: \${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: \${{ secrets.TURSO_READONLY_AUTH_TOKEN }}
+          PYTHONPATH: ${{ github.workspace }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_READONLY_AUTH_TOKEN }}
         run: python scripts/inspect_solana_enrichment_failures.py
