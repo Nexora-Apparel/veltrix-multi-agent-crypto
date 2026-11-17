@@ -80,7 +80,7 @@ class OneShotSolanaPipeline:
         self.max_items = max_items
 
     def _execute_stages(self, context: RunContext, payload: dict[str, Any]) -> SolanaPipelineStages:
-        # Enforce the cooperative deadline and refresh the lease between every
+        # Enforce the cooperative deadline and revalidate the lease between every
         # bounded stage. Without these boundaries, a slow provider stage could
         # run past the global lease TTL and the next stage would fail its fence.
         context.checkpoint(items=0)
