@@ -143,6 +143,15 @@ jobs:
           fi
           jq -e '.error == "unauthorized"' /tmp/veltrix-unauthorized.json >/dev/null
 
+          invalid_status="$(curl --silent --show-error --output /tmp/veltrix-invalid-token.json --write-out "%{http_code}" \
+            -H "Authorization: Bearer veltrix-invalid-acceptance-token" "$base/api/health" || true)"
+          if [ "$invalid_status" != "401" ]; then
+            echo "Expected invalid/revoked bearer token status 401; got $invalid_status" >&2
+            cat /tmp/veltrix-invalid-token.json >&2 || true
+            exit 1
+          fi
+          jq -e '.error == "unauthorized"' /tmp/veltrix-invalid-token.json >/dev/null
+
           status="000"
           for attempt in $(seq 1 6); do
             status="$(curl --silent --show-error --output /tmp/veltrix-health.json --write-out "%{http_code}" \
@@ -157,4 +166,28 @@ jobs:
             exit 1
           fi
           jq -e '.ok == true and .database == "connected" and .database_read_only == true and .paper_ledger_initialized == true and .live_execution == false and (.missing_paper_tables | length == 0)' /tmp/veltrix-health.json >/dev/null
-          echo "Production Pages deployment, public auth boundary and authenticated read-only Turso API verified at $base"
+
+          runtime_status="$(curl --silent --show-error --output /tmp/veltrix-runtime-status.json --write-out "%{http_code}" \
+            -H "Authorization: Bearer $DASHBOARD_API_TOKEN" "$base/api/runtime-status" || true)"
+          if [ "$runtime_status" != "200" ]; then
+            echo "Production runtime diagnostics returned HTTP $runtime_status." >&2
+            cat /tmp/veltrix-runtime-status.json >&2 || true
+            exit 1
+          fi
+          jq -e '.read_only == true and .live_execution == false' /tmp/veltrix-runtime-status.json >/dev/null
+          echo "Production runtime telemetry: agents=$(jq -r '.agents.status' /tmp/veltrix-runtime-status.json), providers=$(jq -r '.providers.status' /tmp/veltrix-runtime-status.json)"
+
+          for chain in base bsc; do
+            chain_status="$(curl --silent --show-error --output "/tmp/veltrix-$chain-markets.json" --write-out "%{http_code}" \
+              -H "Authorization: Bearer $DASHBOARD_API_TOKEN" "$base/api/chain-markets?chain=$chain" || true)"
+            if [ "$chain_status" != "200" ]; then
+              echo "Production $chain market API returned HTTP $chain_status." >&2
+              cat "/tmp/veltrix-$chain-markets.json" >&2 || true
+              exit 1
+            fi
+            jq -e --arg chain "$chain" '.chain == $chain and .available == true' "/tmp/veltrix-$chain-markets.json" >/dev/null
+            count="$(jq -r '.observation_count' "/tmp/veltrix-$chain-markets.json")"
+            latest="$(jq -r '.latest_observed_at // "none"' "/tmp/veltrix-$chain-markets.json")"
+            echo "Production $chain market observations: $count; latest: $latest"
+          done
+          echo "Production Pages deployment, bearer-token rejection, read-only Turso API, runtime diagnostics and Base/BSC data contracts verified at $base"
