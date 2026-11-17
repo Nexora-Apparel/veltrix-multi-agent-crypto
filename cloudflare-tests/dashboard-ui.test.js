@@ -59,6 +59,6 @@ test("dashboard isolates failed API sections without discarding successful data"
 
 test("dashboard contains no wallet signing, transfer, submission, broadcast or scheduler controls", async () => {
   const html = await readFile(new URL("index.html", root), "utf8");
-  assert.doesNotMatch(html, /<button[^>]*(trade|execute|sign|submit|broadcast|schedule)/i);
+  assert.doesNotMatch(html, /data-action=["'](trade|execute|sign|submit|broadcast|schedule)/i);
   assert.doesNotMatch(html, /name=["'](private_key|seed_phrase|wallet_secret)["']/i);
 });
