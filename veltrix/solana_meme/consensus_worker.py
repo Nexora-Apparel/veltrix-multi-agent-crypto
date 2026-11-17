@@ -9,6 +9,7 @@ from typing import Any, Callable, Iterable, Iterator
 
 from ..database import connect_database, row_factory_for
 from ..orchestration import LeaseBusy, RunContext
+from ..runtime_telemetry import RuntimeTelemetryStore
 
 from ..whales import WalletBuyEvent
 from .consensus import ConsensusEngine, MarketEvidence, RiskEvidence
@@ -81,6 +82,7 @@ class ConsensusWorker:
         self.wallet_event_provider = wallet_event_provider
         self.wallet_event_batch_provider = wallet_event_batch_provider
         self._initialize()
+        self.telemetry = RuntimeTelemetryStore(self.database_path)
 
     @contextmanager
     def _connect(self) -> Iterator[Any]:
@@ -255,12 +257,23 @@ class ConsensusWorker:
     def _wallet_events_by_mint(self, mints: Iterable[str], now_ms: int) -> dict[str, tuple[WalletBuyEvent, ...]]:
         if self.wallet_event_batch_provider is None:
             return {}
+        provider_id = getattr(self.wallet_event_batch_provider, "provider_id", None) or "wallet-event-provider"
+        started = time.monotonic()
         try:
             events = tuple(self.wallet_event_batch_provider(tuple(mints), now_ms))
         except Exception as exc:
+            self.telemetry.record_provider_probe(
+                provider_id, "solana", succeeded=False, observed_at_ms=now_ms,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                error_code=type(exc).__name__,
+            )
             LOGGER.warning("Solana wallet evidence batch unavailable; Whale will abstain (%s)", type(exc).__name__)
             return {}
-        grouped: dict[str, list[WalletBuyEvent]] = {}
+        self.telemetry.record_provider_probe(
+            provider_id, "solana", succeeded=True, observed_at_ms=now_ms,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
+        grouped: dict[str, list[WalletBuyEvent]] = []
         for event in events:
             if not isinstance(event, WalletBuyEvent) or event.chain != "solana":
                 continue
@@ -295,12 +308,21 @@ class ConsensusWorker:
                     and isinstance(row.get("retrieved_at_ms"), int)
                     and row["retrieved_at_ms"] < market.retrieved_at_ms
                 ]
-                decision = self.engine.evaluate(
-                    market,
-                    risk,
-                    history=prior_history,
-                    wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
-                    now_ms=self.clock_ms(),
+                try:
+                    decision = self.engine.evaluate(
+                        market,
+                        risk,
+                        history=prior_history,
+                        wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
+                        now_ms=self.clock_ms(),
+                    )
+                except Exception as exc:
+                    self.telemetry.record_agent_failure(
+                        observed_at_ms=self.clock_ms(), error_code=type(exc).__name__,
+                    )
+                    raise
+                self.telemetry.record_agent_votes(
+                    decision.votes, observed_at_ms=self.clock_ms(),
                 )
                 if self._succeed(decision, self.clock_ms(), context):
                     recorded += 1
