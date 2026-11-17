@@ -288,12 +288,12 @@ def test_missing_liquidity_is_not_classified_as_below_minimum():
 
 def test_market_diagnostics_count_stale_future_and_invalid_pairs_without_addresses():
     provider = FakeMarketProvider([
-        event(pair="fresh", observed=10_000),
+        event(pair="fresh", observed=199_500),
         event(pair="stale", observed=1),
-        event(pair="future", observed=11_000),
-        replace(event(pair="invalid"), liquidity_usd=float("nan")),
+        event(pair="future", observed=201_000),
+        replace(event(pair="invalid", observed=199_500), liquidity_usd=float("nan")),
     ])
-    batch = SolanaMarketData(provider, clock_ms=lambda: 10_500).fetch_many([MINT_A])
+    batch = SolanaMarketData(provider, clock_ms=lambda: 200_000).fetch_many([MINT_A])
 
     assert batch.snapshots[MINT_A].pair_count == 1
     assert batch.diagnostics["requested_mints"] == 1
