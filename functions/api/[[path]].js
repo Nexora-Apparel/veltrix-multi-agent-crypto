@@ -414,10 +414,17 @@ async function chainMarkets(client, tables, chain) {
   };
 }
 
-async function runtimeStatus(client, tables) {
+async function runtimeStatus(client, tables, env = {}) {
   const now = Date.now();
+  const heartbeatMaxAge = Math.max(30_000, Math.min(
+    3_600_000, Number.parseInt(String(env.VELTRIX_AGENT_HEARTBEAT_MAX_AGE_MS || "300000"), 10) || 300_000,
+  ));
+  const providerMaxAge = Math.max(30_000, Math.min(
+    3_600_000, Number.parseInt(String(env.VELTRIX_PROVIDER_PROBE_MAX_AGE_MS || "300000"), 10) || 300_000,
+  ));
   const hasLeaseTable = tables.has("orchestration_worker_lease");
   const hasJobsTable = tables.has("orchestration_jobs");
+  const hasEventsTable = tables.has("events");
   let lease = null;
   let latestJob = null;
   if (hasLeaseTable) {
@@ -429,6 +436,64 @@ async function runtimeStatus(client, tables) {
       started_at_ms, finished_at_ms, error_code
       FROM orchestration_jobs ORDER BY updated_at_ms DESC LIMIT 1`);
   }
+  const latestAgents = new Map();
+  const latestProviders = new Map();
+  if (hasEventsTable) {
+    const telemetryRows = await rows(client, `SELECT id, event, payload
+      FROM events WHERE event IN ('AGENT_HEARTBEAT','PROVIDER_PROBE')
+      ORDER BY id DESC LIMIT 500`);
+    for (const row of telemetryRows) {
+      let payload;
+      try { payload = JSON.parse(row.payload); } catch { continue; }
+      if (!payload || typeof payload !== "object") continue;
+      if (row.event === "AGENT_HEARTBEAT" &&
+          ["scout", "whale", "sniper", "shield"].includes(payload.agent) &&
+          !latestAgents.has(payload.agent)) {
+        latestAgents.set(payload.agent, payload);
+      }
+      if (row.event === "PROVIDER_PROBE" &&
+          typeof payload.provider === "string" && typeof payload.chain === "string") {
+        const key = payload.provider + ":" + payload.chain;
+        if (!latestProviders.has(key)) latestProviders.set(key, payload);
+      }
+    }
+  }
+  const freshness = (payload, maxAge) => {
+    if (!payload || !Number.isFinite(Number(payload.observed_at_ms))) return "UNKNOWN";
+    const age = now - Number(payload.observed_at_ms);
+    if (age < 0) return "UNKNOWN";
+    if (age > maxAge) return "STALE";
+    return payload.status === "FAILED" ? "FAILED" : "FRESH";
+  };
+  const agentItems = ["scout", "whale", "sniper", "shield"].map((name) => {
+    const payload = latestAgents.get(name) || null;
+    return {
+      name,
+      status: hasEventsTable ? freshness(payload, heartbeatMaxAge) : "UNAVAILABLE",
+      last_heartbeat: payload ? isoMilliseconds(payload.observed_at_ms) : null,
+      last_stance: payload && typeof payload.stance === "string" ? payload.stance : null,
+      error_code: payload && payload.status === "FAILED" ? payload.error_code || "AGENT_ERROR" : null,
+    };
+  });
+  const providerItems = [...latestProviders.entries()].map(([key, payload]) => ({
+    provider: payload.provider,
+    chain: payload.chain,
+    status: freshness(payload, providerMaxAge),
+    last_probe: isoMilliseconds(payload.observed_at_ms),
+    latency_ms: finiteNumber(payload.latency_ms),
+    error_code: payload.status === "FAILED" ? payload.error_code || "PROVIDER_ERROR" : null,
+  })).sort((a, b) => a.provider.localeCompare(b.provider) || a.chain.localeCompare(b.chain));
+  const agentStatuses = agentItems.map((item) => item.status);
+  const providerStatuses = providerItems.map((item) => item.status);
+  const agentSummary = !hasEventsTable ? "UNAVAILABLE"
+    : agentStatuses.every((status) => status === "FRESH") ? "FRESH"
+    : agentStatuses.some((status) => status === "FAILED") ? "DEGRADED"
+    : agentStatuses.some((status) => status === "STALE") ? "STALE" : "UNKNOWN";
+  const providerSummary = !hasEventsTable ? "UNAVAILABLE"
+    : !providerItems.length ? "UNKNOWN"
+    : providerStatuses.every((status) => status === "FRESH") ? "FRESH"
+    : providerStatuses.some((status) => status === "FAILED") ? "DEGRADED"
+    : providerStatuses.some((status) => status === "STALE") ? "STALE" : "UNKNOWN";
   let leaseStatus = "UNKNOWN";
   if (!hasLeaseTable) leaseStatus = "UNAVAILABLE";
   else if (lease) leaseStatus = finiteNumber(lease.expires_at_ms, 0) > now ? "ACTIVE" : "STALE";
@@ -451,17 +516,16 @@ async function runtimeStatus(client, tables) {
       } : null,
     },
     agents: {
-      status: "UNKNOWN",
-      heartbeat_source_available: false,
-      reason: "Per-agent heartbeat records are not implemented; persisted consensus is not live health.",
-      items: ["Scout", "Whale", "Sniper", "Shield"].map((name) => ({
-        name, status: "UNKNOWN", last_heartbeat: null,
-      })),
+      status: agentSummary,
+      heartbeat_source_available: hasEventsTable,
+      freshness_window_ms: heartbeatMaxAge,
+      items: agentItems,
     },
     providers: {
-      status: "UNKNOWN",
-      connectivity_probe_available: false,
-      reason: "No persisted provider connectivity probe is available to this read-only dashboard.",
+      status: providerSummary,
+      connectivity_probe_available: hasEventsTable,
+      freshness_window_ms: providerMaxAge,
+      items: providerItems,
     },
     read_only: true,
     live_execution: false,
@@ -598,7 +662,7 @@ export async function handleDashboardRequest(request, env, injectedClient = null
         payload = await chainMarkets(client, tables, chain);
         break;
       case "/api/runtime-status":
-        payload = await runtimeStatus(client, tables);
+        payload = await runtimeStatus(client, tables, env);
         break;
       case "/api/equity-curve":
         payload = await equityCurve(client, tables);
