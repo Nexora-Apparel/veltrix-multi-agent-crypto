@@ -14,13 +14,13 @@ import re
 def redact_error(value: object) -> str:
     """Return useful error context without addresses, URLs or credential values."""
     message = str(value or "unknown error")
-    message = re.sub(r"(?i)bearer\\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", message)
+    message = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", message)
     message = re.sub(
-        r"(?i)(authorization|access[_-]?token|api[_-]?key|secret)\\s*[:=]\\s*[^\\s,;]+",
-        r"\\1=[REDACTED]",
+        r"(?i)(authorization|access[_-]?token|api[_-]?key|secret)\s*[:=]\s*[^\s,;]+",
+        r"\1=[REDACTED]",
         message,
     )
-    message = re.sub(r"https?://[^\\s)\\]]+", "[URL]", message)
+    message = re.sub(r"https?://[^\s)\]]+", "[URL]", message)
     # Solana/base58-like identifiers should not be emitted in Actions logs.
     message = re.sub(r"(?<![A-Za-z0-9])[1-9A-HJ-NP-Za-km-z]{32,44}(?![A-Za-z0-9])", "[ADDRESS]", message)
     return message[:220]
