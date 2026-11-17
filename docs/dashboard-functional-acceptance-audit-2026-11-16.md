@@ -240,3 +240,14 @@ The dashboard was retained and extended in place.
 - Production agent/provider telemetry is currently UNKNOWN because the one-shot production intelligence pipeline has not yet emitted heartbeat/probe events. The telemetry instrumentation is deployed and will report freshness only after real executions.
 - Latest-main Python CI: 920 passed / 10 skipped. Latest-main Pages CI: 28 passed / 0 failed, including Playwright six-route mobile emulation and 401/503/offline paths.
 - Physical Android device testing remains outstanding.
+
+
+## Mobile dashboard API reconnection — 2026-11-17 (pending acceptance)
+
+The earlier six-view Pages dashboard is not the updated mobile interface identified by the operator. The mobile design reference is PR #183 in this repository: Home, Trades, Agents and Wallet in a floating bottom navigation pill, with a separate Search control and the burgundy/pink ambient visual system.
+
+PR #183 is based on an obsolete integration branch and is substantially diverged from current main, so it must not be merged wholesale. The mobile HTML/CSS/JS have been selectively ported on branch `integration/mobile-dashboard-api-reconnect-20261117` from current main. The existing Cloudflare Pages API handler and read-only Turso connection remain the backend authority.
+
+The mobile client now requests the existing account/ledger endpoints plus `/api/runtime-status` and `/api/chain-markets?chain=solana|base|bsc`. Home displays persisted chain-observation counts and timestamps; Agents displays persisted agent heartbeat and provider-probe freshness. Unknown or empty production data must remain explicitly unknown/empty. API failures are isolated with `Promise.allSettled`; rejected bearer tokens are cleared from tab session storage.
+
+**Current status:** code and automated acceptance updates are committed on the integration branch, not merged or deployed. Exact-head CI, Pages build/smoke, browser acceptance, and physical Android testing remain pending. Production URL and deployed runtime remain unchanged until the integration is reviewed, merged and deployed through the existing workflow. Scheduler, paper trading, live execution, signing, submission and broadcast remain disabled.
