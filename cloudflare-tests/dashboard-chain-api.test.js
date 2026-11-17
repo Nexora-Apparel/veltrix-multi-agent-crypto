@@ -52,22 +52,22 @@ test("chain market history rejects unsupported chain selectors", async () => {
 
 test("chain market history filters persisted ledger events by exact chain", async () => {
   const client = clientWithEvents([
+    { payload: JSON.stringify({ chain: "base", token: "", price_usd: 3 }), created_at: 1760000004 },
+    { payload: "{malformed", created_at: 1760000003 },
     { payload: JSON.stringify({
       chain: "base", token: "0xBaseToken", pair: "0xBasePair", symbol: "BASE",
-      price_usd: "1.25", liquidity_usd: "25000", volume_h1_usd: "8000",
-      price_change_m5_pct: "-2.5", observed_at_ms: 1760000000000, source: "dexscreener",
-    }), created_at: 1760000000 },
+      price_usd: "1.50", liquidity_usd: "27000", volume_h1_usd: "9000",
+      price_change_m5_pct: "-2.5", observed_at_ms: 1760000002000, source: "dexscreener",
+    }), created_at: 1760000002 },
     { payload: JSON.stringify({
       chain: "bsc", token: "0xBscToken", price_usd: 9, liquidity_usd: 1000,
       volume_h1_usd: 500, observed_at_ms: 1760000001000,
     }), created_at: 1760000001 },
     { payload: JSON.stringify({
       chain: "base", token: "0xBaseToken", pair: "0xBasePair", symbol: "BASE",
-      price_usd: "1.50", liquidity_usd: "27000", volume_h1_usd: "9000",
-      observed_at_ms: 1760000002000, source: "dexscreener",
-    }), created_at: 1760000002 },
-    { payload: "{malformed", created_at: 1760000003 },
-    { payload: JSON.stringify({ chain: "base", token: "", price_usd: 3 }), created_at: 1760000003 },
+      price_usd: "1.25", liquidity_usd: "25000", volume_h1_usd: "8000",
+      price_change_m5_pct: "-2.5", observed_at_ms: 1760000000000, source: "dexscreener",
+    }), created_at: 1760000000 },
   ]);
   const response = await handleDashboardRequest(request("base"), environment(), client);
   assert.equal(response.status, 200);
@@ -81,7 +81,7 @@ test("chain market history filters persisted ledger events by exact chain", asyn
   assert.equal(body.observations[0].price_usd, 1.5);
   assert.equal(body.observations[0].price_change_m5_pct, -2.5);
   assert.equal(body.observations[0].source, "dexscreener");
-  assert.equal(body.latest_observed_at, "2025-10-09T08:53:20.000Z");
+  assert.equal(body.latest_observed_at, "2025-10-09T08:53:22.000Z");
   assert.match(client.calls[1].sql, /^SELECT payload, created_at FROM events/);
   assert.deepEqual(client.calls[1].args, [1000]);
 });
