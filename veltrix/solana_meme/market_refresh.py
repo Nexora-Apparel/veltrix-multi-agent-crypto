@@ -267,7 +267,10 @@ class MarketRefreshWorker:
         probe_started = time.monotonic()
         probe_at = self.clock_ms()
         try:
-            batch = self.market_data.fetch_many(claimed, now_ms=probe_at)
+            # fetch_many captures its retrieval timestamp after the provider returns.
+            # probe_at is the request-start time for telemetry only; passing it as
+            # now_ms would make every response received during the request appear future-dated.
+            batch = self.market_data.fetch_many(claimed)
             if not isinstance(batch, MarketDataBatch):
                 raise TypeError("market data adapter returned an invalid batch")
         except Exception as exc:
