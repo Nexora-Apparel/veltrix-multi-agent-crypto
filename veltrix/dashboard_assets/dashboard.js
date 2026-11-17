@@ -63,11 +63,17 @@
       ? [job.job_type, job.status, "attempt " + number(job.attempt, 0), date(job.updated_at)].join(" · ")
       : "No persisted orchestration job";
     const agents = runtime.agents || {};
-    $("diag-agent-heartbeat").textContent = agents.heartbeat_source_available
-      ? (agents.status || "UNKNOWN") : "UNKNOWN · no per-agent heartbeat source";
+    const agentItems = Array.isArray(agents.items) ? agents.items : [];
+    $("diag-agent-heartbeat").textContent = agentItems.length
+      ? agentItems.map((item) => item.name + ": " + (item.status || "UNKNOWN") +
+        (item.last_stance ? " (" + item.last_stance + ")" : "")).join(" · ")
+      : (agents.status || "UNKNOWN");
     const providers = runtime.providers || {};
-    $("diag-provider-connectivity").textContent = providers.connectivity_probe_available
-      ? (providers.status || "UNKNOWN") : "UNKNOWN · no connectivity probe";
+    const providerItems = Array.isArray(providers.items) ? providers.items : [];
+    $("diag-provider-connectivity").textContent = providerItems.length
+      ? providerItems.map((item) => item.provider + "/" + item.chain + ": " +
+        (item.status || "UNKNOWN") + " · " + number(item.latency_ms, 0) + " ms").join(" · ")
+      : (providers.status || "UNKNOWN");
     $("diag-runtime-checked").textContent = date(runtime.checked_at);
   }
 
