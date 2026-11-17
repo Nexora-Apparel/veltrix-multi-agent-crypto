@@ -517,3 +517,23 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - PR #214 was marked ready and squash-merged to `main` as `f838b55b6ea548d0f57cb04ca0b6021ef0516d00`.
 - Post-merge file verification confirms both manual workflows on `main` contain `PYTHONPATH: ${{ github.workspace }}`. No application code, dependencies, database schema or credentials changed.
 - **Operational verification remains pending:** both manual workflows must be dispatched after this merge. The collector must complete its bounded collection and persistence path; the Solana pipeline must complete its one-shot read-only path. Do not mark either as operationally successful until its post-merge run and persisted effects are inspected. Scheduler, paper trading, live trading, Telegram, signing, submission and broadcast remain disabled.
+
+
+## 17. Collector Turso adapter dependency correction — 2026-11-17
+
+- Inspected manual collector run [44090087662](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44090087662), job [134062647643](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44090087662/job/134062647643), on main SHA `01c78ed06a33503449692df2fc7e2f9d5564b548`.
+- The PR #214 import-path correction worked: checkout, dependency installation, compileall and the collector/runtime targeted tests completed. The collection step then failed in `veltrix/database.py` with `RuntimeError: Turso was selected but turso-serverless is not installed`.
+- Root cause: `requirements.txt` intentionally contains the common/local dependencies only. The separately pinned remote adapter is declared in `requirements-turso.txt` at the audited upstream source revision. The Solana one-shot workflow already installs both requirement files, but the chain-market collector installed only `requirements.txt`.
+- Corrective branch `fix/collector-install-turso-adapter-20261117`, based on the exact failed-run main SHA, updates only the collector workflow install step to install `-r requirements.txt -r requirements-turso.txt`. It does not change database code, credentials, schema, provider configuration or collection limits.
+- Runtime safety remains unchanged: manual dispatch only; `LIVE_TRADING=false`; `PAPER_TRADING_ENABLED=false`; no cron, scheduler, trading, signing, submission or broadcast is enabled.
+- **Verification pending:** exact-head CI and workflow validation must pass. Then rerun the collector once and inspect both its logs and persisted production observations before marking collection successful. The failed run does not establish a successful Turso write.
+
+
+## 18. Manual Solana pipeline timeout correction — 2026-11-17
+
+- Inspected manual Solana workflow run [44090269596](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44090269596), job [134063280563](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44090269596/job/134063280563), on main SHA `01c78ed06a33503449692df2fc7e2f9d5564b548`.
+- Checkout, Python setup and installation of both `requirements.txt` and `requirements-turso.txt` passed. The one-shot pipeline step was cancelled after the GitHub Actions job reached its configured four-minute timeout. The runner log ends with `The operation was canceled.`; it contains no application traceback or stage result. This is a workflow timeout, not evidence of a Turso authentication failure or provider rejection.
+- The pipeline itself is configured with a 180-second orchestration runtime budget and a 240-second lease TTL. The workflow's four-minute wall-clock limit leaves insufficient headroom for checkout, environment setup, dependency installation, DB initialization and pipeline reporting around that bounded execution.
+- The collector/Turso adapter fix and this timeout adjustment are carried on PR [#215](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/215). The Solana workflow job timeout is raised from 4 to 10 minutes; the internal 180-second pipeline runtime budget, 240-second lease TTL, fixed stage order, bounded per-stage limits, and read-only execution mode are unchanged.
+- Safety remains locked: workflow is manual-only; Telegram and scheduler disabled; paper and live trading disabled; no signing, submission or broadcast.
+- **Verification pending:** PR CI must pass. After merge, rerun the manual Solana workflow and inspect the emitted stage summary and persisted read-only telemetry. Do not classify the cancelled run as a pipeline success or provider failure.
