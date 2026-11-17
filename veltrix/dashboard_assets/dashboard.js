@@ -238,7 +238,6 @@
   $("search-input").addEventListener("input",e=>renderSearch(e.target.value));
   $("status-toggle").addEventListener("click",()=>{$("status-sheet").hidden=false;});
   $("status-close").addEventListener("click",()=>{$("status-sheet").hidden=true;});
-  $("status-close").addEventListener("click",()=>{$("status-sheet").hidden=true;});
   refresh();
   window.setInterval(refresh,15000);
 })();
