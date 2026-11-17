@@ -605,3 +605,14 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - Updated the manual Solana workflow to run the diagnostic after the pipeline, including after a pipeline-step failure. The diagnostic step maps TURSO_READONLY_AUTH_TOKEN into the database adapter for that step only, and is continue-on-error so it cannot mask the primary pipeline result. The main pipeline continues using its existing worker credential.
 - Branch: diagnose/enrichment-failure-report-20261117; changes are unmerged pending exact-head CI and workflow review. No production run has yet consumed this diagnostic, so the actual 25-candidate failure cause remains not yet established.
 - No application runtime behavior, retry policy, queue rows, database schema, provider configuration or execution controls were changed. The workflow remains manual-only; scheduler, paper trading, live trading, signing, submission and broadcast remain disabled.
+
+
+## 23. Enrichment diagnostics merged — 2026-11-17
+
+- PR [#219](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/219) merged to main as f45d71918f56d71e0128d0d4c0c95817240e9635.
+- Exact-head PR checks passed on 1e136eaccdb2e831e4de84ed7a2142b1b269383e: Python CI compileall and pytest reported 930 passed, 10 skipped; Cloudflare Pages dashboard CI passed.
+- The production workflow now has a post-run diagnostic step using the established TURSO_READONLY_AUTH_TOKEN secret. The diagnostic itself runs SELECT statements only and is continue-on-error so it cannot hide the pipeline's main result.
+- The diagnostic has not yet been run against production. The underlying cause of the previous 25/25 enrichment failures is still unknown until a manual production run emits the persisted error groups.
+- Main-branch post-merge CI was queued at ledger update time; its final status must be verified before treating the merge as fully green.
+- No production queue rows were reset or modified by this PR. No provider settings or retry policies changed. Scheduler, paper trading, live trading, signing, submission and broadcast remain disabled.
+- Next acceptance step: manually dispatch the existing bounded one-shot workflow on main, inspect the redacted enrichment error groups, then fix the evidenced root cause with regression tests. Do not infer success from orchestration status alone.
