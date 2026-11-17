@@ -39,7 +39,7 @@
     if (selected === "base" || selected === "bsc") loadChainMarkets(selected);
   }
 
-  function renderDiagnostics(health, overview) {
+  function renderDiagnostics(health, overview, runtime) {
     $("diag-database").textContent = health.database || "UNKNOWN";
     $("diag-readonly").textContent = health.database_read_only === true ? "READ-ONLY" :
       health.database_read_only === false ? "WRITE ACCESS REPORTED" : "UNKNOWN";
@@ -56,6 +56,19 @@
     const pipeline = overview.pipeline || {};
     $("diag-pipeline").textContent = Object.entries(pipeline)
       .map(([key, value]) => key + ": " + number(value, 0)).join(" · ") || "No counts returned";
+    const orchestration = runtime.orchestration || {};
+    $("diag-worker-lease").textContent = orchestration.lease_status || "UNKNOWN";
+    const job = orchestration.latest_job;
+    $("diag-worker-job").textContent = job
+      ? [job.job_type, job.status, "attempt " + number(job.attempt, 0), date(job.updated_at)].join(" · ")
+      : "No persisted orchestration job";
+    const agents = runtime.agents || {};
+    $("diag-agent-heartbeat").textContent = agents.heartbeat_source_available
+      ? (agents.status || "UNKNOWN") : "UNKNOWN · no per-agent heartbeat source";
+    const providers = runtime.providers || {};
+    $("diag-provider-connectivity").textContent = providers.connectivity_probe_available
+      ? (providers.status || "UNKNOWN") : "UNKNOWN · no connectivity probe";
+    $("diag-runtime-checked").textContent = date(runtime.checked_at);
   }
 
 
@@ -302,10 +315,11 @@
       const results = await Promise.allSettled([
         api("/api/health"), api("/api/overview"), api("/api/positions"),
         api("/api/trades"), api("/api/decisions"), api("/api/consensus"),
-        api("/api/markets"), api("/api/equity-curve"), api("/api/costs")
+        api("/api/markets"), api("/api/equity-curve"), api("/api/costs"),
+        api("/api/runtime-status")
       ]);
       const names = ["health", "overview", "positions", "trades", "decisions",
-        "consensus", "markets", "equity curve", "costs"];
+        "consensus", "markets", "equity curve", "costs", "runtime status"];
       const errors = [];
       const failures = [];
       const value = (index) => {
@@ -324,6 +338,7 @@
       const markets = value(6);
       const curve = value(7);
       const costs = value(8);
+      const runtime = value(9);
 
       if (overview) renderMetrics(overview);
       else {
@@ -362,7 +377,7 @@
         $("exit-cost-bar").style.setProperty("--fill", "0%");
       }
 
-      renderDiagnostics(health || {}, overview || {});
+      renderDiagnostics(health || {}, overview || {}, runtime || {});
       if (health) {
         $("health-led").className = health.database === "connected"
           ? "status-led" : "status-led bad";
