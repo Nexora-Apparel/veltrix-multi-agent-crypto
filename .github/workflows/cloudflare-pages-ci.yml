@@ -17,6 +17,7 @@ on:
       - "cloudflare-tests/**"
       - "veltrix/dashboard_assets/**"
       - "package.json"
+      - "scripts/**"
       - "wrangler.toml"
       - ".github/workflows/cloudflare-pages-ci.yml"
   workflow_dispatch:
