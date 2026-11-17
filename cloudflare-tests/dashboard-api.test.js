@@ -238,3 +238,59 @@ test("runtime status reports missing orchestration tables as unavailable without
   assert.equal(body.providers.status, "UNKNOWN");
   assert.equal(client.calls.length, 1);
 });
+
+test("runtime status derives agent and provider freshness from persisted evidence", async () => {
+  const now = Date.now();
+  const events = [
+    { id: 5, event: "AGENT_HEARTBEAT", payload: JSON.stringify({
+      agent: "scout", status: "SUCCESS", stance: "SUPPORT", observed_at_ms: now - 1000,
+    }) },
+    { id: 4, event: "AGENT_HEARTBEAT", payload: JSON.stringify({
+      agent: "whale", status: "FAILED", stance: null, error_code: "ProviderError", observed_at_ms: now - 2000,
+    }) },
+    { id: 3, event: "PROVIDER_PROBE", payload: JSON.stringify({
+      provider: "dexscreener", chain: "base", status: "SUCCESS", latency_ms: 125, observed_at_ms: now - 500,
+    }) },
+  ];
+  const client = {
+    async execute(statement) {
+      if (statement.sql.includes("sqlite_master")) {
+        return { columns: ["name"], rows: [
+          { name: "events" }, { name: "orchestration_worker_lease" }, { name: "orchestration_jobs" },
+        ] };
+      }
+      if (statement.sql.includes("FROM orchestration_worker_lease")) return { columns: [], rows: [] };
+      if (statement.sql.includes("FROM orchestration_jobs")) return { columns: [], rows: [] };
+      if (statement.sql.includes("FROM events")) return { columns: ["id", "event", "payload"], rows: events };
+      throw new Error("unexpected runtime telemetry query");
+    },
+  };
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/runtime-status", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }), env(), client,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.agents.items.find((item) => item.name === "scout").status, "FRESH");
+  assert.equal(body.agents.items.find((item) => item.name === "scout").last_stance, "SUPPORT");
+  assert.equal(body.agents.items.find((item) => item.name === "whale").status, "FAILED");
+  assert.equal(body.agents.items.find((item) => item.name === "sniper").status, "UNKNOWN");
+  assert.equal(body.providers.items[0].status, "FRESH");
+  assert.equal(body.providers.items[0].provider, "dexscreener");
+  assert.equal(body.providers.items[0].chain, "base");
+  assert.equal(body.providers.items[0].latency_ms, 125);
+});
+
+test("runtime status distinguishes unavailable telemetry schema from no telemetry yet", async () => {
+  const client = fakeClient();
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/runtime-status", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }), env(), client,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.agents.status, "UNAVAILABLE");
+  assert.equal(body.providers.status, "UNAVAILABLE");
+});
