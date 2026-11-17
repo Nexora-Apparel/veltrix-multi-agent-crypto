@@ -446,6 +446,32 @@ class SolanaMarketData:
                 diagnostics["mints_with_events"] += 1
             else:
                 diagnostics["mints_without_events"] += 1
+            for event in grouped[mint]:
+                if not isinstance(event.pair_address, str) or not event.pair_address.strip():
+                    diagnostics["rejected_missing_pair_address"] += 1
+                    continue
+                observed = event.observed_at_ms
+                if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
+                    diagnostics["rejected_invalid_observation_timestamp"] += 1
+                    continue
+                age = retrieved - observed
+                if age < 0:
+                    diagnostics["rejected_future_pairs"] += 1
+                    continue
+                if age > self.max_response_age_ms:
+                    diagnostics["rejected_stale_pairs"] += 1
+                    continue
+                try:
+                    self._nonnegative(event.price_usd, "price_usd")
+                    self._nonnegative(event.liquidity_usd, "liquidity_usd")
+                    self._nonnegative(event.volume_h1_usd, "volume_h1_usd")
+                    if not isinstance(event.quality_flags, tuple) or any(
+                        not isinstance(flag, str) or not flag.strip()
+                        for flag in event.quality_flags
+                    ):
+                        raise MarketDataUnavailable("invalid quality flags")
+                except MarketDataUnavailable:
+                    diagnostics["rejected_invalid_fields"] += 1
             try:
                 snapshots[mint] = self._snapshot(
                     mint, grouped[mint], retrieved_at_ms=retrieved
@@ -454,24 +480,6 @@ class SolanaMarketData:
             except MarketDataUnavailable as exc:
                 unavailable[mint] = str(exc)
                 diagnostics["unavailable_mints"] += 1
-                # Re-evaluate only rejection classes; never emit token addresses.
-                for event in grouped[mint]:
-                    if event.chain != "solana" or event.token_address != mint:
-                        continue
-                    if not isinstance(event.pair_address, str) or not event.pair_address.strip():
-                        diagnostics["rejected_missing_pair_address"] += 1
-                        continue
-                    observed = event.observed_at_ms
-                    if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
-                        diagnostics["rejected_invalid_observation_timestamp"] += 1
-                        continue
-                    age = retrieved - observed
-                    if age < 0:
-                        diagnostics["rejected_future_pairs"] += 1
-                    elif age > self.max_response_age_ms:
-                        diagnostics["rejected_stale_pairs"] += 1
-                    else:
-                        diagnostics["rejected_invalid_fields"] += 1
         self.last_diagnostics = diagnostics
         return MarketDataBatch(snapshots, unavailable, diagnostics)
 
