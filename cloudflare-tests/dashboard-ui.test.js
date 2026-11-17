@@ -29,7 +29,8 @@ test("diagnostics distinguish API health fields from unavailable agent and provi
   const js = await readFile(new URL("dashboard.js", root), "utf8");
   assert.match(html, /Agent heartbeat/);
   assert.match(html, /Provider connectivity/);
-  assert.match(html, /Not exposed by current API/);
+  assert.match(html, /id="diag-agent-heartbeat"/);
+  assert.match(html, /id="diag-provider-connectivity"/);
   assert.match(html, /id="diag-last-market"/);
   assert.match(html, /id="diag-last-consensus"/);
   assert.match(html, /id="diag-pipeline"/);
