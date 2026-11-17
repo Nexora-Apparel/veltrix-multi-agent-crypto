@@ -517,3 +517,13 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - PR #214 was marked ready and squash-merged to `main` as `f838b55b6ea548d0f57cb04ca0b6021ef0516d00`.
 - Post-merge file verification confirms both manual workflows on `main` contain `PYTHONPATH: ${{ github.workspace }}`. No application code, dependencies, database schema or credentials changed.
 - **Operational verification remains pending:** both manual workflows must be dispatched after this merge. The collector must complete its bounded collection and persistence path; the Solana pipeline must complete its one-shot read-only path. Do not mark either as operationally successful until its post-merge run and persisted effects are inspected. Scheduler, paper trading, live trading, Telegram, signing, submission and broadcast remain disabled.
+
+
+## 17. Collector Turso adapter dependency correction — 2026-11-17
+
+- Inspected manual collector run [44090087662](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44090087662), job [134062647643](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44090087662/job/134062647643), on main SHA `01c78ed06a33503449692df2fc7e2f9d5564b548`.
+- The PR #214 import-path correction worked: checkout, dependency installation, compileall and the collector/runtime targeted tests completed. The collection step then failed in `veltrix/database.py` with `RuntimeError: Turso was selected but turso-serverless is not installed`.
+- Root cause: `requirements.txt` intentionally contains the common/local dependencies only. The separately pinned remote adapter is declared in `requirements-turso.txt` at the audited upstream source revision. The Solana one-shot workflow already installs both requirement files, but the chain-market collector installed only `requirements.txt`.
+- Corrective branch `fix/collector-install-turso-adapter-20261117`, based on the exact failed-run main SHA, updates only the collector workflow install step to install `-r requirements.txt -r requirements-turso.txt`. It does not change database code, credentials, schema, provider configuration or collection limits.
+- Runtime safety remains unchanged: manual dispatch only; `LIVE_TRADING=false`; `PAPER_TRADING_ENABLED=false`; no cron, scheduler, trading, signing, submission or broadcast is enabled.
+- **Verification pending:** exact-head CI and workflow validation must pass. Then rerun the collector once and inspect both its logs and persisted production observations before marking collection successful. The failed run does not establish a successful Turso write.
