@@ -459,3 +459,21 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - The final stable-host verification step failed with HTTP 500 before it could certify the production homepage/authenticated API. The existing step used opaque curl failure handling, so the precise failing request was not isolated in that run. **Do not claim the latest deployment is production-verified.**
 - Opened PR #210, branch `fix/pages-production-verification-retries`, to add bounded propagation retries and capture each endpoint's HTTP status/body without exposing credentials. It will rerun deployment after merge and make the failing endpoint diagnosable.
 - Production runtime SHA deployment remains pending verified success. Physical Android acceptance and manual Base/BSC data collection also remain outstanding.
+
+
+## 14. Production dashboard acceptance probes — 2026-11-17
+
+- PR #210 merged deployment-verification retries and bounded response diagnostics as `f7b749a204dc1fc552cc25977887bf7f19041997`. The first post-PR #209 deploy had uploaded successfully but failed stable-host verification with HTTP 500; the new verifier isolated/retried the edge checks and the next deployment passed.
+- PR #211 merged production acceptance probes as `c29004f70e08139e9974fcb12b76835c7ded6a53`.
+- Latest production deployment: [run 44071107818](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44071107818), exact main SHA `c29004f70e08139e9974fcb12b76835c7ded6a53`, conclusion **success**. Production URL: https://veltrix-multi-agent-crypto.pages.dev.
+- Verified on production: homepage, unauthenticated 401, invalid/revoked bearer 401, authenticated health 200, authenticated runtime-status 200, read-only database, paper ledger initialized, live execution false, and authenticated Base/BSC market API contracts.
+- Production Base observations: **0** (latest: none). Production BSC observations: **0** (latest: none). Both endpoints are available and return the correct contract, but the production ledger is not yet populated. The dashboard correctly renders empty states rather than fabricated market data.
+- Production runtime telemetry currently reports `agents=UNKNOWN`, `providers=UNKNOWN`. This is correct because no one-shot production intelligence pipeline has yet generated real agent-evaluation heartbeat/provider-probe events. The instrumentation is deployed; actual runtime evidence remains pending.
+- Latest-main Python CI run [44071107839](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44071107839): **920 passed / 10 skipped**. Latest-main Pages CI run [44071107841](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44071107841): **28 passed / 0 failed**, Pages build/smoke passed, Playwright mobile browser acceptance passed for all six routes, 390px/360px layouts, 401 revoked-token handling, HTTP 503 and offline failures.
+
+### Remaining manual acceptance actions
+
+1. Run the manual-only GitHub Actions workflow **Collect VELTRIX chain market observations** with `discover_latest_profiles=true` (or explicit Base/BSC token addresses). This writes only market-observation/provider-probe events; no scheduler or paper/live execution is involved. Recheck the dashboard's Base/BSC counts after the run.
+2. Run **Manual Solana intelligence pipeline (scheduler locked)** once. It is `workflow_dispatch` only, sets scheduler/paper/live controls false, and runs one bounded read-only analysis attempt. This is required to generate genuine production agent heartbeat and Solana provider-probe evidence. Recheck `/api/runtime-status` afterwards; statuses must derive from recorded events.
+3. Complete the physical Android browser sweep on the actual device. Playwright emulation is not a substitute for device touch/navigation/rendering verification.
+4. No schedule or cron is to be enabled. All trading, signing, submission and broadcast safeguards remain disabled.
