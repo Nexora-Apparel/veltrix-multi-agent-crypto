@@ -385,15 +385,20 @@ async function chainMarkets(client, tables, chain) {
     [1000],
   );
   const observations = [];
+  const seenPools = new Set();
   for (const row of selected) {
     let payload;
     try { payload = JSON.parse(row.payload); } catch { continue; }
     if (!payload || payload.chain !== chain ||
         typeof payload.token !== "string" || !payload.token.trim()) continue;
+    const pair = typeof payload.pair === "string" ? payload.pair : "";
+    const identity = payload.token.toLowerCase() + "|" + pair.toLowerCase();
+    if (seenPools.has(identity)) continue;
+    seenPools.add(identity);
     observations.push({
       chain,
       token: payload.token,
-      pair: typeof payload.pair === "string" ? payload.pair : null,
+      pair: pair || null,
       symbol: typeof payload.symbol === "string" ? payload.symbol : null,
       price_usd: finiteNumber(payload.price_usd),
       liquidity_usd: finiteNumber(payload.liquidity_usd),
@@ -408,6 +413,8 @@ async function chainMarkets(client, tables, chain) {
   return {
     chain,
     available: true,
+    status: observations.length ? "AVAILABLE" : "EMPTY",
+    data_source: "events.MARKET_OBSERVATION",
     observation_count: observations.length,
     latest_observed_at: observations[0]?.observed_at ?? null,
     observations,
