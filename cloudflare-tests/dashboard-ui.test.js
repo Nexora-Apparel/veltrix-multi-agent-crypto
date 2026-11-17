@@ -27,8 +27,8 @@ test("Base and BSC views render only persisted chain-specific market history", a
 test("diagnostics distinguish API health fields from unavailable agent and provider telemetry", async () => {
   const html = await readFile(new URL("index.html", root), "utf8");
   const js = await readFile(new URL("dashboard.js", root), "utf8");
-  assert.match(html, /Agent heartbeat/);
-  assert.match(html, /Provider connectivity/);
+  assert.match(html, /Agent evaluation freshness/);
+  assert.match(html, /Provider probe freshness/);
   assert.match(html, /id="diag-agent-heartbeat"/);
   assert.match(html, /id="diag-provider-connectivity"/);
   assert.match(html, /id="diag-last-market"/);
@@ -65,7 +65,7 @@ test("dashboard isolates failed data sections and keeps successful sections rend
   assert.match(js, /partial dashboard data/i);
 });
 
-test("diagnostics render orchestration lease and keep agent/provider telemetry explicitly unknown", async () => {
+test("diagnostics render orchestration lease and persisted agent/provider telemetry", async () => {
   const html = await readFile(new URL("index.html", root), "utf8");
   const js = await readFile(new URL("dashboard.js", root), "utf8");
   for (const id of ["diag-worker-lease", "diag-worker-job", "diag-agent-heartbeat",
@@ -73,7 +73,16 @@ test("diagnostics render orchestration lease and keep agent/provider telemetry e
     assert.match(html, new RegExp('id="' + id + '"'));
   }
   assert.match(js, /api\("\/api\/runtime-status"\)/);
-  assert.match(js, /UNKNOWN · no per-agent heartbeat source/);
-  assert.match(js, /UNKNOWN · no connectivity probe/);
+  assert.match(js, /agentItems\.map/);
+  assert.match(js, /providerItems\.map/);
   assert.match(js, /runtime\.orchestration/);
+});
+
+test("mobile dashboard retains a viewport declaration and responsive layout breakpoints", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const css = await readFile(new URL("dashboard.css", root), "utf8");
+  assert.match(html, /name="viewport" content="width=device-width, initial-scale=1"/);
+  assert.match(css, /@media\s*\(max-width:\s*1100px\)/);
+  assert.match(css, /@media\s*\(max-width:\s*650px\)/);
+  assert.match(css, /overflow-wrap|word-break/);
 });
