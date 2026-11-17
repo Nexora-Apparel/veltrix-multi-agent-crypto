@@ -214,10 +214,10 @@ test("runtime status exposes worker lease evidence but never fabricates agent or
   const body = await response.json();
   assert.equal(body.orchestration.lease_status, "UNKNOWN");
   assert.equal(body.orchestration.latest_job.status, "SUCCEEDED");
-  assert.equal(body.agents.status, "UNKNOWN");
+  assert.equal(body.agents.status, "UNAVAILABLE");
   assert.equal(body.agents.heartbeat_source_available, false);
   assert.equal(body.agents.items.length, 4);
-  assert.equal(body.providers.status, "UNKNOWN");
+  assert.equal(body.providers.status, "UNAVAILABLE");
   assert.equal(body.providers.connectivity_probe_available, false);
   assert.equal(body.read_only, true);
   assert.equal(body.live_execution, false);
@@ -234,8 +234,8 @@ test("runtime status reports missing orchestration tables as unavailable without
   const body = await response.json();
   assert.equal(body.orchestration.lease_status, "UNAVAILABLE");
   assert.equal(body.orchestration.jobs_table_available, false);
-  assert.equal(body.agents.status, "UNKNOWN");
-  assert.equal(body.providers.status, "UNKNOWN");
+  assert.equal(body.agents.status, "UNAVAILABLE");
+  assert.equal(body.providers.status, "UNAVAILABLE");
   assert.equal(client.calls.length, 1);
 });
 
