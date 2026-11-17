@@ -273,7 +273,7 @@ class ConsensusWorker:
             provider_id, "solana", succeeded=True, observed_at_ms=now_ms,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
-        grouped: dict[str, list[WalletBuyEvent]] = []
+        grouped: dict[str, list[WalletBuyEvent]] = {}
         for event in events:
             if not isinstance(event, WalletBuyEvent) or event.chain != "solana":
                 continue
