@@ -258,7 +258,10 @@ class CandidateEnrichmentWorker:
         if context is not None:
             context.checkpoint(items=len(claimed))
         try:
-            batch = self.market_data.fetch_many(claimed, now_ms=self.clock_ms())
+            # SolanaMarketData captures its retrieval timestamp after the provider returns.
+            # Passing the pre-request worker clock here would make every response appear
+            # future-dated by the duration of the HTTP request.
+            batch = self.market_data.fetch_many(claimed)
             if not isinstance(batch, MarketDataBatch):
                 raise TypeError("market data adapter returned an invalid batch")
         except Exception as exc:

@@ -296,3 +296,34 @@ def test_slow_market_response_keeps_enrichment_claim_valid_for_bounded_pipeline(
     assert worker.status()["retry"] == 1
     assert worker.status()["processing"] == 0
     assert snapshots.count(MINT_A) == 0
+
+
+
+def test_worker_market_response_clock_is_captured_after_provider_returns(tmp_path):
+    clock = {"now": 10_000}
+
+    class TimedProvider(FakeMarketProvider):
+        def fetch_token_pairs(self, chain, token_addresses):
+            # Simulate request latency. The provider timestamps its response at
+            # return time, which must not be compared with a pre-request clock.
+            clock["now"] += 2_500
+            return [market_event(MINT_A, observed=clock["now"])]
+
+    path = tmp_path / "response-clock.sqlite3"
+    launches = LaunchStore(path)
+    snapshots = MarketSnapshotStore(path)
+    market = SolanaMarketData(
+        TimedProvider(), clock_ms=lambda: clock["now"]
+    )
+    worker = CandidateEnrichmentWorker(
+        launches, market, snapshots, clock_ms=lambda: 10_000
+    )
+    launches.record_candidate(launch(MINT_A, observed=9_000))
+
+    result = worker.run_once(limit=1)
+
+    assert result.processed == 1
+    assert result.enriched == 1
+    assert result.failed == 0
+    assert snapshots.count(MINT_A) == 1
+    assert worker.status()["completed"] == 1
