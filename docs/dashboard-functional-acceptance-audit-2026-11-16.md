@@ -207,3 +207,17 @@ Two further changes have been merged after the updates above:
 - Dashboard navigation, multi-chain market-history API, persisted pipeline diagnostics, and partial endpoint-failure isolation are merged and CI-verified.
 - Production deployment of this latest mainline SHA has not been independently verified in this environment. DNS resolution for the Cloudflare Pages host failed from the available runtime; do not infer deployment success from merge or CI alone.
 - Real-device mobile acceptance, actual production Base/BSC event population, live agent heartbeat and provider connectivity remain open acceptance gates.
+
+
+## Blocker remediation continuation — 2026-11-17
+
+The dashboard was retained and extended in place.
+
+- PR #208 merged runtime diagnostics foundation: authenticated GET-only `/api/runtime-status`, persisted orchestration lease and latest-job details, and explicit unknown/unavailable agent/provider states. Exact-head Python and dashboard CI passed after a stale UI assertion was corrected.
+- Base and BSC navigation/views were already present from PRs #203/#204. Their remaining blocker is verified production data population. PR #209 adds a manual-only, bounded multi-chain collector that writes normalized market observations to the existing `events` ledger without invoking paper broker or position-management code. The collector is not scheduled.
+- PR #209 adds append-only agent evaluation heartbeat and provider probe events to the existing generic `events` table. Agent evidence is written from actual consensus votes; provider evidence is written from actual market and Helius batch calls. Dashboard freshness states are derived from persisted timestamps. No new schema table or migration is required.
+- PR #209 deduplicates latest chain observations per token/pool and displays the latest persisted timestamp in Base/BSC views.
+- PR #209 adds Playwright mobile emulation and browser negative-path checks for all six routes, 390px/360px layouts, 401 revoked-token behavior, backend 503 and offline requests. On 401, the browser clears the tab-scoped token. The API's configured bearer secret remains static and is revoked by rotation; no time-expiring JWT is claimed.
+- PR #209 is open and its exact-head CI must pass before merge. Production deployment, production Base/BSC population, actual telemetry generation and physical Android testing remain separate acceptance gates.
+
+**Important distinction:** a green Playwright mobile-emulation run does not certify a physical Android device; a successful collector code path does not certify production Base/BSC data population until the manual workflow has run against production and the dashboard confirms the stored observations.
