@@ -17,7 +17,6 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       VELTRIX_DEPLOYMENT_TARGET: ci
-      TELEGRAM_ENABLED: "false"
       SCHEDULER_ENABLED: "false"
       LIVE_TRADING: "false"
       PAPER_TRADING_ENABLED: "false"
@@ -37,3 +36,11 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-turso.txt
       - name: Run one bounded read-only Solana analysis attempt
         run: python scripts/run_solana_pipeline.py
+      - name: Inspect enrichment failures with read-only database credentials
+        if: always()
+        continue-on-error: true
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_READONLY_AUTH_TOKEN }}
+        run: python scripts/inspect_solana_enrichment_failures.py
