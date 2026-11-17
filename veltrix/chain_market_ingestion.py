@@ -47,52 +47,63 @@ class ChainMarketObservationCollector:
         if not active_chains:
             raise ValueError("at least one chain token or profile-discovery candidate is required")
 
-        db = connect_database(self.database_path)
         inserted = {chain: 0 for chain in CHAINS}
         failures = {}
-        try:
-            for chain in active_chains:
-                addresses = tokens[chain][:limit_per_chain]
-                observed_at = self.clock_ms()
-                started = time.monotonic()
-                try:
-                    events = self.provider.fetch_token_pairs(chain, addresses)
-                except Exception as exc:
-                    self.telemetry.record_provider_probe(
-                        "dexscreener", chain, succeeded=False,
-                        observed_at_ms=observed_at,
-                        latency_ms=int((time.monotonic() - started) * 1000),
-                        error_code=type(exc).__name__,
-                    )
-                    failures[chain] = type(exc).__name__
-                    continue
+        pending_events: list[tuple[str, str, float]] = []
+
+        # Do all provider/discovery I/O before opening the write connection.
+        # Turso's serverless transaction stream can expire while idle; keeping
+        # a remote connection open during HTTP requests caused the later INSERT
+        # to fail with "interactive transaction ... idle for too long".
+        for chain in active_chains:
+            addresses = tokens[chain][:limit_per_chain]
+            observed_at = self.clock_ms()
+            started = time.monotonic()
+            try:
+                events = self.provider.fetch_token_pairs(chain, addresses)
+            except Exception as exc:
                 self.telemetry.record_provider_probe(
-                    "dexscreener", chain, succeeded=True,
+                    "dexscreener", chain, succeeded=False,
                     observed_at_ms=observed_at,
                     latency_ms=int((time.monotonic() - started) * 1000),
+                    error_code=type(exc).__name__,
                 )
-                for event in events:
-                    if event.chain != chain or event.token_address not in addresses:
-                        continue
-                    payload = {
-                        "chain": event.chain,
-                        "token": event.token_address,
-                        "pair": event.pair_address,
-                        "symbol": event.symbol,
-                        "price_usd": event.price_usd,
-                        "liquidity_usd": event.liquidity_usd,
-                        "volume_h1_usd": event.volume_h1_usd,
-                        "price_change_m5_pct": event.price_change_m5_pct,
-                        "observed_at_ms": event.observed_at_ms,
-                        "source": event.source,
-                    }
-                    db.execute(
-                        "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
-                        ("MARKET_OBSERVATION",
-                         json.dumps(payload, sort_keys=True, separators=(",", ":")),
-                         event.observed_at_ms / 1000),
-                    )
-                    inserted[chain] += 1
+                failures[chain] = type(exc).__name__
+                continue
+            self.telemetry.record_provider_probe(
+                "dexscreener", chain, succeeded=True,
+                observed_at_ms=observed_at,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+            for event in events:
+                if event.chain != chain or event.token_address not in addresses:
+                    continue
+                payload = {
+                    "chain": event.chain,
+                    "token": event.token_address,
+                    "pair": event.pair_address,
+                    "symbol": event.symbol,
+                    "price_usd": event.price_usd,
+                    "liquidity_usd": event.liquidity_usd,
+                    "volume_h1_usd": event.volume_h1_usd,
+                    "price_change_m5_pct": event.price_change_m5_pct,
+                    "observed_at_ms": event.observed_at_ms,
+                    "source": event.source,
+                }
+                pending_events.append((
+                    "MARKET_OBSERVATION",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    event.observed_at_ms / 1000,
+                ))
+                inserted[chain] += 1
+
+        db = connect_database(self.database_path)
+        try:
+            for row in pending_events:
+                db.execute(
+                    "INSERT INTO events(event,payload,created_at) VALUES(?,?,?)",
+                    row,
+                )
             db.commit()
         except Exception:
             db.rollback()
