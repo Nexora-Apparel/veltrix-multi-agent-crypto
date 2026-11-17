@@ -9,7 +9,6 @@ from collections import Counter
 import json
 import os
 import re
-from urllib.parse import urlsplit
 
 
 def redact_error(value: object) -> str:
