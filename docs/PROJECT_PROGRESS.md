@@ -420,3 +420,23 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - Expanded the H3 remote conformance workflow path filters so a merge to `main` that changes the production initializer, schema test or relevant store/index constructors triggers disposable H0 conformance.
 - The H3 job remains isolated to the exact H0 disposable host and credentials; it must never target production.
 - This strengthens future post-merge verification. It does not constitute a new H3 run; the last recorded H3 evidence remains on the earlier core commit.
+
+
+## 12. Dashboard blocker remediation — 2026-11-17
+
+- Confirmed the existing six-view dashboard remains the product surface; no dashboard rebuild was started.
+- Merged [PR #208](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/208), merge commit `77c784782f7f74826a986ad65dd80738596f2c26`. It adds authenticated GET-only `/api/runtime-status`, reads the existing orchestration lease/job records, and exposes honest unknown/unavailable states. Exact-head dashboard CI run [44068004943](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44068004943) and Python CI run [44068004965](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44068004965) passed after correcting a stale UI test assertion.
+- Reconciled the Base/BSC blocker wording: navigation and persisted-history views were already implemented by PRs #203/#204. The remaining gap was production population and verified data freshness, not absence of the views.
+- Opened [PR #209](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/209), branch `feat/runtime-telemetry-chain-ingestion`, head `58a40b53dd74877b950e814dfc05b5556d86f8f0` at documentation checkpoint. It adds real per-agent evaluation heartbeat events from Scout/Whale/Sniper/Shield consensus votes, provider-probe events from actual market/Helius provider calls, and authenticated runtime freshness states. These records reuse the existing generic `events` ledger; no new production tables or migration are introduced.
+- PR #209 adds `ChainMarketObservationCollector` and manual-only workflow `.github/workflows/collect-chain-market-observations.yml`. It persists only `MARKET_OBSERVATION` events for configured Solana/Base/BSC token lists or an explicitly enabled bounded DexScreener latest-profile pass. It does not construct PaperBroker, manage positions, create trades, or activate any scheduler. The dashboard now deduplicates latest token/pool observations.
+- PR #209 adds a Playwright browser acceptance suite to Cloudflare Pages CI: all six navigation routes, 390px/360px mobile emulation, revoked-token 401 handling, backend 503 and offline request failures. A 401 now clears the tab-scoped token and tells the user it was expired or revoked. The API still uses a static bearer secret rather than a time-expiring JWT; rotation/revocation is the current server-side expiry mechanism.
+- **PR #209 CI was running when this ledger entry was written.** Python CI and Pages CI results must be rechecked against the final PR head before merge.
+
+### Remaining acceptance gates after PR #209
+
+1. Verify the post-merge Cloudflare deployment run against the exact latest `main` SHA; the external browser/network runtime previously could not resolve the Pages hostname. The deployment workflow's own authenticated/unauthenticated checks are the production evidence source.
+2. Complete a physical Android browser interaction sweep. Playwright mobile emulation is automated coverage, not a substitute for testing on the actual Android device.
+3. Run the manual chain-market collection workflow with configured token lists or bounded latest-profile discovery, then verify Base/BSC rows and timestamps from production `events.MARKET_OBSERVATION`. No production population is claimed until that workflow succeeds and the dashboard reads the resulting rows.
+4. Verify real agent heartbeat/provider probe events after an actual one-shot production pipeline execution. Until then the dashboard must show UNKNOWN/STALE/UNAVAILABLE, never healthy by inference.
+5. Confirm production 401/revoked-token, 503 and offline behavior through the deployed browser after deployment.
+6. Keep scheduler, paper trading, live execution, signing, submission and broadcast disabled.
