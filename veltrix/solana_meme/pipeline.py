@@ -49,8 +49,8 @@ class OneShotSolanaPipeline:
         *,
         paper_worker: PaperTradingWorker | None = None,
         paper_enabled: bool = False,
-        max_runtime_seconds: float = 180.0,
-        lease_ttl_ms: int = 240_000,
+        max_runtime_seconds: float = 240.0,
+        lease_ttl_ms: int = 300_000,
         max_items: int = 150,
     ) -> None:
         if paper_enabled and paper_worker is None:
@@ -80,16 +80,26 @@ class OneShotSolanaPipeline:
         self.max_items = max_items
 
     def _execute_stages(self, context: RunContext, payload: dict[str, Any]) -> SolanaPipelineStages:
+        # Enforce the cooperative deadline and revalidate the lease between every
+        # bounded stage. Without these boundaries, a slow provider stage could
+        # run past the global lease TTL and the next stage would fail its fence.
+        context.checkpoint(items=0)
         discovery = self.discovery.poll_once(context=context, limit=25)
+        context.checkpoint(items=0)
         enrichment = self.enrichment.run_once(limit=25, context=context)
+        context.checkpoint(items=0)
         market_refresh = self.market_refresh.run_once(limit=25, context=context)
+        context.checkpoint(items=0)
         risk = self.risk.run_once(limit=5, context=context)
+        context.checkpoint(items=0)
         consensus = self.consensus.run_once(limit=10, context=context)
+        context.checkpoint(items=0)
         paper = (
             self.paper_worker.run_once(limit=25, context=context)
             if self.paper_enabled and self.paper_worker is not None
             else None
         )
+        context.checkpoint(items=0)
         return SolanaPipelineStages(
             discovery=discovery,
             enrichment=enrichment,
