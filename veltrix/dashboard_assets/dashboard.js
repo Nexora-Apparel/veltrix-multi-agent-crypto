@@ -82,7 +82,10 @@
     const token = sessionStorage.getItem(tokenKey) || "";
     const headers = token ? { Authorization: "Bearer " + token } : {};
     const response = await fetch(path, { headers, cache: "no-store" });
-    if (response.status === 401) throw new Error("Dashboard access token required.");
+    if (response.status === 401) {
+      sessionStorage.removeItem(tokenKey);
+      throw new Error("Dashboard token expired or was revoked. Enter a current token.");
+    }
     if (!response.ok) throw new Error("Dashboard request failed (" + response.status + ").");
     return response.json();
   }
