@@ -38,7 +38,7 @@ class CandidateEnrichmentWorker:
         market_store: MarketSnapshotStore,
         *,
         max_attempts: int = 5,
-        lease_ms: int = 120_000,
+        lease_ms: int = 300_000,
         retry_base_ms: int = 5_000,
         retry_max_ms: int = 300_000,
         clock_ms: Callable[[], int] | None = None,
