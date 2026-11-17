@@ -594,3 +594,14 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - The workflow environment confirms `SCHEDULER_ENABLED=false`, `LIVE_TRADING=false`, and `PAPER_TRADING_ENABLED=false`. No trade execution occurred.
 - **Next engineering task:** inspect the enrichment worker's persisted failure states/reasons and the 25 candidate records in production Turso, then identify whether the cause is missing provider credentials, unavailable source data, validation rejection, or an implementation defect. Current workflow stdout reports aggregate counters only and does not expose individual failure reasons. Do not guess or bulk-reset candidate states. Add structured, non-secret failure diagnostics and regression coverage before another production rerun.
 - Telegram is out of scope and is not a product feature, integration, delivery channel, or acceptance criterion.
+
+
+## 22. Enrichment failure diagnostics — 2026-11-17
+
+- Re-audited production run [44098425918](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44098425918) and the actual source modules: veltrix/solana_meme/enrichment.py, market_data.py, pipeline.py, and scripts/run_solana_pipeline.py.
+- Confirmed the enrichment worker persists last_error on each retry/dead row, but the one-shot pipeline summary serializes only aggregate counters. The workflow therefore reported 25 failures without exposing the persisted reason groups.
+- Added scripts/inspect_solana_enrichment_failures.py. It executes only two SELECT queries against solana_enrichment_jobs, reports status counts and grouped recent error classes/messages, and redacts bearer values, URL strings and base58-like addresses. It does not print candidate mints, alter retry state, or mutate production rows.
+- Added tests/test_solana_enrichment_diagnostics.py for credential/URL/address redaction.
+- Updated the manual Solana workflow to run the diagnostic after the pipeline, including after a pipeline-step failure. The diagnostic step maps TURSO_READONLY_AUTH_TOKEN into the database adapter for that step only, and is continue-on-error so it cannot mask the primary pipeline result. The main pipeline continues using its existing worker credential.
+- Branch: diagnose/enrichment-failure-report-20261117; changes are unmerged pending exact-head CI and workflow review. No production run has yet consumed this diagnostic, so the actual 25-candidate failure cause remains not yet established.
+- No application runtime behavior, retry policy, queue rows, database schema, provider configuration or execution controls were changed. The workflow remains manual-only; scheduler, paper trading, live trading, signing, submission and broadcast remain disabled.
