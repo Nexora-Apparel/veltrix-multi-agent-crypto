@@ -63,14 +63,21 @@ def test_dashboard_server_api_is_authenticated_and_get_only(tmp_path):
         )
         page = urlopen(request).read().decode("utf-8")
         assert "VELTRIX" in page
-        assert "SIMULATION ONLY" in page
-        assert "READ-ONLY" in page
+        assert "PAPER" in page
+        for screen in ("screen-home", "screen-trades", "screen-agents", "screen-wallet"):
+            assert screen in page
+        assert 'id="search-open"' in page
+        assert 'id="access-token"' in page
+        assert "No wallet signing or transfers" in page
+        assert "SIMULATION ONLY" not in page
 
         request = Request(
             base + "/assets/dashboard.js",
             headers={"Authorization": "Bearer " + token},
         )
-        assert urlopen(request).status == 200
+        dashboard_js = urlopen(request).read().decode("utf-8")
+        assert 'api("/api/runtime-status")' in dashboard_js
+        assert 'api("/api/chain-markets?chain=base")' in dashboard_js
 
         write = Request(
             base + "/api/overview",

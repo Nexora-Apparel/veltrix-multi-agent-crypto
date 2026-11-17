@@ -240,3 +240,14 @@ The dashboard was retained and extended in place.
 - Production agent/provider telemetry is currently UNKNOWN because the one-shot production intelligence pipeline has not yet emitted heartbeat/probe events. The telemetry instrumentation is deployed and will report freshness only after real executions.
 - Latest-main Python CI: 920 passed / 10 skipped. Latest-main Pages CI: 28 passed / 0 failed, including Playwright six-route mobile emulation and 401/503/offline paths.
 - Physical Android device testing remains outstanding.
+
+
+## Mobile dashboard API reconnection — 2026-11-17 (pending acceptance)
+
+The earlier six-view Pages dashboard is not the updated mobile interface identified by the operator. The mobile design reference is PR #183 in this repository: Home, Trades, Agents and Wallet in a floating bottom navigation pill, with a separate Search control and the burgundy/pink ambient visual system.
+
+PR #183 is based on an obsolete integration branch and is substantially diverged from current main, so it must not be merged wholesale. The mobile HTML/CSS/JS have been selectively ported on branch `integration/mobile-dashboard-api-reconnect-20261117` from current main. The existing Cloudflare Pages API handler and read-only Turso connection remain the backend authority.
+
+The mobile client now requests the existing account/ledger endpoints plus `/api/runtime-status` and `/api/chain-markets?chain=solana|base|bsc`. Home displays persisted chain-observation counts and timestamps; Agents displays persisted agent heartbeat and provider-probe freshness. Unknown or empty production data must remain explicitly unknown/empty. API failures are isolated with `Promise.allSettled`; rejected bearer tokens are cleared from tab session storage.
+
+**Current status:** exact-head CI passed on `de16146b4f41fe3132f1bf2124f82a5c0194a8d7`: Python **920 passed / 10 skipped**; Cloudflare Pages **26 passed / 0 failed**, including bundle build/smoke and Playwright coverage of all four mobile screens, 390px/360px layouts, chain/runtime API calls, revoked-token handling, HTTP 503 and offline isolation. The PR #213 integration is still open/draft and is not deployed. Physical Android browser acceptance remains outstanding. Production URL and deployed runtime remain unchanged until merge and the existing deployment workflow succeeds. Scheduler, paper trading, live execution, signing, submission and broadcast remain disabled.
