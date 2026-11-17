@@ -63,3 +63,16 @@ test("dashboard isolates failed data sections and keeps successful sections rend
   assert.match(js, /Market snapshots unavailable:/);
   assert.match(js, /partial dashboard data/i);
 });
+
+test("diagnostics render orchestration lease and keep agent/provider telemetry explicitly unknown", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  for (const id of ["diag-worker-lease", "diag-worker-job", "diag-agent-heartbeat",
+    "diag-provider-connectivity", "diag-runtime-checked"]) {
+    assert.match(html, new RegExp('id="' + id + '"'));
+  }
+  assert.match(js, /api\("\/api\/runtime-status"\)/);
+  assert.match(js, /UNKNOWN · no per-agent heartbeat source/);
+  assert.match(js, /UNKNOWN · no connectivity probe/);
+  assert.match(js, /runtime\.orchestration/);
+});
