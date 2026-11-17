@@ -1,4 +1,5 @@
 import pytest
+import sqlite3
 
 from veltrix.providers.base import MarketEvent
 from veltrix.solana_meme.candidates import normalize_candidate
@@ -79,6 +80,9 @@ def test_refresh_worker_persists_repeated_batched_observations(tmp_path):
     first = worker.run_once()
     assert (first.discovered, first.refreshed, first.failed) == (1, 1, 0)
     assert store.count(MINT) == 2
+    with sqlite3.connect(worker.database_path) as db:
+        probes = db.execute("SELECT COUNT(*) FROM events WHERE event='PROVIDER_PROBE'").fetchone()[0]
+    assert probes == 1
 
     provider.observed = 11_000
     provider.price = 0.0015
