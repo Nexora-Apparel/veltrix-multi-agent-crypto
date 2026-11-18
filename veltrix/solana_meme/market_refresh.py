@@ -253,6 +253,12 @@ class MarketRefreshWorker:
                     SELECT COUNT(*) FROM solana_market_refresh_jobs
                     WHERE status IN ('active', 'retry', 'processing')
                 """).fetchone()[0])
+            self.telemetry.record_worker_heartbeat(
+                "solana-market-refresh", observed_at_ms=self.clock_ms(),
+                status="SUCCESS",
+                metrics={"discovered": discovered, "processed": 0, "refreshed": 0,
+                         "unchanged": 0, "failed": 0, "deferred": deferred},
+            )
             return MarketRefreshBatchResult(discovered, 0, 0, 0, 0, deferred)
 
         refreshed = unchanged = failed = 0
@@ -343,6 +349,14 @@ class MarketRefreshWorker:
                 SELECT COUNT(*) FROM solana_market_refresh_jobs
                 WHERE status IN ('active', 'retry', 'processing')
             """).fetchone()[0])
+        self.telemetry.record_worker_heartbeat(
+            "solana-market-refresh", observed_at_ms=self.clock_ms(),
+            status="DEGRADED" if failed else "SUCCESS",
+            error_code="MARKET_REFRESH_FAILURE" if failed else None,
+            metrics={"discovered": discovered, "processed": len(claimed),
+                     "refreshed": refreshed, "unchanged": unchanged,
+                     "failed": failed, "deferred": deferred},
+        )
         return MarketRefreshBatchResult(
             discovered=discovered,
             processed=len(claimed),
