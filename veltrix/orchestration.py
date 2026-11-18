@@ -463,7 +463,7 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
             or lease_heartbeat_interval_seconds <= 0
             or lease_heartbeat_interval_seconds >= lease_ttl_ms / 1000.0
         ):
-            raise ValueError("lease_heartbeat_interval_seconds must be positive and shorter than the lease TTL")
+            raise ValueError("heartbeat interval must be positive and shorter than the lease TTL")
         heartbeat_interval = float(lease_heartbeat_interval_seconds)
 
     fencing = store.acquire_lease(owner, ttl_ms=lease_ttl_ms)
