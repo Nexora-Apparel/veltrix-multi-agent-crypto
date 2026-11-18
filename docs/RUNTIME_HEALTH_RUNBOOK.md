@@ -69,3 +69,33 @@ Create one supervised service per role using the same image and override its com
 - Consensus: `python -m veltrix.solana_meme.consensus_runtime`
 
 Inject the required environment variables from the platform secret manager. Do not put secrets in Docker build arguments, image layers, source control or service command strings. Start with one replica per role. Configure automatic restart on process failure and graceful termination.
+
+
+## Host-agnostic Docker Compose deployment
+
+The repository includes `compose.worker.yaml` and a non-secret `.env.worker.example` template. This removes the need to manually compose three different container commands.
+
+1. Copy `.env.worker.example` to `.env.worker` on the host and populate the production Turso URL/token. Keep the file outside source control.
+2. Build and start one replica for each role:
+
+```sh
+docker compose -f compose.worker.yaml build
+docker compose -f compose.worker.yaml up -d
+docker compose -f compose.worker.yaml ps
+```
+
+3. Inspect service logs without printing environment values:
+
+```sh
+docker compose -f compose.worker.yaml logs --tail=100 discovery token-intelligence consensus
+```
+
+4. Stop the read-only services:
+
+```sh
+docker compose -f compose.worker.yaml down
+```
+
+The Compose stack has no published ports, drops Linux capabilities, uses a read-only root filesystem, runs as the non-root user baked into the image, and restarts failed processes. It does not provide wallet signing, swap submission, scheduler activation, or trading credentials.
+
+A host with Docker and network access to the configured Turso endpoint is still required. Do not start the stack until the production secret values have been installed in the host-side `.env.worker` file and the host has been selected.
