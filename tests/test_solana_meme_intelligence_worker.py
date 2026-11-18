@@ -97,3 +97,42 @@ def test_build_runtime_rejects_invalid_configuration(tmp_path, kwargs):
             provider=FakeProvider(Clock(10_000)),
             **kwargs,
         )
+
+
+def test_runtime_probes_provider_and_records_worker_when_candidate_queue_is_empty(tmp_path):
+    import json
+    import sqlite3
+
+    class ProbeProvider(FakeProvider):
+        def __init__(self, clock):
+            super().__init__(clock)
+            self.probe_calls = 0
+
+        def probe(self):
+            self.probe_calls += 1
+            return {"latency_ms": 7, "pairs_returned": 3}
+
+    clock = Clock(20_000)
+    provider = ProbeProvider(clock)
+    runtime = build_runtime(
+        database_path=tmp_path / "empty-runtime.sqlite3",
+        poll_interval_seconds=5,
+        provider=provider,
+        clock_ms=clock,
+    )
+
+    result = runtime.run_once()
+
+    assert result.enrichment.processed == 0
+    assert result.refresh.processed == 0
+    assert provider.probe_calls == 1
+    with sqlite3.connect(runtime.refresh.database_path) as db:
+        rows = db.execute("SELECT event,payload FROM events ORDER BY id").fetchall()
+    probes = [json.loads(payload) for event, payload in rows if event == "PROVIDER_PROBE"]
+    workers = [json.loads(payload) for event, payload in rows if event == "WORKER_HEARTBEAT"]
+    assert len(probes) == 1
+    assert probes[0]["provider"] == "fakeprovider"
+    assert probes[0]["status"] == "SUCCESS"
+    assert len(workers) == 1
+    assert workers[0]["worker"] == "solana-token-intelligence"
+    assert workers[0]["status"] == "SUCCESS"
