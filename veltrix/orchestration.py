@@ -446,13 +446,13 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
     but its lease remains owned until it returns or the process is terminated;
     the cooperative deadline is still enforced at the next checkpoint.
     """
-    if isinstance(max_runtime_seconds, bool) or not isinstance(max_runtime_seconds, (int, float)) or not math.isfinite(max_runtime_seconds) or not 1 <= max_runtime_seconds <= 240:
-        raise ValueError("max_runtime_seconds must be between 1 and 240")
+    if isinstance(max_runtime_seconds, bool) or not isinstance(max_runtime_seconds, (int, float)) or not math.isfinite(max_runtime_seconds) or not 1 <= max_runtime_seconds <= 540:
+        raise ValueError("max_runtime_seconds must be between 1 and 540")
     if isinstance(max_items, bool) or not isinstance(max_items, int) or not 1 <= max_items <= 10_000:
         raise ValueError("max_items must be between 1 and 10000")
     owner = str(uuid.uuid4())
-    if isinstance(lease_ttl_ms, bool) or not isinstance(lease_ttl_ms, int) or lease_ttl_ms < int(max_runtime_seconds * 1000) + 15_000:
-        raise ValueError("lease_ttl_ms must exceed the job deadline by at least 15 seconds")
+    if isinstance(lease_ttl_ms, bool) or not isinstance(lease_ttl_ms, int) or lease_ttl_ms < 15_000:
+        raise ValueError("lease_ttl_ms must be at least 15000 when heartbeat renewal is enabled")
     if lease_heartbeat_interval_seconds is None:
         heartbeat_interval = min(30.0, max(0.25, lease_ttl_ms / 3000.0))
     else:
