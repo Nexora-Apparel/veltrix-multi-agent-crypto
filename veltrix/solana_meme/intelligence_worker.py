@@ -13,7 +13,6 @@ import logging
 import os
 import signal
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,7 +44,6 @@ class TokenIntelligenceRuntime:
         *,
         poll_interval_seconds: float = 15.0,
         batch_size: int = 25,
-        provider_probe_interval_seconds: float = 60.0,
     ) -> None:
         if (
             isinstance(poll_interval_seconds, bool)
@@ -58,42 +56,10 @@ class TokenIntelligenceRuntime:
         self.enrichment = enrichment
         self.refresh = refresh
         self.poll_interval_seconds = float(poll_interval_seconds)
-        if (isinstance(provider_probe_interval_seconds, bool)
-                or not isinstance(provider_probe_interval_seconds, (int, float))
-                or provider_probe_interval_seconds < 30):
-            raise ValueError("provider_probe_interval_seconds must be at least 30")
         self.batch_size = batch_size
-        self.provider_probe_interval_seconds = float(provider_probe_interval_seconds)
-        self._last_provider_probe_monotonic = float('-inf')
         self.telemetry = RuntimeTelemetryStore(self.refresh.database_path)
 
     def run_once(self) -> TokenIntelligenceCycleResult:
-        started = time.monotonic()
-        now_ms = self.refresh.clock_ms()
-        provider = getattr(self.refresh.market_data, "provider", None)
-        provider_id = (getattr(provider, "provider_id", None)
-                       or getattr(provider, "name", None)
-                       or (type(provider).__name__.lower() if provider is not None else "market-data-provider"))
-        if callable(getattr(provider, "probe", None)) and (
-            started - self._last_provider_probe_monotonic >= self.provider_probe_interval_seconds
-        ):
-            probe_started = time.monotonic()
-            try:
-                probe_result = provider.probe()
-                latency = int(probe_result.get("latency_ms", (time.monotonic() - probe_started) * 1000))
-                self.telemetry.record_provider_probe(
-                    provider_id, "solana", succeeded=True, observed_at_ms=now_ms,
-                    latency_ms=latency,
-                )
-            except Exception as exc:
-                self.telemetry.record_provider_probe(
-                    provider_id, "solana", succeeded=False, observed_at_ms=now_ms,
-                    latency_ms=int((time.monotonic() - probe_started) * 1000),
-                    error_code=type(exc).__name__,
-                )
-                LOGGER.warning("market provider health probe failed (%s)", type(exc).__name__)
-            finally:
-                self._last_provider_probe_monotonic = time.monotonic()
         try:
             enriched = self.enrichment.run_once(limit=self.batch_size)
             refreshed = self.refresh.run_once(limit=self.batch_size)
