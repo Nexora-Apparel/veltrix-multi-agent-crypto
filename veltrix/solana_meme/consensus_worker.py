@@ -9,6 +9,7 @@ from typing import Any, Callable, Iterable, Iterator
 
 from ..database import connect_database, row_factory_for
 from ..orchestration import LeaseBusy, RunContext
+from .claim_heartbeat import RowClaimHeartbeat
 from ..runtime_telemetry import RuntimeTelemetryStore
 
 from ..whales import WalletBuyEvent
@@ -190,6 +191,28 @@ class ConsensusWorker:
                 ))
             return mints
 
+
+    def _renew_claims(self, mints: tuple[str, ...], context: RunContext) -> bool:
+        if not mints:
+            return True
+        now = self.clock_ms()
+        if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
+            return False
+        placeholders = ",".join("?" for _ in mints)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            context.assert_fence_in_transaction(db)
+            cursor = db.execute(
+                f"""UPDATE solana_consensus_jobs
+                    SET lease_until_ms = ?, updated_at_ms = ?
+                    WHERE status='processing' AND claimed_by_owner_id=?
+                      AND claim_fencing_token=? AND lease_until_ms>?
+                      AND mint IN ({placeholders})""".replace("UPDATE $", "UPDATE "),
+                (now + self.lease_ms, now, context.owner_id,
+                 context.fencing_token, now, *mints),
+            )
+            return cursor.rowcount == len(mints)
+
     def _succeed(self, decision: Any, now: int,
                  context: RunContext | None = None) -> bool:
         with self._connect() as db:
@@ -288,63 +311,72 @@ class ConsensusWorker:
             raise ValueError("clock_ms must return a positive integer")
         discovered = self._discover_jobs(now, context)
         claimed = self._claim(now, limit, context)
-        recorded = unchanged = failed = 0
-        if context is not None and claimed:
-            context.checkpoint(items=len(claimed))
-        wallet_events_by_mint = self._wallet_events_by_mint(claimed, now)
+        renew = (lambda mints: self._renew_claims(mints, context)) if context is not None else None
+        with RowClaimHeartbeat(
+            claimed, renew, interval_seconds=max(0.05, min(30.0, self.lease_ms / 4000.0))
+        ) as claim_heartbeat:
+            recorded = unchanged = failed = 0
+            if context is not None and claimed:
+                context.checkpoint(items=len(claimed))
+            wallet_events_by_mint = self._wallet_events_by_mint(claimed, now)
 
-        for mint in claimed:
-            try:
-                market_row = self.market_store.latest(mint)
-                risk_payload = self.risk_store.latest(mint)
-                if market_row is None or risk_payload is None:
-                    raise ValueError("market or risk evidence disappeared before consensus")
-                market = MarketEvidence.from_store_row(market_row)
-                risk = RiskEvidence.from_store_payload(risk_payload)
-                history_rows = self.market_store.history(mint, limit=20)
-                prior_history = [
-                    row for row in history_rows
-                    if row.get("id") != market.snapshot_id
-                    and isinstance(row.get("retrieved_at_ms"), int)
-                    and row["retrieved_at_ms"] < market.retrieved_at_ms
-                ]
+            for mint in claimed:
                 try:
-                    decision = self.engine.evaluate(
-                        market,
-                        risk,
-                        history=prior_history,
-                        wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
-                        now_ms=self.clock_ms(),
+                    market_row = self.market_store.latest(mint)
+                    risk_payload = self.risk_store.latest(mint)
+                    if market_row is None or risk_payload is None:
+                        raise ValueError("market or risk evidence disappeared before consensus")
+                    market = MarketEvidence.from_store_row(market_row)
+                    risk = RiskEvidence.from_store_payload(risk_payload)
+                    history_rows = self.market_store.history(mint, limit=20)
+                    prior_history = [
+                        row for row in history_rows
+                        if row.get("id") != market.snapshot_id
+                        and isinstance(row.get("retrieved_at_ms"), int)
+                        and row["retrieved_at_ms"] < market.retrieved_at_ms
+                    ]
+                    try:
+                        decision = self.engine.evaluate(
+                            market,
+                            risk,
+                            history=prior_history,
+                            wallet_events=(wallet_events_by_mint.get(mint, ()) if self.wallet_event_batch_provider is not None else self._wallet_events(mint)),
+                            now_ms=self.clock_ms(),
+                        )
+                    except Exception as exc:
+                        self.telemetry.record_agent_failure(
+                            observed_at_ms=self.clock_ms(), error_code=type(exc).__name__,
+                        )
+                        raise
+                    self.telemetry.record_agent_votes(
+                        decision.votes, observed_at_ms=self.clock_ms(),
                     )
-                except Exception as exc:
-                    self.telemetry.record_agent_failure(
-                        observed_at_ms=self.clock_ms(), error_code=type(exc).__name__,
-                    )
+                    claim_heartbeat.assert_active()
+                    if self._succeed(decision, self.clock_ms(), context):
+                        recorded += 1
+                    else:
+                        unchanged += 1
+                    claim_heartbeat.complete(mint)
+                except LeaseBusy:
                     raise
-                self.telemetry.record_agent_votes(
-                    decision.votes, observed_at_ms=self.clock_ms(),
-                )
-                if self._succeed(decision, self.clock_ms(), context):
-                    recorded += 1
-                else:
-                    unchanged += 1
-            except Exception as exc:
-                self._fail(mint, exc, self.clock_ms(), context)
-                failed += 1
+                except Exception as exc:
+                    claim_heartbeat.assert_active()
+                    self._fail(mint, exc, self.clock_ms(), context)
+                    failed += 1
 
-        with self._connect() as db:
-            deferred = int(db.execute("""
-                SELECT COUNT(*) FROM solana_consensus_jobs
-                WHERE status IN ('active', 'retry', 'processing')
-            """).fetchone()[0])
-        return ConsensusBatchResult(
-            discovered=discovered,
-            processed=len(claimed),
-            recorded=recorded,
-            unchanged=unchanged,
-            failed=failed,
-            deferred=deferred,
-        )
+            with self._connect() as db:
+                deferred = int(db.execute("""
+                    SELECT COUNT(*) FROM solana_consensus_jobs
+                    WHERE status IN ('active', 'retry', 'processing')
+                """).fetchone()[0])
+            return ConsensusBatchResult(
+                discovered=discovered,
+                processed=len(claimed),
+                recorded=recorded,
+                unchanged=unchanged,
+                failed=failed,
+                deferred=deferred,
+            )
 
     def status(self) -> dict[str, int]:
         with self._connect() as db:
