@@ -64,7 +64,7 @@ class TokenIntelligenceRuntime:
             raise ValueError("provider_probe_interval_seconds must be at least 30")
         self.batch_size = batch_size
         self.provider_probe_interval_seconds = float(provider_probe_interval_seconds)
-        self._last_provider_probe_monotonic = 0.0
+        self._last_provider_probe_monotonic = float('-inf')
         self.telemetry = RuntimeTelemetryStore(self.refresh.database_path)
 
     def run_once(self) -> TokenIntelligenceCycleResult:
