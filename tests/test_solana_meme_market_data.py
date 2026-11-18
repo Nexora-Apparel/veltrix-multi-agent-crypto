@@ -303,3 +303,24 @@ def test_market_diagnostics_count_stale_future_and_invalid_pairs_without_address
     assert batch.diagnostics["rejected_future_pairs"] == 1
     assert batch.diagnostics["rejected_invalid_fields"] == 1
     assert "MINT_A" not in str(batch.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("events", "now_ms", "expected_reason"),
+    [
+        ([], 10_000, "no_matching_pair_events"),
+        ([event(observed=1)], 10_000, "stale_observation:1"),
+        ([event(observed=11_000)], 10_000, "future_observation:1"),
+        ([replace(event(), liquidity_usd=float("nan"))], 10_000, "invalid_liquidity_usd:1"),
+    ],
+)
+def test_unavailable_market_data_reports_specific_rejection_reason(
+    events, now_ms, expected_reason
+):
+    market = SolanaMarketData(FakeMarketProvider(events), clock_ms=lambda: now_ms)
+
+    batch = market.fetch_many([MINT_A], now_ms=now_ms)
+
+    assert batch.snapshots == {}
+    assert expected_reason in batch.unavailable[MINT_A]
+    assert "returned_events=" in batch.unavailable[MINT_A]
