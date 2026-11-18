@@ -429,6 +429,9 @@ async function runtimeStatus(client, tables, env = {}) {
   const providerMaxAge = Math.max(30_000, Math.min(
     3_600_000, Number.parseInt(String(env.VELTRIX_PROVIDER_PROBE_MAX_AGE_MS || "300000"), 10) || 300_000,
   ));
+  const workerMaxAge = Math.max(30_000, Math.min(
+    3_600_000, Number.parseInt(String(env.VELTRIX_WORKER_HEARTBEAT_MAX_AGE_MS || "300000"), 10) || 300_000,
+  ));
   const hasLeaseTable = tables.has("orchestration_worker_lease");
   const hasJobsTable = tables.has("orchestration_jobs");
   const hasEventsTable = tables.has("events");
@@ -445,9 +448,10 @@ async function runtimeStatus(client, tables, env = {}) {
   }
   const latestAgents = new Map();
   const latestProviders = new Map();
+  const latestWorkers = new Map();
   if (hasEventsTable) {
     const telemetryRows = await rows(client, `SELECT id, event, payload
-      FROM events WHERE event IN ('AGENT_HEARTBEAT','PROVIDER_PROBE')
+      FROM events WHERE event IN ('AGENT_HEARTBEAT','PROVIDER_PROBE','WORKER_HEARTBEAT')
       ORDER BY id DESC LIMIT 500`);
     for (const row of telemetryRows) {
       let payload;
@@ -463,6 +467,10 @@ async function runtimeStatus(client, tables, env = {}) {
         const key = payload.provider + ":" + payload.chain;
         if (!latestProviders.has(key)) latestProviders.set(key, payload);
       }
+      if (row.event === "WORKER_HEARTBEAT" &&
+          typeof payload.worker === "string" && !latestWorkers.has(payload.worker)) {
+        latestWorkers.set(payload.worker, payload);
+      }
     }
   }
   const freshness = (payload, maxAge) => {
@@ -470,7 +478,9 @@ async function runtimeStatus(client, tables, env = {}) {
     const age = now - Number(payload.observed_at_ms);
     if (age < 0) return "UNKNOWN";
     if (age > maxAge) return "STALE";
-    return payload.status === "FAILED" ? "FAILED" : "FRESH";
+    if (payload.status === "FAILED") return "FAILED";
+    if (payload.status === "DEGRADED") return "DEGRADED";
+    return payload.status === "SUCCESS" ? "FRESH" : "UNKNOWN";
   };
   const agentItems = ["scout", "whale", "sniper", "shield"].map((name) => {
     const payload = latestAgents.get(name) || null;
@@ -490,6 +500,20 @@ async function runtimeStatus(client, tables, env = {}) {
     latency_ms: finiteNumber(payload.latency_ms),
     error_code: payload.status === "FAILED" ? payload.error_code || "PROVIDER_ERROR" : null,
   })).sort((a, b) => a.provider.localeCompare(b.provider) || a.chain.localeCompare(b.chain));
+  const workerItems = [...latestWorkers.entries()].map(([worker, payload]) => ({
+    worker,
+    status: freshness(payload, workerMaxAge),
+    last_heartbeat: isoMilliseconds(payload.observed_at_ms),
+    error_code: payload.status === "FAILED" || payload.status === "DEGRADED"
+      ? payload.error_code || payload.status : null,
+    metrics: payload.metrics && typeof payload.metrics === "object" ? payload.metrics : {},
+  })).sort((a, b) => a.worker.localeCompare(b.worker));
+  const workerStatuses = workerItems.map((item) => item.status);
+  const workerSummary = !hasEventsTable ? "UNAVAILABLE"
+    : !workerItems.length ? "UNKNOWN"
+    : workerStatuses.every((status) => status === "FRESH") ? "FRESH"
+    : workerStatuses.some((status) => status === "FAILED" || status === "DEGRADED") ? "DEGRADED"
+    : workerStatuses.some((status) => status === "STALE") ? "STALE" : "UNKNOWN";
   const agentStatuses = agentItems.map((item) => item.status);
   const providerStatuses = providerItems.map((item) => item.status);
   const agentSummary = !hasEventsTable ? "UNAVAILABLE"
@@ -521,6 +545,12 @@ async function runtimeStatus(client, tables, env = {}) {
         finished_at: isoMilliseconds(latestJob.finished_at_ms),
         error_code: latestJob.error_code ? String(latestJob.error_code) : null,
       } : null,
+    },
+    workers: {
+      status: workerSummary,
+      heartbeat_source_available: hasEventsTable,
+      freshness_window_ms: workerMaxAge,
+      items: workerItems,
     },
     agents: {
       status: agentSummary,
