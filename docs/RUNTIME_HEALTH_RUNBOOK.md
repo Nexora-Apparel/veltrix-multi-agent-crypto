@@ -52,3 +52,20 @@ After service deployment, verify all of the following from the real production d
 ## Rollback
 
 Stop the relevant supervised process or roll back its container image. Do not delete telemetry events, clear queues, reset dead jobs, fabricate heartbeats, or relax data-freshness and safety gates. Trading and scheduler flags remain disabled throughout.
+
+
+## Portable worker image
+
+Build the shared image from the repository root:
+
+```sh
+docker build -f Dockerfile.worker -t veltrix-readonly-worker:latest .
+```
+
+Create one supervised service per role using the same image and override its command:
+
+- Discovery: `python -m veltrix.solana_meme.worker`
+- Token intelligence: `python -m veltrix.solana_meme.intelligence_worker`
+- Consensus: `python -m veltrix.solana_meme.consensus_runtime`
+
+Inject the required environment variables from the platform secret manager. Do not put secrets in Docker build arguments, image layers, source control or service command strings. Start with one replica per role. Configure automatic restart on process failure and graceful termination.
