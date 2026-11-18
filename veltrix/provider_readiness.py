@@ -47,8 +47,8 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
 
     GoPlus can return useful risk signals, but its partial LP-holder data and
     creator concentration do not satisfy the complete liquidity/developer
-    claims. No complete developer-linked-holdings connector is currently
-    implemented. Launch indexers can attempt bundle analysis only when their
+    claims. No developer-linked-holdings connector is currently
+    capability-certified. Launch indexers can attempt bundle analysis only when their
     independent funding and trust configuration is present.
     """
     liquidity_trust = _trusted(settings, "trusted_liquidity_providers")
@@ -61,6 +61,7 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
     origin_trust = _trusted(settings, "trusted_launch_origin_providers")
     goplus_configured = True  # Public EVM endpoint; Solana beta is authenticated.
     helius = bool(getattr(settings, "helius_api_key", ""))
+    etherscan = bool(getattr(settings, "etherscan_api_key", ""))
     solana_rpc = bool(getattr(settings, "solana_rpc_url", ""))
     root_url = bool(getattr(settings, "developer_root_attestation_url", ""))
     root_key = bool(getattr(settings, "developer_root_attestation_public_key", ""))
@@ -163,8 +164,8 @@ def build_provider_readiness(settings) -> ProviderReadinessReport:
             holder_id, funding_id = "base-rpc-holder-inventory", "alchemy-base-funding-graph"
             holder_configured, funding_configured = base_rpc, bool(getattr(settings, "alchemy_api_key", ""))
         else:
-            holder_id, funding_id = "bsc-rpc-holder-inventory", None
-            holder_configured, funding_configured = bsc_rpc, False
+            holder_id, funding_id = "bsc-rpc-holder-inventory", "etherscan-v2-bsc-funding-graph"
+            holder_configured, funding_configured = bsc_rpc, bool(etherscan)
         if not holder_configured:
             developer_blockers.append(f"{chain} holder inventory RPC is not configured")
         if holder_id not in holder_trust:

@@ -8,7 +8,7 @@ def settings(**overrides):
         trusted_liquidity_providers=(), trusted_developer_providers=(),
         trusted_bundle_providers=(), trusted_funding_providers=(),
         trusted_launch_origin_providers=(), goplus_access_token="",
-        helius_api_key="", base_rpc_url="", bsc_rpc_url="",
+        helius_api_key="", etherscan_api_key="", base_rpc_url="", bsc_rpc_url="",
         alchemy_quote_tokens_base=(), alchemy_quote_tokens_bsc=(),
     )
     values.update(overrides)
@@ -63,6 +63,7 @@ def test_developer_readiness_reports_signed_root_and_chain_provider_blockers():
         base_rpc_url="https://base.example",
         alchemy_api_key="configured",
         bsc_rpc_url="https://bsc.example",
+        etherscan_api_key="configured",
         trusted_developer_root_providers=(),
         trusted_holder_inventory_providers=(),
         trusted_developer_funding_providers=(),
@@ -78,7 +79,7 @@ def test_developer_readiness_reports_signed_root_and_chain_provider_blockers():
                for x in rows["solana"].blockers)
     assert any("base-rpc-holder-inventory is not explicitly trusted" in x
                for x in rows["base"].blockers)
-    assert any("bsc complete first-funder ancestry provider is unavailable" in x
+    assert any("etherscan-v2-bsc-funding-graph is not explicitly trusted" in x
                for x in rows["bsc"].blockers)
     assert all(not row.capability_complete for row in rows.values())
 
