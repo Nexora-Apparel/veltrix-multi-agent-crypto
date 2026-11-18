@@ -785,3 +785,14 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - The earlier manually-dispatched Base/BSC collection and live-provider acceptance checks remain separate operational acceptance tasks. Their workflows are explicitly workflow_dispatch only; the available GitHub integration is read-only for workflow inspection and does not expose a workflow-dispatch action. No attempt was made to activate schedules or live workflows.
 - Physical Realme Android acceptance remains a human-device check. Browser/mobile-emulation CI does not replace testing the actual device, authentication expiry, offline state and backend-failure behavior on hardware.
 - All execution controls remain disabled: SCHEDULER_ENABLED=false, PAPER_TRADING_ENABLED=false, LIVE_TRADING=false; no signing or transaction submission.
+
+
+### Worker image validation and runbook correction — 2026-11-18
+
+- Added a dedicated worker-image CI workflow and an equivalent worker-image job to the existing Python PR workflow. It validates Compose configuration, builds the read-only image, verifies the non-root runtime user, and imports all three worker entry points.
+- First image build failed because requirements-turso.txt installs the pinned Turso adapter from a Git URL while python:3.11-slim did not contain the git executable. This was a genuine image-build defect. Dockerfile.worker now uses a multi-stage build: git is installed only in the builder stage and the final runtime image receives the installed Python dependencies without git.
+- Updated runtime runbook acceptance to include the solana-discovery worker alongside token intelligence, market refresh and consensus.
+- Latest Dockerfile fix commit: dd42f83365d62f6183f96d92928821dc3c23da4e. Its Python, Pages and worker-image CI runs were still in progress at the time of this entry; earlier image-build failure on aa992bc... is superseded but must remain recorded as the reason for the fix.
+- Runbook follow-up commit: ccfaca7f80bfa139433c1e7c6eaf1229e6dcea4b. Exact-head CI for this documentation-only follow-up is pending/expected through the PR workflow; no production worker has been deployed.
+- PR #226 remains draft/unmerged. External deployment blocker remains a Docker-capable always-on host plus the production Turso URL/token in its secret manager. Manual Base/BSC/provider acceptance workflows and physical Realme Android testing remain outstanding; they cannot be truthfully marked complete from browser CI.
+- SCHEDULER_ENABLED=false, PAPER_TRADING_ENABLED=false, LIVE_TRADING=false; no signing, submission or broadcast.
