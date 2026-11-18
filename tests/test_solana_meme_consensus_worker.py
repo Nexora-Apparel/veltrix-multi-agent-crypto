@@ -310,3 +310,31 @@ def test_consensus_worker_rejects_replaced_claim_after_wallet_provider_read(tmp_
         worker.run_once(context=context)
     assert store.count(MINT) == 0
     assert worker.status()["processing"] == 1
+
+
+def test_consensus_row_claim_is_renewed_during_slow_evaluation(tmp_path):
+    launches, _, _, store, worker, _ = setup_worker(tmp_path, lease_ms=100)
+    original_evaluate = worker.engine.evaluate
+
+    def slow_evaluate(*args, **kwargs):
+        import time
+        time.sleep(0.25)
+        return original_evaluate(*args, **kwargs)
+
+    worker.engine.evaluate = slow_evaluate
+    orchestration = OrchestrationStore(str(launches.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(context=context)
+        assert result.recorded == 1
+
+    result = run_once(
+        orchestration, idempotency_key="consensus-row-heartbeat",
+        job_type="consensus", payload={}, handler=handler,
+        max_runtime_seconds=2, lease_ttl_ms=15_000,
+        lease_heartbeat_interval_seconds=0.05,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert store.count(MINT) == 1
+    assert worker.status()["processing"] == 0
