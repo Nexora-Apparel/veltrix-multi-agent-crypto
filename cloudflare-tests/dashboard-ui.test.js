@@ -94,3 +94,14 @@ test("consensus records distinguish missing attribution from missing agent ident
   const js = await readFile(new URL("dashboard.js", root), "utf8");
   assert.match(js, /Agent attribution missing in this record/);
 });
+
+
+test("dashboard displays worker-cycle health independently from agent evaluation heartbeats", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(html, /id="worker-runtime"/);
+  assert.match(html, /id="worker-runtime-summary"/);
+  assert.match(js, /runtime\?\.workers\?\.items/);
+  assert.match(js, /Agent evaluation heartbeats are tracked separately/);
+  assert.match(js, /Workers \+workerStatus/);
+});
