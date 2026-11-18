@@ -771,3 +771,17 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - PR #226 description updated to match the final worker inventory, deployment artifacts, safety state and remaining external host/credential blocker.
 - PR #226 remains OPEN / DRAFT / UNMERGED. Do not merge until review and production read-only deployment validation.
 - Remaining blocker is now limited to selecting/providing an always-on Docker host and injecting the existing production Turso URL/token through that host's secret manager. The repo now contains a hardened Compose stack and exact runbook commands. No worker service was started.
+
+
+### Follow-up reliability hardening — 2026-11-18
+
+- Independent provider probes now use a distinct provider identity suffix (-health) rather than sharing the same provider key as token-batch fetch observations. This prevents a successful/failed candidate batch from overwriting the periodic endpoint-health result in the dashboard. The regular batch observation remains separately visible.
+- Consensus runtime now records a FAILED worker-cycle heartbeat if an unexpected exception escapes the worker before its normal end-of-cycle telemetry write. Per-candidate failures continue to be represented as DEGRADED cycle results and agent evaluation failures, not process crashes.
+- Added regression coverage for unexpected consensus runtime failure.
+- Updated the non-secret worker environment template to include the optional SOLANA_RPC_URL used by read-only risk/data components.
+- Validation caught one stale test expectation after the provider identity was deliberately separated: the test expected probeprovider rather than probeprovider-health. This was a test expectation mismatch, not a runtime failure. Corrected the assertion in commit 5eed7925a312df54246f8876996f27dd9c4fa659.
+- Exact-head Python CI run 44286290444 and Cloudflare Pages CI run 44286290426 are pending at this checkpoint. Earlier failures on heads 4fff1a41... and ca15fde4... were caused by the same stale assertion; do not treat them as final validation.
+- The worker host remains an external blocker: no Docker-capable always-on host or host-side production Turso credentials are available through the repository connection. The Compose stack and deployment runbook are ready, but no service is running and no live dashboard heartbeat recovery is claimed.
+- The earlier manually-dispatched Base/BSC collection and live-provider acceptance checks remain separate operational acceptance tasks. Their workflows are explicitly workflow_dispatch only; the available GitHub integration is read-only for workflow inspection and does not expose a workflow-dispatch action. No attempt was made to activate schedules or live workflows.
+- Physical Realme Android acceptance remains a human-device check. Browser/mobile-emulation CI does not replace testing the actual device, authentication expiry, offline state and backend-failure behavior on hardware.
+- All execution controls remain disabled: SCHEDULER_ENABLED=false, PAPER_TRADING_ENABLED=false, LIVE_TRADING=false; no signing or transaction submission.
