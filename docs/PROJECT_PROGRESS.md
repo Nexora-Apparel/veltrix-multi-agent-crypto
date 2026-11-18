@@ -804,3 +804,22 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - The first Docker build failure was fully traced to git missing from python:3.11-slim while pip installed a Git-pinned Turso adapter. The final runtime stage now excludes git; the successful worker-image CI proves the image builds, Compose config validates, the runtime user is non-root, and all three worker modules import.
 - Subsequent docs/runbook commits: ccfaca7f80bfa139433c1e7c6eaf1229e6dcea4b and 12256bb71f1630f2f33cbee3116fc14ecff4a22a. Exact-head Python CI run 44286757357 has passed its tests job; the Python workflow's worker-image job, standalone worker-image CI run 44286757399, and Pages CI run 44286757351 were still running at the time of this update.
 - PR #226 remains open, draft and unmerged. Production read-only service deployment and actual heartbeat recovery remain unverified because the always-on host and production Turso secret injection are external requirements.
+
+
+
+### Runtime-health blocker reconciliation — 2026-11-18 11:40 WAT
+
+- Re-fetched PR #226 from GitHub. It remains OPEN / DRAFT / UNMERGED at exact head `32c1637969f76d1d887d0657f70b03b75634adf6`; PR #225 is CLOSED without merge and is superseded by the consolidated #226 changes.
+- Exact-head workflows for #226 are now all complete and green:
+  - Python CI run `44286891304`: SUCCESS. The `tests` job and embedded `worker-image` job both passed. Live Solana discovery, market-data and finalized mint-account smoke steps were SKIPPED by their branch-specific conditions; this is not live-provider acceptance.
+  - Cloudflare Pages dashboard CI run `44286891331`: SUCCESS, including dashboard API/security tests, verifier syntax, Wrangler validation, Pages bundle build and static/API boundary smoke.
+  - Standalone read-only worker image CI run `44286891325`: SUCCESS, including Compose validation, Docker build, non-root image check and worker entry-point import check.
+- The CI results close the code/package/test blockers. They do not establish production worker liveness, real Turso connectivity, live provider acceptance, or Android hardware acceptance.
+- Re-read `docs/RUNTIME_HEALTH_RUNBOOK.md` and `compose.worker.yaml`. The stack defines three supervised containers because the token-intelligence process runs enrichment and market-refresh cycles together; the API exposes four expected worker-role heartbeats: discovery, token intelligence, market refresh and consensus. The runbook contains build/start/log/stop commands and explicit post-deployment acceptance gates.
+- Outstanding blockers and disposition:
+  1. **Always-on host + production Turso URL/token:** external deployment prerequisite. No host or secret-manager access is available through this repository connection. Do not ask for secrets in chat; install them only in the selected host's encrypted secret store.
+  2. **Live provider acceptance:** not established by CI. The three live Solana smoke tests were skipped because this PR branch does not match their phase-specific branch filters. After deployment, run bounded read-only provider checks and verify persisted probe events; do not infer health from HTTP status alone.
+  3. **Base/BSC collection acceptance:** remains unverified and outside the current Solana worker stack's deployment proof. Do not label these networks healthy or imply their collection is active without a separate supported ingestion path and evidence.
+  4. **Physical Realme 5 Pro acceptance:** requires the user's Android 11 device. Browser CI cannot validate on-device auth expiry, offline behavior, stale API presentation or recovery.
+- No production worker has been deployed; no real heartbeat recovery is claimed. No queues, historical events or stale telemetry were reset or fabricated.
+- Scheduler, paper trading, live trading, signing, submission and broadcast remain disabled.
