@@ -337,6 +337,14 @@ class ConsensusWorker:
                 SELECT COUNT(*) FROM solana_consensus_jobs
                 WHERE status IN ('active', 'retry', 'processing')
             """).fetchone()[0])
+        self.telemetry.record_worker_heartbeat(
+            "solana-consensus", observed_at_ms=self.clock_ms(),
+            status="DEGRADED" if failed else "SUCCESS",
+            error_code="CANDIDATE_EVALUATION_FAILURE" if failed else None,
+            metrics={"discovered": discovered, "processed": len(claimed),
+                     "recorded": recorded, "unchanged": unchanged,
+                     "failed": failed, "deferred": deferred},
+        )
         return ConsensusBatchResult(
             discovered=discovered,
             processed=len(claimed),
