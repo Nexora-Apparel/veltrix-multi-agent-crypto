@@ -1,3 +1,15 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements-turso.txt ./
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir --prefix=/install -r requirements.txt -r requirements-turso.txt
+
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -6,11 +18,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+COPY --from=builder /install /usr/local
 RUN groupadd --system veltrix && useradd --system --gid veltrix --home-dir /app veltrix
-
-COPY requirements.txt requirements-turso.txt ./
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -r requirements.txt -r requirements-turso.txt
 
 COPY --chown=veltrix:veltrix . .
 
