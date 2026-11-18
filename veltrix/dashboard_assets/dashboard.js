@@ -6,6 +6,7 @@
   const signed = (value) => (Number(value)>0?"+":"")+money(value);
   const number = (value,digits=2) => Number(value||0).toLocaleString(undefined,{maximumFractionDigits:digits});
   const date = (value) => value ? new Date(value).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
+  const age = (value) => { if(!value) return "time unknown"; const stamp=new Date(value).getTime(); if(!Number.isFinite(stamp)) return "time invalid"; const delta=Date.now()-stamp; if(delta < -60000) return "clock ahead"; if(delta < 60000) return "just now"; const minutes=Math.floor(delta/60000); if(minutes<60) return minutes+"m ago"; const hours=Math.floor(minutes/60); if(hours<48) return hours+"h ago"; return Math.floor(hours/24)+"d ago"; };
   const short = (value) => value && value.length>18 ? value.slice(0,7)+"…"+value.slice(-5) : (value||"—");
   let refreshing=false, chartPoints=[], allTrades=[], allPositions=[], allConsensus=[], allMarkets=[], allChainMarkets={}, runtimeSnapshot=null, currentRange="ALL";
 
@@ -95,18 +96,24 @@
   function renderAgents(){
     const lineup=$("agent-lineup"),host=$("agent-decisions");
     lineup.replaceChildren();host.replaceChildren();
-    const agentNames=[...new Set(allConsensus.flatMap(item=>Array.isArray(item.supporting_agents)?item.supporting_agents:[]).filter(name=>typeof name==="string"&&name.trim()))].sort();
-    if(!agentNames.length) lineup.append(element("div","empty-state","No agent identities recorded in consensus history."));
-    else agentNames.forEach(name=>{
+    const runtimeAgents=Array.isArray(runtimeSnapshot?.agents?.items)?runtimeSnapshot.agents.items:[];
+    const byName=new Map(runtimeAgents.filter(item=>item&&typeof item.name==="string").map(item=>[item.name.toLowerCase(),item]));
+    const consensusNames=allConsensus.flatMap(item=>Array.isArray(item.supporting_agents)?item.supporting_agents:[]).filter(name=>typeof name==="string"&&name.trim());
+    const names=[...new Set([...runtimeAgents.map(item=>item?.name),...consensusNames].filter(name=>typeof name==="string"&&name.trim()))].sort();
+    if(!names.length) lineup.append(element("div","empty-state","No persisted agent runtime or consensus identities are available."));
+    else names.forEach(name=>{
+      const runtime=byName.get(name.toLowerCase());
+      const status=runtime?.status||"CONSENSUS-ONLY";
+      const heartbeat=runtime?.last_heartbeat? "Heartbeat "+age(runtime.last_heartbeat)+" · "+date(runtime.last_heartbeat):"No heartbeat recorded";
       const item=element("article",""),symbol=element("span","agent-symbol",name.trim().slice(0,1).toUpperCase()),copy=element("div","");
-      copy.append(element("b","",name.trim()),element("small","","Observed in persisted consensus"));
+      copy.append(element("b","",name.trim().toUpperCase()),element("small","",status+" · "+heartbeat));
       item.append(symbol,copy);lineup.append(item);
     });
     $("consensus-count").textContent=number(allConsensus.length,0)+" records";
     if(!allConsensus.length){host.append(element("div","empty-state","No persisted consensus decisions yet."));return;}
     allConsensus.slice(0,60).forEach(item=>{
-      const agents=(item.supporting_agents||[]).join(", ")||"Agent support not recorded";
-      const reasons=(item.reasons||[]).join(" · ")||"No reason supplied";
+      const agents=(item.supporting_agents||[]).join(", ")||"Agent attribution missing in this record";
+      const reasons=(item.reasons||[]).join(" · ")||"No reason supplied by the API";
       host.append(recordRow(short(item.mint),date(item.created_at)+" · "+agents,item.status||"UNKNOWN",reasons,item.status==="CONSENSUS_APPROVED"));
     });
   }
@@ -121,12 +128,12 @@
     $("provider-runtime-summary").textContent=providerStatus;
     if(!agentItems.length) agentHost.append(element("div","empty-state","No persisted agent heartbeat telemetry."));
     else agentItems.forEach(item=>{
-      const detail=[item.last_heartbeat?"Last heartbeat "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
+      const detail=[item.last_heartbeat?"Heartbeat "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
       agentHost.append(recordRow(String(item.name||"Agent").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Persisted runtime telemetry",item.status==="FRESH"?true:item.status==="FAILED"?false:null));
     });
     if(!providerItems.length) providerHost.append(element("div","empty-state","No persisted provider probe telemetry."));
     else providerItems.forEach(item=>{
-      const detail=[item.chain||"",item.last_probe?"Last probe "+date(item.last_probe):"",Number.isFinite(Number(item.latency_ms))?number(item.latency_ms,0)+" ms":""].filter(Boolean).join(" · ");
+      const detail=[item.chain||"",item.last_probe?"Probe "+age(item.last_probe)+" · "+date(item.last_probe):"No probe recorded",Number.isFinite(Number(item.latency_ms))?number(item.latency_ms,0)+" ms":""].filter(Boolean).join(" · ");
       providerHost.append(recordRow(item.provider||"Provider",detail,item.status||"UNKNOWN",item.error_code||"Persisted provider probe",item.status==="FRESH"?true:item.status==="FAILED"?false:null));
     });
     $("runtime-summary").textContent="Agents "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
@@ -139,7 +146,7 @@
       const count=Number(data.observation_count||0);
       total+=count;
       $(chain+"-count").textContent=number(count,0);
-      $(chain+"-latest").textContent=data.latest_observed_at?"Updated "+date(data.latest_observed_at):(data.available===true?"No persisted observations":"Ledger unavailable");
+      $(chain+"-latest").textContent=data.latest_observed_at?"Last observation "+age(data.latest_observed_at)+" · "+date(data.latest_observed_at):(data.available===true?"No persisted observations":"Ledger unavailable");
     }
     $("network-total").textContent=number(total,0)+" observations";
     $("network-summary").textContent=Object.keys(labels).map(chain=>labels[chain]+" "+Number(allChainMarkets[chain]?.observation_count||0)).join(" · ");
