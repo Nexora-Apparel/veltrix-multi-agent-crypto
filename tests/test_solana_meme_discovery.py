@@ -1,3 +1,5 @@
+import json
+import sqlite3
 import pytest
 
 from veltrix.solana_meme.candidates import SolanaCandidate, normalize_candidate
@@ -180,3 +182,25 @@ def test_discovery_does_not_persist_after_global_fence_loss(tmp_path):
         engine.poll_once(context=context)
     assert store.candidate_count() == 0
     assert store.active_outage_count() == 0
+
+
+def test_discovery_run_once_records_worker_cycle_heartbeat(tmp_path):
+    store = LaunchStore(tmp_path / "discovery-runtime.sqlite3")
+    engine = SolanaDiscoveryEngine(
+        store,
+        FakeSecondarySource(DexScreenerBatch((), ("dexscreener",), ())),
+        clock_ms=lambda: 1700000000000,
+    )
+
+    result = engine.run_once()
+
+    assert result.candidates_received == 0
+    with sqlite3.connect(store.database_path) as db:
+        rows = db.execute(
+            "SELECT event, payload FROM events ORDER BY id"
+        ).fetchall()
+    workers = [json.loads(payload) for event, payload in rows if event == "WORKER_HEARTBEAT"]
+    assert len(workers) == 1
+    assert workers[0]["worker"] == "solana-discovery"
+    assert workers[0]["status"] == "SUCCESS"
+    assert workers[0]["metrics"]["received"] == 0
