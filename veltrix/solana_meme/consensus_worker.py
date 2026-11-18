@@ -313,7 +313,7 @@ class ConsensusWorker:
         claimed = self._claim(now, limit, context)
         renew = (lambda mints: self._renew_claims(mints, context)) if context is not None else None
         with RowClaimHeartbeat(
-            claimed, renew, interval_seconds=max(0.05, min(30.0, self.lease_ms / 4000.0))
+            claimed, renew, interval_seconds=max(0.01, min(30.0, self.lease_ms / 4000.0))
         ) as claim_heartbeat:
             recorded = unchanged = failed = 0
             if context is not None and claimed:
@@ -352,18 +352,21 @@ class ConsensusWorker:
                         decision.votes, observed_at_ms=self.clock_ms(),
                     )
                     claim_heartbeat.assert_active()
-                    if self._succeed(decision, self.clock_ms(), context):
+                    inserted = claim_heartbeat.complete_after(
+                        mint, lambda: self._succeed(decision, self.clock_ms(), context)
+                    )
+                    if inserted:
                         recorded += 1
                     else:
                         unchanged += 1
-                    claim_heartbeat.complete(mint)
                 except LeaseBusy:
                     raise
                 except Exception as exc:
                     claim_heartbeat.assert_active()
-                    self._fail(mint, exc, self.clock_ms(), context)
+                    claim_heartbeat.complete_after(
+                        mint, lambda: self._fail(mint, exc, self.clock_ms(), context)
+                    )
                     failed += 1
-                    claim_heartbeat.complete(mint)
 
             with self._connect() as db:
                 deferred = int(db.execute("""
