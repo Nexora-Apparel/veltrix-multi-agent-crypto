@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator
 
 from ..database import connect_database, row_factory_for
 from ..orchestration import LeaseBusy, RunContext
+from .claim_heartbeat import RowClaimHeartbeat
 
 from .launch_stream import LaunchStore
 from .market_store import MarketSnapshotStore
@@ -175,6 +176,28 @@ class SolanaRiskEvidenceWorker:
                 ))
             return mints
 
+
+    def _renew_claims(self, mints: tuple[str, ...], context: RunContext) -> bool:
+        if not mints:
+            return True
+        now = self.clock_ms()
+        if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
+            return False
+        placeholders = ",".join("?" for _ in mints)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            context.assert_fence_in_transaction(db)
+            cursor = db.execute(
+                f"""UPDATE solana_risk_evidence_jobs
+                    SET lease_until_ms = ?, updated_at_ms = ?
+                    WHERE status='processing' AND claimed_by_owner_id=?
+                      AND claim_fencing_token=? AND lease_until_ms>?
+                      AND mint IN ({placeholders})""".replace("UPDATE $", "UPDATE "),
+                (now + self.lease_ms, now, context.owner_id,
+                 context.fencing_token, now, *mints),
+            )
+            return cursor.rowcount == len(mints)
+
     def _succeed(self, report: Any, now: int,
                  context: RunContext | None = None) -> None:
         with self._connect() as db:
@@ -252,30 +275,39 @@ class SolanaRiskEvidenceWorker:
             raise ValueError("clock_ms must return a positive integer")
         discovered = self._discover_jobs(now, context)
         claimed = self._claim(now, limit, context)
-        recorded = failed = 0
-        if context is not None and claimed:
-            context.checkpoint(items=len(claimed))
-        for mint in claimed:
-            try:
-                report = self.collector.collect(mint, now_ms=self.clock_ms())
-                self._succeed(report, self.clock_ms(), context)
-                recorded += 1
-            except Exception as exc:
-                self._fail(mint, exc, self.clock_ms(), context)
-                failed += 1
+        renew = (lambda mints: self._renew_claims(mints, context)) if context is not None else None
+        with RowClaimHeartbeat(
+            claimed, renew, interval_seconds=max(0.05, min(30.0, self.lease_ms / 4000.0))
+        ) as claim_heartbeat:
+            recorded = failed = 0
+            if context is not None and claimed:
+                context.checkpoint(items=len(claimed))
+            for mint in claimed:
+                try:
+                    report = self.collector.collect(mint, now_ms=self.clock_ms())
+                    claim_heartbeat.assert_active()
+                    self._succeed(report, self.clock_ms(), context)
+                    recorded += 1
+                    claim_heartbeat.complete(mint)
+                except LeaseBusy:
+                    raise
+                except Exception as exc:
+                    claim_heartbeat.assert_active()
+                    self._fail(mint, exc, self.clock_ms(), context)
+                    failed += 1
 
-        with self._connect() as db:
-            deferred = int(db.execute("""
-                SELECT COUNT(*) FROM solana_risk_evidence_jobs
-                WHERE status IN ('active', 'retry', 'processing')
-            """).fetchone()[0])
-        return RiskEvidenceBatchResult(
-            discovered=discovered,
-            processed=len(claimed),
-            recorded=recorded,
-            failed=failed,
-            deferred=deferred,
-        )
+            with self._connect() as db:
+                deferred = int(db.execute("""
+                    SELECT COUNT(*) FROM solana_risk_evidence_jobs
+                    WHERE status IN ('active', 'retry', 'processing')
+                """).fetchone()[0])
+            return RiskEvidenceBatchResult(
+                discovered=discovered,
+                processed=len(claimed),
+                recorded=recorded,
+                failed=failed,
+                deferred=deferred,
+            )
 
     def status(self) -> dict[str, int]:
         with self._connect() as db:
