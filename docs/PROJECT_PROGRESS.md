@@ -650,3 +650,36 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - No production queue rows were reset, deleted or rewritten. No database schema, credentials, retry/backoff rules, attempt limits, leases, fencing, or execution controls were changed. Manual-only workflow remains in force; paper trading, live trading, Phantom signing, transaction submission and broadcast remain disabled.
 - **Production acceptance remains open.** The next bounded manual run on this merged main commit must be inspected for provider response counts, rejection categories, enrichment snapshots persisted to Turso, and downstream market-refresh/risk/consensus stage progress. Automated CI is not production acceptance.
 - The connected GitHub actions interface exposes read and rerun operations but not workflow dispatch. The repository owner must manually start the existing workflow at [Manual Solana intelligence pipeline (scheduler locked)](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/workflows/solana-pipeline-schedule.yml), selecting `main`, then provide the new run URL for log inspection.
+
+
+## 29. Android dashboard audit and P0 telemetry UI correction — 2026-11-18
+
+### Source evidence
+The user supplied a 33.15-second, 1080x2340 Android screen recording of the actual dashboard. Frames were inspected at approximately two-second intervals. The screen capture was around 10:49–10:50 WAT on 18 Nov 2026.
+
+- Home showed paper balance US$500, zero trades, 0% win rate, no settled closes and 24 network observations (Solana 23, BSC 1).
+- Home observation cards displayed “Updated 17 Nov, 14:39”, although the page was viewed on 18 Nov around 10:49. The status sheet's 10:49:46 timestamp is the dashboard refresh, not proof that source observations are current.
+- Agents page displayed SCOUT, WHALE, SNIPER and SHIELD as STALE, each with heartbeat at 18 Nov 10:24 and stance ABSTAIN.
+- The same page said “No agent identities recorded in consensus history.” This is a frontend data-source defect: `renderAgents()` built the roster only from consensus `supporting_agents`, while the separate runtime-status API supplied the actual persisted agent roster.
+- DexScreener BSC probe: 17 Nov 14:39, 13 ms; Solana probe: 18 Nov 10:20, 59 ms. Both were marked STALE. Consensus showed 16 records, many with “Agent support not recorded”.
+- Trades and Wallet correctly represented an empty paper ledger: no open positions/fills, US$500 virtual cash/equity, zero P&L/exposure, and explicit no-signing/no-submission copy.
+
+### Implemented UI correction — PR #225
+- PR [#225](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/225), branch `fix/dashboard-runtime-telemetry-ui-20261118`, open/draft/unmerged.
+- Head at creation: `e0f0896ef2210bb812c6ebee2ebe07d65ab4f01c`.
+- `renderAgents()` now uses persisted runtime agent items as the primary roster, and merges any consensus-only identities without inventing runtime state. Each roster item displays its actual runtime status and heartbeat age when available.
+- Provider probe and per-chain observation cards now show relative age alongside the absolute timestamp. This makes old data visibly old even when the page itself refreshes.
+- Consensus fallback copy now says attribution is missing on that specific record, rather than implying that no agent identities exist anywhere.
+- Added four dashboard UI regression tests for runtime-sourced roster, heartbeat age, provider/market data age, and consensus attribution wording.
+- Scope is presentation-only: no freshness threshold, backend API contract, database schema, provider trust, agent logic, paper execution or live execution was changed.
+- Exact-head CI and mobile browser acceptance are pending; do not call the change validated or deployed until checks complete.
+
+### Remaining dashboard work
+1. Trace why runtime and provider telemetry were genuinely STALE; a UI correction must not mask the underlying stale heartbeat/probe production issue.
+2. Add an evidence-level consensus drill-down (contributing agent IDs, reason codes, evidence references/counts, hard vetoes and missing requirements) only from fields actually persisted and returned by the API.
+3. Improve empty chart/ledger states and explicitly distinguish zero records from unavailable API data.
+4. Clarify network metrics as observations, not tokens/opportunities, and show successfully enriched versus stale/unavailable candidate counts where the backend exposes them.
+5. Reconcile deployed dashboard values against the same backend/API snapshot; CI and page load are not production deployment verification.
+
+### Safety and project sequencing
+Keep scheduler, paper execution, live execution, wallet signing, transaction submission and broadcast disabled. PRs #223 and #224 remain separate draft/unmerged pipeline work. Dashboard PR #225 is independent and must pass its own exact-head tests before review.
