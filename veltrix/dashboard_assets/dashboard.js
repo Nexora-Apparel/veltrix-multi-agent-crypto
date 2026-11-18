@@ -118,14 +118,23 @@
     });
   }
   function renderRuntime(runtime){
+    const workerItems=Array.isArray(runtime?.workers?.items)?runtime.workers.items:[];
     const agentItems=Array.isArray(runtime?.agents?.items)?runtime.agents.items:[];
     const providerItems=Array.isArray(runtime?.providers?.items)?runtime.providers.items:[];
-    const agentHost=$("agent-runtime"),providerHost=$("provider-runtime");
-    agentHost.replaceChildren();providerHost.replaceChildren();
+    const workerHost=$("worker-runtime"),agentHost=$("agent-runtime"),providerHost=$("provider-runtime");
+    workerHost.replaceChildren();agentHost.replaceChildren();providerHost.replaceChildren();
+    const workerStatus=runtime?.workers?.status||"UNKNOWN";
     const agentStatus=runtime?.agents?.status||"UNKNOWN";
     const providerStatus=runtime?.providers?.status||"UNKNOWN";
+    $("worker-runtime-summary").textContent=workerStatus;
     $("agent-runtime-summary").textContent=agentStatus;
     $("provider-runtime-summary").textContent=providerStatus;
+    if(!workerItems.length) workerHost.append(element("div","empty-state","No worker-cycle heartbeat has been recorded. Agent evaluation heartbeats are tracked separately."));
+    else workerItems.forEach(item=>{
+      const metrics=item.metrics&&typeof item.metrics==="object"?Object.entries(item.metrics).map(([key,value])=>key+" "+value).join(" · "):"";
+      const detail=[item.last_heartbeat?"Cycle "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No cycle heartbeat",metrics].filter(Boolean).join(" · ");
+      workerHost.append(recordRow(String(item.worker||"Worker").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Completed worker-cycle telemetry",item.status==="FRESH"?true:item.status==="FAILED"||item.status==="DEGRADED"?false:null));
+    });
     if(!agentItems.length) agentHost.append(element("div","empty-state","No persisted agent heartbeat telemetry."));
     else agentItems.forEach(item=>{
       const detail=[item.last_heartbeat?"Heartbeat "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
@@ -136,7 +145,7 @@
       const detail=[item.chain||"",item.last_probe?"Probe "+age(item.last_probe)+" · "+date(item.last_probe):"No probe recorded",Number.isFinite(Number(item.latency_ms))?number(item.latency_ms,0)+" ms":""].filter(Boolean).join(" · ");
       providerHost.append(recordRow(item.provider||"Provider",detail,item.status||"UNKNOWN",item.error_code||"Persisted provider probe",item.status==="FRESH"?true:item.status==="FAILED"?false:null));
     });
-    $("runtime-summary").textContent="Agents "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
+    $("runtime-summary").textContent="Workers "+workerStatus+" · Agent evaluations "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
   }
   function renderNetworks(){
     const labels={solana:"Solana",base:"Base",bsc:"BSC"};
