@@ -42,15 +42,15 @@ class RowClaimHeartbeat:
         while not self._stop.wait(self._interval):
             with self._lock:
                 pending = tuple(sorted(self._pending))
-            if not pending:
-                return
-            try:
-                if self._renew is None or not self._renew(pending):
+                if not pending:
+                    return
+                try:
+                    if self._renew is None or not self._renew(pending):
+                        self._lost.set()
+                        return
+                except Exception:
                     self._lost.set()
                     return
-            except Exception:
-                self._lost.set()
-                return
 
     def complete(self, mint: str) -> None:
         with self._lock:
