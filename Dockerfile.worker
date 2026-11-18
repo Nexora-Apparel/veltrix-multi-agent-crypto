@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN groupadd --system veltrix && useradd --system --gid veltrix --home-dir /app veltrix
+
+COPY requirements.txt requirements-turso.txt ./
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r requirements.txt -r requirements-turso.txt
+
+COPY --chown=veltrix:veltrix . .
+
+USER veltrix
+
+# A platform service can override this command per worker role:
+# - python -m veltrix.solana_meme.worker
+# - python -m veltrix.solana_meme.intelligence_worker
+# - python -m veltrix.solana_meme.consensus_runtime
+CMD ["python", "-m", "veltrix.solana_meme.intelligence_worker"]
