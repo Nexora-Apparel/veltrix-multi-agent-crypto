@@ -667,8 +667,9 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 ### PR #224 — reason-specific unavailable-market diagnostics
 - PR [#224](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/224), branch `fix/solana-enrichment-unavailable-reasons`, is a two-commit stacked draft PR based on PR #223 head `e3d9f58161a8f5e96cf6980bd7925d067f1ccee1`; current head `8720ebfdca27feb306c2d3b9957faf90e41c7d7e`. It remains open, draft and unmerged.
 - Exact-head Python CI run [44276488238](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44276488238) **failed**: compileall passed; pytest reported **1 failed, 949 passed, 10 skipped**. Live provider smoke checks were skipped.
-- The failing regression is `test_unavailable_market_data_reports_specific_rejection_reason[events1-10000-stale_observation:1]` in `tests/test_solana_meme_market_data.py`. The test expects an observation timestamp of 1 ms to be rejected as stale at 10,000 ms, but `fetch_many()` returned a snapshot whose retrieval timestamp was set to 10,000 ms and whose response timestamp was 1 ms. This exposes a mismatch between the diagnostic test's stale-observation assumption and the current market-data eligibility implementation; it must be resolved in code/tests without weakening freshness or future-timestamp safeguards.
-- Do not mark PR #224 as CI-passing. Inspect the event timestamp semantics and normalizer/validator path, then add a regression that proves stale observations cannot produce eligible snapshots and that reason counters accurately reflect rejection.
+- The failing regression was `test_unavailable_market_data_reports_specific_rejection_reason[events1-10000-stale_observation:1]` in `tests/test_solana_meme_market_data.py`. The test expected an observation timestamp of 1 ms to be stale at 10,000 ms, but the configured default maximum response age is 120,000 ms; an age of 9,999 ms is valid under that policy. The failure was an incorrect test boundary, not evidence that stale observations bypassed the production freshness check.
+- Corrected the test to set an explicit `max_response_age_ms=1_000`, making the 9,999 ms observation unambiguously stale while leaving the production default and runtime freshness policy unchanged. Commit: `bd1dd3225ff5616089cec8b0791c9152a6a9fc90`.
+- The corrected PR head has not yet been verified by a new exact-head CI run. Do not mark PR #224 as CI-passing until GitHub reports the run result.
 - No evidence currently supports resetting the 8 dead enrichment jobs, changing retry policy, or weakening freshness thresholds. Preserve all queue state until the cause is established.
 
 ### Current stage and next exit criteria
@@ -677,3 +678,10 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - Required next steps: fix and re-run PR #224 CI; reconcile PR #223's validation text; inspect the exact redacted diagnostics and remaining enrichment failure path; run another bounded read-only validation after the fix; then review both PRs. Do not merge either PR solely on the basis of the earlier successful bounded run.
 - Dashboard code CI passed on PR #223. A public dashboard URL and live reachability were not independently verified in this checkpoint; do not treat a guessed Pages hostname as a confirmed production dashboard.
 - Safety remains locked: no scheduler activation, live trading, paper execution, Phantom signing, transaction submission or broadcast.
+
+
+### PR #224 stale-boundary test correction — 2026-11-18
+
+- The initial CI failure was traced to a test fixture using the production default `max_response_age_ms=120_000` while expecting an observation 9,999 ms old to be stale. That expectation contradicted the configured 120-second policy.
+- Updated the regression to set a test-local 1,000 ms threshold. Production defaults and strict future/stale rejection remain unchanged. This tests the intended stale branch without altering live policy.
+- New PR #224 head: `bd1dd3225ff5616089cec8b0791c9152a6a9fc90`. Exact-head CI result is still pending verification. PR #224 remains draft/unmerged.
