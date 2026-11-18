@@ -717,3 +717,15 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 3. Add/verify tests for empty-queue worker cycles and no-candidate agent semantics.
 4. Before any service deployment, prepare a separate read-only worker service configuration and a startup/shutdown/health-check runbook; keep scheduling and trading locks disabled.
 5. After deployment, verify real worker heartbeats and independent DexScreener probes from the production database. Do not seed synthetic telemetry or reset stale records.
+
+
+### Follow-up implementation and CI remediation — 2026-11-18
+
+- Moved the independent provider probe into `MarketRefreshWorker` itself. It now runs before queue processing, so the existing one-shot production pipeline also probes DexScreener when the refresh queue is empty. A local monotonic interval limits it to one probe per 60 seconds per worker process.
+- Kept the provider probe independent from candidate fetch outcomes and preserved sanitized failure telemetry.
+- Added regression coverage proving that an empty candidate queue still produces a provider probe and worker-cycle heartbeat, and that consensus can record a worker cycle without fabricating agent vote events.
+- Added `docs/RUNTIME_HEALTH_RUNBOOK.md` with the existing read-only process entry points, required secret configuration, freshness acceptance gates and rollback procedure. It explicitly states that Cloudflare Pages is not a persistent Python host and that no service/schedule was deployed.
+- CI remediation: first Python CI failure exposed the initial monotonic probe timestamp being set to zero; corrected to negative infinity so the first probe runs regardless of host uptime. The next failure was a test's expected provider identifier not matching the test class fallback; corrected the assertion. Python CI then passed on exact head `30d39aa68dd6c87d8e214edbb3394e877eef967c` (run `44283087171`).
+- Cloudflare dashboard CI exposed stale string assertions in the UI regression tests. Corrected the provider probe and market-observation age assertions to match the actual rendered JavaScript expressions. Exact-head Cloudflare CI rerun is pending on `be46f70a94cd97b851adf93c37dbf9fb9e212269` (run `44283253625`); exact-head Python CI is also pending on the same commit (run `44283253612`).
+- Earlier PR #225 Cloudflare CI failed because its standalone dashboard tests retained those stale assertions. PR #226 contains the corrected tests and all dashboard/runtime changes together; keep #225 draft until #226 passes, then consolidate PR history rather than merging stale tests separately.
+- Current latest code includes the runbook and provider probe centralization; no scheduled workflow or service deployment has been activated. No claim of production runtime recovery is made.
