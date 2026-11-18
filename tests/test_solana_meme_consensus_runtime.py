@@ -1,3 +1,5 @@
+import json
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -102,3 +104,24 @@ def test_consensus_runtime_rejects_allowlist_above_helius_scan_limit(
                 "11111111111111111111111111111111",
             ),
         )
+
+
+def test_consensus_runtime_records_failed_worker_cycle_on_unhandled_error(tmp_path, monkeypatch):
+    runtime = build_runtime(database_path=tmp_path / "runtime-failure.sqlite3")
+
+    def fail_cycle(*, limit):
+        raise RuntimeError("database temporarily unavailable")
+
+    monkeypatch.setattr(runtime.worker, "run_once", fail_cycle)
+    with pytest.raises(RuntimeError, match="database temporarily unavailable"):
+        runtime.run_once()
+
+    with sqlite3.connect(runtime.worker.launch_store.database_path) as db:
+        rows = db.execute(
+            "SELECT payload FROM events WHERE event='WORKER_HEARTBEAT' ORDER BY id DESC"
+        ).fetchall()
+    assert len(rows) == 1
+    payload = json.loads(rows[0][0])
+    assert payload["worker"] == "solana-consensus"
+    assert payload["status"] == "FAILED"
+    assert payload["error_code"] == "RuntimeError"
