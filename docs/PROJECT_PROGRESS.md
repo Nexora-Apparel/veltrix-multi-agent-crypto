@@ -746,3 +746,18 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - The latest dashboard copy now labels the agent timestamp as “Last evaluation” and explains that agent freshness reflects the last completed evaluation; worker liveness is a separate panel.
 - The portable `Dockerfile.worker` and runtime deployment runbook are included. A persistent worker service is not deployed; encrypted production secrets and a service host are not available through this repository change. This is the remaining operational deployment blocker.
 - No scheduler, paper trading, live trading, wallet signing, submission or broadcast was enabled. No production recovery claim is made.
+
+
+### Runtime-health completeness and deployment blockers — 2026-11-18
+
+- Added explicit discovery-loop cycle telemetry (`solana-discovery`) via a testable `run_once()` path. Successful empty discovery polls now heartbeat as SUCCESS; partial feed outages become DEGRADED; unexpected cycle exceptions are recorded FAILED before propagation.
+- Runtime API now always returns the four expected worker roles: `solana-discovery`, `solana-token-intelligence`, `solana-market-refresh`, and `solana-consensus`. Missing role telemetry is UNKNOWN rather than silently omitted. This prevents a single healthy worker from making the overall worker panel appear fully healthy.
+- Added regression tests for empty discovery heartbeat and the complete expected-worker inventory in runtime status.
+- Added `.dockerignore` to prevent local environment files, SQLite state, logs, caches and Git metadata from entering the worker image build context. `.env.worker.example` is explicitly retained as a non-secret template.
+- Added `compose.worker.yaml` for one read-only supervised container per role. The stack uses the non-root worker image, read-only root filesystem, no published ports, dropped Linux capabilities, no-new-privileges, restart-on-failure policy and a 40-second graceful-stop window.
+- Extended `docs/RUNTIME_HEALTH_RUNBOOK.md` with copy/build/start/log/stop commands. This clears the missing host-agnostic deployment-manifest blocker.
+- Exact head `8f7452fd79cbc6ca48eacf99bf2a7e8ceb77cbe4`: Python CI run `44285321808` SUCCESS; Cloudflare Pages dashboard CI run `44285321906` SUCCESS. These runs cover discovery heartbeat and expected-worker API changes.
+- Newer deployment-manifest/documentation head `f2f6ffa5fca1dac77fa6357212366bdf7132bbe0` has Python CI run `44285465360` and Cloudflare Pages dashboard CI run `44285465459` in progress at checkpoint. Do not mark the newer head fully green until both finish.
+- Remaining external blocker: a Docker-capable always-on host and production `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` must be supplied through its encrypted secret store or host-side `.env.worker`. No credentials were invented or requested from chat; no service has been started. This cannot be safely completed from repository-only access.
+- Provider probing: DexScreener now has an independent low-cost GET search health check every 60 seconds from market-refresh, even with an empty candidate queue. Helius remains optional and its existing wallet evidence requests are candidate-driven; it is not represented as independently probed when that integration is disabled or no trusted-wallet evidence batch runs.
+- Safety remains unchanged: scheduler, paper trading, live trading, signing and transaction submission disabled. All PR changes remain draft/unmerged pending exact-head CI and external runtime deployment validation.
