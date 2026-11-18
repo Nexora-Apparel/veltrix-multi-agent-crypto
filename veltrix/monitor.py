@@ -134,6 +134,7 @@ class MarketMonitor:
                     liquidity_evidence=liquidity_evidence,
                     launch_bundle=report,
                     now_ms=now_ms,
+                    deployment_block=origin.launch_block if candidate.chain in {"base", "bsc"} else None,
                 )
                 self.last_developer_results[key] = {
                     "status": "analyzed" if developer_result.report.coverage_complete else "blocked",
