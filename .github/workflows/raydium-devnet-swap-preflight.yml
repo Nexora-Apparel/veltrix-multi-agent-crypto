@@ -1,0 +1,93 @@
+name: Raydium Devnet swap preflight
+
+on:
+  push:
+    branches: [work/devnet-raydium-swap-preflight]
+  pull_request:
+    paths:
+      - 'wallet/phantom-devnet-swap.html'
+      - 'tests/test_phantom_devnet_swap_page.py'
+      - 'docs/phantom-devnet-swap.md'
+      - 'veltrix/solana_devnet_swap_preflight.py'
+      - 'tests/test_solana_devnet_swap_preflight.py'
+      - 'veltrix/solana_devnet_ephemeral_swap.py'
+      - 'tests/test_solana_devnet_ephemeral_swap.py'
+      - '.github/workflows/raydium-devnet-swap-preflight.yml'
+  workflow_dispatch:
+    inputs:
+      wallet_address:
+        description: "Public Solana wallet address only; never enter a private key or seed phrase"
+        required: true
+        type: string
+        default: "FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U"
+      amount_lamports:
+        description: "Devnet SOL input in lamports (default 0.001 SOL; maximum 0.05 SOL)"
+        required: true
+        type: string
+        default: "1000000"
+      try_ephemeral_swap:
+        description: "Attempt a disposable-wallet swap only if the Devnet faucet is available"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  devnet-swap-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run isolated Devnet and Phantom safety tests
+        run: python -m pytest tests/test_solana_devnet_swap_preflight.py tests/test_solana_devnet_ephemeral_swap.py tests/test_phantom_devnet_swap_page.py -q
+      - name: Validate Phantom page JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("wallet/phantom-devnet-swap.html").read_text(encoding="utf-8")
+          script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+          Path("/tmp/phantom-devnet-swap.js").write_text(script, encoding="utf-8")
+          PY
+          node --check /tmp/phantom-devnet-swap.js
+      - name: Discover route, build unsigned transaction and simulate on Devnet
+        env:
+          WALLET_ADDRESS: ${{ inputs.wallet_address || 'FQtHmufHsELvyMHvQctu1kqZQ2zY8wDCJ4KpdxTQKb9U' }}
+          AMOUNT_LAMPORTS: ${{ inputs.amount_lamports || '1000000' }}
+        run: |
+          mkdir -p artifacts
+          python -m veltrix.solana_devnet_swap_preflight \
+            --wallet "$WALLET_ADDRESS" \
+            --amount-lamports "$AMOUNT_LAMPORTS" \
+            --output artifacts/raydium-devnet-swap-preflight.json
+      - name: Execute one capped disposable-wallet Devnet swap (opt-in)
+        if: success() && inputs.try_ephemeral_swap == true
+        run: |
+          python -m veltrix.solana_devnet_ephemeral_swap --output artifacts/raydium-devnet-ephemeral-swap.json
+      - name: Upload disposable-wallet swap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raydium-devnet-ephemeral-swap
+          path: artifacts/raydium-devnet-ephemeral-swap.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload Devnet swap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raydium-devnet-swap-preflight
+          path: artifacts/raydium-devnet-swap-preflight.json
+          if-no-files-found: warn
+          retention-days: 14

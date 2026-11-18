@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101827">
+  <title>VELTRIX · Phantom Devnet Swap</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#0b1220;color:#e8eef8}
+    *{box-sizing:border-box}body{margin:0;padding:22px 14px 40px;max-width:680px;margin-inline:auto}
+    h1{font-size:1.35rem;margin:0 0 6px}.muted{color:#9eacc2;font-size:.9rem;line-height:1.5}
+    .panel{background:#121e30;border:1px solid #263750;border-radius:14px;padding:16px;margin:14px 0}
+    .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #263750}
+    .row:last-child{border:0}.value{text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+    label{display:block;margin:12px 0 6px;color:#bdc9d9;font-size:.9rem}
+    input{width:100%;padding:13px;border-radius:9px;border:1px solid #425875;background:#0b1220;color:#fff;font-size:1rem}
+    button{width:100%;padding:14px;border:0;border-radius:10px;background:#b8d4ff;color:#101827;font-weight:700;font-size:1rem;margin-top:10px}
+    button:disabled{opacity:.45}button.secondary{background:#263750;color:#e8eef8}
+    #status{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:#ffcc80}.good{color:#9ee6b0}
+    .tiny{font-size:.78rem;color:#9eacc2}.hidden{display:none}
+  </style>
+</head>
+<body>
+  <h1>VELTRIX · Devnet swap test</h1>
+  <div class="muted">Phantom approval required · Solana Devnet only · SOL → Devnet USDC</div>
+  <section class="panel">
+    <div class="row"><span>Network</span><strong>Solana Devnet</strong></div>
+    <div class="row"><span>Connected wallet</span><span class="value" id="wallet">Not connected</span></div>
+    <div class="row"><span>Devnet SOL balance</span><span class="value" id="balance">—</span></div>
+    <button id="connect">Connect Phantom</button>
+  </section>
+  <section class="panel">
+    <label for="amount">Swap amount (SOL)</label>
+    <input id="amount" inputmode="decimal" value="0.001" autocomplete="off">
+    <div class="tiny">Hard cap: 0.005 SOL. A 0.05 SOL reserve is retained. Price impact must be 2% or less.</div>
+    <button id="quote" class="secondary" disabled>Get fresh quote</button>
+  </section>
+  <section class="panel hidden" id="review">
+    <h2 style="font-size:1.05rem;margin:0 0 8px">Transaction review</h2>
+    <div class="row"><span>Pair</span><span class="value">SOL → Devnet USDC</span></div>
+    <div class="row"><span>Input</span><span class="value" id="inputValue">—</span></div>
+    <div class="row"><span>Quoted output</span><span class="value" id="outputValue">—</span></div>
+    <div class="row"><span>Minimum output</span><span class="value" id="minimumValue">—</span></div>
+    <div class="row"><span>Price impact</span><span class="value" id="impactValue">—</span></div>
+    <div class="row"><span>Route pools</span><span class="value" id="poolsValue">—</span></div>
+    <div class="row"><span>Estimated network fee</span><span class="value" id="feeValue">—</span></div>
+    <p class="muted warning">Only approve in Phantom after checking the wallet, amount, token and network. Never approve an unexpected transaction.</p>
+    <button id="execute" disabled>Approve in Phantom</button>
+  </section>
+  <section class="panel"><div id="status" class="muted">Connect Phantom from the Phantom in-app browser. This page never asks for a recovery phrase, seed phrase or private key.</div></section>
+  <div class="tiny">This is an explicit, one-swap Devnet test interface. It does not enable mainnet or automated trading.</div>
+
+<script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
+<script>
+(() => {
+  "use strict";
+  const RPC = "https://api.devnet.solana.com";
+  const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+  const TRADE = "https://transaction-v1-devnet.raydium.io";
+  const SOL = "So11111111111111111111111111111111111111112";
+  const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+  const MAX_LAMPORTS = 5000000;
+  const RESERVE_LAMPORTS = 50000000;
+  const MAX_IMPACT = 2;
+  const ALLOWED = new Set([
+    "DRaybByLpbUL57LJARs3j8BitTxVfzBg351EaMr5UTCd",
+    "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+    "DRaya7Kj3aMWQSy19kSjvmuwq9docCHofyP9kanQGaav",
+    "DRayAUgENGQBKVaX8owNhgzkEDyoHTGVEGHVJT1E9pfH",
+    "DRayDdXc1NZQ9C3hRWmoSf8zK4iapgMnjdNZWrfwsP8m",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    "11111111111111111111111111111111",
+    "ComputeBudget111111111111111111111111111111",
+    "SysvarRent111111111111111111111111111111111"
+  ]);
+  const $ = id => document.getElementById(id);
+  const connection = new solanaWeb3.Connection(RPC, "confirmed");
+  let provider = null, wallet = null, prepared = null, busy = false;
+
+  function status(message, kind) {
+    $("status").textContent = message;
+    $("status").className = kind || "muted";
+  }
+  function fmtRaw(raw, decimals) {
+    const n = BigInt(String(raw));
+    const scale = 10n ** BigInt(decimals);
+    const whole = n / scale, fraction = (n % scale).toString().padStart(decimals,"0").replace(/0+$/,"");
+    return fraction ? whole + "." + fraction : String(whole);
+  }
+  function setBusy(value) {
+    busy = value;
+    $("connect").disabled = value;
+    $("quote").disabled = value || !wallet;
+    $("execute").disabled = value || !prepared;
+    $("amount").disabled = value;
+  }
+  function getProvider() {
+    const p = window.phantom && window.phantom.solana ? window.phantom.solana : window.solana;
+    if (!p || !p.isPhantom) throw new Error("Open this page inside Phantom's in-app browser.");
+    return p;
+  }
+  async function connect() {
+    provider = getProvider();
+    const result = await provider.connect();
+    wallet = result.publicKey;
+    const genesis = await connection.getGenesisHash();
+    if (genesis !== GENESIS) throw new Error("RPC is not canonical Solana Devnet. Signing disabled.");
+    $("wallet").textContent = wallet.toBase58();
+    await refreshBalance();
+    $("quote").disabled = false;
+    status("Connected to canonical Devnet. No transaction has been signed or sent.","good");
+  }
+  async function tokenBalanceRaw() {
+    const response = await connection.getTokenAccountsByOwner(wallet, {mint:new solanaWeb3.PublicKey(USDC)}, {commitment:"confirmed",encoding:"jsonParsed"});
+    return response.value.reduce((sum, row) => sum + BigInt(row.account.data.parsed.info.tokenAmount.amount), 0n);
+  }
+  async function refreshBalance() {
+    if (!wallet) return;
+    const lamports = await connection.getBalance(wallet, "confirmed");
+    $("balance").textContent = (lamports / 1e9).toFixed(6) + " SOL";
+    return lamports;
+  }
+  async function json(url, options) {
+    const response = await fetch(url, options);
+    if (!response.ok) throw new Error("Provider HTTP " + response.status);
+    const body = await response.json();
+    if (!body || typeof body !== "object") throw new Error("Provider returned malformed JSON");
+    return body;
+  }
+  function inspectTransaction(tx) {
+    const message = tx.message;
+    const keys = message.staticAccountKeys;
+    if (!keys.length || !keys[0].equals(wallet)) throw new Error("Unexpected transaction fee payer.");
+    if (message.header.numRequiredSignatures !== 1) throw new Error("Unexpected additional transaction signer.");
+    const programIds = message.compiledInstructions.map(ix => keys[ix.programIdIndex].toBase58());
+    for (const id of programIds) if (!ALLOWED.has(id)) throw new Error("Blocked unapproved program: " + id);
+    return programIds;
+  }
+  async function prepareQuote() {
+    if (!wallet) throw new Error("Connect Phantom first.");
+    prepared = null; $("review").classList.add("hidden"); setBusy(true);
+    const amount = Number($("amount").value);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 0.005) throw new Error("Enter an amount greater than zero and no more than 0.005 SOL.");
+    const lamports = Math.floor(amount * 1e9);
+    if (lamports <= 0 || lamports > MAX_LAMPORTS) throw new Error("Input amount exceeds the hard lamport cap.");
+    const balance = await refreshBalance();
+    const tokenBalanceBefore = await tokenBalanceRaw();
+    if (balance < lamports + RESERVE_LAMPORTS) throw new Error("Insufficient Devnet SOL after preserving the 0.05 SOL reserve.");
+    const quote = await json(TRADE + "/compute/swap-base-in?" + new URLSearchParams({
+      inputMint:SOL,outputMint:USDC,amount:String(lamports),slippageBps:"100",txVersion:"V0"
+    }));
+    const q = quote.data;
+    if (quote.success !== true || !q || q.inputMint !== SOL || q.outputMint !== USDC) throw new Error("Raydium did not return a valid Devnet SOL/USDC quote.");
+    if (!Array.isArray(q.routePlan) || !q.routePlan.length) throw new Error("Quote has no route.");
+    const impact = Number(q.priceImpactPct);
+    if (!Number.isFinite(impact) || impact < 0 || impact > MAX_IMPACT) throw new Error("Price impact is missing, invalid or above the 2% safety ceiling. No transaction built.");
+    const built = await json(TRADE + "/transaction/swap-base-in", {
+      method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({computeUnitPriceMicroLamports:"50000",swapResponse:quote,txVersion:"V0",wallet:wallet.toBase58(),wrapSol:true,unwrapSol:false})
+    });
+    if (built.success !== true || !Array.isArray(built.data) || !built.data.length || built.data.length > 3) throw new Error("Raydium transaction build failed.");
+    const txs = [], programSet = new Set(); let totalFee = 0;
+    for (const item of built.data) {
+      if (!item || typeof item.transaction !== "string") throw new Error("Malformed unsigned transaction bundle.");
+      const bytes = Uint8Array.from(atob(item.transaction), c => c.charCodeAt(0));
+      const tx = solanaWeb3.VersionedTransaction.deserialize(bytes);
+      inspectTransaction(tx);
+      const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
+      if (simulation.value.err) throw new Error("Devnet simulation rejected transaction: " + JSON.stringify(simulation.value.err));
+      const fee = await connection.getFeeForMessage(tx.message, "confirmed");
+      if (fee.value !== null) totalFee += fee.value;
+      tx.message.compiledInstructions.forEach(ix => programSet.add(tx.message.staticAccountKeys[ix.programIdIndex].toBase58()));
+      txs.push(tx);
+    }
+    prepared = {txs, quote:q, impact, lamports, totalFee, programs:[...programSet], tokenBalanceBefore:tokenBalanceBefore.toString()};
+    $("inputValue").textContent = fmtRaw(lamports,9) + " SOL";
+    $("outputValue").textContent = fmtRaw(q.outputAmount,6) + " USDC";
+    $("minimumValue").textContent = fmtRaw(q.otherAmountThreshold,6) + " USDC";
+    $("impactValue").textContent = impact.toFixed(3) + "%";
+    $("poolsValue").textContent = q.routePlan.length + " route hop(s)";
+    $("feeValue").textContent = totalFee ? (totalFee / 1e9).toFixed(6) + " SOL (network fee estimate)" : "Unavailable";
+    $("review").classList.remove("hidden");
+    $("execute").disabled = false;
+    status("Quote built and simulated on Devnet. Review all details, then explicitly approve in Phantom. Nothing has been signed or sent yet.","good");
+  }
+  function invalidatePrepared(reason) {
+    prepared = null;
+    $("review").classList.add("hidden");
+    $("execute").disabled = true;
+    if (reason) status(reason, "warning");
+  }
+  async function execute() {
+    if (!prepared || !provider || !wallet) throw new Error("No reviewed transaction is ready.");
+    if (!provider.publicKey || !provider.publicKey.equals(wallet)) {
+      invalidatePrepared("Phantom account changed. Reconnect and request a fresh quote.");
+      throw new Error("Connected Phantom account no longer matches the reviewed fee payer.");
+    }
+    const current = await connection.getGenesisHash();
+    if (current !== GENESIS) throw new Error("Devnet identity changed. Signing blocked.");
+    const freshBalance = await refreshBalance();
+    if (freshBalance < prepared.lamports + RESERVE_LAMPORTS) throw new Error("Wallet balance changed; quote invalidated.");
+    const confirmed = [];
+    for (const tx of prepared.txs) {
+      inspectTransaction(tx);
+      const simulation = await connection.simulateTransaction(tx, {sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"});
+      if (simulation.value.err) throw new Error("Pre-sign simulation failed; Phantom approval blocked: " + JSON.stringify(simulation.value.err));
+      const result = await provider.signAndSendTransaction(tx, {preflightCommitment:"confirmed",maxRetries:3});
+      const signature = typeof result === "string" ? result : result.signature;
+      if (!signature) throw new Error("Phantom did not return a transaction signature.");
+      const confirmation = await connection.confirmTransaction(signature, "confirmed");
+      if (confirmation.value.err) throw new Error("Devnet transaction failed: " + JSON.stringify(confirmation.value.err));
+      confirmed.push(signature);
+    }
+    const tokenBalanceAfter = await tokenBalanceRaw();
+    const tokenDelta = tokenBalanceAfter - BigInt(prepared.tokenBalanceBefore);
+    if (tokenDelta <= 0n) throw new Error("Transactions confirmed, but no positive Devnet USDC balance increase was verified. Signatures: " + confirmed.join(", "));
+    prepared = null; $("execute").disabled = true;
+    await refreshBalance();
+    status("Confirmed Devnet transaction(s):\n" + confirmed.join("\n") + "\nVerified USDC increase: " + fmtRaw(tokenDelta,6) + " USDC. This did not touch Mainnet.","good");
+  }
+  if (window.phantom && window.phantom.solana) {
+    window.phantom.solana.on("accountChanged", publicKey => {
+      wallet = publicKey || null;
+      invalidatePrepared("Phantom account changed. Request a fresh quote before continuing.");
+      $("wallet").textContent = wallet ? wallet.toBase58() : "Not connected";
+      $("quote").disabled = !wallet || busy;
+      if (wallet) refreshBalance().catch(() => {});
+    });
+    window.phantom.solana.on("disconnect", () => {
+      wallet = null;
+      invalidatePrepared("Phantom disconnected. Reconnect before continuing.");
+      $("wallet").textContent = "Not connected";
+      $("balance").textContent = "—";
+      $("quote").disabled = true;
+    });
+  }
+  $("amount").addEventListener("input", () => {
+    if (prepared) invalidatePrepared("Amount changed. Request a new quote; the previous review was invalidated.");
+  });
+  $("connect").addEventListener("click", async () => {
+    setBusy(true); try { await connect(); } catch(e) { status(e.message || String(e),"warning"); } finally { setBusy(false); }
+  });
+  $("quote").addEventListener("click", async () => {
+    setBusy(true); try { await prepareQuote(); } catch(e) { prepared=null; $("execute").disabled=true; status(e.message || String(e),"warning"); } finally { setBusy(false); }
+  });
+  $("execute").addEventListener("click", async () => {
+    if (!prepared || busy) return;
+    const ok = window.confirm("You are about to ask Phantom to sign and send a Devnet-only SOL → USDC swap. Review the amount and network in Phantom. Continue?");
+    if (!ok) return;
+    setBusy(true); try { await execute(); } catch(e) { status(e.message || String(e),"warning"); } finally { setBusy(false); }
+  });
+  if (window.solana && window.solana.isPhantom) $("connect").textContent = "Connect Phantom";
+})();
+</script>
+</body>
+</html>
