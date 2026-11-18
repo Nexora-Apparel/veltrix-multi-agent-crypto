@@ -81,6 +81,7 @@ test("agent roster exposes runtime status and heartbeat age", async () => {
   assert.ok(renderAgents);
   assert.match(renderAgents[0], /runtime\?\.status/);
   assert.match(renderAgents[0], /age\(runtime\.last_heartbeat\)/);
+  assert.match(js, /Last evaluation/);
 });
 
 test("provider probes and chain observations expose source-data age separately from page refresh", async () => {
