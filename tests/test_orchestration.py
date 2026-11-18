@@ -183,12 +183,20 @@ def test_context_enforces_item_budget_deadline_and_fence():
         fresh.checkpoint(items=0)
 
 
-def test_runtime_must_fit_inside_lease(tmp_path):
+def test_runtime_uses_heartbeat_instead_of_static_lease_margin(tmp_path):
     store = store_at(tmp_path / "lease-margin.sqlite3")
     with pytest.raises(ValueError, match="lease_ttl_ms"):
         run_once(store, idempotency_key="x", job_type="scan", payload={},
                  handler=lambda context, payload: None,
-                 max_runtime_seconds=60, lease_ttl_ms=60_000)
+                 max_runtime_seconds=60, lease_ttl_ms=14_999)
+
+    result = run_once(
+        store, idempotency_key="x-longer-than-lease", job_type="scan", payload={},
+        handler=lambda context, payload: None,
+        max_runtime_seconds=60, lease_ttl_ms=15_000,
+        lease_heartbeat_interval_seconds=0.01,
+    )
+    assert result["status"] == "SUCCEEDED"
 
 
 def test_payload_digest_requires_finite_json_data(tmp_path):
