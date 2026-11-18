@@ -8,6 +8,8 @@ explicitly disabled until the paper broker supports transaction-scoped fencing.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import logging
+import time
 from typing import Any
 
 from ..orchestration import OrchestrationStore, RunContext, run_once as execute_job
@@ -17,6 +19,8 @@ from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .market_refresh import MarketRefreshBatchResult, MarketRefreshWorker
 from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
 from .paper_trading import PaperTradingBatchResult, PaperTradingWorker
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -50,9 +54,10 @@ class OneShotSolanaPipeline:
         *,
         paper_worker: PaperTradingWorker | None = None,
         paper_enabled: bool = False,
-        max_runtime_seconds: float = 240.0,
+        max_runtime_seconds: float = 480.0,
         lease_ttl_ms: int = 300_000,
         max_items: int = 150,
+        stage_limits: dict[str, int] | None = None,
     ) -> None:
         if paper_enabled and paper_worker is None:
             raise ValueError("paper_enabled requires a transaction-fenced PaperTradingWorker")
@@ -79,6 +84,22 @@ class OneShotSolanaPipeline:
         self.max_runtime_seconds = max_runtime_seconds
         self.lease_ttl_ms = lease_ttl_ms
         self.max_items = max_items
+        defaults = {
+            "discovery": 25,
+            "enrichment": 10,
+            "market_refresh": 10,
+            "risk": 5,
+            "consensus": 10,
+            "paper": 5,
+        }
+        if stage_limits is not None:
+            if not isinstance(stage_limits, dict) or set(stage_limits) - set(defaults):
+                raise ValueError("stage_limits contains unsupported stage names")
+            for name, value in stage_limits.items():
+                if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 300:
+                    raise ValueError(f"stage limit for {name} must be between 1 and 300")
+            defaults.update(stage_limits)
+        self.stage_limits = defaults
 
     @staticmethod
     def _run_stage(
@@ -86,21 +107,30 @@ class OneShotSolanaPipeline:
         operation: Any,
         progress: list[dict[str, Any]],
     ) -> Any:
+        started_ns = time.monotonic_ns()
         try:
             result = operation()
         except Exception as exc:
             # Exception messages may contain provider payloads or token addresses.
+            elapsed_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
             progress.append({
                 "stage": name,
                 "status": "FAILED",
                 "error_type": type(exc).__name__,
+                "elapsed_ms": elapsed_ms,
             })
+            LOGGER.error("solana_pipeline_stage_failed stage=%s error_type=%s elapsed_ms=%d",
+                         name, type(exc).__name__, elapsed_ms)
             raise
+        elapsed_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
         progress.append({
             "stage": name,
             "status": "COMPLETED",
+            "elapsed_ms": elapsed_ms,
             "result": asdict(result),
         })
+        LOGGER.info("solana_pipeline_stage_completed stage=%s elapsed_ms=%d",
+                    name, elapsed_ms)
         return result
 
     def _execute_stages(
@@ -113,31 +143,31 @@ class OneShotSolanaPipeline:
         context.checkpoint(items=0)
         discovery = self._run_stage(
             "discovery",
-            lambda: self.discovery.poll_once(context=context, limit=25),
+            lambda: self.discovery.poll_once(context=context, limit=self.stage_limits["discovery"]),
             progress,
         )
         context.checkpoint(items=0)
         enrichment = self._run_stage(
             "enrichment",
-            lambda: self.enrichment.run_once(limit=25, context=context),
+            lambda: self.enrichment.run_once(limit=self.stage_limits["enrichment"], context=context),
             progress,
         )
         context.checkpoint(items=0)
         market_refresh = self._run_stage(
             "market_refresh",
-            lambda: self.market_refresh.run_once(limit=25, context=context),
+            lambda: self.market_refresh.run_once(limit=self.stage_limits["market_refresh"], context=context),
             progress,
         )
         context.checkpoint(items=0)
         risk = self._run_stage(
             "risk",
-            lambda: self.risk.run_once(limit=5, context=context),
+            lambda: self.risk.run_once(limit=self.stage_limits["risk"], context=context),
             progress,
         )
         context.checkpoint(items=0)
         consensus = self._run_stage(
             "consensus",
-            lambda: self.consensus.run_once(limit=10, context=context),
+            lambda: self.consensus.run_once(limit=self.stage_limits["consensus"], context=context),
             progress,
         )
         context.checkpoint(items=0)
@@ -145,7 +175,7 @@ class OneShotSolanaPipeline:
         if self.paper_enabled and self.paper_worker is not None:
             paper = self._run_stage(
                 "paper",
-                lambda: self.paper_worker.run_once(limit=25, context=context),
+                lambda: self.paper_worker.run_once(limit=self.stage_limits["paper"], context=context),
                 progress,
             )
         context.checkpoint(items=0)
@@ -179,13 +209,9 @@ class OneShotSolanaPipeline:
                 ],
                 "paper_enabled": self.paper_enabled,
                 "limits": {
-                    "discovery": 25,
-                    "enrichment": 25,
-                    "market_refresh": 25,
-                    "risk": 5,
-                    "consensus": 10,
-                    **({"paper": 25} if self.paper_enabled else {}),
-                },
+                    name: self.stage_limits[name]
+                    for name in ("discovery", "enrichment", "market_refresh", "risk", "consensus")
+                } | ({"paper": self.stage_limits["paper"]} if self.paper_enabled else {}),
             },
             handler=handler,
             max_runtime_seconds=self.max_runtime_seconds,

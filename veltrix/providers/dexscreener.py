@@ -102,16 +102,19 @@ class DexScreenerProvider:
             ):
                 raise ProviderError("Invalid local provider response timestamp")
             for pair in payload:
-                for requested_address in batch:
-                    if isinstance(pair, dict):
-                        base = pair.get("baseToken")
-                        quote = pair.get("quoteToken")
-                        if (
-                            isinstance(base, dict) and base.get("address") == requested_address
-                        ) or (
-                            isinstance(quote, dict) and quote.get("address") == requested_address
-                        ):
-                            diagnostics["matching_token_pairs"] += 1
+                if not isinstance(pair, dict):
+                    continue
+                base = pair.get("baseToken")
+                quote = pair.get("quoteToken")
+                base_address = base.get("address") if isinstance(base, dict) else None
+                quote_address = quote.get("address") if isinstance(quote, dict) else None
+                matching_addresses = [
+                    address for address in batch
+                    if address == base_address or address == quote_address
+                ]
+                # Non-matching pair/request combinations are not normalization failures.
+                diagnostics["matching_token_pairs"] += len(matching_addresses)
+                for requested_address in matching_addresses:
                     try:
                         event = self._normalize(
                             pair, chain_id, observed_at_ms, requested_address

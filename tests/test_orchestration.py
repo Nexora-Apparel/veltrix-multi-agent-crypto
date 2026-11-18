@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -182,12 +183,20 @@ def test_context_enforces_item_budget_deadline_and_fence():
         fresh.checkpoint(items=0)
 
 
-def test_runtime_must_fit_inside_lease(tmp_path):
+def test_runtime_uses_heartbeat_instead_of_static_lease_margin(tmp_path):
     store = store_at(tmp_path / "lease-margin.sqlite3")
     with pytest.raises(ValueError, match="lease_ttl_ms"):
         run_once(store, idempotency_key="x", job_type="scan", payload={},
                  handler=lambda context, payload: None,
-                 max_runtime_seconds=60, lease_ttl_ms=60_000)
+                 max_runtime_seconds=60, lease_ttl_ms=14_999)
+
+    result = run_once(
+        store, idempotency_key="x-longer-than-lease", job_type="scan", payload={},
+        handler=lambda context, payload: None,
+        max_runtime_seconds=60, lease_ttl_ms=15_000,
+        lease_heartbeat_interval_seconds=0.01,
+    )
+    assert result["status"] == "SUCCEEDED"
 
 
 def test_payload_digest_requires_finite_json_data(tmp_path):
@@ -321,3 +330,78 @@ def test_transaction_scoped_fence_rejects_replaced_lease(tmp_path):
     finally:
         db.close()
     assert new_token == old_token + 1
+
+
+
+def test_run_once_renews_global_lease_during_long_handler(tmp_path):
+    store = store_at(tmp_path / "lease-heartbeat.sqlite3")
+    original_renew = store.renew_lease
+    renewals = []
+
+    def tracked_renew(*args, **kwargs):
+        renewals.append((args, kwargs))
+        return original_renew(*args, **kwargs)
+
+    store.renew_lease = tracked_renew
+
+    def handler(context, payload):
+        time.sleep(0.06)
+        context.assert_fence()
+
+    result = run_once(
+        store,
+        idempotency_key="lease-heartbeat",
+        job_type="scan",
+        payload={},
+        handler=handler,
+        max_runtime_seconds=1,
+        lease_ttl_ms=16_000,
+        lease_heartbeat_interval_seconds=0.01,
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    assert renewals
+    assert store.release_lease("not-owner", 1) is False
+
+
+def test_run_once_fails_closed_when_lease_heartbeat_reports_lost_ownership(tmp_path):
+    store = store_at(tmp_path / "lease-heartbeat-lost.sqlite3")
+    original_renew = store.renew_lease
+
+    def lost_renewal(*args, **kwargs):
+        return False
+
+    store.renew_lease = lost_renewal
+
+    def handler(context, payload):
+        time.sleep(0.04)
+        context.assert_fence()
+
+    with pytest.raises(LeaseBusy, match="heartbeat failed"):
+        run_once(
+            store,
+            idempotency_key="lease-heartbeat-lost",
+            job_type="scan",
+            payload={},
+            handler=handler,
+            max_runtime_seconds=1,
+            lease_ttl_ms=16_000,
+            lease_heartbeat_interval_seconds=0.01,
+        )
+
+    store.renew_lease = original_renew
+
+
+def test_run_once_validates_heartbeat_interval(tmp_path):
+    store = store_at(tmp_path / "lease-heartbeat-validation.sqlite3")
+    with pytest.raises(ValueError, match="heartbeat interval"):
+        run_once(
+            store,
+            idempotency_key="lease-heartbeat-invalid",
+            job_type="scan",
+            payload={},
+            handler=lambda context, payload: None,
+            max_runtime_seconds=1,
+            lease_ttl_ms=16_000,
+            lease_heartbeat_interval_seconds=16,
+        )

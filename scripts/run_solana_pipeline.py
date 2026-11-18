@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
+import logging
 import os
 import re
 import uuid
@@ -36,6 +37,7 @@ def build_idempotency_key(environ: dict[str, str] | None = None) -> str:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     validate_runtime_controls()
     url = os.environ.get("TURSO_DATABASE_URL", "").strip()
     token = os.environ.get("TURSO_AUTH_TOKEN", "").strip()

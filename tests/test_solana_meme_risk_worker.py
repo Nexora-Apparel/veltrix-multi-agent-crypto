@@ -260,3 +260,33 @@ def test_risk_worker_rejects_replaced_claim_after_collection(tmp_path):
         worker.run_once(context=context)
     assert risk_store.count(MINT) == 0
     assert worker.status()["processing"] == 1
+
+
+def test_risk_row_claim_is_renewed_during_slow_collection(tmp_path):
+    launches, _, risk_store, collector, worker, clock = setup_worker(tmp_path, lease_ms=100)
+    original_collect = collector.collect
+
+    def slow_collect(*args, **kwargs):
+        import time
+        for _ in range(3):
+            time.sleep(0.06)
+            clock.value += 40
+        return original_collect(*args, **kwargs)
+
+    collector.collect = slow_collect
+    orchestration = OrchestrationStore(str(launches.database_path))
+    orchestration.initialize()
+
+    def handler(context, payload):
+        result = worker.run_once(context=context)
+        assert result.recorded == 1
+
+    result = run_once(
+        orchestration, idempotency_key="risk-row-heartbeat",
+        job_type="risk_evidence", payload={}, handler=handler,
+        max_runtime_seconds=2, lease_ttl_ms=15_000,
+        lease_heartbeat_interval_seconds=0.05,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert risk_store.count(MINT) == 1
+    assert worker.status()["processing"] == 0
