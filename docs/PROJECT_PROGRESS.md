@@ -735,3 +735,43 @@ Hard safety vetoes and deterministic execution policies take precedence over age
 - Human-controlled activation of signing/trading only after the above gates; no silent enabling.
 
 This mission clarification supersedes any interpretation that the project is complete once the current bounded pipeline or dashboard is working. Continue from the current PR/CI checkpoint; do not restart completed infrastructure work.
+
+## 29. Android dashboard visual audit — 2026-11-18
+
+The user supplied a 33.15-second, 1080x2340 Android screen recording of the actual Veltrix multi-agent dashboard. Frames were inspected at approximately two-second intervals; OCR was used to transcribe visible labels and values. This is a UI snapshot, not a live backend audit. Snapshot device time was approximately 10:49–10:50 on 18 Nov 2026.
+
+### Observed dashboard state
+
+- **Home:** paper balance US$500.00; displayed P&L US$0.00 / 0%; equity chart has no settled paper equity points; Trades 0; Win rate 0%; Best close is blank; Recent closes says no settled paper closes; Network intelligence reports 24 observations, split Solana 23, BSC 1 (Base is not shown in the home card).
+- **Freshness inconsistency:** Home cards show “Updated 17 Nov, 14:39” while the recording is from 18 Nov around 10:49. This is roughly 20 hours old and must not be presented as if it were a current dashboard refresh. The system-status sheet separately shows “Updated 10:49:46”, which appears to be a UI/status refresh timestamp, not proof that underlying provider data is fresh.
+- **System status:** database connected — read-only; live execution disabled; Agents STALE; Providers STALE. It shows Solana 23, Base 0, BSC 1.
+- **Agents:** SCOUT, WHALE, SNIPER and SHIELD all show STALE, with last heartbeat 18 Nov, 10:24 and ABSTAIN. The recording time is approximately 10:50, so the visible heartbeat is about 26 minutes old. The screen also says no agent identities were recorded in consensus history.
+- **Provider probes:** DexScreener BSC last probe 17 Nov, 14:39 (13 ms); DexScreener Solana last probe 18 Nov, 10:20 (59 ms). Both are displayed as STALE.
+- **Consensus:** 16 records are shown. Several entries say “Agent support not recorded”; other entries expose a generic missing-security-evidence / provider-evidence-continuity reason. This makes the current activity list difficult to interpret and does not show a clear per-agent decision/evidence breakdown.
+- **Trades:** no open paper positions and no paper fills recorded.
+- **Wallet:** virtual/paper account only; US$500 equity and available cash, zero realised/unrealised P&L, zero exposure and zero open positions. Explicit text says wallet connection, signing and transaction submission are unavailable.
+- **Search:** helper text says it searches loaded ledger and market records. Do not imply that this UI search alone is a complete market-wide token discovery interface.
+
+### Required dashboard changes
+
+1. **Separate dashboard refresh time from data freshness.** Show (a) page/API response time, (b) latest successful observation time per provider/network, and (c) latest successful agent heartbeat. Never let a fresh page refresh make stale source data look healthy.
+2. **Use explicit freshness thresholds and age labels.** Display “last seen X minutes ago” and the configured threshold; map to HEALTHY / DEGRADED / STALE / UNAVAILABLE. A provider probe being successful once is not equivalent to current provider health.
+3. **Explain agent status.** Each agent card should expose last heartbeat, last run, current state, decision, reason code, evidence count, and the specific upstream dependency causing a block. Distinguish idle, abstained, blocked, failed and stale; ABSTAIN is a decision, not a heartbeat/health state.
+4. **Resolve consensus identity mismatch.** The UI currently says no agent identities are recorded while four runtime agents are displayed, and many decisions say agent support is not recorded. Trace persisted consensus-to-agent identity/foreign-key mapping and API serialization. Do not invent identities or infer support from the displayed runtime roster.
+5. **Make consensus records auditable.** For each token decision show the decision status, timestamp, contributing agent IDs, evidence references/counts, hard-veto reasons, missing requirements and whether the record is terminal or pending. Explain why each ABSTAIN occurred.
+6. **Correct network metric semantics.** Label 24 as observations, not 24 tokens or 24 opportunities. Show per-chain monitored candidates, successfully enriched candidates, stale/unavailable counts and last successful ingestion time. Include Base consistently if it is an enabled supported chain.
+7. **Improve empty states.** Equity chart should say “No settled paper trades yet” with its selected range. Best close should show “— No settled closes”. Separate zero activity from missing telemetry/API failure.
+8. **Improve paper ledger visibility.** Add trade lifecycle, entry/exit prices, token, quantity, fees, slippage, realised/unrealised P&L, rejection/abstention history and exit reason. Keep paper-only labels prominent.
+9. **Preserve the current safety boundary.** Keep scheduler, paper execution (unless separately authorised and validated), live execution, wallet signing and submission disabled. The dashboard is a monitoring surface and must not create an execution path.
+
+### Implementation priority and acceptance
+
+- **P0 — data truthfulness:** resolve timestamps/freshness, agent identity mapping, consensus explanation, and health-state semantics. The current UI must not report an overall green/healthy state when underlying telemetry is stale.
+- **P1 — operator usability:** network coverage breakdown, useful empty states, decision evidence drill-down and paper-ledger audit trail.
+- **P2 — discovery workflow:** make it clear that current search is over loaded records; add explicit discovery coverage and candidate pipeline views only when backed by real persisted API data.
+
+Acceptance tests must cover stale and missing provider observations, delayed heartbeats, mismatched/missing agent identities, ABSTAIN versus FAILED versus BLOCKED states, no-data chart states, and per-network count reconciliation. Dashboard CI and a successful page load alone are insufficient; compare displayed values to the same backend response/DB snapshot and verify the actual deployed build.
+
+### Current action
+
+The dashboard source files and data API contracts have not yet been traced from this visual recording, so no dashboard code change is claimed in this audit. First identify the exact dashboard build source and endpoint payloads, then implement P0 with regression tests on a dedicated branch. Keep PRs #223 and #224 separate and unmerged until their existing pipeline/queue acceptance work is complete.
