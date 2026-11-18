@@ -729,3 +729,9 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - Cloudflare dashboard CI exposed stale string assertions in the UI regression tests. Corrected the provider probe and market-observation age assertions to match the actual rendered JavaScript expressions. Exact-head Cloudflare CI rerun is pending on `be46f70a94cd97b851adf93c37dbf9fb9e212269` (run `44283253625`); exact-head Python CI is also pending on the same commit (run `44283253612`).
 - Earlier PR #225 Cloudflare CI failed because its standalone dashboard tests retained those stale assertions. PR #226 contains the corrected tests and all dashboard/runtime changes together; keep #225 draft until #226 passes, then consolidate PR history rather than merging stale tests separately.
 - Current latest code includes the runbook and provider probe centralization; no scheduled workflow or service deployment has been activated. No claim of production runtime recovery is made.
+
+
+### Worker deployment packaging — 2026-11-18
+- Added `Dockerfile.worker`, a non-root Python 3.11 image with both standard and pinned Turso dependencies. It defaults to the token-intelligence runtime and supports per-service command overrides for discovery and consensus.
+- Extended `docs/RUNTIME_HEALTH_RUNBOOK.md` with image build and one-replica-per-role service instructions.
+- This clears the missing portable worker-image artifact. It does not deploy the image: platform selection, encrypted production secrets and service creation remain an external deployment action. No cron/schedule was enabled.
