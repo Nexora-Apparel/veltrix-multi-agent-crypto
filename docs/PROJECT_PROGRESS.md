@@ -735,3 +735,14 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - Added `Dockerfile.worker`, a non-root Python 3.11 image with both standard and pinned Turso dependencies. It defaults to the token-intelligence runtime and supports per-service command overrides for discovery and consensus.
 - Extended `docs/RUNTIME_HEALTH_RUNBOOK.md` with image build and one-replica-per-role service instructions.
 - This clears the missing portable worker-image artifact. It does not deploy the image: platform selection, encrypted production secrets and service creation remain an external deployment action. No cron/schedule was enabled.
+
+
+### Consolidated dashboard/runtime PR validation — 2026-11-18
+
+- PR #225 was closed as superseded by PR #226; its dashboard changes and corrected assertions are included in the consolidated PR.
+- PR #226 is now retargeted directly to `main`, open/draft/unmerged. Exact head: `60464279a00d0f9d92e795337ea788f7648f2d92`.
+- Exact-head Python CI run `44283816790`: SUCCESS.
+- Exact-head Cloudflare Pages dashboard CI run `44283816852`: SUCCESS, including dashboard API security tests, verifier syntax check, Wrangler command validation, Pages build and static/API boundary smoke test.
+- The latest dashboard copy now labels the agent timestamp as “Last evaluation” and explains that agent freshness reflects the last completed evaluation; worker liveness is a separate panel.
+- The portable `Dockerfile.worker` and runtime deployment runbook are included. A persistent worker service is not deployed; encrypted production secrets and a service host are not available through this repository change. This is the remaining operational deployment blocker.
+- No scheduler, paper trading, live trading, wallet signing, submission or broadcast was enabled. No production recovery claim is made.
