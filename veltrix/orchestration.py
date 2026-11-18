@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -435,8 +436,16 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
              max_runtime_seconds: float = 45.0, max_items: int = 100,
              max_attempts: int = 3, retry_delay_ms: int = 30_000,
              lease_ttl_ms: int = 120_000,
+             lease_heartbeat_interval_seconds: float | None = None,
              monotonic: Callable[[], float] = time.monotonic) -> dict:
-    """Execute at most one attempt; retries are scheduled for later invocations."""
+    """Execute one attempt while actively renewing its fenced global lease.
+
+    The lease heartbeat uses its own database connections and never changes the
+    fencing token. If renewal fails or ownership is lost, all subsequent
+    context fence checks fail closed. A blocked handler cannot be interrupted,
+    but its lease remains owned until it returns or the process is terminated;
+    the cooperative deadline is still enforced at the next checkpoint.
+    """
     if isinstance(max_runtime_seconds, bool) or not isinstance(max_runtime_seconds, (int, float)) or not math.isfinite(max_runtime_seconds) or not 1 <= max_runtime_seconds <= 240:
         raise ValueError("max_runtime_seconds must be between 1 and 240")
     if isinstance(max_items, bool) or not isinstance(max_items, int) or not 1 <= max_items <= 10_000:
@@ -444,8 +453,57 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
     owner = str(uuid.uuid4())
     if isinstance(lease_ttl_ms, bool) or not isinstance(lease_ttl_ms, int) or lease_ttl_ms < int(max_runtime_seconds * 1000) + 15_000:
         raise ValueError("lease_ttl_ms must exceed the job deadline by at least 15 seconds")
+    if lease_heartbeat_interval_seconds is None:
+        heartbeat_interval = min(30.0, max(0.25, lease_ttl_ms / 3000.0))
+    else:
+        if (
+            isinstance(lease_heartbeat_interval_seconds, bool)
+            or not isinstance(lease_heartbeat_interval_seconds, (int, float))
+            or not math.isfinite(lease_heartbeat_interval_seconds)
+            or lease_heartbeat_interval_seconds <= 0
+            or lease_heartbeat_interval_seconds >= lease_ttl_ms / 1000.0
+        ):
+            raise ValueError("lease_heartbeat_interval_seconds must be positive and shorter than the lease TTL")
+        heartbeat_interval = float(lease_heartbeat_interval_seconds)
+
     fencing = store.acquire_lease(owner, ttl_ms=lease_ttl_ms)
+    heartbeat_stop = threading.Event()
+    lease_lost = threading.Event()
+
+    def renew_while_running() -> None:
+        while not heartbeat_stop.wait(heartbeat_interval):
+            try:
+                renewed = store.renew_lease(
+                    owner, fencing, ttl_ms=lease_ttl_ms
+                )
+            except Exception:
+                # Unknown lease state is treated as lost. Never let a worker
+                # continue mutating after a renewal transport/database error.
+                lease_lost.set()
+                return
+            if not renewed:
+                lease_lost.set()
+                return
+
+    heartbeat = threading.Thread(
+        target=renew_while_running,
+        name="veltrix-orchestration-lease-heartbeat",
+        daemon=True,
+    )
+    heartbeat.start()
+
+    def assert_active_lease() -> None:
+        if lease_lost.is_set():
+            raise LeaseBusy("worker lease heartbeat failed or ownership was lost")
+        store.assert_fence(owner, fencing)
+
+    def assert_active_lease_in_transaction(db: Any) -> None:
+        if lease_lost.is_set():
+            raise LeaseBusy("worker lease heartbeat failed or ownership was lost")
+        store.assert_fence_in_transaction(db, owner, fencing)
+
     try:
+        assert_active_lease()
         store.recover_interrupted(owner_id=owner, fencing_token=fencing)
         job = store.enqueue(idempotency_key=idempotency_key, job_type=job_type,
                             payload=payload, max_attempts=max_attempts)
@@ -457,12 +515,10 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
         context = RunContext(
             job["run_id"], idempotency_key, attempt["attempt"], deadline,
             max_items, monotonic, fencing,
-            lambda: store.assert_fence(owner, fencing),
+            assert_active_lease,
             owner_id=owner,
             lease_name="global-worker",
-            _assert_fence_in_transaction=lambda db: store.assert_fence_in_transaction(
-                db, owner, fencing
-            ),
+            _assert_fence_in_transaction=assert_active_lease_in_transaction,
         )
         try:
             handler(context, payload)
@@ -489,4 +545,8 @@ def run_once(store: OrchestrationStore, *, idempotency_key: str,
         return {"status": status, "run_id": job["run_id"],
                 "attempt": attempt["attempt"], "executed": True}
     finally:
+        heartbeat_stop.set()
+        # Wait for an in-flight renewal to finish before releasing ownership;
+        # this prevents a late heartbeat from extending a released lease.
+        heartbeat.join()
         store.release_lease(owner, fencing)
