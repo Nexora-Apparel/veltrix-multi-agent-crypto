@@ -650,3 +650,128 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - No production queue rows were reset, deleted or rewritten. No database schema, credentials, retry/backoff rules, attempt limits, leases, fencing, or execution controls were changed. Manual-only workflow remains in force; paper trading, live trading, Phantom signing, transaction submission and broadcast remain disabled.
 - **Production acceptance remains open.** The next bounded manual run on this merged main commit must be inspected for provider response counts, rejection categories, enrichment snapshots persisted to Turso, and downstream market-refresh/risk/consensus stage progress. Automated CI is not production acceptance.
 - The connected GitHub actions interface exposes read and rerun operations but not workflow dispatch. The repository owner must manually start the existing workflow at [Manual Solana intelligence pipeline (scheduler locked)](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/workflows/solana-pipeline-schedule.yml), selecting `main`, then provide the new run URL for log inspection.
+
+
+## 27. Bounded Solana pipeline validation and enrichment diagnostics — 2026-11-18
+
+### PR #223 — orchestration and market-refresh hardening
+- PR [#223](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/223), branch `fix/solana-market-refresh-response-timestamps`, remains open, draft and unmerged at head `e3d9f58161a8f5e96cf6980bd7925d067f1ccee1`.
+- Exact-head Python CI run [44272685768](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44272685768) passed. Exact-head Cloudflare Pages dashboard CI run [44272685890](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44272685890) passed.
+- Bounded live read-only pipeline run [44274416208](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44274416208), job [134698786695](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44274416208/job/134698786695), checked out the exact PR #223 head and completed with `SUCCEEDED`.
+- Reported stage outcomes: discovery received 53 candidates, stored 25, rejected 0; enrichment processed 10 and enriched 10 with 0 failures; market refresh processed/refreshed 10 with 0 failures; risk processed/recorded 5 with 0 failures; consensus processed 10, recorded 8, unchanged 2, failed 0.
+- Market integrity counters for the 10 requested mints: 10 usable pairs; 0 future-dated, stale, invalid-timestamp, missing-pair-address, provider-normalization or provider-error rejections.
+- No global lease, row-claim or fencing ownership errors appeared in the run. The run remained bounded and read-only. Scheduler, paper trading and live trading remained disabled.
+- The separate read-only enrichment diagnostic still found 8 dead jobs and 4 pending jobs; the sampled failure group was `MarketDataUnavailable` / no fresh usable Solana pair data. The successful bounded batch does not prove that every queued mint has usable market data. No queue rows were reset and no synthetic snapshots were written.
+- PR #223's description still needs its stale validation section reconciled with this successful exact-head live run and its remaining queue limitation before release review. Keep the PR draft until the residual enrichment queue has been investigated.
+
+### PR #224 — reason-specific unavailable-market diagnostics
+- PR [#224](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/224), branch `fix/solana-enrichment-unavailable-reasons`, is a two-commit stacked draft PR based on PR #223 head `e3d9f58161a8f5e96cf6980bd7925d067f1ccee1`; current head `8720ebfdca27feb306c2d3b9957faf90e41c7d7e`. It remains open, draft and unmerged.
+- Exact-head Python CI run [44276488238](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/44276488238) **failed**: compileall passed; pytest reported **1 failed, 949 passed, 10 skipped**. Live provider smoke checks were skipped.
+- The failing regression was `test_unavailable_market_data_reports_specific_rejection_reason[events1-10000-stale_observation:1]` in `tests/test_solana_meme_market_data.py`. The test expected an observation timestamp of 1 ms to be stale at 10,000 ms, but the configured default maximum response age is 120,000 ms; an age of 9,999 ms is valid under that policy. The failure was an incorrect test boundary, not evidence that stale observations bypassed the production freshness check.
+- Corrected the test to set an explicit `max_response_age_ms=1_000`, making the 9,999 ms observation unambiguously stale while leaving the production default and runtime freshness policy unchanged. Commit: `bd1dd3225ff5616089cec8b0791c9152a6a9fc90`.
+- The corrected PR head has not yet been verified by a new exact-head CI run. Do not mark PR #224 as CI-passing until GitHub reports the run result.
+- No evidence currently supports resetting the 8 dead enrichment jobs, changing retry policy, or weakening freshness thresholds. Preserve all queue state until the cause is established.
+
+### Current stage and next exit criteria
+- Project phase: **integration hardening and reliability validation**. The foundational discovery, intelligence, risk, consensus, paper-trading and read-only dashboard stages are already merged as recorded above; the current work is a reliability correction on the newer Solana bounded pipeline.
+- The bounded pipeline has passed one live read-only run on PR #223. Full queue health is not yet accepted because 8 dead and 4 pending enrichment jobs remain.
+- Required next steps: fix and re-run PR #224 CI; reconcile PR #223's validation text; inspect the exact redacted diagnostics and remaining enrichment failure path; run another bounded read-only validation after the fix; then review both PRs. Do not merge either PR solely on the basis of the earlier successful bounded run.
+- Dashboard code CI passed on PR #223. A public dashboard URL and live reachability were not independently verified in this checkpoint; do not treat a guessed Pages hostname as a confirmed production dashboard.
+- Safety remains locked: no scheduler activation, live trading, paper execution, Phantom signing, transaction submission or broadcast.
+
+
+### PR #224 stale-boundary test correction — 2026-11-18
+
+- The initial CI failure was traced to a test fixture using the production default `max_response_age_ms=120_000` while expecting an observation 9,999 ms old to be stale. That expectation contradicted the configured 120-second policy.
+- Updated the regression to set a test-local 1,000 ms threshold. Production defaults and strict future/stale rejection remain unchanged. This tests the intended stale branch without altering live policy.
+- New PR #224 head: `bd1dd3225ff5616089cec8b0791c9152a6a9fc90`. Exact-head CI result is still pending verification. PR #224 remains draft/unmerged.
+
+## 28. Product mission clarification — autonomous Solana memecoin intelligence and trading — 2026-11-18
+
+### Confirmed product objective
+The user clarified that the agents' purpose is to continuously monitor the large and changing Solana memecoin universe, detect promising tokens, identify fake/scam/rug-pull risks, automatically select suitable opportunities, and ultimately trade selected tokens automatically with the objective of generating profit.
+This is the product mission and should guide architecture and prioritisation. The existing pipeline stages are enabling infrastructure, not the complete product.
+
+### Required end-to-end capability domains
+1. **Market-wide discovery:** continuously ingest newly launched tokens and tokens already circulating; deduplicate mints and retain discovery provenance/time.
+2. **Token identity and evidence enrichment:** resolve token/pair identity, pool data, market observations, holders and ownership concentration, liquidity, volume, transaction activity, and available on-chain/program evidence. Record source, observation time and evidence quality.
+3. **Scam/rug/manipulation assessment:** detect known malicious authorities and permissions, mutable metadata where relevant, concentrated/insider ownership, suspicious funding/cluster patterns, wash trading/bot activity, liquidity withdrawal risk, honeypot or sellability restrictions, and abnormal market behaviour. A missing signal is unknown, not proof of safety.
+4. **Opportunity assessment and ranking:** rank only candidates that pass hard safety gates, using liquidity quality, organic activity, momentum, market depth, concentration, volatility, age and risk-adjusted upside. Preserve uncertainty and reasons; do not select solely by price increase or volume.
+5. **Portfolio/risk control:** enforce exposure limits, position sizing, slippage/price-impact caps, liquidity-aware exits, maximum loss, drawdown controls, trade frequency limits, cooldowns, and emergency stop.
+6. **Execution and monitoring:** eventually support transaction construction, independent transaction verification, wallet signing/submission, confirmation/reconciliation, stop/exit management, and immutable trade audit records. Execution must remain disabled until the full safety and validation gates pass.
+7. **Performance feedback:** measure realised P&L after fees, priority fees, slippage and failed transactions; track win rate, expectancy, profit factor, drawdown, tail losses, and performance by token age/strategy/regime. Avoid training on unverified or look-ahead-contaminated labels.
+
+### Agent architecture direction
+Treat agents as specialised, evidence-producing components with explicit input/output contracts rather than unconstrained autonomous decision-makers. Proposed roles to formalise:
+- Launch/discovery agent.
+- Market-data and liquidity agent.
+- On-chain contract/authority risk agent.
+- Holder distribution and wallet-cluster agent.
+- Trading-activity/manipulation agent.
+- Social/provenance intelligence agent (verifiable sources only; social hype is not safety evidence).
+- Rug/scam risk adjudicator combining independent evidence with veto authority.
+- Opportunity ranking/portfolio selection agent.
+- Execution guard and transaction verifier.
+- Position monitor/exit agent.
+- Performance and audit agent.
+Hard safety vetoes and deterministic execution policies take precedence over agent consensus. Agents must not override risk limits or transaction verification.
+
+### Current implementation status versus mission
+- The bounded Solana discovery, enrichment, market-refresh, risk and consensus pipeline passed one read-only live validation on PR #223 head e3d9f58161a8f5e96cf6980bd7925d067f1ccee1 (run 44274416208).
+- That pass validates only the bounded data/risk/consensus pipeline for the processed batch. It does **not** certify robust market-wide discovery, comprehensive rug detection, profitable token selection, portfolio management, or automatic trading.
+- Residual enrichment queue at the last diagnostic: 8 dead and 4 pending jobs, with sampled MarketDataUnavailable failures. PR #224 adds reason-specific diagnostics; updated CI still needs verification.
+- Dashboard CI is not equivalent to a verified live dashboard deployment.
+- Scheduler, paper trading, live trading, signing and transaction submission remain disabled. No claim of profitability or safe autonomous execution is made.
+
+### Release gates before any automatic trading
+- Broad discovery coverage and deduplication measured against independent sources.
+- Adversarial token-risk tests, including known rug/scam examples and false-positive/false-negative analysis.
+- Sellability and exit-liquidity verification, not just buy-side quote availability.
+- Freshness, provenance and confidence requirements for every critical signal.
+- Independent transaction-byte verification of mint, program IDs, source/destination accounts, amounts, minimum output, authorities and unexpected instructions.
+- Read-only and shadow operation, followed by paper/replay testing with realistic fees, slippage and failure modes.
+- Statistically meaningful out-of-sample evidence of positive net expectancy and bounded drawdown.
+- Explicit risk caps, kill switch, wallet isolation and operational monitoring.
+- Human-controlled activation of signing/trading only after the above gates; no silent enabling.
+
+This mission clarification supersedes any interpretation that the project is complete once the current bounded pipeline or dashboard is working. Continue from the current PR/CI checkpoint; do not restart completed infrastructure work.
+
+## 29. Android dashboard visual audit — 2026-11-18
+
+The user supplied a 33.15-second, 1080x2340 Android screen recording of the actual Veltrix multi-agent dashboard. Frames were inspected at approximately two-second intervals; OCR was used to transcribe visible labels and values. This is a UI snapshot, not a live backend audit. Snapshot device time was approximately 10:49–10:50 on 18 Nov 2026.
+
+### Observed dashboard state
+
+- **Home:** paper balance US$500.00; displayed P&L US$0.00 / 0%; equity chart has no settled paper equity points; Trades 0; Win rate 0%; Best close is blank; Recent closes says no settled paper closes; Network intelligence reports 24 observations, split Solana 23, BSC 1 (Base is not shown in the home card).
+- **Freshness inconsistency:** Home cards show “Updated 17 Nov, 14:39” while the recording is from 18 Nov around 10:49. This is roughly 20 hours old and must not be presented as if it were a current dashboard refresh. The system-status sheet separately shows “Updated 10:49:46”, which appears to be a UI/status refresh timestamp, not proof that underlying provider data is fresh.
+- **System status:** database connected — read-only; live execution disabled; Agents STALE; Providers STALE. It shows Solana 23, Base 0, BSC 1.
+- **Agents:** SCOUT, WHALE, SNIPER and SHIELD all show STALE, with last heartbeat 18 Nov, 10:24 and ABSTAIN. The recording time is approximately 10:50, so the visible heartbeat is about 26 minutes old. The screen also says no agent identities were recorded in consensus history.
+- **Provider probes:** DexScreener BSC last probe 17 Nov, 14:39 (13 ms); DexScreener Solana last probe 18 Nov, 10:20 (59 ms). Both are displayed as STALE.
+- **Consensus:** 16 records are shown. Several entries say “Agent support not recorded”; other entries expose a generic missing-security-evidence / provider-evidence-continuity reason. This makes the current activity list difficult to interpret and does not show a clear per-agent decision/evidence breakdown.
+- **Trades:** no open paper positions and no paper fills recorded.
+- **Wallet:** virtual/paper account only; US$500 equity and available cash, zero realised/unrealised P&L, zero exposure and zero open positions. Explicit text says wallet connection, signing and transaction submission are unavailable.
+- **Search:** helper text says it searches loaded ledger and market records. Do not imply that this UI search alone is a complete market-wide token discovery interface.
+
+### Required dashboard changes
+
+1. **Separate dashboard refresh time from data freshness.** Show (a) page/API response time, (b) latest successful observation time per provider/network, and (c) latest successful agent heartbeat. Never let a fresh page refresh make stale source data look healthy.
+2. **Use explicit freshness thresholds and age labels.** Display “last seen X minutes ago” and the configured threshold; map to HEALTHY / DEGRADED / STALE / UNAVAILABLE. A provider probe being successful once is not equivalent to current provider health.
+3. **Explain agent status.** Each agent card should expose last heartbeat, last run, current state, decision, reason code, evidence count, and the specific upstream dependency causing a block. Distinguish idle, abstained, blocked, failed and stale; ABSTAIN is a decision, not a heartbeat/health state.
+4. **Resolve consensus identity mismatch.** The UI currently says no agent identities are recorded while four runtime agents are displayed, and many decisions say agent support is not recorded. Trace persisted consensus-to-agent identity/foreign-key mapping and API serialization. Do not invent identities or infer support from the displayed runtime roster.
+5. **Make consensus records auditable.** For each token decision show the decision status, timestamp, contributing agent IDs, evidence references/counts, hard-veto reasons, missing requirements and whether the record is terminal or pending. Explain why each ABSTAIN occurred.
+6. **Correct network metric semantics.** Label 24 as observations, not 24 tokens or 24 opportunities. Show per-chain monitored candidates, successfully enriched candidates, stale/unavailable counts and last successful ingestion time. Include Base consistently if it is an enabled supported chain.
+7. **Improve empty states.** Equity chart should say “No settled paper trades yet” with its selected range. Best close should show “— No settled closes”. Separate zero activity from missing telemetry/API failure.
+8. **Improve paper ledger visibility.** Add trade lifecycle, entry/exit prices, token, quantity, fees, slippage, realised/unrealised P&L, rejection/abstention history and exit reason. Keep paper-only labels prominent.
+9. **Preserve the current safety boundary.** Keep scheduler, paper execution (unless separately authorised and validated), live execution, wallet signing and submission disabled. The dashboard is a monitoring surface and must not create an execution path.
+
+### Implementation priority and acceptance
+
+- **P0 — data truthfulness:** resolve timestamps/freshness, agent identity mapping, consensus explanation, and health-state semantics. The current UI must not report an overall green/healthy state when underlying telemetry is stale.
+- **P1 — operator usability:** network coverage breakdown, useful empty states, decision evidence drill-down and paper-ledger audit trail.
+- **P2 — discovery workflow:** make it clear that current search is over loaded records; add explicit discovery coverage and candidate pipeline views only when backed by real persisted API data.
+
+Acceptance tests must cover stale and missing provider observations, delayed heartbeats, mismatched/missing agent identities, ABSTAIN versus FAILED versus BLOCKED states, no-data chart states, and per-network count reconciliation. Dashboard CI and a successful page load alone are insufficient; compare displayed values to the same backend response/DB snapshot and verify the actual deployed build.
+
+### Current action
+
+The dashboard source files and data API contracts have not yet been traced from this visual recording, so no dashboard code change is claimed in this audit. First identify the exact dashboard build source and endpoint payloads, then implement P0 with regression tests on a dedicated branch. Keep PRs #223 and #224 separate and unmerged until their existing pipeline/queue acceptance work is complete.
