@@ -137,7 +137,7 @@
     });
     if(!agentItems.length) agentHost.append(element("div","empty-state","No persisted agent heartbeat telemetry."));
     else agentItems.forEach(item=>{
-      const detail=[item.last_heartbeat?"Heartbeat "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
+      const detail=[item.last_heartbeat?"Last evaluation "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
       agentHost.append(recordRow(String(item.name||"Agent").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Persisted runtime telemetry",item.status==="FRESH"?true:item.status==="FAILED"?false:null));
     });
     if(!providerItems.length) providerHost.append(element("div","empty-state","No persisted provider probe telemetry."));
