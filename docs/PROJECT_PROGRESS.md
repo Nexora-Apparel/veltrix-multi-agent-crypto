@@ -685,3 +685,53 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - The initial CI failure was traced to a test fixture using the production default `max_response_age_ms=120_000` while expecting an observation 9,999 ms old to be stale. That expectation contradicted the configured 120-second policy.
 - Updated the regression to set a test-local 1,000 ms threshold. Production defaults and strict future/stale rejection remain unchanged. This tests the intended stale branch without altering live policy.
 - New PR #224 head: `bd1dd3225ff5616089cec8b0791c9152a6a9fc90`. Exact-head CI result is still pending verification. PR #224 remains draft/unmerged.
+
+## 28. Product mission clarification — autonomous Solana memecoin intelligence and trading — 2026-11-18
+
+### Confirmed product objective
+The user clarified that the agents' purpose is to continuously monitor the large and changing Solana memecoin universe, detect promising tokens, identify fake/scam/rug-pull risks, automatically select suitable opportunities, and ultimately trade selected tokens automatically with the objective of generating profit.
+This is the product mission and should guide architecture and prioritisation. The existing pipeline stages are enabling infrastructure, not the complete product.
+
+### Required end-to-end capability domains
+1. **Market-wide discovery:** continuously ingest newly launched tokens and tokens already circulating; deduplicate mints and retain discovery provenance/time.
+2. **Token identity and evidence enrichment:** resolve token/pair identity, pool data, market observations, holders and ownership concentration, liquidity, volume, transaction activity, and available on-chain/program evidence. Record source, observation time and evidence quality.
+3. **Scam/rug/manipulation assessment:** detect known malicious authorities and permissions, mutable metadata where relevant, concentrated/insider ownership, suspicious funding/cluster patterns, wash trading/bot activity, liquidity withdrawal risk, honeypot or sellability restrictions, and abnormal market behaviour. A missing signal is unknown, not proof of safety.
+4. **Opportunity assessment and ranking:** rank only candidates that pass hard safety gates, using liquidity quality, organic activity, momentum, market depth, concentration, volatility, age and risk-adjusted upside. Preserve uncertainty and reasons; do not select solely by price increase or volume.
+5. **Portfolio/risk control:** enforce exposure limits, position sizing, slippage/price-impact caps, liquidity-aware exits, maximum loss, drawdown controls, trade frequency limits, cooldowns, and emergency stop.
+6. **Execution and monitoring:** eventually support transaction construction, independent transaction verification, wallet signing/submission, confirmation/reconciliation, stop/exit management, and immutable trade audit records. Execution must remain disabled until the full safety and validation gates pass.
+7. **Performance feedback:** measure realised P&L after fees, priority fees, slippage and failed transactions; track win rate, expectancy, profit factor, drawdown, tail losses, and performance by token age/strategy/regime. Avoid training on unverified or look-ahead-contaminated labels.
+
+### Agent architecture direction
+Treat agents as specialised, evidence-producing components with explicit input/output contracts rather than unconstrained autonomous decision-makers. Proposed roles to formalise:
+- Launch/discovery agent.
+- Market-data and liquidity agent.
+- On-chain contract/authority risk agent.
+- Holder distribution and wallet-cluster agent.
+- Trading-activity/manipulation agent.
+- Social/provenance intelligence agent (verifiable sources only; social hype is not safety evidence).
+- Rug/scam risk adjudicator combining independent evidence with veto authority.
+- Opportunity ranking/portfolio selection agent.
+- Execution guard and transaction verifier.
+- Position monitor/exit agent.
+- Performance and audit agent.
+Hard safety vetoes and deterministic execution policies take precedence over agent consensus. Agents must not override risk limits or transaction verification.
+
+### Current implementation status versus mission
+- The bounded Solana discovery, enrichment, market-refresh, risk and consensus pipeline passed one read-only live validation on PR #223 head e3d9f58161a8f5e96cf6980bd7925d067f1ccee1 (run 44274416208).
+- That pass validates only the bounded data/risk/consensus pipeline for the processed batch. It does **not** certify robust market-wide discovery, comprehensive rug detection, profitable token selection, portfolio management, or automatic trading.
+- Residual enrichment queue at the last diagnostic: 8 dead and 4 pending jobs, with sampled MarketDataUnavailable failures. PR #224 adds reason-specific diagnostics; updated CI still needs verification.
+- Dashboard CI is not equivalent to a verified live dashboard deployment.
+- Scheduler, paper trading, live trading, signing and transaction submission remain disabled. No claim of profitability or safe autonomous execution is made.
+
+### Release gates before any automatic trading
+- Broad discovery coverage and deduplication measured against independent sources.
+- Adversarial token-risk tests, including known rug/scam examples and false-positive/false-negative analysis.
+- Sellability and exit-liquidity verification, not just buy-side quote availability.
+- Freshness, provenance and confidence requirements for every critical signal.
+- Independent transaction-byte verification of mint, program IDs, source/destination accounts, amounts, minimum output, authorities and unexpected instructions.
+- Read-only and shadow operation, followed by paper/replay testing with realistic fees, slippage and failure modes.
+- Statistically meaningful out-of-sample evidence of positive net expectancy and bounded drawdown.
+- Explicit risk caps, kill switch, wallet isolation and operational monitoring.
+- Human-controlled activation of signing/trading only after the above gates; no silent enabling.
+
+This mission clarification supersedes any interpretation that the project is complete once the current bounded pipeline or dashboard is working. Continue from the current PR/CI checkpoint; do not restart completed infrastructure work.
