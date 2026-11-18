@@ -294,3 +294,40 @@ test("runtime status distinguishes unavailable telemetry schema from no telemetr
   assert.equal(body.agents.status, "UNAVAILABLE");
   assert.equal(body.providers.status, "UNAVAILABLE");
 });
+
+
+test("runtime status exposes worker-cycle heartbeats separately from agent evaluations", async () => {
+  const now = Date.now();
+  const events = [{
+    id: 10, event: "WORKER_HEARTBEAT", payload: JSON.stringify({
+      worker: "solana-consensus", status: "DEGRADED",
+      observed_at_ms: now - 1000, error_code: "CANDIDATE_EVALUATION_FAILURE",
+      metrics: { processed: 3, failed: 1 },
+    }),
+  }];
+  const client = {
+    async execute(statement) {
+      if (statement.sql.includes("sqlite_master")) {
+        return { columns: ["name"], rows: [{ name: "events" }] };
+      }
+      if (statement.sql.includes("FROM events")) {
+        return { columns: ["id", "event", "payload"], rows: events };
+      }
+      throw new Error("unexpected SQL in worker telemetry test");
+    },
+  };
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/runtime-status", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }), env(), client,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.workers.status, "DEGRADED");
+  assert.equal(body.workers.items.length, 1);
+  assert.equal(body.workers.items[0].worker, "solana-consensus");
+  assert.equal(body.workers.items[0].status, "DEGRADED");
+  assert.deepEqual(body.workers.items[0].metrics, { processed: 3, failed: 1 });
+  assert.equal(body.agents.status, "UNKNOWN");
+  assert.equal(body.agents.items.every((item) => item.status === "UNKNOWN"), true);
+});
