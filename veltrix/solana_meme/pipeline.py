@@ -54,7 +54,7 @@ class OneShotSolanaPipeline:
         *,
         paper_worker: PaperTradingWorker | None = None,
         paper_enabled: bool = False,
-        max_runtime_seconds: float = 240.0,
+        max_runtime_seconds: float = 480.0,
         lease_ttl_ms: int = 300_000,
         max_items: int = 150,
         stage_limits: dict[str, int] | None = None,
