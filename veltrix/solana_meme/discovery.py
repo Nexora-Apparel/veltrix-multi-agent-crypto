@@ -11,6 +11,7 @@ from typing import Callable
 from .candidates import CandidateRejected
 from .dexscreener import DexScreenerDiscovery
 from ..orchestration import RunContext
+from ..runtime_telemetry import RuntimeTelemetryStore
 from .launch_stream import LaunchStore, LaunchStreamManager
 
 LOGGER = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class SolanaDiscoveryEngine:
         self.primary_stream = primary_stream
         self.poll_interval_seconds = float(poll_interval_seconds)
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+        self.telemetry = RuntimeTelemetryStore(self.store.database_path)
 
     def poll_once(self, context: RunContext | None = None, *, limit: int = 25) -> DiscoveryCycleResult:
         """Fetch one bounded secondary-feed batch and persist it under the run fence."""
@@ -132,7 +134,24 @@ class SolanaDiscoveryEngine:
             primary_thread.start()
 
         while not stop_event.is_set():
-            result = self.poll_once()
+            try:
+                result = self.poll_once()
+                status = "DEGRADED" if result.source_errors else "SUCCESS"
+                self.telemetry.record_worker_heartbeat(
+                    "solana-discovery", observed_at_ms=self.clock_ms(),
+                    status=status,
+                    error_code="DISCOVERY_SOURCE_FAILURE" if result.source_errors else None,
+                    metrics={"received": result.candidates_received,
+                             "stored": result.candidates_stored,
+                             "rejected": result.candidates_rejected,
+                             "source_errors": len(result.source_errors)},
+                )
+            except Exception as exc:
+                self.telemetry.record_worker_heartbeat(
+                    "solana-discovery", observed_at_ms=self.clock_ms(),
+                    status="FAILED", error_code=type(exc).__name__,
+                )
+                raise
             for source, reason in result.source_errors:
                 LOGGER.warning("secondary discovery source %s failed: %s", source, reason)
             LOGGER.debug(
