@@ -324,10 +324,11 @@ test("runtime status exposes worker-cycle heartbeats separately from agent evalu
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.workers.status, "DEGRADED");
-  assert.equal(body.workers.items.length, 1);
-  assert.equal(body.workers.items[0].worker, "solana-consensus");
-  assert.equal(body.workers.items[0].status, "DEGRADED");
-  assert.deepEqual(body.workers.items[0].metrics, { processed: 3, failed: 1 });
+  assert.equal(body.workers.items.length, 4);
+  const consensus = body.workers.items.find((item) => item.worker === "solana-consensus");
+  assert.equal(consensus.status, "DEGRADED");
+  assert.deepEqual(consensus.metrics, { processed: 3, failed: 1 });
+  assert.equal(body.workers.items.find((item) => item.worker === "solana-discovery").status, "UNKNOWN");
   assert.equal(body.agents.status, "UNKNOWN");
   assert.equal(body.agents.items.every((item) => item.status === "UNKNOWN"), true);
 });
