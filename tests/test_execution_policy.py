@@ -74,6 +74,7 @@ def test_authorization_is_bound_and_consumed_once():
         wallet_public_key="wallet-public-key",
         policy=policy,
         intent_id="intent-001",
+        intent_hash="a" * 64,
         ttl_seconds=30,
         now=1_000,
     )
@@ -83,6 +84,7 @@ def test_authorization_is_bound_and_consumed_once():
         policy=policy,
         wallet_public_key="wallet-public-key",
         intent_id="intent-001",
+        intent_hash="a" * 64,
         consumer=consumer,
         now=1_001,
     )
@@ -92,6 +94,7 @@ def test_authorization_is_bound_and_consumed_once():
             policy=policy,
             wallet_public_key="wallet-public-key",
             intent_id="intent-001",
+            intent_hash="a" * 64,
             consumer=consumer,
             now=1_002,
         )
@@ -102,6 +105,7 @@ def test_authorization_is_bound_and_consumed_once():
     [
         {"wallet_public_key": "different-wallet"},
         {"intent_id": "different-intent"},
+        {"intent_hash": "b" * 64},
         {"policy": ExecutionPolicy(mode=ExecutionMode.LIVE, chain="different-chain")},
     ],
 )
@@ -113,6 +117,7 @@ def test_authorization_scope_mismatch_is_rejected(overrides):
         wallet_public_key="wallet-public-key",
         policy=policy,
         intent_id="intent-002",
+        intent_hash="a" * 64,
         now=2_000,
     )
     args = {
@@ -120,6 +125,7 @@ def test_authorization_scope_mismatch_is_rejected(overrides):
         "policy": policy,
         "wallet_public_key": "wallet-public-key",
         "intent_id": "intent-002",
+        "intent_hash": "a" * 64,
         "consumer": MemoryConsumer(),
         "now": 2_001,
     }
@@ -136,6 +142,7 @@ def test_expired_authorization_is_rejected_without_consuming():
         wallet_public_key="wallet",
         policy=policy,
         intent_id="intent",
+        intent_hash="a" * 64,
         ttl_seconds=1,
         now=3_000,
     )
@@ -146,6 +153,7 @@ def test_expired_authorization_is_rejected_without_consuming():
             policy=policy,
             wallet_public_key="wallet",
             intent_id="intent",
+            intent_hash="a" * 64,
             consumer=consumer,
             now=3_001,
         )
@@ -160,6 +168,7 @@ def test_authorization_rejects_short_signing_key_and_long_ttl():
             wallet_public_key="wallet",
             policy=policy,
             intent_id="intent",
+            intent_hash="a" * 64,
             now=4_000,
         )
     with pytest.raises(AuthorizationError):
@@ -168,6 +177,7 @@ def test_authorization_rejects_short_signing_key_and_long_ttl():
             wallet_public_key="wallet",
             policy=policy,
             intent_id="intent",
+            intent_hash="a" * 64,
             ttl_seconds=301,
             now=4_000,
         )
@@ -181,6 +191,7 @@ def test_paper_policy_cannot_issue_or_consume_live_authorization():
             wallet_public_key="wallet",
             policy=paper,
             intent_id="intent",
+            intent_hash="a" * 64,
             now=5_000,
         )
 
@@ -225,6 +236,7 @@ def test_authorization_rejects_non_integer_or_out_of_range_ttl(ttl):
             wallet_public_key="wallet",
             policy=live_policy(),
             intent_id="intent",
+            intent_hash="a" * 64,
             ttl_seconds=ttl,
             now=6_000,
         )
@@ -237,6 +249,7 @@ def test_verification_rejects_invalid_key_and_malformed_clock():
         wallet_public_key="wallet",
         policy=policy,
         intent_id="intent",
+        intent_hash="a" * 64,
         now=7_000,
     )
     with pytest.raises(AuthorizationError, match="signing key"):
@@ -245,6 +258,7 @@ def test_verification_rejects_invalid_key_and_malformed_clock():
             policy=policy,
             wallet_public_key="wallet",
             intent_id="intent",
+            intent_hash="a" * 64,
             consumer=MemoryConsumer(),
             now=7_001,
         )
@@ -254,6 +268,7 @@ def test_verification_rejects_invalid_key_and_malformed_clock():
             policy=policy,
             wallet_public_key="wallet",
             intent_id="intent",
+            intent_hash="a" * 64,
             consumer=MemoryConsumer(),
             now=True,
         )
@@ -269,6 +284,7 @@ def test_tampered_expiry_is_rejected_before_consumption():
         wallet_public_key="wallet",
         policy=policy,
         intent_id="intent",
+        intent_hash="a" * 64,
         now=8_000,
     )
     tampered = replace(auth, expires_at=auth.expires_at + 1)
@@ -279,6 +295,7 @@ def test_tampered_expiry_is_rejected_before_consumption():
             policy=policy,
             wallet_public_key="wallet",
             intent_id="intent",
+            intent_hash="a" * 64,
             consumer=consumer,
             now=8_001,
         )
@@ -296,6 +313,7 @@ def test_consumer_failure_fails_closed():
         wallet_public_key="wallet",
         policy=policy,
         intent_id="intent",
+        intent_hash="a" * 64,
         now=9_000,
     )
     with pytest.raises(AuthorizationError, match="atomically"):
@@ -304,6 +322,7 @@ def test_consumer_failure_fails_closed():
             policy=policy,
             wallet_public_key="wallet",
             intent_id="intent",
+            intent_hash="a" * 64,
             consumer=BrokenConsumer(),
             now=9_001,
         )
@@ -373,6 +392,7 @@ def test_authorization_verification_uses_durable_store_for_replay_protection(tmp
         wallet_public_key="wallet",
         policy=policy,
         intent_id="durable-intent",
+        intent_hash="a" * 64,
         now=10_000,
     )
     database = tmp_path / "authorization.sqlite3"
@@ -381,6 +401,7 @@ def test_authorization_verification_uses_durable_store_for_replay_protection(tmp
         policy=policy,
         wallet_public_key="wallet",
         intent_id="durable-intent",
+        intent_hash="a" * 64,
         consumer=SQLiteAuthorizationConsumer(database),
         now=10_001,
     )
@@ -390,6 +411,7 @@ def test_authorization_verification_uses_durable_store_for_replay_protection(tmp
             policy=policy,
             wallet_public_key="wallet",
             intent_id="durable-intent",
+            intent_hash="a" * 64,
             consumer=SQLiteAuthorizationConsumer(database),
             now=10_002,
         )
