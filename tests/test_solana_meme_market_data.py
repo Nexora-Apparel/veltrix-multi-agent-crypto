@@ -317,7 +317,9 @@ def test_market_diagnostics_count_stale_future_and_invalid_pairs_without_address
 def test_unavailable_market_data_reports_specific_rejection_reason(
     events, now_ms, expected_reason
 ):
-    market = SolanaMarketData(FakeMarketProvider(events), clock_ms=lambda: now_ms)
+    market = SolanaMarketData(
+        FakeMarketProvider(events), max_response_age_ms=1_000, clock_ms=lambda: now_ms
+    )
 
     batch = market.fetch_many([MINT_A], now_ms=now_ms)
 
