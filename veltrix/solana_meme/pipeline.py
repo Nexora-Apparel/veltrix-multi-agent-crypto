@@ -8,6 +8,7 @@ explicitly disabled until the paper broker supports transaction-scoped fencing.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import logging
 import time
 from typing import Any
 
@@ -18,6 +19,8 @@ from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .market_refresh import MarketRefreshBatchResult, MarketRefreshWorker
 from .risk_worker import RiskEvidenceBatchResult, SolanaRiskEvidenceWorker
 from .paper_trading import PaperTradingBatchResult, PaperTradingWorker
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -109,19 +112,25 @@ class OneShotSolanaPipeline:
             result = operation()
         except Exception as exc:
             # Exception messages may contain provider payloads or token addresses.
+            elapsed_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
             progress.append({
                 "stage": name,
                 "status": "FAILED",
                 "error_type": type(exc).__name__,
-                "elapsed_ms": max(0, (time.monotonic_ns() - started_ns) // 1_000_000),
+                "elapsed_ms": elapsed_ms,
             })
+            LOGGER.error("solana_pipeline_stage_failed stage=%s error_type=%s elapsed_ms=%d",
+                         name, type(exc).__name__, elapsed_ms)
             raise
+        elapsed_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
         progress.append({
             "stage": name,
             "status": "COMPLETED",
-            "elapsed_ms": max(0, (time.monotonic_ns() - started_ns) // 1_000_000),
+            "elapsed_ms": elapsed_ms,
             "result": asdict(result),
         })
+        LOGGER.info("solana_pipeline_stage_completed stage=%s elapsed_ms=%d",
+                    name, elapsed_ms)
         return result
 
     def _execute_stages(
