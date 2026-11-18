@@ -133,6 +133,5 @@ def test_runtime_probes_provider_and_records_worker_when_candidate_queue_is_empt
     assert len(probes) == 1
     assert probes[0]["provider"] == "fakeprovider"
     assert probes[0]["status"] == "SUCCESS"
-    assert len(workers) == 1
-    assert workers[0]["worker"] == "solana-token-intelligence"
-    assert workers[0]["status"] == "SUCCESS"
+    assert {item["worker"] for item in workers} == {"solana-token-intelligence", "solana-market-refresh"}
+    assert all(item["status"] == "SUCCESS" for item in workers)
