@@ -318,9 +318,9 @@ def test_consensus_row_claim_is_renewed_during_slow_evaluation(tmp_path):
 
     def slow_evaluate(*args, **kwargs):
         import time
-        time.sleep(0.20)
-        clock.value += 150
-        time.sleep(0.10)
+        for _ in range(3):
+            time.sleep(0.06)
+            clock.value += 40
         return original_evaluate(*args, **kwargs)
 
     worker.engine.evaluate = slow_evaluate
