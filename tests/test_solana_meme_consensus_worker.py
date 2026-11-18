@@ -313,12 +313,14 @@ def test_consensus_worker_rejects_replaced_claim_after_wallet_provider_read(tmp_
 
 
 def test_consensus_row_claim_is_renewed_during_slow_evaluation(tmp_path):
-    launches, _, _, store, worker, _ = setup_worker(tmp_path, lease_ms=100)
+    launches, _, _, store, worker, clock = setup_worker(tmp_path, lease_ms=100)
     original_evaluate = worker.engine.evaluate
 
     def slow_evaluate(*args, **kwargs):
         import time
-        time.sleep(0.25)
+        time.sleep(0.20)
+        clock.value += 150
+        time.sleep(0.10)
         return original_evaluate(*args, **kwargs)
 
     worker.engine.evaluate = slow_evaluate
