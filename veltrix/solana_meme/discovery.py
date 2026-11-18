@@ -121,6 +121,27 @@ class SolanaDiscoveryEngine:
             candidates_rejected=rejected,
         )
 
+    def run_once(self) -> DiscoveryCycleResult:
+        try:
+            result = self.poll_once()
+            status = "DEGRADED" if result.source_errors else "SUCCESS"
+            self.telemetry.record_worker_heartbeat(
+                "solana-discovery", observed_at_ms=self.clock_ms(),
+                status=status,
+                error_code="DISCOVERY_SOURCE_FAILURE" if result.source_errors else None,
+                metrics={"received": result.candidates_received,
+                         "stored": result.candidates_stored,
+                         "rejected": result.candidates_rejected,
+                         "source_errors": len(result.source_errors)},
+            )
+            return result
+        except Exception as exc:
+            self.telemetry.record_worker_heartbeat(
+                "solana-discovery", observed_at_ms=self.clock_ms(),
+                status="FAILED", error_code=type(exc).__name__,
+            )
+            raise
+
     def run(self, stop_event: threading.Event) -> None:
         """Run secondary polling and, optionally, the primary stream supervisor."""
         primary_thread: threading.Thread | None = None
@@ -134,24 +155,7 @@ class SolanaDiscoveryEngine:
             primary_thread.start()
 
         while not stop_event.is_set():
-            try:
-                result = self.poll_once()
-                status = "DEGRADED" if result.source_errors else "SUCCESS"
-                self.telemetry.record_worker_heartbeat(
-                    "solana-discovery", observed_at_ms=self.clock_ms(),
-                    status=status,
-                    error_code="DISCOVERY_SOURCE_FAILURE" if result.source_errors else None,
-                    metrics={"received": result.candidates_received,
-                             "stored": result.candidates_stored,
-                             "rejected": result.candidates_rejected,
-                             "source_errors": len(result.source_errors)},
-                )
-            except Exception as exc:
-                self.telemetry.record_worker_heartbeat(
-                    "solana-discovery", observed_at_ms=self.clock_ms(),
-                    status="FAILED", error_code=type(exc).__name__,
-                )
-                raise
+            result = self.run_once()
             for source, reason in result.source_errors:
                 LOGGER.warning("secondary discovery source %s failed: %s", source, reason)
             LOGGER.debug(
