@@ -683,3 +683,37 @@ The user supplied a 33.15-second, 1080x2340 Android screen recording of the actu
 
 ### Safety and project sequencing
 Keep scheduler, paper execution, live execution, wallet signing, transaction submission and broadcast disabled. PRs #223 and #224 remain separate draft/unmerged pipeline work. Dashboard PR #225 is independent and must pass its own exact-head tests before review.
+
+
+## 30. Runtime-health root-cause investigation and instrumentation — 2026-11-18
+
+### Root cause confirmed from source
+- `RuntimeTelemetryStore.record_agent_votes()` writes `AGENT_HEARTBEAT` events only when a candidate consensus evaluation completes. These events are evaluation evidence, not independent process liveness.
+- `ConsensusEngine.evaluate()` constructs four votes (SCOUT, WHALE, SNIPER, SHIELD), including ABSTAIN votes; `ConsensusWorker.run_once()` persists those votes after a successful evaluation. Therefore ABSTAIN is a completed decision and can legitimately produce an evaluation heartbeat.
+- When there are no due consensus candidates, or the consensus worker is not invoked, no agent heartbeat events are written. All four cards can therefore become stale together without proving four separate agent crashes.
+- `MarketRefreshWorker.run_once()` previously returned immediately when no refresh jobs were claimed, before recording any provider probe. The DexScreener probe was tied to the market-refresh batch; the optional Helius wallet provider had its own batch-only probe. There was no independent periodic provider health check.
+- The only checked-in production pipeline workflow, `.github/workflows/solana-pipeline-schedule.yml`, is `workflow_dispatch` only and explicitly sets `SCHEDULER_ENABLED=false`. It does not start a persistent worker. The long-running runtime entry points exist in code but are not deployed as supervised services by the Pages dashboard deployment.
+- Consequence: the screenshot's four STALE agents and stale DexScreener probes are consistent with missing scheduled/continuous worker execution, not evidence of four separate agent defects. A worker heartbeat must not be fabricated as an agent evaluation heartbeat.
+
+### PR #226 — independent worker and provider health
+- PR [#226](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/226), branch `fix/runtime-health-heartbeats-and-probes-20261118`, stacked on dashboard PR #225, open/draft/unmerged.
+- Head at creation: `a28cd1ccf394db1876f5f6fa7f764b0de04c6078`.
+- Added append-only `WORKER_HEARTBEAT` events, distinct from per-agent `AGENT_HEARTBEAT` vote events. Metrics are allowlisted scalar values; worker statuses are SUCCESS / DEGRADED / FAILED.
+- Consensus worker records completed cycles even with no due candidates. Market-refresh worker records completed cycles even with an empty refresh queue.
+- Token-intelligence runtime now attempts an independent, bounded 60-second DexScreener API health probe, independent of candidate queue availability, and records success/failure separately.
+- `/api/runtime-status` now exposes worker freshness, status, safe metrics and error category separately from agent evaluation and provider probe statuses.
+- Android dashboard now includes a separate Worker runtime panel. It does not mark agents healthy just because their supervisor is alive.
+- Added regression tests for telemetry separation, provider probe shape validation, API serialization and dashboard UI.
+
+### Validation and blockers
+- PR #225 exact head `3813b28b0ac3a98747ebd7b6c351a83afd45bf75`: Python CI run `44281524598` completed SUCCESS. Cloudflare Pages dashboard CI run `44281524835` was still IN_PROGRESS at the last check; no failure has been established. Mobile browser acceptance is part of that workflow.
+- PR #226 exact head `a28cd1ccf394db1876f5f6fa7f764b0de04c6078`: CI run listing had not yet appeared at the time of this checkpoint. Do not call it passing until exact-head runs complete.
+- The user-provided `state-log-2026-11-12T09-25-11.txt` is a Phantom mobile application diagnostic log (wallet UI/API requests), not the Veltrix backend runtime log. It does not establish the cause of Veltrix worker shutdown and was not used as backend evidence.
+- No workflow schedule or live runtime service was enabled. Continuous health requires a supervised runtime deployment (e.g. a long-lived worker service) with the existing database secrets and explicit operational approval. Cloudflare Pages serves the dashboard/API and is not itself a persistent Python process host.
+
+### Next exact actions
+1. Verify PR #225 Cloudflare Pages CI run `44281524835` and resolve any actual failure rather than treating an in-progress job as failed.
+2. Verify PR #226 Python and Pages CI against its exact latest head; fix all failures and rerun.
+3. Add/verify tests for empty-queue worker cycles and no-candidate agent semantics.
+4. Before any service deployment, prepare a separate read-only worker service configuration and a startup/shutdown/health-check runbook; keep scheduling and trading locks disabled.
+5. After deployment, verify real worker heartbeats and independent DexScreener probes from the production database. Do not seed synthetic telemetry or reset stale records.
