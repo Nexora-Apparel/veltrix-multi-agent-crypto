@@ -256,17 +256,19 @@ class MarketRefreshWorker:
             or getattr(provider, "name", None)
             or type(provider).__name__.lower()
         )
+        # Keep endpoint-level health separate from successful token-batch fetches.
+        health_probe_id = f"{provider_id}-health"
         started = time.monotonic()
         try:
             result = probe()
             latency = int(result.get("latency_ms", (time.monotonic() - started) * 1000))
             self.telemetry.record_provider_probe(
-                provider_id, "solana", succeeded=True,
+                health_probe_id, "solana", succeeded=True,
                 observed_at_ms=observed_at_ms, latency_ms=latency,
             )
         except Exception as exc:
             self.telemetry.record_provider_probe(
-                provider_id, "solana", succeeded=False,
+                health_probe_id, "solana", succeeded=False,
                 observed_at_ms=observed_at_ms,
                 latency_ms=int((time.monotonic() - started) * 1000),
                 error_code=type(exc).__name__,
