@@ -796,3 +796,11 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - Runbook follow-up commit: ccfaca7f80bfa139433c1e7c6eaf1229e6dcea4b. Exact-head CI for this documentation-only follow-up is pending/expected through the PR workflow; no production worker has been deployed.
 - PR #226 remains draft/unmerged. External deployment blocker remains a Docker-capable always-on host plus the production Turso URL/token in its secret manager. Manual Base/BSC/provider acceptance workflows and physical Realme Android testing remain outstanding; they cannot be truthfully marked complete from browser CI.
 - SCHEDULER_ENABLED=false, PAPER_TRADING_ENABLED=false, LIVE_TRADING=false; no signing, submission or broadcast.
+
+
+### Exact worker-image fix validation — 2026-11-18
+
+- Confirmed the multi-stage Dockerfile fix on exact code head dd42f83365d62f6183f96d92928821dc3c23da4e: worker-image CI run 44286591491 SUCCESS; Python CI run 44286591546 SUCCESS (both tests and worker-image jobs); Cloudflare Pages dashboard CI run 44286591450 SUCCESS.
+- The first Docker build failure was fully traced to git missing from python:3.11-slim while pip installed a Git-pinned Turso adapter. The final runtime stage now excludes git; the successful worker-image CI proves the image builds, Compose config validates, the runtime user is non-root, and all three worker modules import.
+- Subsequent docs/runbook commits: ccfaca7f80bfa139433c1e7c6eaf1229e6dcea4b and 12256bb71f1630f2f33cbee3116fc14ecff4a22a. Exact-head Python CI run 44286757357 has passed its tests job; the Python workflow's worker-image job, standalone worker-image CI run 44286757399, and Pages CI run 44286757351 were still running at the time of this update.
+- PR #226 remains open, draft and unmerged. Production read-only service deployment and actual heartbeat recovery remain unverified because the always-on host and production Turso secret injection are external requirements.
