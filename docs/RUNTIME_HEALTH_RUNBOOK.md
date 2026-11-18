@@ -42,7 +42,7 @@ Do not start multiple competing copies of the same logical worker until lease/cl
 
 After service deployment, verify all of the following from the real production database and authenticated dashboard API:
 
-1. `WORKER_HEARTBEAT` events advance for `solana-token-intelligence`, `solana-market-refresh`, and `solana-consensus` even when no candidates are due.
+1. `WORKER_HEARTBEAT` events advance for all four roles: `solana-discovery`, `solana-token-intelligence`, `solana-market-refresh`, and `solana-consensus`, including when their candidate queues are empty.
 2. `AGENT_HEARTBEAT` events advance only when the corresponding agent actually completes a vote during a consensus evaluation. An idle agent is not fabricated as healthy.
 3. `PROVIDER_PROBE` events advance at the configured interval even when the market-refresh queue is empty.
 4. Failed probes are visible as FAILED with a sanitized error code; successful HTTP connectivity is not treated as proof of token-pair availability or safety.
