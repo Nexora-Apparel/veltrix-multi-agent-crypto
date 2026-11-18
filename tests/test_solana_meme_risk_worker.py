@@ -268,9 +268,9 @@ def test_risk_row_claim_is_renewed_during_slow_collection(tmp_path):
 
     def slow_collect(*args, **kwargs):
         import time
-        time.sleep(0.20)
-        clock.value += 150
-        time.sleep(0.10)
+        for _ in range(3):
+            time.sleep(0.06)
+            clock.value += 40
         return original_collect(*args, **kwargs)
 
     collector.collect = slow_collect
