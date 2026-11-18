@@ -207,7 +207,7 @@ class ConsensusWorker:
                     SET lease_until_ms = ?, updated_at_ms = ?
                     WHERE status='processing' AND claimed_by_owner_id=?
                       AND claim_fencing_token=? AND lease_until_ms>?
-                      AND mint IN ({placeholders})""".replace("UPDATE $", "UPDATE "),
+                      AND mint IN ({placeholders})""",
                 (now + self.lease_ms, now, context.owner_id,
                  context.fencing_token, now, *mints),
             )
@@ -363,6 +363,7 @@ class ConsensusWorker:
                     claim_heartbeat.assert_active()
                     self._fail(mint, exc, self.clock_ms(), context)
                     failed += 1
+                    claim_heartbeat.complete(mint)
 
             with self._connect() as db:
                 deferred = int(db.execute("""
