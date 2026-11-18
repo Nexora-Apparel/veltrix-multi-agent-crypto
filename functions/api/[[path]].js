@@ -500,14 +500,24 @@ async function runtimeStatus(client, tables, env = {}) {
     latency_ms: finiteNumber(payload.latency_ms),
     error_code: payload.status === "FAILED" ? payload.error_code || "PROVIDER_ERROR" : null,
   })).sort((a, b) => a.provider.localeCompare(b.provider) || a.chain.localeCompare(b.chain));
-  const workerItems = [...latestWorkers.entries()].map(([worker, payload]) => ({
-    worker,
-    status: freshness(payload, workerMaxAge),
-    last_heartbeat: isoMilliseconds(payload.observed_at_ms),
-    error_code: payload.status === "FAILED" || payload.status === "DEGRADED"
-      ? payload.error_code || payload.status : null,
-    metrics: payload.metrics && typeof payload.metrics === "object" ? payload.metrics : {},
-  })).sort((a, b) => a.worker.localeCompare(b.worker));
+  const expectedWorkers = [
+    "solana-discovery",
+    "solana-token-intelligence",
+    "solana-market-refresh",
+    "solana-consensus",
+  ];
+  const workerItems = expectedWorkers.map((worker) => {
+    const payload = latestWorkers.get(worker) || null;
+    return {
+      worker,
+      status: hasEventsTable ? freshness(payload, workerMaxAge) : "UNAVAILABLE",
+      last_heartbeat: payload ? isoMilliseconds(payload.observed_at_ms) : null,
+      error_code: payload && (payload.status === "FAILED" || payload.status === "DEGRADED")
+        ? payload.error_code || payload.status : null,
+      metrics: payload && payload.metrics && typeof payload.metrics === "object"
+        ? payload.metrics : {},
+    };
+  });
   const workerStatuses = workerItems.map((item) => item.status);
   const workerSummary = !hasEventsTable ? "UNAVAILABLE"
     : !workerItems.length ? "UNKNOWN"
