@@ -5,6 +5,7 @@ buy signals, liquidity guarantees, or proof of executable sell depth.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, fields
 import math
 import time
@@ -239,34 +240,43 @@ class SolanaMarketData:
         retrieved_at_ms: int,
     ) -> SolanaMarketSnapshot:
         eligible: list[tuple[MarketEvent, dict[str, object]]] = []
+        rejected: Counter[str] = Counter()
         for event in events:
             if not isinstance(event, MarketEvent):
+                rejected["invalid_event_type"] += 1
                 continue
-            if event.chain != "solana":
-                continue
-            if event.token_address != mint:
+            if event.chain != "solana" or event.token_address != mint:
+                rejected["chain_or_mint_mismatch"] += 1
                 continue
             if not isinstance(event.pair_address, str) or not event.pair_address.strip():
+                rejected["missing_pair_address"] += 1
                 continue
             if (
                 isinstance(event.observed_at_ms, bool)
                 or not isinstance(event.observed_at_ms, int)
                 or event.observed_at_ms <= 0
             ):
+                rejected["invalid_observation_timestamp"] += 1
                 continue
             response_age = retrieved_at_ms - event.observed_at_ms
-            if response_age < 0 or response_age > self.max_response_age_ms:
+            if response_age < 0:
+                rejected["future_observation"] += 1
+                continue
+            if response_age > self.max_response_age_ms:
+                rejected["stale_observation"] += 1
                 continue
             if (
                 not isinstance(event.quality_flags, tuple)
                 or any(not isinstance(flag, str) or not flag.strip() for flag in event.quality_flags)
             ):
+                rejected["invalid_quality_flags"] += 1
                 continue
             if event.pair_created_at_ms is not None and (
                 isinstance(event.pair_created_at_ms, bool)
                 or not isinstance(event.pair_created_at_ms, int)
                 or event.pair_created_at_ms <= 0
             ):
+                rejected["invalid_pair_creation_timestamp"] += 1
                 continue
             try:
                 values: dict[str, object] = {
@@ -299,16 +309,30 @@ class SolanaMarketData:
                     "txns_h24_buys", "txns_h24_sells",
                 ):
                     values[field] = self._count(getattr(event, field), field)
-            except MarketDataUnavailable:
+            except MarketDataUnavailable as exc:
+                rejected[f"invalid_{str(exc).removeprefix('invalid ')}"] += 1
                 continue
             if values["price"] is None or values["liquidity"] is None or values["volume_h1"] is None:
+                rejected["missing_required_market_fields"] += 1
                 continue
             if values["price"] <= 0:
+                rejected["nonpositive_price"] += 1
                 continue
             eligible.append((event, values))
 
         if not eligible:
-            raise MarketDataUnavailable(f"no fresh usable Solana pair data for {mint}")
+            if not events:
+                reason = "no_matching_pair_events"
+            elif rejected:
+                reason = ",".join(
+                    f"{name}:{count}"
+                    for name, count in sorted(rejected.items(), key=lambda item: (-item[1], item[0]))
+                )
+            else:
+                reason = "no_eligible_pairs"
+            raise MarketDataUnavailable(
+                f"no fresh usable Solana pair data ({reason}; returned_events={len(events)}) for {mint}"
+            )
 
         selected, values = max(
             eligible,
