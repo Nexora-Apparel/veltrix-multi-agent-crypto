@@ -124,6 +124,13 @@ def test_one_shot_pipeline_runs_stages_in_contract_order(tmp_path):
     assert result.stages.market_refresh.processed == 0
     assert result.stages.risk.recorded == 1
     assert result.stages.consensus.recorded == 1
+    assert pipeline.stage_limits["enrichment"] == 10
+    assert pipeline.stage_limits["market_refresh"] == 10
+    assert [item["stage"] for item in result.stage_progress] == [
+        "discovery", "enrichment", "market_refresh", "risk", "consensus"
+    ]
+    assert all(isinstance(item["elapsed_ms"], int) and item["elapsed_ms"] >= 0
+               for item in result.stage_progress)
     assert launches.candidate_count() == 1
     assert markets.count(MINT) == 1
     assert risks.count(MINT) == 1
@@ -239,3 +246,42 @@ def test_pipeline_preserves_completed_stage_counts_when_later_stage_fails(tmp_pa
     ]
     assert result.stage_progress[-1]["error_type"] == "RuntimeError"
     assert "synthetic refresh failure" not in str(result.stage_progress)
+
+
+
+def test_pipeline_stage_limits_are_validated_and_overridable(tmp_path):
+    pipeline, *_ = build_pipeline(tmp_path)
+    configured = OneShotSolanaPipeline(
+        pipeline.orchestration,
+        pipeline.discovery,
+        pipeline.enrichment,
+        pipeline.market_refresh,
+        pipeline.risk,
+        pipeline.consensus,
+        stage_limits={"enrichment": 3, "market_refresh": 4},
+    )
+    assert configured.stage_limits["discovery"] == 25
+    assert configured.stage_limits["enrichment"] == 3
+    assert configured.stage_limits["market_refresh"] == 4
+    assert configured.stage_limits["risk"] == 5
+
+    with pytest.raises(ValueError, match="between 1 and 300"):
+        OneShotSolanaPipeline(
+            pipeline.orchestration,
+            pipeline.discovery,
+            pipeline.enrichment,
+            pipeline.market_refresh,
+            pipeline.risk,
+            pipeline.consensus,
+            stage_limits={"enrichment": 0},
+        )
+    with pytest.raises(ValueError, match="unsupported stage names"):
+        OneShotSolanaPipeline(
+            pipeline.orchestration,
+            pipeline.discovery,
+            pipeline.enrichment,
+            pipeline.market_refresh,
+            pipeline.risk,
+            pipeline.consensus,
+            stage_limits={"unknown": 1},
+        )
