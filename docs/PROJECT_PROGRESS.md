@@ -761,3 +761,13 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 - Remaining external blocker: a Docker-capable always-on host and production `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` must be supplied through its encrypted secret store or host-side `.env.worker`. No credentials were invented or requested from chat; no service has been started. This cannot be safely completed from repository-only access.
 - Provider probing: DexScreener now has an independent low-cost GET search health check every 60 seconds from market-refresh, even with an empty candidate queue. Helius remains optional and its existing wallet evidence requests are candidate-driven; it is not represented as independently probed when that integration is disabled or no trusted-wallet evidence batch runs.
 - Safety remains unchanged: scheduler, paper trading, live trading, signing and transaction submission disabled. All PR changes remain draft/unmerged pending exact-head CI and external runtime deployment validation.
+
+
+### Final exact-head verification — 2026-11-18 10:28 UTC
+
+- Latest PR #226 head: `45b507c645b5f7120208f74e8223fcd344712b29`.
+- Exact-head Python CI run `44285573921`: SUCCESS.
+- Exact-head Cloudflare Pages dashboard CI run `44285573824`: dashboard job `134737244933` SUCCESS. API security tests, verifier syntax, Wrangler validation, Pages build and static/API boundary smoke test all completed successfully.
+- PR #226 description updated to match the final worker inventory, deployment artifacts, safety state and remaining external host/credential blocker.
+- PR #226 remains OPEN / DRAFT / UNMERGED. Do not merge until review and production read-only deployment validation.
+- Remaining blocker is now limited to selecting/providing an always-on Docker host and injecting the existing production Turso URL/token through that host's secret manager. The repo now contains a hardened Compose stack and exact runbook commands. No worker service was started.
