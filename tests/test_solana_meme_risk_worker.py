@@ -263,12 +263,14 @@ def test_risk_worker_rejects_replaced_claim_after_collection(tmp_path):
 
 
 def test_risk_row_claim_is_renewed_during_slow_collection(tmp_path):
-    launches, _, risk_store, collector, worker, _ = setup_worker(tmp_path, lease_ms=100)
+    launches, _, risk_store, collector, worker, clock = setup_worker(tmp_path, lease_ms=100)
     original_collect = collector.collect
 
     def slow_collect(*args, **kwargs):
         import time
-        time.sleep(0.25)
+        time.sleep(0.20)
+        clock.value += 150
+        time.sleep(0.10)
         return original_collect(*args, **kwargs)
 
     collector.collect = slow_collect
