@@ -62,3 +62,34 @@ test("dashboard contains no wallet signing, transfer, submission, broadcast or s
   assert.doesNotMatch(html, /data-action=["'](trade|execute|sign|submit|broadcast|schedule)/i);
   assert.doesNotMatch(html, /name=["'](private_key|seed_phrase|wallet_secret)["']/i);
 });
+
+
+test("agent roster is sourced from persisted runtime telemetry, not consensus support alone", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  const renderAgents = js.match(/function renderAgents\\(\\)[\\s\\S]*?\\n  function renderRuntime/);
+  assert.ok(renderAgents, "renderAgents implementation exists");
+  assert.match(renderAgents[0], /runtimeSnapshot\\?\\.agents\\?\\.items/);
+  assert.match(renderAgents[0], /supporting_agents/);
+  assert.match(renderAgents[0], /CONSENSUS-ONLY/);
+  assert.doesNotMatch(renderAgents[0], /No agent identities recorded in consensus history/);
+});
+
+test("agent roster exposes runtime status and heartbeat age", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  const renderAgents = js.match(/function renderAgents\\(\\)[\\s\\S]*?\\n  function renderRuntime/);
+  assert.ok(renderAgents);
+  assert.match(renderAgents[0], /runtime\\?\\.status/);
+  assert.match(renderAgents[0], /age\\(runtime\\.last_heartbeat\\)/);
+});
+
+test("provider probes and chain observations expose source-data age separately from page refresh", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(js, /Probe \\+age\\(item\\.last_probe\\)/);
+  assert.match(js, /Last observation \\+age\\(data\\.latest_observed_at\\)/);
+  assert.match(js, /const age = \\(value\\) =>/);
+});
+
+test("consensus records distinguish missing attribution from missing agent identities", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(js, /Agent attribution missing in this record/);
+});
