@@ -86,7 +86,7 @@ test("agent roster exposes runtime status and heartbeat age", async () => {
 test("provider probes and chain observations expose source-data age separately from page refresh", async () => {
   const js = await readFile(new URL("dashboard.js", root), "utf8");
   assert.match(js, /Probe "\+age\(item\.last_probe\)/);
-  assert.match(js, /Last observation \+age\(data\.latest_observed_at\)/);
+  assert.match(js, /Last observation "\+age\(data\.latest_observed_at\)/);
   assert.match(js, /const age = \(value\) =>/);
 });
 
