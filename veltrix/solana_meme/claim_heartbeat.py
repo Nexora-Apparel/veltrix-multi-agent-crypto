@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterable
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
 class RowClaimHeartbeat:
@@ -52,9 +55,17 @@ class RowClaimHeartbeat:
                     self._lost.set()
                     return
 
-    def complete(self, mint: str) -> None:
+    def complete_after(self, mint: str, operation: Callable[[], T]) -> T:
+        """Run a terminal row update and retire its heartbeat atomically.
+
+        The heartbeat lock spans the database operation and removal, so a
+        renewal cannot observe the row after its terminal update but before
+        it is removed from the pending set.
+        """
         with self._lock:
+            result = operation()
             self._pending.discard(mint)
+            return result
 
     def assert_active(self) -> None:
         if self._lost.is_set():
