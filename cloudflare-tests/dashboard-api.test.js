@@ -298,13 +298,18 @@ test("runtime status distinguishes unavailable telemetry schema from no telemetr
 
 test("runtime status exposes worker-cycle heartbeats separately from agent evaluations", async () => {
   const now = Date.now();
-  const events = [{
-    id: 10, event: "WORKER_HEARTBEAT", payload: JSON.stringify({
+  const events = [
+    { id: 10, event: "WORKER_HEARTBEAT", payload: JSON.stringify({
       worker: "solana-consensus", status: "DEGRADED",
       observed_at_ms: now - 1000, error_code: "CANDIDATE_EVALUATION_FAILURE",
-      metrics: { processed: 3, failed: 1 },
-    }),
-  }];
+      metrics: { processed: 3, failed: 1 }, run_id: "run-consensus", attempt: 2,
+    }) },
+    { id: 9, event: "WORKER_HEARTBEAT", payload: JSON.stringify({
+      worker: "solana-discovery", status: "SUCCESS",
+      observed_at_ms: now - 600_000, metrics: { stored: 5 },
+      run_id: "run-discovery", attempt: 1,
+    }) },
+  ];
   const client = {
     async execute(statement) {
       if (statement.sql.includes("sqlite_master")) {
@@ -324,11 +329,19 @@ test("runtime status exposes worker-cycle heartbeats separately from agent evalu
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.workers.status, "DEGRADED");
-  assert.equal(body.workers.items.length, 4);
+  assert.equal(body.workers.items.length, 6);
+  assert.equal(body.workers.mode, "BOUNDED_RUN");
   const consensus = body.workers.items.find((item) => item.worker === "solana-consensus");
   assert.equal(consensus.status, "DEGRADED");
+  assert.equal(consensus.run_id, "run-consensus");
+  assert.equal(consensus.attempt, 2);
   assert.deepEqual(consensus.metrics, { processed: 3, failed: 1 });
-  assert.equal(body.workers.items.find((item) => item.worker === "solana-discovery").status, "UNKNOWN");
+  const discovery = body.workers.items.find((item) => item.worker === "solana-discovery");
+  assert.equal(discovery.status, "SUCCESS");
+  assert.equal(discovery.run_id, "run-discovery");
+  assert.equal(discovery.attempt, 1);
+  assert.ok(discovery.age_ms >= 600_000);
+  assert.notEqual(discovery.status, "STALE");
   assert.equal(body.agents.status, "UNKNOWN");
   assert.equal(body.agents.items.every((item) => item.status === "UNKNOWN"), true);
 });
