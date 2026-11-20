@@ -68,7 +68,7 @@
 .pipeline-control .section-heading{margin-bottom:7px}
 .pipeline-control-detail{margin:0 0 12px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 .pipeline-control-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.pipeline-control-actions button{min-height:42px;border:1px solid #8e2b52;border-radius:13px;background:#542238;color:#fff;font:700 12px inherit;cursor:pointer}
+.pipeline-control-actions button{min-height:42px;border:1px solid #8e2b52;border-radius:13px;background:#542238;color:#fff;font:700 12px/1.2 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer}
 .pipeline-control-actions button:last-child{border-color:#63313e;background:#29171e;color:#ff9bad}
 .pipeline-control-actions button:disabled{opacity:.42;cursor:not-allowed}
 .pipeline-control-note{display:block;margin-top:10px;color:#958791;font-size:10px;line-height:1.4}
