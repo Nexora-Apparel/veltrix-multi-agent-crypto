@@ -415,21 +415,23 @@ test("pipeline activation checks for active runs then dispatches only the fixed 
   assert.deepEqual(await response.json(), {
     status: "DISPATCH_ACCEPTED", request_id: REQUEST_ID,
   });
-  assert.equal(calls.length, 3);
-  assert.ok(calls[0].url.includes("status=queued"));
-  assert.ok(calls[1].url.includes("status=in_progress"));
-  assert.ok(calls[2].url.endsWith("/actions/workflows/solana-pipeline-schedule.yml/dispatches"));
-  assert.deepEqual(JSON.parse(calls[2].body), {
+  assert.equal(calls.length, 4);
+  assert.ok(calls[0].url.includes("event=workflow_dispatch"));
+  assert.ok(calls[1].url.includes("status=queued"));
+  assert.ok(calls[2].url.includes("status=in_progress"));
+  assert.ok(calls[3].url.endsWith("/actions/workflows/solana-pipeline-schedule.yml/dispatches"));
+  assert.deepEqual(JSON.parse(calls[3].body), {
     ref: "main", inputs: { request_id: REQUEST_ID },
   });
 });
 
 test("pipeline activation refuses to queue a second run while one is active", async () => {
   let calls = 0;
-  const fakeFetch = async () => {
+  const fakeFetch = async (url) => {
     calls += 1;
+    const active = String(url).includes("status=queued");
     return new Response(JSON.stringify({
-      workflow_runs: [{ id: 123, status: "in_progress" }],
+      workflow_runs: active ? [{ id: 123, status: "in_progress" }] : [],
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   const response = await handleDashboardRequest(
@@ -437,7 +439,7 @@ test("pipeline activation refuses to queue a second run while one is active", as
     controlEnv(), null, fakeFetch,
   );
   assert.equal(response.status, 409);
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.equal((await response.json()).run_id, 123);
 });
 
@@ -501,4 +503,27 @@ test("pipeline cancellation rejects a run whose display title belongs to another
     controlEnv(), null, fakeFetch,
   );
   assert.equal(response.status, 404);
+});
+
+
+test("pipeline activation reuses an existing dispatch with the same request ID", async () => {
+  let calls = 0;
+  const fakeFetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({
+      workflow_runs: [{
+        id: 321, display_title: "Veltrix bounded pipeline · " + REQUEST_ID,
+        status: "in_progress", conclusion: null,
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/activate", "POST", { request_id: REQUEST_ID }),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 202);
+  assert.equal(calls, 1);
+  assert.deepEqual(await response.json(), {
+    status: "IN_PROGRESS", request_id: REQUEST_ID, run_id: 321, conclusion: null,
+  });
 });
