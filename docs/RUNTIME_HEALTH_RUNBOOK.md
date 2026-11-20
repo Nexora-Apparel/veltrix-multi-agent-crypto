@@ -66,7 +66,7 @@ The dashboard must not interpret a completed one-shot run as a continuously runn
 - A currently executing run may be shown only when its state is obtained from authoritative GitHub Actions run data; otherwise show the last persisted run and clearly mark execution state as unknown.
 - Preserve append-only history. Do not backdate, seed, delete or rewrite telemetry to manufacture freshness.
 
-**Implementation note:** PR #226 added worker-cycle telemetry and optional perpetual process entry points. The one-shot orchestrator currently calls stage methods directly, so run/stage-scoped telemetry must be wired into that orchestrator and covered by tests before the dashboard can claim complete bounded-run telemetry. Until then, do not infer full stage coverage from the optional worker entry points.
+**Implementation note:** The bounded one-shot orchestrator now writes run-correlated `WORKER_HEARTBEAT` records for discovery, enrichment/token intelligence, market refresh, risk evidence, consensus and the overall pipeline outcome. Each record carries the orchestration run ID and attempt. The orchestrator owns the market-refresh and consensus stage heartbeat writes in one-shot mode to avoid duplicate events; their standalone worker methods retain heartbeat recording by default. Existing agent-vote records remain separate. This implementation is committed on PR #226 but is not yet CI-verified or production-accepted.
 
 ## Required credentials and secret handling
 
