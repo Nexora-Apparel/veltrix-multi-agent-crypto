@@ -51,6 +51,8 @@ try {
     sessionStorage.setItem("veltrix_dashboard_api_token", "test-dashboard-token-for-control-ui-only");
   });
   let controlRequestId = null;
+  let activationCalls = 0;
+  let cancellationCalls = 0;
   let controlRunStatus = "DISPATCH_PENDING";
   const controlRunId = 246810;
   await control.route("**/api/**", async (route) => {
@@ -77,6 +79,7 @@ try {
     });
   });
   await control.route("**/api/pipeline/activate", async (route) => {
+    activationCalls += 1;
     const body = route.request().postDataJSON();
     assert.match(body.request_id, /^[0-9a-f-]{36}$/i);
     controlRequestId = body.request_id;
@@ -84,6 +87,7 @@ try {
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ status: "DISPATCH_ACCEPTED", request_id: controlRequestId }) });
   });
   await control.route("**/api/pipeline/cancel", async (route) => {
+    cancellationCalls += 1;
     const body = route.request().postDataJSON();
     assert.equal(body.request_id, controlRequestId);
     assert.equal(body.run_id, controlRunId);
@@ -94,10 +98,13 @@ try {
   await control.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "READY");
   assert.equal(await control.locator("#pipeline-activate").isEnabled(), true);
+  assert.equal(activationCalls, 0, "readiness probing must not dispatch a workflow");
   await control.locator("#pipeline-activate").click();
   await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "QUEUED");
   assert.equal(await control.locator("#pipeline-cancel").isEnabled(), true);
   await control.locator("#pipeline-cancel").click();
+  assert.equal(activationCalls, 1);
+  assert.equal(cancellationCalls, 1);
   await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "COMPLETED");
   assert.equal(await control.locator("#pipeline-cancel").isDisabled(), true);
   assert.equal(await control.evaluate(() => sessionStorage.getItem("veltrix_pipeline_request_id")), controlRequestId);
