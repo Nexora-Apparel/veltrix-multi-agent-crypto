@@ -1055,3 +1055,10 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - This tested head includes the request-ID validation fix, stable request-idempotency key, control activation/status/cancel routes, GitHub API failure handling, exact run/request matching, and GET status polling when Origin is omitted.
 - The ledger/runbook updates after this tested code head are documentation-only. No production secrets or flags were set; `VELTRIX_PIPELINE_CONTROL_ENABLED` remains disabled. No workflow dispatch was executed.
 - Dashboard UI is intentionally not connected yet; the requested dashboard redesign remains deferred. Backend API is tested but dormant until secure Cloudflare secret binding and explicit enablement.
+
+
+#### Current PR checkpoint — 2026-11-20
+- PR #226 title updated to **Reconcile runtime telemetry with bounded no-VPS pipeline**.
+- PR state remains OPEN / DRAFT / UNMERGED, head `edf445af19b47c9fe6fd48cacac1d641e77d5421`; branch is 113 commits ahead and 0 behind the observed main base.
+- Exact tested code head `020176f08c5a09c427ca18469b5a983e44c7a05a` has Python, Cloudflare Pages and worker-image CI all SUCCESS. Later commits on the PR head are ledger/runbook/PR metadata documentation only.
+- Keep PR draft and unmerged. Do not activate the dashboard-control feature or change production secrets until separate acceptance.
