@@ -298,6 +298,8 @@ class MarketRefreshWorker:
                 status="SUCCESS",
                 metrics={"discovered": discovered, "processed": 0, "refreshed": 0,
                          "unchanged": 0, "failed": 0, "deferred": deferred},
+                run_id=context.run_id if context else None,
+                attempt=context.attempt if context else None,
             )
             return MarketRefreshBatchResult(discovered, 0, 0, 0, 0, deferred)
 
@@ -396,6 +398,8 @@ class MarketRefreshWorker:
             metrics={"discovered": discovered, "processed": len(claimed),
                      "refreshed": refreshed, "unchanged": unchanged,
                      "failed": failed, "deferred": deferred},
+            run_id=context.run_id if context else None,
+            attempt=context.attempt if context else None,
         )
         return MarketRefreshBatchResult(
             discovered=discovered,
