@@ -769,10 +769,15 @@ async function handlePipelineControlRequest(request, env, fetcher = fetch) {
     }
 
     for (const status of ["queued", "in_progress"]) {
-      const active = await githubApi(
-        fetcher, githubToken,
-        "/actions/workflows/" + PIPELINE_WORKFLOW + "/runs?branch=main&status=" + status + "&per_page=20",
-      );
+      let active;
+      try {
+        active = await githubApi(
+          fetcher, githubToken,
+          "/actions/workflows/" + PIPELINE_WORKFLOW + "/runs?branch=main&status=" + status + "&per_page=20",
+        );
+      } catch {
+        return json({ error: "workflow status could not be verified" }, 502);
+      }
       if (!active.ok || !Array.isArray(active.data?.workflow_runs)) {
         return json({ error: "workflow status could not be verified" }, 502);
       }
@@ -786,12 +791,17 @@ async function handlePipelineControlRequest(request, env, fetcher = fetch) {
       }
     }
 
-    const dispatched = await githubApi(
-      fetcher, githubToken,
-      "/actions/workflows/" + PIPELINE_WORKFLOW + "/dispatches",
-      "POST",
-      { ref: "main", inputs: { request_id: requestId } },
-    );
+    let dispatched;
+    try {
+      dispatched = await githubApi(
+        fetcher, githubToken,
+        "/actions/workflows/" + PIPELINE_WORKFLOW + "/dispatches",
+        "POST",
+        { ref: "main", inputs: { request_id: requestId } },
+      );
+    } catch {
+      return json({ error: "GitHub dispatch is temporarily unavailable" }, 502);
+    }
     if (!dispatched.ok) {
       return json({ error: "GitHub rejected the pipeline dispatch" }, 502);
     }
@@ -836,9 +846,14 @@ async function handlePipelineControlRequest(request, env, fetcher = fetch) {
   if (run.status === "completed") {
     return json({ status: "ALREADY_COMPLETED", request_id: requestId, run_id: runId }, 409);
   }
-  const cancelled = await githubApi(
-    fetcher, githubToken, "/actions/runs/" + runId + "/cancel", "POST",
-  );
+  let cancelled;
+  try {
+    cancelled = await githubApi(
+      fetcher, githubToken, "/actions/runs/" + runId + "/cancel", "POST",
+    );
+  } catch {
+    return json({ error: "GitHub cancellation is temporarily unavailable" }, 502);
+  }
   if (!cancelled.ok) return json({ error: "GitHub rejected the cancellation request" }, 502);
   return json({ status: "CANCEL_REQUESTED", request_id: requestId, run_id: runId }, 202);
 }
