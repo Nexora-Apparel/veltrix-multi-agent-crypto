@@ -24,7 +24,7 @@ Do not provision a VPS or search for a free VPS as a prerequisite. Dockerfile/Co
 - It runs on `ubuntu-24.04`, has a 10-minute job timeout and a concurrency group, and calls `python scripts/run_solana_pipeline.py`.
 - The script calls `OneShotSolanaPipeline.run_once()`; the pipeline executes bounded stages under the existing global orchestration lease/fencing contract.
 - `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, and `LIVE_TRADING=false` are explicit workflow settings.
-- Until the dashboard-to-GitHub Actions control endpoint is implemented and verified, the workflow can be manually dispatched from GitHub Actions. Do not claim that dashboard activation/deactivation is already connected.
+- The existing dashboard now contains a minimal pipeline-control panel on the Agents screen. It probes control readiness through the authenticated read-only status endpoint; activation and cancellation remain unavailable unless the backend feature flag and encrypted GitHub credential are configured. Until end-to-end acceptance is complete, the GitHub Actions page remains the manual fallback.
 - Automatic cron/scheduled execution must remain disabled. Do not bypass this with Cloudflare Cron or another scheduler.
 
 ## Intended operator flow
@@ -39,7 +39,7 @@ Do not provision a VPS or search for a free VPS as a prerequisite. Dockerfile/Co
 
 ### Manual fallback before dashboard control is delivered
 
-Use the repository's GitHub Actions page to run the manual workflow. Supply a UUID request ID in the required `request_id` input; it appears in the workflow run title for later status correlation. This is a temporary operator path, not the intended final dashboard experience. Do not enable a recurring schedule.
+If dashboard controls are not configured or accepted, use the repository's GitHub Actions page to run the manual workflow. Supply a UUID request ID in the required `request_id` input; it appears in the workflow run title for later status correlation. Do not enable a recurring schedule.
 
 ## Bounded execution and reliability requirements
 
@@ -67,7 +67,7 @@ The dashboard must not interpret a completed one-shot run as a continuously runn
 - A currently executing run may be shown only when its state is obtained from authoritative GitHub Actions run data; otherwise show the last persisted run and clearly mark execution state as unknown.
 - Preserve append-only history. Do not backdate, seed, delete or rewrite telemetry to manufacture freshness.
 
-**Implementation note:** The bounded one-shot orchestrator now writes run-correlated `WORKER_HEARTBEAT` records for discovery, enrichment/token intelligence, market refresh, risk evidence, consensus and the overall pipeline outcome. Each record carries the orchestration run ID and attempt. The orchestrator owns the market-refresh and consensus stage heartbeat writes in one-shot mode to avoid duplicate events; their standalone worker methods retain heartbeat recording by default. Existing agent-vote records remain separate. This implementation is committed on PR #226 but is not yet CI-verified or production-accepted.
+**Implementation note:** The bounded one-shot orchestrator now writes run-correlated `WORKER_HEARTBEAT` records for discovery, enrichment/token intelligence, market refresh, risk evidence, consensus and the overall pipeline outcome. Each record carries the orchestration run ID and attempt. The orchestrator owns the market-refresh and consensus stage heartbeat writes in one-shot mode to avoid duplicate events; their standalone worker methods retain heartbeat recording by default. Existing agent-vote records remain separate. This implementation is committed on PR #226. Exact-head CI is tracked in the project ledger; production Turso telemetry and live-provider acceptance remain separate operational gates.
 
 ## Dashboard pipeline control API
 
@@ -89,9 +89,9 @@ Security controls:
 - The API returns only a bounded status projection, not raw GitHub responses, headers or credentials.
 - The workflow dispatch response does not contain a run ID; the workflow run name embeds the request ID so status polling can resolve it after GitHub creates the run.
 - The workflow passes `request_id` to `VELTRIX_REQUEST_ID`; the pipeline uses it as the durable orchestration idempotency key. Duplicate dispatches or Actions re-runs with the same request ID cannot create a second logical pipeline run. A deliberate new activation must use a new UUID.
-- The dashboard UI is not yet wired to these routes. Do not claim phone-based activation/deactivation is operational until a UI, Cloudflare secret binding and end-to-end tests are complete.
+- The dashboard UI is now minimally wired to these routes without changing the existing navigation or visual layout. It stores only the non-secret request ID in tab-scoped session storage, polls the exact request, and enables cancellation only after GitHub returns the matching active run ID. This UI code does not enable the backend or dispatch a workflow by itself.
 
-**Activation remains disabled** until the PR is merged, the scoped GitHub Actions credential is configured securely in Cloudflare, the flag is deliberately enabled, and operator acceptance is complete. No credential setup is performed by this code change.
+**Activation remains disabled** until the implementation is merged, the scoped GitHub Actions credential is configured securely in Cloudflare, the flag is deliberately enabled, and operator acceptance is complete. The UI readiness probe is read-only; no credential setup or workflow dispatch is performed by the code change.
 
 ## Required credentials and secret handling
 
@@ -148,3 +148,15 @@ The dashboard control is not complete until authenticated dispatch, status polli
 ## Optional local worker packaging
 
 `Dockerfile.worker` and `compose.worker.yaml` may be retained for local development or future separately approved use. They are not part of the selected production hosting path and must not be required to build, test, deploy or operate the no-VPS pipeline.
+
+
+## Dashboard UI integration — 2026-11-20
+
+The existing Agents screen now contains a compact pipeline-control panel; no dashboard redesign or navigation changes were made.
+
+- On authenticated page load, the browser probes `GET /api/pipeline/status` using a throwaway UUID. This is read-only and determines whether the server-side controls are configured.
+- `Run pipeline` submits a fresh UUID to `POST /api/pipeline/activate`. The browser stores only that request ID in tab-scoped session storage and polls its exact status.
+- `Stop run` first re-reads the exact request status and submits cancellation only when GitHub reports the matching run as queued or in progress. The backend independently verifies request-ID/run-ID matching.
+- Both buttons render disabled by default. They remain disabled when authentication, feature-flag, Cloudflare secret or status checks fail.
+- No workflow dispatch was performed while implementing this UI. No Cloudflare binding or environment flag was changed.
+- This is UI integration, not operational acceptance. Keep `VELTRIX_PIPELINE_CONTROL_ENABLED` false/absent until the implementation is merged, the least-privilege GitHub token is configured as a Cloudflare encrypted secret, and an explicitly controlled end-to-end test has passed.
