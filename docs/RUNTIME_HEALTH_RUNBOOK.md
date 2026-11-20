@@ -156,7 +156,7 @@ The existing Agents screen now contains a compact pipeline-control panel; no das
 
 - On authenticated page load, the browser probes `GET /api/pipeline/status` using a throwaway UUID. This is read-only and determines whether the server-side controls are configured.
 - `Run pipeline` submits a fresh UUID to `POST /api/pipeline/activate`. The browser stores only that request ID in tab-scoped session storage and polls its exact status.
-- `Stop run` first re-reads the exact request status and submits cancellation only when GitHub reports the matching run as queued or in progress. The backend independently verifies request-ID/run-ID matching.
+- `Stop run` first re-reads the exact request status and submits cancellation only after re-reading a matching non-completed GitHub run and its exact run ID. The backend independently verifies request-ID/run-ID matching.
 - Both buttons render disabled by default. They remain disabled when authentication, feature-flag, Cloudflare secret or status checks fail.
 - No workflow dispatch was performed while implementing this UI. No Cloudflare binding or environment flag was changed.
 - This is UI integration, not operational acceptance. Keep `VELTRIX_PIPELINE_CONTROL_ENABLED` false/absent until the implementation is merged, the least-privilege GitHub token is configured as a Cloudflare encrypted secret, and an explicitly controlled end-to-end test has passed.
