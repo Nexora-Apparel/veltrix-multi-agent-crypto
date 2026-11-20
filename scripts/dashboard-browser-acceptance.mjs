@@ -100,6 +100,7 @@ try {
   control.on("dialog", (dialog) => dialog.accept());
   await control.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "READY");
+  await control.locator('[data-screen="agents"]').click();
   assert.equal(await control.locator("#pipeline-activate").isEnabled(), true);
   assert.equal(activationCalls, 0, "readiness probing must not dispatch a workflow");
   await control.locator("#pipeline-activate").click();
