@@ -7,9 +7,9 @@ explicitly disabled until the paper broker supports transaction-scoped fencing.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from typing import Any
-import time
 
 from ..orchestration import OrchestrationStore, RunContext, run_once as execute_job
 from ..runtime_telemetry import RuntimeTelemetryStore
@@ -92,7 +92,6 @@ class OneShotSolanaPipeline:
         context: RunContext,
         worker_id: str | None = None,
     ) -> Any:
-        observed_at_ms = int(time.time() * 1000)
         try:
             result = operation()
         except Exception as exc:
