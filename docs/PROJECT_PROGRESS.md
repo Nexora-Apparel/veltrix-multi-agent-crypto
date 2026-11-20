@@ -823,3 +823,42 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
   4. **Physical Realme 5 Pro acceptance:** requires the user's Android 11 device. Browser CI cannot validate on-device auth expiry, offline behavior, stale API presentation or recovery.
 - No production worker has been deployed; no real heartbeat recovery is claimed. No queues, historical events or stale telemetry were reset or fabricated.
 - Scheduler, paper trading, live trading, signing, submission and broadcast remain disabled.
+
+
+### No-VPS architecture re-audit and runtime-health correction — 2026-11-20
+
+**Authoritative deployment decision reaffirmed:** VELTRIX must remain operable without a paid or free VPS and without a permanently running worker host. The operator activates a bounded pipeline run when desired; the hosted runner continues independently of the operator's phone/network connection once started, then exits. Automatic scheduling remains disabled unless separately authorized. This is the selected project architecture, not a temporary workaround.
+
+#### Repository evidence rechecked
+- Default-branch baseline observed during this audit: `8e790e73b9ee93ae5728eb510b27faf3f60fc72d`.
+- PR #22 (H1.1/H2/H3 Turso adapter, fenced bounded orchestration and one-shot pipeline integration) is **merged**.
+- PR #195 (consolidated GitHub Actions + Turso + Cloudflare Pages/Functions hosting implementation) is **merged**. Its description explicitly separates the selected serverless architecture from the optional systemd host path.
+- PR #226 remains **open/draft/unmerged**. Its added `Dockerfile.worker`, `compose.worker.yaml` and runbook instructions describe a Docker-capable always-on host as a prerequisite for continuous worker health. That is optional runtime packaging, not an approved mandatory deployment dependency.
+- The checked-in `.github/workflows/solana-pipeline-schedule.yml` is `workflow_dispatch` only, uses GitHub-hosted `ubuntu-24.04`, has a 10-minute job timeout, concurrency protection, and explicitly sets `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, and `LIVE_TRADING=false`.
+- `scripts/run_solana_pipeline.py` calls `OneShotSolanaPipeline.run_once()`. The pipeline executes bounded discovery, enrichment, market refresh, risk and consensus stages under the existing orchestration lease/fencing contract; paper processing is explicitly disabled.
+- The one-shot pipeline currently calls the stage methods directly. Discovery uses `poll_once()`; enrichment, market refresh and consensus use their bounded `run_once()` methods. It does not run the three perpetual `while stop_event` supervisor loops. Therefore the existing worker-runtime telemetry must be adapted to record completed one-shot stage/run outcomes, not used to justify an always-on host.
+- Existing `AGENT_HEARTBEAT` events are vote/evaluation evidence, not worker liveness. Provider health observations must remain separate from batch-market observations.
+
+#### Correction to PR #226
+- Retain append-only telemetry, independent provider probe semantics, sanitized failures, expected-role visibility and dashboard separation of agent evaluations from processing activity.
+- Recast `WORKER_HEARTBEAT` in the manual pipeline as a completed bounded run/stage event. It must not imply that a process remains online after the GitHub Actions job exits.
+- Emit truthful stage outcomes for discovery, token intelligence/enrichment, market refresh, and consensus from the one-shot orchestrator. Do not fabricate an agent evaluation when no vote occurred.
+- Run the independent provider health probe during each bounded pipeline attempt, including an empty candidate queue, with its actual run ID and timestamp. Do not require a 60-second persistent loop.
+- Dashboard status must distinguish last run outcome/age, currently executing GitHub Actions job (if observable), manual/disabled schedule state, agent evaluation age, and provider probe age. A stopped one-shot job is normal completion, not a stale persistent process.
+- Dockerfile/Compose assets may remain optional local or third-party deployment packaging, but no runbook, CI gate, product flow or acceptance criterion may require a Docker host/VPS.
+- The secure dashboard-to-GitHub Actions activation control remains future implementation work; until it exists, the workflow is manually dispatchable in GitHub. Do not claim the dashboard button already works.
+
+#### Verified facts vs outstanding work
+- Verified: PR #22 and #195 merged; PR #226 open/draft; one-shot workflow is manual-only and bounded; script invokes the one-shot pipeline; scheduler/paper/live flags are false.
+- Not verified: production Turso secret availability, production schema initialization/migration, Cloudflare production deployment, real production read-only pipeline execution, live provider acceptance, Base/BSC collection acceptance, Android hardware acceptance, or dashboard-triggered workflow dispatch.
+- No production database migration, worker deployment, schedule activation, paper trading, live trading, signing, transaction submission or broadcast is authorized by this audit.
+
+#### Next implementation sequence
+1. Add run-scoped/stage-scoped telemetry to the one-shot orchestrator with explicit SUCCESS/DEGRADED/FAILED semantics and stable GitHub run/attempt correlation.
+2. Ensure empty-queue runs still record the actual provider health probe; prevent duplicate market-refresh heartbeat events where stage instrumentation overlaps.
+3. Update runtime API/dashboard labels and status derivation for bounded runs; remove persistent-worker STALE assumptions from the default operating view.
+4. Rewrite `docs/RUNTIME_HEALTH_RUNBOOK.md` around manual bounded GitHub Actions operation, secure secrets, Turso fencing/idempotency, retry/cancel behavior and the future dashboard dispatch API. Mark Docker/Compose as optional only.
+5. Add adversarial tests for empty queues, stage exceptions, run retries, concurrency fencing, no fabricated agent votes and no false persistent-liveness state.
+6. Run exact-head Python and Cloudflare CI. Keep PR #226 draft/unmerged until the no-VPS design and acceptance tests are reconciled.
+
+Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or submission path.
