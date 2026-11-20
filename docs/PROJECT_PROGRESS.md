@@ -957,3 +957,15 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`: dashboard UI regression asserts last-run wording and success state.
 - `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`: runbook updated to distinguish bounded worker outcomes from agent/provider freshness.
 - Dashboard API tests and UI test updates are included in the latest CI attempt. The Python and worker-image jobs are green; dashboard CI has not yet returned a final conclusion.
+
+
+#### Combined bounded-run validation result — 2026-11-20 16:28 UTC
+- Tested code head: `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`.
+- Python CI run `44773314841`: SUCCESS — test job and embedded worker-image job both passed. The suite included the new run-correlated telemetry, failed-stage correlation and empty-queue provider-probe tests.
+- Cloudflare Pages dashboard CI run `44773314837`: SUCCESS — API security tests, production token verifier syntax, Wrangler command validation, Pages static build, browser acceptance and unauthenticated API boundary all passed.
+- Standalone read-only worker-image CI run `44773314986`: SUCCESS.
+- Earlier intermediate Python CI failure (4 failures, 939 passes) was corrected by making `_run_stage` an instance method; corrected exact-head Python CI `44773039566` also passed.
+- Latest ledger commit before this note: `63f6989454ee0937f027032172ae73de3cfabd0a`. PR #226 remains OPEN / DRAFT / UNMERGED. Current head at PR metadata refresh: `63f6989454ee0937f027032172ae73de3cfabd0a`.
+- CI validates code at `0d637c57...`; subsequent changes were documentation/ledger and PR description only. No production provider or production Turso acceptance is implied by CI.
+- The selected no-VPS bounded execution design remains intact. Dashboard-to-GitHub activation/status/cancel controls remain unimplemented; manual GitHub workflow dispatch remains the only verified operator trigger.
+- No scheduler activation, production database mutation/migration, paper/live trading, signer, transaction submission or broadcast occurred.
