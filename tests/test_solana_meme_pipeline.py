@@ -241,6 +241,24 @@ def test_pipeline_preserves_completed_stage_counts_when_later_stage_fails(tmp_pa
     ]
     assert result.stage_progress[-1]["error_type"] == "RuntimeError"
     assert "synthetic refresh failure" not in str(result.stage_progress)
+    with sqlite3.connect(pipeline.orchestration.database) as db:
+        rows = db.execute(
+            "SELECT payload FROM events WHERE event='WORKER_HEARTBEAT'"
+        ).fetchall()
+    events = [json.loads(payload) for (payload,) in rows]
+    failed_stage = next(
+        item for item in events
+        if item.get("worker") == "solana-market-refresh"
+        and item.get("run_id") == result.job["run_id"]
+    )
+    failed_run = next(
+        item for item in events
+        if item.get("worker") == "solana-pipeline"
+        and item.get("run_id") == result.job["run_id"]
+    )
+    assert failed_stage["status"] == "FAILED"
+    assert failed_run["status"] == "FAILED"
+    assert failed_stage["attempt"] == failed_run["attempt"] == result.job["attempt"]
 
 
 
