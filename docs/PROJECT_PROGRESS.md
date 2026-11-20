@@ -1029,3 +1029,11 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
   - Cloudflare Pages dashboard CI `44774646517` — IN_PROGRESS.
   - Read-only worker image CI `44774646021` — IN_PROGRESS.
 - The intermediate control API code head `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9` had all three CI workflows green, but it predates request-ID idempotency and the latest corrections. No current control API acceptance is claimed until the corrected exact-head run is green.
+
+
+#### Control API browser-origin compatibility and request-ID validation follow-up — 2026-11-20
+- `839f386b774c364b693994e7233fe1339c08fbf5` fixes the blank request-ID validation defect; corrected Python CI run `44774645698` reports the tests job SUCCESS (worker-image job was still running at last inspection).
+- `e335b9263fe82a372acc47d6e4dd35a0f6b0ff4e` permits authenticated status GET requests when browsers omit the `Origin` header, while rejecting a supplied cross-origin value; POST activate/cancel still require exact same-origin Origin.
+- `020176f08c5a09c427ca18469b5a983e44c7a05a` adds regression coverage for status polling without Origin.
+- `4a61de5368d33c1395ab5b83f6cd9f29c778c6f5` updates the runbook with the precise POST/GET origin rules.
+- These final browser-compatibility edits are later than the currently observed CI run and require a fresh exact-head Cloudflare/Python run before acceptance.
