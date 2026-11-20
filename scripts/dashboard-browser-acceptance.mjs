@@ -107,7 +107,7 @@ try {
   assert.equal(cancellationCalls, 1);
   await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "COMPLETED");
   assert.equal(await control.locator("#pipeline-cancel").isDisabled(), true);
-  assert.equal(await control.evaluate(() => sessionStorage.getItem("veltrix_pipeline_request_id")), controlRequestId);
+  assert.equal(await control.evaluate(() => localStorage.getItem("veltrix_pipeline_request_id")), controlRequestId);
   await control.close();
 
   console.log("Mobile dashboard acceptance passed: four screens, 390/360px layouts, Solana/Base/BSC data, runtime telemetry, revoked-token handling, HTTP 503/offline isolation, and mocked pipeline readiness/activation/exact-run cancellation.");
