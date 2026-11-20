@@ -969,3 +969,37 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - CI validates code at `0d637c57...`; subsequent changes were documentation/ledger and PR description only. No production provider or production Turso acceptance is implied by CI.
 - The selected no-VPS bounded execution design remains intact. Dashboard-to-GitHub activation/status/cancel controls remain unimplemented; manual GitHub workflow dispatch remains the only verified operator trigger.
 - No scheduler activation, production database mutation/migration, paper/live trading, signer, transaction submission or broadcast occurred.
+
+
+### Secure dashboard-to-GitHub pipeline control API — implementation in progress (2026-11-20)
+
+**The backend control endpoints are now implemented but deliberately disabled by default. No workflow was dispatched.**
+
+#### Code changes
+- `3a1f9955669621ad1e937acbbcfe60c2d9ddfd06`: added gated authenticated pipeline control routes:
+  - `POST /api/pipeline/activate`
+  - `GET /api/pipeline/status?request_id=...`
+  - `POST /api/pipeline/cancel`
+- Activation requires the existing dashboard bearer token, exact same-origin `Origin`, optional same-origin Fetch Metadata, `VELTRIX_PIPELINE_CONTROL_ENABLED=true`, and a server-side `GITHUB_WORKFLOW_DISPATCH_TOKEN`.
+- The repository, workflow filename and dispatch ref are fixed in code (`Nexora-Apparel/veltrix-multi-agent-crypto`, `solana-pipeline-schedule.yml`, `main`). GitHub credentials are never sent to the browser.
+- Activation checks for an existing matching request ID and queued/in-progress runs before dispatch. Status and cancellation resolve runs through the fixed workflow and exact request-ID suffix; cancellation rejects mismatched and already-completed runs.
+- `f7337521318094db69269f929f7f6a57302488eb`: workflow now requires a `request_id` input and embeds it in the Actions run name for later correlation.
+- `0f87dd17593ccb314a06a5ed9e3db7b09637e676` and `0807d0c89d838cf5ba4d42be423053ea73c8097d`: added tests for disabled-by-default behavior, same-origin rejection, fixed workflow dispatch, active-run rejection, request-ID idempotency, status lookup, cancellation and run/request mismatch.
+- `857ec3bb6b4f200b20e04f0fadbebfc5aa8abf0b` and `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9`: harden repeated request handling and exact request-ID matching.
+- `06017e13359c9d73ef6fb7d7e37331a9d8d17d88`: documented API security and secret requirements in the runbook.
+
+#### Safety / activation boundary
+- `VELTRIX_PIPELINE_CONTROL_ENABLED` defaults to disabled; `GITHUB_WORKFLOW_DISPATCH_TOKEN` is a Cloudflare encrypted secret, not a browser value.
+- The feature must remain disabled until PR merge, scoped token provisioning, end-to-end acceptance and operator-controlled enablement.
+- No Cloudflare secret or environment binding was changed; no GitHub Actions workflow was dispatched.
+- The dashboard UI has not been connected to these routes. The existing dashboard layout remains unchanged; the future button wiring is separate from this backend implementation.
+- GitHub Actions still runs only when manually dispatched. Scheduler, paper and live trading remain disabled.
+
+#### Validation pending
+- Run exact-head Python, Cloudflare Pages API/browser, and worker-image CI for the control API and tests.
+- Verify mocked GitHub API tests, especially workflow-run list matching and cancellation.
+- Confirm workflow YAML accepts required `request_id` input and run-name interpolation.
+- Confirm actual Cloudflare secret binding names/permissions only through safe metadata; never reveal token values.
+- After CI, inspect code for race behavior around simultaneous dispatch attempts. GitHub concurrency and the Turso lease are backstops, but the API's pre-dispatch active-run check is not an atomic distributed lock.
+- No production activation, database write, migration, scheduler, trading or signing is authorized.
+
