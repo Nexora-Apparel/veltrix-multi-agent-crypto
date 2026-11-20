@@ -921,3 +921,29 @@ Safety locks remain: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `
 - The test file now includes a failed market-refresh stage assertion proving that the stage and terminal pipeline heartbeat carry the same run ID and attempt; the empty-queue probe test asserts the actual fake-provider identity `probeprovider-health`.
 - The earlier statement that no workflow runs were visible applied to the intermediate test commit; it is superseded by these exact-head runs.
 - No CI success is claimed until all three runs complete and their job results are inspected.
+
+
+#### Bounded-run API/dashboard correction — 2026-11-20
+
+- `1ea93ffbafb2fe0ee9e9c88bc63a6d8b3b7c2491` fixed the static-method binding defect found by the first Python CI run.
+- Verified follow-up CI for that corrected telemetry head:
+  - Python CI `44773039566`: both `tests` and `worker-image` jobs SUCCESS.
+  - Cloudflare Pages dashboard CI `44773038647`: SUCCESS.
+  - Standalone read-only worker-image CI `44773038511`: SUCCESS.
+- Subsequent API/UI changes:
+  - `e7cef50acc2b4c956ee93dfe39cf5b725678b0c0`: runtime API now models workers as bounded-run outcomes, exposing SUCCESS/DEGRADED/FAILED, age, run ID and attempt; normal idle time no longer becomes STALE.
+  - `d955010d651f10aa2703ff5ec863587846234222`: dashboard worker panel now labels last bounded run, age, run ID and attempt.
+  - `28590a2347e58248d97e44bfeba74a5d343c3c03`: API regression test verifies an old successful bounded run remains SUCCESS rather than STALE.
+  - `95c58de97652618e5c5a32bc97b1d7e66e699e72` and `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`: removed obsolete worker freshness threshold and updated dashboard assertions.
+  - `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`: runbook documents BOUNDED_RUN status and independent agent/provider freshness.
+- Latest PR #226 head is `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`, OPEN/DRAFT/UNMERGED, 87 commits ahead and 0 behind the recorded main base.
+- Latest combined CI, covering the API/dashboard changes on code head `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`, is in progress:
+  - Python CI `44773314841`
+  - Cloudflare Pages dashboard CI `44773314837`
+  - Read-only worker-image CI `44773314986`
+- The prior corrected telemetry-only CI is green, but the latest API/dashboard code is not accepted until these three new runs complete and their jobs are inspected.
+- Runtime API now includes six expected run roles: discovery, token intelligence, market refresh, risk evidence, consensus and overall pipeline. Existing UI was minimally adjusted; no dashboard redesign was started.
+- Dashboard-to-GitHub workflow dispatch/status/cancellation remains unimplemented. The GitHub Actions manual workflow is still the only verified activation path.
+- Production Turso read-only operation and production provider probe acceptance remain outstanding. The DexScreener provider class exposes `probe()`; this confirms interface availability, not successful production probe execution.
+
+Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or transaction submission path.
