@@ -429,9 +429,6 @@ async function runtimeStatus(client, tables, env = {}) {
   const providerMaxAge = Math.max(30_000, Math.min(
     3_600_000, Number.parseInt(String(env.VELTRIX_PROVIDER_PROBE_MAX_AGE_MS || "300000"), 10) || 300_000,
   ));
-  const workerMaxAge = Math.max(30_000, Math.min(
-    3_600_000, Number.parseInt(String(env.VELTRIX_WORKER_HEARTBEAT_MAX_AGE_MS || "300000"), 10) || 300_000,
-  ));
   const hasLeaseTable = tables.has("orchestration_worker_lease");
   const hasJobsTable = tables.has("orchestration_jobs");
   const hasEventsTable = tables.has("events");
