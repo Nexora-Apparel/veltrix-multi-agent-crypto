@@ -129,11 +129,12 @@
     $("worker-runtime-summary").textContent=workerStatus;
     $("agent-runtime-summary").textContent=agentStatus;
     $("provider-runtime-summary").textContent=providerStatus;
-    if(!workerItems.length) workerHost.append(element("div","empty-state","No worker-cycle heartbeat has been recorded. Agent evaluation heartbeats are tracked separately."));
+    if(!workerItems.length) workerHost.append(element("div","empty-state","No bounded pipeline run has been recorded. Agent evaluation heartbeats are tracked separately."));
     else workerItems.forEach(item=>{
       const metrics=item.metrics&&typeof item.metrics==="object"?Object.entries(item.metrics).map(([key,value])=>key+" "+value).join(" · "):"";
-      const detail=[item.last_heartbeat?"Cycle "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No cycle heartbeat",metrics].filter(Boolean).join(" · ");
-      workerHost.append(recordRow(String(item.worker||"Worker").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Completed worker-cycle telemetry",item.status==="FRESH"?true:item.status==="FAILED"||item.status==="DEGRADED"?false:null));
+      const run=item.run_id?"Run "+String(item.run_id).slice(0,12)+(item.attempt?" · attempt "+item.attempt:""):"";
+      const detail=[item.last_heartbeat?"Last run "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No completed run",run,metrics].filter(Boolean).join(" · ");
+      workerHost.append(recordRow(String(item.worker||"Worker").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Last bounded pipeline stage outcome",item.status==="SUCCESS"||item.status==="FRESH"?true:item.status==="FAILED"||item.status==="DEGRADED"?false:null));
     });
     if(!agentItems.length) agentHost.append(element("div","empty-state","No persisted agent heartbeat telemetry."));
     else agentItems.forEach(item=>{
