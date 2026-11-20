@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+import json
+import sqlite3
 
 import pytest
 
@@ -239,3 +241,50 @@ def test_pipeline_preserves_completed_stage_counts_when_later_stage_fails(tmp_pa
     ]
     assert result.stage_progress[-1]["error_type"] == "RuntimeError"
     assert "synthetic refresh failure" not in str(result.stage_progress)
+
+
+
+def test_bounded_pipeline_emits_one_run_correlated_heartbeat_per_stage(tmp_path):
+    pipeline, *_ = build_pipeline(tmp_path)
+
+    result = pipeline.run_once(idempotency_key="correlated-run-telemetry")
+
+    assert result.job["status"] == "SUCCEEDED"
+    with sqlite3.connect(pipeline.orchestration.database) as db:
+        rows = db.execute(
+            "SELECT event, payload FROM events WHERE event='WORKER_HEARTBEAT'"
+        ).fetchall()
+    events = [json.loads(payload) for event, payload in rows]
+    expected = {
+        "solana-discovery",
+        "solana-token-intelligence",
+        "solana-market-refresh",
+        "solana-risk-evidence",
+        "solana-consensus",
+        "solana-pipeline",
+    }
+    actual = [item for item in events if item.get("run_id") == result.job["run_id"]]
+    assert {item["worker"] for item in actual} == expected
+    assert len(actual) == len(expected)
+    assert all(item["attempt"] == result.job["attempt"] for item in actual)
+    assert all(item["status"] == "SUCCESS" for item in actual)
+
+
+def test_empty_market_refresh_queue_still_records_independent_provider_probe(tmp_path):
+    pipeline, *_ = build_pipeline(tmp_path)
+
+    class ProbeProvider(MarketProvider):
+        def probe(self):
+            return {"latency_ms": 7}
+
+    pipeline.market_refresh.market_data.provider = ProbeProvider()
+    result = pipeline.market_refresh.run_once()
+
+    assert result.processed == 0
+    with sqlite3.connect(pipeline.orchestration.database) as db:
+        rows = db.execute(
+            "SELECT payload FROM events WHERE event='PROVIDER_PROBE'"
+        ).fetchall()
+    probes = [json.loads(payload) for (payload,) in rows]
+    assert any(item["provider"] == "marketprovider-health"
+               and item["status"] == "SUCCESS" for item in probes)
