@@ -442,7 +442,7 @@ async function runtimeStatus(client, tables, env = {}) {
       FROM orchestration_worker_lease WHERE lease_name='global-worker' LIMIT 1`);
   }
   if (hasJobsTable) {
-    latestJob = await first(client, `SELECT job_type, status, attempt, updated_at_ms,
+    latestJob = await first(client, `SELECT run_id, job_type, status, attempt, updated_at_ms,
       started_at_ms, finished_at_ms, error_code
       FROM orchestration_jobs ORDER BY updated_at_ms DESC LIMIT 1`);
   }
@@ -504,14 +504,24 @@ async function runtimeStatus(client, tables, env = {}) {
     "solana-discovery",
     "solana-token-intelligence",
     "solana-market-refresh",
+    "solana-risk-evidence",
     "solana-consensus",
+    "solana-pipeline",
   ];
   const workerItems = expectedWorkers.map((worker) => {
     const payload = latestWorkers.get(worker) || null;
+    const observedAt = Number(payload?.observed_at_ms);
+    const ageMs = payload && Number.isFinite(observedAt) && observedAt <= now
+      ? now - observedAt : null;
+    const outcome = payload && ["SUCCESS", "DEGRADED", "FAILED"].includes(payload.status)
+      ? payload.status : "UNKNOWN";
     return {
       worker,
-      status: hasEventsTable ? freshness(payload, workerMaxAge) : "UNAVAILABLE",
+      status: hasEventsTable ? outcome : "UNAVAILABLE",
       last_heartbeat: payload ? isoMilliseconds(payload.observed_at_ms) : null,
+      age_ms: ageMs,
+      run_id: payload && typeof payload.run_id === "string" ? payload.run_id : null,
+      attempt: finiteNumber(payload?.attempt),
       error_code: payload && (payload.status === "FAILED" || payload.status === "DEGRADED")
         ? payload.error_code || payload.status : null,
       metrics: payload && payload.metrics && typeof payload.metrics === "object"
@@ -520,10 +530,9 @@ async function runtimeStatus(client, tables, env = {}) {
   });
   const workerStatuses = workerItems.map((item) => item.status);
   const workerSummary = !hasEventsTable ? "UNAVAILABLE"
-    : !workerItems.length ? "UNKNOWN"
-    : workerStatuses.every((status) => status === "FRESH") ? "FRESH"
-    : workerStatuses.some((status) => status === "FAILED" || status === "DEGRADED") ? "DEGRADED"
-    : workerStatuses.some((status) => status === "STALE") ? "STALE" : "UNKNOWN";
+    : workerStatuses.some((status) => status === "FAILED") ? "FAILED"
+    : workerStatuses.some((status) => status === "DEGRADED") ? "DEGRADED"
+    : workerStatuses.every((status) => status === "SUCCESS") ? "SUCCESS" : "UNKNOWN";
   const agentStatuses = agentItems.map((item) => item.status);
   const providerStatuses = providerItems.map((item) => item.status);
   const agentSummary = !hasEventsTable ? "UNAVAILABLE"
@@ -547,6 +556,7 @@ async function runtimeStatus(client, tables, env = {}) {
       lease_acquired_at: lease ? isoMilliseconds(lease.acquired_at_ms) : null,
       lease_expires_at: lease ? isoMilliseconds(lease.expires_at_ms) : null,
       latest_job: latestJob ? {
+        run_id: String(latestJob.run_id || ""),
         job_type: String(latestJob.job_type || ""),
         status: String(latestJob.status || "UNKNOWN"),
         attempt: finiteNumber(latestJob.attempt),
@@ -559,7 +569,7 @@ async function runtimeStatus(client, tables, env = {}) {
     workers: {
       status: workerSummary,
       heartbeat_source_available: hasEventsTable,
-      freshness_window_ms: workerMaxAge,
+      mode: "BOUNDED_RUN",
       items: workerItems,
     },
     agents: {
