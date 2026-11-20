@@ -1095,14 +1095,14 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
   - Live Solana provider smoke tests were skipped; do not count them as provider acceptance.
 - Earlier browser acceptance attempt `44777342623` failed because the test clicked a control while the Agents screen was hidden and then asserted an asynchronous cancellation before the request completed. The test was corrected to navigate to Agents, use one deterministic mocked API route, and await terminal status before checking cancellation. Final exact-head run `44778094418` passed.
 - No GitHub Actions pipeline dispatch, Cloudflare secret/flag change, production deployment, database migration/write, scheduler activation, paper/live trading, signing or transaction submission occurred.
-- **Next:** inspect exact-head CI on the updated PR #226 branch after the squash merge. Then the only operational blocker is secure Cloudflare configuration and a deliberately controlled end-to-end dispatch/status/cancel acceptance. Keep all safety flags disabled.
+- Post-squash exact-head CI is recorded below. Later changes are ledger/PR metadata only; the only operational blocker is secure Cloudflare configuration and a deliberately controlled end-to-end dispatch/status/cancel acceptance. Keep all safety flags disabled.
 ### Post-squash exact-head CI — 2026-11-20
 
-- Exact current PR #226 branch head: 439f96fe9cd7bf7bbe10aefd9a96ff0d5900e406.
+- Exact post-squash code head tested: 439f96fe9cd7bf7bbe10aefd9a96ff0d5900e406. The current branch subsequently advanced through ledger-only updates; no runtime code changed after the tested head.
 - Python CI 44778735418: SUCCESS — 947 passed, 10 skipped; tests and embedded worker-image jobs both SUCCESS.
 - Cloudflare Pages dashboard CI 44778735580: SUCCESS — 42 Node tests passed, production token verifier syntax passed, Wrangler validation passed, Pages static build passed, and mobile/browser acceptance passed. The browser flow includes mocked pipeline readiness, manual activation, request-ID polling and exact-run cancellation.
 - Standalone read-only worker image CI 44778735448: SUCCESS.
-- PR #227 is CLOSED / MERGED into PR #226 only. PR #226 remains OPEN / DRAFT / UNMERGED against main, 117 commits ahead and 0 behind at this check.
+- PR #227 is CLOSED / MERGED into PR #226 only. PR #226 remains OPEN / DRAFT / UNMERGED against main, 118 commits ahead and 0 behind at the latest compare.
 - These results verify the post-squash code and documentation head. The three live Solana provider smoke tests were SKIPPED; no live provider acceptance is claimed.
 - No production workflow dispatch, Cloudflare secret or flag change, production deployment, database migration/write, scheduler activation, paper/live trading, signing or transaction submission occurred.
 - Next operational blocker remains Cloudflare encrypted-secret configuration and explicitly controlled end-to-end dispatch/status/cancel acceptance after PR #226 is merged. Keep VELTRIX_PIPELINE_CONTROL_ENABLED false/absent and all execution safety flags disabled.
