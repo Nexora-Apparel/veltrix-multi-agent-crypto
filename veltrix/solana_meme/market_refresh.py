@@ -277,7 +277,8 @@ class MarketRefreshWorker:
         finally:
             self._last_provider_probe_monotonic = time.monotonic()
 
-    def run_once(self, *, limit: int = 25, context: RunContext | None = None) -> MarketRefreshBatchResult:
+    def run_once(self, *, limit: int = 25, context: RunContext | None = None,
+                 record_heartbeat: bool = True) -> MarketRefreshBatchResult:
         """Discover refresh targets and process one bounded batch via batch API."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 300:
             raise ValueError("limit must be between 1 and 300")
@@ -293,14 +294,15 @@ class MarketRefreshWorker:
                     SELECT COUNT(*) FROM solana_market_refresh_jobs
                     WHERE status IN ('active', 'retry', 'processing')
                 """).fetchone()[0])
-            self.telemetry.record_worker_heartbeat(
-                "solana-market-refresh", observed_at_ms=self.clock_ms(),
-                status="SUCCESS",
-                metrics={"discovered": discovered, "processed": 0, "refreshed": 0,
-                         "unchanged": 0, "failed": 0, "deferred": deferred},
-                run_id=context.run_id if context else None,
-                attempt=context.attempt if context else None,
-            )
+            if record_heartbeat:
+                self.telemetry.record_worker_heartbeat(
+                    "solana-market-refresh", observed_at_ms=self.clock_ms(),
+                    status="SUCCESS",
+                    metrics={"discovered": discovered, "processed": 0, "refreshed": 0,
+                             "unchanged": 0, "failed": 0, "deferred": deferred},
+                    run_id=context.run_id if context else None,
+                    attempt=context.attempt if context else None,
+                )
             return MarketRefreshBatchResult(discovered, 0, 0, 0, 0, deferred)
 
         refreshed = unchanged = failed = 0
@@ -391,16 +393,17 @@ class MarketRefreshWorker:
                 SELECT COUNT(*) FROM solana_market_refresh_jobs
                 WHERE status IN ('active', 'retry', 'processing')
             """).fetchone()[0])
-        self.telemetry.record_worker_heartbeat(
-            "solana-market-refresh", observed_at_ms=self.clock_ms(),
-            status="DEGRADED" if failed else "SUCCESS",
-            error_code="MARKET_REFRESH_FAILURE" if failed else None,
-            metrics={"discovered": discovered, "processed": len(claimed),
-                     "refreshed": refreshed, "unchanged": unchanged,
-                     "failed": failed, "deferred": deferred},
-            run_id=context.run_id if context else None,
-            attempt=context.attempt if context else None,
-        )
+        if record_heartbeat:
+            self.telemetry.record_worker_heartbeat(
+                "solana-market-refresh", observed_at_ms=self.clock_ms(),
+                status="DEGRADED" if failed else "SUCCESS",
+                error_code="MARKET_REFRESH_FAILURE" if failed else None,
+                metrics={"discovered": discovered, "processed": len(claimed),
+                         "refreshed": refreshed, "unchanged": unchanged,
+                         "failed": failed, "deferred": deferred},
+                run_id=context.run_id if context else None,
+                attempt=context.attempt if context else None,
+            )
         return MarketRefreshBatchResult(
             discovered=discovered,
             processed=len(claimed),
