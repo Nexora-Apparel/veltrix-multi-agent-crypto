@@ -731,7 +731,9 @@ async function handlePipelineControlRequest(request, env, fetcher = fetch) {
     return json({ error: "unauthorized" }, 401);
   }
 
-  if (request.headers.get("Origin") !== url.origin) {
+  const origin = request.headers.get("Origin");
+  if ((expectedMethod === "POST" && origin !== url.origin) ||
+      (origin && origin !== url.origin)) {
     return json({ error: "same-origin request required" }, 403);
   }
   if (request.headers.get("Sec-Fetch-Site") &&
