@@ -155,7 +155,7 @@
     $("pipeline-control-status").textContent=status;
     $("pipeline-control-detail").textContent=detail;
     pipelineControlAvailable=available===true;
-    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||status==="QUEUED"||status==="IN_PROGRESS"||status==="DISPATCH_PENDING";
+    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED","DISPATCH_PENDING"].includes(status);
     $("pipeline-cancel").disabled=!pipelineControlAvailable||pipelineControlBusy||canCancel!==true;
   }
   async function pipelineControlRequest(path,method="GET",payload){
@@ -201,7 +201,7 @@
       const result=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(requestId));
       const data=result.data,status=String(data.status||"UNKNOWN").toUpperCase();
       const runId=Number(data.run_id||0);
-      const canCancel=runId>0&&(status==="QUEUED"||status==="IN_PROGRESS");
+      const canCancel=runId>0&&["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED"].includes(status);
       const detail=[
         "Request "+requestId,
         runId>0?"GitHub run #"+runId:"",
@@ -230,13 +230,14 @@
     if(pipelineControlBusy||!pipelineControlAvailable)return;
     const requestId=sessionStorage.getItem(pipelineRequestKey);
     if(!requestId)return;
+    if(!window.confirm("Stop this exact VELTRIX pipeline run?"))return;
     pipelineControlBusy=true;
     setPipelineControl("CANCELLING","Verifying the exact request and active GitHub run…",false,false);
     try{
       const current=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(requestId));
       const runId=Number(current.data.run_id||0);
       const status=String(current.data.status||"").toUpperCase();
-      if(!runId||!["QUEUED","IN_PROGRESS"].includes(status))throw new Error("No cancellable active run was found for this request.");
+      if(!runId||!["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED"].includes(status))throw new Error("No cancellable active run was found for this request.");
       const result=await pipelineControlRequest("/api/pipeline/cancel","POST",{request_id:requestId,run_id:runId});
       setPipelineControl(result.data.status||"CANCEL_REQUESTED","Cancellation requested for GitHub run #"+runId+". Verify its final state below.",true,false);
     }catch(error){
