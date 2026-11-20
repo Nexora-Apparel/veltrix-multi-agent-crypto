@@ -108,3 +108,21 @@ test("dashboard displays last bounded run independently from agent evaluation he
   assert.match(js, /item\.status==="SUCCESS"/);
   assert.match(js, /Workers "\+workerStatus/);
 });
+
+test("dashboard exposes bounded pipeline controls without redesigning navigation or enabling trading", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(html, /id="pipeline-control-status"/);
+  assert.match(html, /id="pipeline-activate"[^>]*disabled/);
+  assert.match(html, /id="pipeline-cancel"[^>]*disabled/);
+  assert.match(html, /One bounded Solana analysis run/);
+  assert.match(js, /\/api\/pipeline\/status\?request_id=/);
+  assert.match(js, /\/api\/pipeline\/activate/);
+  assert.match(js, /\/api\/pipeline\/cancel/);
+  assert.match(js, /localStorage\.setItem\(pipelineRequestKey,requestId\)/);
+  assert.match(js, /run_id:runId/);
+  assert.match(js, /window\.confirm\("Stop this exact VELTRIX pipeline run\?"\)/);
+  for (const screen of ["home", "trades", "agents", "wallet"]) {
+    assert.match(html, new RegExp('data-screen="' + screen + '"'));
+  }
+});
