@@ -1019,3 +1019,13 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
   - Cloudflare Pages `44774481776`
   - Worker image `44774481932`
 - Feature flag remains disabled; no GitHub dispatch has been performed. The API's active-run pre-check is not an atomic distributed lock, but the stable request-ID idempotency key prevents duplicate dispatches with the same ID from creating separate logical pipeline executions. The global Turso lease and GitHub concurrency group remain additional serialization layers.
+
+
+#### Request-ID blank-input defect and correction — 2026-11-20
+- Python CI at intermediate code head `883c96471cab4871dbd00f7aecb98018b2d7e65b` found one test failure: a whitespace-only `VELTRIX_REQUEST_ID` was treated as absent and fell back to a random local idempotency key. Remaining suite: 946 passed, 10 skipped.
+- Corrected in `839f386b774c364b693994e7233fe1339c08fbf5`: if the request-ID environment key is present, it must validate; blank or malformed values now fail closed. The GitHub run-ID fallback applies only when the environment key is absent.
+- Exact-head CI for corrected code is now running:
+  - Python CI `44774645698` — QUEUED.
+  - Cloudflare Pages dashboard CI `44774646517` — IN_PROGRESS.
+  - Read-only worker image CI `44774646021` — IN_PROGRESS.
+- The intermediate control API code head `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9` had all three CI workflows green, but it predates request-ID idempotency and the latest corrections. No current control API acceptance is claimed until the corrected exact-head run is green.
