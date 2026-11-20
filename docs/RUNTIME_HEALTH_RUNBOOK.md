@@ -88,6 +88,7 @@ Security controls:
 - Status/cancel operations resolve the request ID against the fixed workflow's GitHub run list. Cancellation rejects mismatched run IDs and completed runs.
 - The API returns only a bounded status projection, not raw GitHub responses, headers or credentials.
 - The workflow dispatch response does not contain a run ID; the workflow run name embeds the request ID so status polling can resolve it after GitHub creates the run.
+- The workflow passes `request_id` to `VELTRIX_REQUEST_ID`; the pipeline uses it as the durable orchestration idempotency key. Duplicate dispatches or Actions re-runs with the same request ID cannot create a second logical pipeline run. A deliberate new activation must use a new UUID.
 - The dashboard UI is not yet wired to these routes. Do not claim phone-based activation/deactivation is operational until a UI, Cloudflare secret binding and end-to-end tests are complete.
 
 **Activation remains disabled** until the PR is merged, the scoped GitHub Actions credential is configured securely in Cloudflare, the flag is deliberately enabled, and operator acceptance is complete. No credential setup is performed by this code change.
