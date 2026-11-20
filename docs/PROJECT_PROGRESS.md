@@ -1037,3 +1037,11 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - `020176f08c5a09c427ca18469b5a983e44c7a05a` adds regression coverage for status polling without Origin.
 - `4a61de5368d33c1395ab5b83f6cd9f29c778c6f5` updates the runbook with the precise POST/GET origin rules.
 - These final browser-compatibility edits are later than the currently observed CI run and require a fresh exact-head Cloudflare/Python run before acceptance.
+
+
+#### Corrected request-ID and control-route CI checkpoint — 2026-11-20
+- Python CI run `44774805832` for test commit `020176f08c5a09c427ca18469b5a983e44c7a05a`: test job SUCCESS, including blank/malformed request-ID rejection and stable idempotency tests.
+- Standalone read-only worker image CI run `44774805743`: build-worker-image SUCCESS.
+- Cloudflare Pages dashboard CI run `44774805850`: still IN_PROGRESS at last check; it includes the new control-route security and status-without-Origin tests. Do not claim dashboard acceptance until the job completes.
+- A separate earlier Python CI run `44774645698` also passed both test and embedded worker-image jobs after the blank request-ID fix.
+- The later `e335b9263fe82a372acc47d6e4dd35a0f6b0ff4e` origin-handling change and `020176f08c5a09c427ca18469b5a983e44c7a05a` test are included in run `44774805850`.
