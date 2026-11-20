@@ -1072,3 +1072,11 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - Buttons are disabled by default and remain disabled when authentication, feature-flag, encrypted-token or status checks fail. No workflow dispatch, Cloudflare secret change, feature-flag change, database write, production deployment or trading action was performed.
 - UI/style commits: `492c9845b0443027b0817bf096084a248b17d843`, `74cee8dc65e56e7afbcb72741eec931d7e5369a0`, `5087c9b53ed2f6772a0b25b013663fe5b2bee099`, `2e9eb6823d9a679de43552ca32d9242bd0243461`, `29bf11151b7b39b8ac59703b6b3c958d808f3272`, `37829fc1987137c5e61ee9bf6a1121788d692bdd`, and runbook update `c4cc3185a62ecb12601626944021785464c065db`.
 - **Pending:** exact-head Python/Cloudflare UI CI, browser interaction acceptance, PR integration into #226, and post-merge secure Cloudflare configuration plus explicitly authorized end-to-end dispatch/status/cancel acceptance. Keep `VELTRIX_PIPELINE_CONTROL_ENABLED` false/absent and all scheduler/paper/live/signing/submission controls disabled.
+
+### Dashboard controls browser acceptance extension — 2026-11-20
+
+- Added a mocked Playwright flow to `scripts/dashboard-browser-acceptance.mjs` covering readiness probe, manual activation, request-ID persistence, status polling, explicit cancellation confirmation and exact run-ID matching.
+- All pipeline API calls in this browser scenario are intercepted and mocked. It cannot dispatch a real GitHub workflow or mutate production.
+- Previous head `891ed5ac6ea5f5d05c50cfc1b41d47781794dbc1` passed Python CI run `44776700531` (**947 passed / 10 skipped**, embedded worker-image job SUCCESS) and Cloudflare Pages run `44776700562` (42 Node tests passed; Pages build and the existing mobile/browser acceptance passed).
+- New browser-control scenario commit: `d0942914b2d16be2f4e62c5683bc657c87653c36`. It changes the exact tested head; rerun Python and Cloudflare Pages CI before accepting or integrating PR #227.
+- No real workflow dispatch, Cloudflare secret/flag change, production deployment, database mutation, schedule, paper/live trading, signing or transaction submission occurred.
