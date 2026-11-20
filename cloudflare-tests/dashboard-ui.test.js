@@ -119,7 +119,7 @@ test("dashboard exposes bounded pipeline controls without redesigning navigation
   assert.match(js, /\/api\/pipeline\/status\?request_id=/);
   assert.match(js, /\/api\/pipeline\/activate/);
   assert.match(js, /\/api\/pipeline\/cancel/);
-  assert.match(js, /sessionStorage\.setItem\(pipelineRequestKey,requestId\)/);
+  assert.match(js, /localStorage\.setItem\(pipelineRequestKey,requestId\)/);
   assert.match(js, /run_id:runId/);
   assert.match(js, /window\.confirm\("Stop this exact VELTRIX pipeline run\?"\)/);
   for (const screen of ["home", "trades", "agents", "wallet"]) {
