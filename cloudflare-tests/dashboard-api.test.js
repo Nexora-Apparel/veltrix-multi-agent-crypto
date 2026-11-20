@@ -294,3 +294,250 @@ test("runtime status distinguishes unavailable telemetry schema from no telemetr
   assert.equal(body.agents.status, "UNAVAILABLE");
   assert.equal(body.providers.status, "UNAVAILABLE");
 });
+
+
+test("runtime status exposes worker-cycle heartbeats separately from agent evaluations", async () => {
+  const now = Date.now();
+  const events = [
+    { id: 10, event: "WORKER_HEARTBEAT", payload: JSON.stringify({
+      worker: "solana-consensus", status: "DEGRADED",
+      observed_at_ms: now - 1000, error_code: "CANDIDATE_EVALUATION_FAILURE",
+      metrics: { processed: 3, failed: 1 }, run_id: "run-consensus", attempt: 2,
+    }) },
+    { id: 9, event: "WORKER_HEARTBEAT", payload: JSON.stringify({
+      worker: "solana-discovery", status: "SUCCESS",
+      observed_at_ms: now - 600_000, metrics: { stored: 5 },
+      run_id: "run-discovery", attempt: 1,
+    }) },
+  ];
+  const client = {
+    async execute(statement) {
+      if (statement.sql.includes("sqlite_master")) {
+        return { columns: ["name"], rows: [{ name: "events" }] };
+      }
+      if (statement.sql.includes("FROM events")) {
+        return { columns: ["id", "event", "payload"], rows: events };
+      }
+      throw new Error("unexpected SQL in worker telemetry test");
+    },
+  };
+  const response = await handleDashboardRequest(
+    new Request("https://veltrix.example/api/runtime-status", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }), env(), client,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.workers.status, "DEGRADED");
+  assert.equal(body.workers.items.length, 6);
+  assert.equal(body.workers.mode, "BOUNDED_RUN");
+  const consensus = body.workers.items.find((item) => item.worker === "solana-consensus");
+  assert.equal(consensus.status, "DEGRADED");
+  assert.equal(consensus.run_id, "run-consensus");
+  assert.equal(consensus.attempt, 2);
+  assert.deepEqual(consensus.metrics, { processed: 3, failed: 1 });
+  const discovery = body.workers.items.find((item) => item.worker === "solana-discovery");
+  assert.equal(discovery.status, "SUCCESS");
+  assert.equal(discovery.run_id, "run-discovery");
+  assert.equal(discovery.attempt, 1);
+  assert.ok(discovery.age_ms >= 600_000);
+  assert.notEqual(discovery.status, "STALE");
+  assert.equal(body.agents.status, "UNKNOWN");
+  assert.equal(body.agents.items.every((item) => item.status === "UNKNOWN"), true);
+});
+
+
+
+const CONTROL_TOKEN = "github-workflow-dispatch-test-token-0123456789";
+const REQUEST_ID = "7e3f9d2a-1a4b-4c2d-8e6f-123456789abc";
+
+function controlEnv(overrides = {}) {
+  return env({
+    VELTRIX_PIPELINE_CONTROL_ENABLED: "true",
+    GITHUB_WORKFLOW_DISPATCH_TOKEN: CONTROL_TOKEN,
+    ...overrides,
+  });
+}
+
+function controlRequest(path, method, body) {
+  return new Request("https://veltrix.example" + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      Origin: "https://veltrix.example",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+test("pipeline controls fail closed until the explicit feature flag is enabled", async () => {
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/activate", "POST", { request_id: REQUEST_ID }),
+    controlEnv({ VELTRIX_PIPELINE_CONTROL_ENABLED: "false" }),
+    null,
+    async () => { throw new Error("GitHub must not be called while disabled"); },
+  );
+  assert.equal(response.status, 503);
+});
+
+test("pipeline controls require same-origin requests", async () => {
+  const request = new Request("https://veltrix.example/api/pipeline/activate", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      Origin: "https://attacker.example",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ request_id: REQUEST_ID }),
+  });
+  const response = await handleDashboardRequest(
+    request, controlEnv(), null,
+    async () => { throw new Error("GitHub must not be called cross-origin"); },
+  );
+  assert.equal(response.status, 403);
+});
+
+test("pipeline activation checks for active runs then dispatches only the fixed main workflow", async () => {
+  const calls = [];
+  const fakeFetch = async (url, init = {}) => {
+    calls.push({ url: String(url), method: init.method || "GET", body: init.body || null });
+    if (String(url).includes("/dispatches")) return new Response(null, { status: 204 });
+    return new Response(JSON.stringify({ workflow_runs: [] }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  };
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/activate", "POST", { request_id: REQUEST_ID }),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), {
+    status: "DISPATCH_ACCEPTED", request_id: REQUEST_ID,
+  });
+  assert.equal(calls.length, 4);
+  assert.ok(calls[0].url.includes("event=workflow_dispatch"));
+  assert.ok(calls[1].url.includes("status=queued"));
+  assert.ok(calls[2].url.includes("status=in_progress"));
+  assert.ok(calls[3].url.endsWith("/actions/workflows/solana-pipeline-schedule.yml/dispatches"));
+  assert.deepEqual(JSON.parse(calls[3].body), {
+    ref: "main", inputs: { request_id: REQUEST_ID },
+  });
+});
+
+test("pipeline activation refuses to queue a second run while one is active", async () => {
+  let calls = 0;
+  const fakeFetch = async (url) => {
+    calls += 1;
+    const active = String(url).includes("status=queued");
+    return new Response(JSON.stringify({
+      workflow_runs: active ? [{ id: 123, status: "in_progress" }] : [],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/activate", "POST", { request_id: REQUEST_ID }),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 409);
+  assert.equal(calls, 2);
+  assert.equal((await response.json()).run_id, 123);
+});
+
+test("pipeline status resolves a dispatch request to its GitHub run", async () => {
+  const fakeFetch = async () => new Response(JSON.stringify({
+    workflow_runs: [{
+      id: 456, display_title: "Veltrix bounded pipeline · " + REQUEST_ID,
+      status: "in_progress", conclusion: null,
+      created_at: "2026-11-20T16:00:00Z", updated_at: "2026-11-20T16:01:00Z",
+      html_url: "https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/runs/456",
+    }],
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/status?request_id=" + REQUEST_ID, "GET"),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "IN_PROGRESS");
+  assert.equal(body.run_id, 456);
+  assert.equal(body.request_id, REQUEST_ID);
+});
+
+test("pipeline cancellation requires a matching request ID and GitHub run", async () => {
+  const calls = [];
+  const fakeFetch = async (url, init = {}) => {
+    calls.push({ url: String(url), method: init.method || "GET" });
+    if (String(url).endsWith("/cancel")) return new Response(null, { status: 202 });
+    return new Response(JSON.stringify({
+      workflow_runs: [{
+        id: 789, display_title: "Veltrix bounded pipeline · " + REQUEST_ID,
+        status: "in_progress", conclusion: null,
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/cancel", "POST", {
+      request_id: REQUEST_ID, run_id: 789,
+    }),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), {
+    status: "CANCEL_REQUESTED", request_id: REQUEST_ID, run_id: 789,
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].url.endsWith("/actions/runs/789/cancel"));
+});
+
+test("pipeline cancellation rejects a run whose display title belongs to another request", async () => {
+  const fakeFetch = async () => new Response(JSON.stringify({
+    workflow_runs: [{
+      id: 790, display_title: "Veltrix bounded pipeline · another-request",
+      status: "in_progress",
+    }],
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/cancel", "POST", {
+      request_id: REQUEST_ID, run_id: 790,
+    }),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 404);
+});
+
+
+test("pipeline activation reuses an existing dispatch with the same request ID", async () => {
+  let calls = 0;
+  const fakeFetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({
+      workflow_runs: [{
+        id: 321, display_title: "Veltrix bounded pipeline · " + REQUEST_ID,
+        status: "in_progress", conclusion: null,
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const response = await handleDashboardRequest(
+    controlRequest("/api/pipeline/activate", "POST", { request_id: REQUEST_ID }),
+    controlEnv(), null, fakeFetch,
+  );
+  assert.equal(response.status, 202);
+  assert.equal(calls, 1);
+  assert.deepEqual(await response.json(), {
+    status: "IN_PROGRESS", request_id: REQUEST_ID, run_id: 321, conclusion: null,
+  });
+});
+
+
+test("pipeline status permits an authenticated same-origin GET without an Origin header", async () => {
+  const request = new Request(
+    "https://veltrix.example/api/pipeline/status?request_id=" + REQUEST_ID,
+    { headers: { Authorization: `Bearer ${TOKEN}` } },
+  );
+  const fakeFetch = async () => new Response(JSON.stringify({ workflow_runs: [] }), {
+    status: 200, headers: { "Content-Type": "application/json" },
+  });
+  const response = await handleDashboardRequest(request, controlEnv(), null, fakeFetch);
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).status, "DISPATCH_PENDING");
+});

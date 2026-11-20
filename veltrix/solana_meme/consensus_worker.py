@@ -280,7 +280,8 @@ class ConsensusWorker:
             grouped.setdefault(event.token_address, []).append(event)
         return {mint: tuple(rows) for mint, rows in grouped.items()}
 
-    def run_once(self, *, limit: int = 10, context: RunContext | None = None) -> ConsensusBatchResult:
+    def run_once(self, *, limit: int = 10, context: RunContext | None = None,
+                 record_heartbeat: bool = True) -> ConsensusBatchResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
             raise ValueError("limit must be between 1 and 25")
         now = self.clock_ms()
@@ -337,6 +338,17 @@ class ConsensusWorker:
                 SELECT COUNT(*) FROM solana_consensus_jobs
                 WHERE status IN ('active', 'retry', 'processing')
             """).fetchone()[0])
+        if record_heartbeat:
+            self.telemetry.record_worker_heartbeat(
+                "solana-consensus", observed_at_ms=self.clock_ms(),
+                status="DEGRADED" if failed else "SUCCESS",
+                error_code="CANDIDATE_EVALUATION_FAILURE" if failed else None,
+                metrics={"discovered": discovered, "processed": len(claimed),
+                         "recorded": recorded, "unchanged": unchanged,
+                         "failed": failed, "deferred": deferred},
+                run_id=context.run_id if context else None,
+                attempt=context.attempt if context else None,
+            )
         return ConsensusBatchResult(
             discovered=discovered,
             processed=len(claimed),

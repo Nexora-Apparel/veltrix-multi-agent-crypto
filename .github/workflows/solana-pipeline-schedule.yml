@@ -1,7 +1,14 @@
 name: Manual Solana intelligence pipeline (scheduler locked)
 
+run-name: Veltrix bounded pipeline · ${{ inputs.request_id }}
+
 on:
   workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique dashboard/operator request identifier
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -17,6 +24,7 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       VELTRIX_DEPLOYMENT_TARGET: ci
+      VELTRIX_REQUEST_ID: ${{ inputs.request_id }}
       SCHEDULER_ENABLED: "false"
       LIVE_TRADING: "false"
       PAPER_TRADING_ENABLED: "false"

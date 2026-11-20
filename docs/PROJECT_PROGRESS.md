@@ -650,3 +650,459 @@ The repository tree contains no tracked SQLite database file. The initializer cr
 - No production queue rows were reset, deleted or rewritten. No database schema, credentials, retry/backoff rules, attempt limits, leases, fencing, or execution controls were changed. Manual-only workflow remains in force; paper trading, live trading, Phantom signing, transaction submission and broadcast remain disabled.
 - **Production acceptance remains open.** The next bounded manual run on this merged main commit must be inspected for provider response counts, rejection categories, enrichment snapshots persisted to Turso, and downstream market-refresh/risk/consensus stage progress. Automated CI is not production acceptance.
 - The connected GitHub actions interface exposes read and rerun operations but not workflow dispatch. The repository owner must manually start the existing workflow at [Manual Solana intelligence pipeline (scheduler locked)](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/actions/workflows/solana-pipeline-schedule.yml), selecting `main`, then provide the new run URL for log inspection.
+
+
+## 29. Android dashboard audit and P0 telemetry UI correction — 2026-11-18
+
+### Source evidence
+The user supplied a 33.15-second, 1080x2340 Android screen recording of the actual dashboard. Frames were inspected at approximately two-second intervals. The screen capture was around 10:49–10:50 WAT on 18 Nov 2026.
+
+- Home showed paper balance US$500, zero trades, 0% win rate, no settled closes and 24 network observations (Solana 23, BSC 1).
+- Home observation cards displayed “Updated 17 Nov, 14:39”, although the page was viewed on 18 Nov around 10:49. The status sheet's 10:49:46 timestamp is the dashboard refresh, not proof that source observations are current.
+- Agents page displayed SCOUT, WHALE, SNIPER and SHIELD as STALE, each with heartbeat at 18 Nov 10:24 and stance ABSTAIN.
+- The same page said “No agent identities recorded in consensus history.” This is a frontend data-source defect: `renderAgents()` built the roster only from consensus `supporting_agents`, while the separate runtime-status API supplied the actual persisted agent roster.
+- DexScreener BSC probe: 17 Nov 14:39, 13 ms; Solana probe: 18 Nov 10:20, 59 ms. Both were marked STALE. Consensus showed 16 records, many with “Agent support not recorded”.
+- Trades and Wallet correctly represented an empty paper ledger: no open positions/fills, US$500 virtual cash/equity, zero P&L/exposure, and explicit no-signing/no-submission copy.
+
+### Implemented UI correction — PR #225
+- PR [#225](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/225), branch `fix/dashboard-runtime-telemetry-ui-20261118`, open/draft/unmerged.
+- Head at creation: `e0f0896ef2210bb812c6ebee2ebe07d65ab4f01c`.
+- `renderAgents()` now uses persisted runtime agent items as the primary roster, and merges any consensus-only identities without inventing runtime state. Each roster item displays its actual runtime status and heartbeat age when available.
+- Provider probe and per-chain observation cards now show relative age alongside the absolute timestamp. This makes old data visibly old even when the page itself refreshes.
+- Consensus fallback copy now says attribution is missing on that specific record, rather than implying that no agent identities exist anywhere.
+- Added four dashboard UI regression tests for runtime-sourced roster, heartbeat age, provider/market data age, and consensus attribution wording.
+- Scope is presentation-only: no freshness threshold, backend API contract, database schema, provider trust, agent logic, paper execution or live execution was changed.
+- Exact-head CI and mobile browser acceptance are pending; do not call the change validated or deployed until checks complete.
+
+### Remaining dashboard work
+1. Trace why runtime and provider telemetry were genuinely STALE; a UI correction must not mask the underlying stale heartbeat/probe production issue.
+2. Add an evidence-level consensus drill-down (contributing agent IDs, reason codes, evidence references/counts, hard vetoes and missing requirements) only from fields actually persisted and returned by the API.
+3. Improve empty chart/ledger states and explicitly distinguish zero records from unavailable API data.
+4. Clarify network metrics as observations, not tokens/opportunities, and show successfully enriched versus stale/unavailable candidate counts where the backend exposes them.
+5. Reconcile deployed dashboard values against the same backend/API snapshot; CI and page load are not production deployment verification.
+
+### Safety and project sequencing
+Keep scheduler, paper execution, live execution, wallet signing, transaction submission and broadcast disabled. PRs #223 and #224 remain separate draft/unmerged pipeline work. Dashboard PR #225 is independent and must pass its own exact-head tests before review.
+
+
+## 30. Runtime-health root-cause investigation and instrumentation — 2026-11-18
+
+### Root cause confirmed from source
+- `RuntimeTelemetryStore.record_agent_votes()` writes `AGENT_HEARTBEAT` events only when a candidate consensus evaluation completes. These events are evaluation evidence, not independent process liveness.
+- `ConsensusEngine.evaluate()` constructs four votes (SCOUT, WHALE, SNIPER, SHIELD), including ABSTAIN votes; `ConsensusWorker.run_once()` persists those votes after a successful evaluation. Therefore ABSTAIN is a completed decision and can legitimately produce an evaluation heartbeat.
+- When there are no due consensus candidates, or the consensus worker is not invoked, no agent heartbeat events are written. All four cards can therefore become stale together without proving four separate agent crashes.
+- `MarketRefreshWorker.run_once()` previously returned immediately when no refresh jobs were claimed, before recording any provider probe. The DexScreener probe was tied to the market-refresh batch; the optional Helius wallet provider had its own batch-only probe. There was no independent periodic provider health check.
+- The only checked-in production pipeline workflow, `.github/workflows/solana-pipeline-schedule.yml`, is `workflow_dispatch` only and explicitly sets `SCHEDULER_ENABLED=false`. It does not start a persistent worker. The long-running runtime entry points exist in code but are not deployed as supervised services by the Pages dashboard deployment.
+- Consequence: the screenshot's four STALE agents and stale DexScreener probes are consistent with missing scheduled/continuous worker execution, not evidence of four separate agent defects. A worker heartbeat must not be fabricated as an agent evaluation heartbeat.
+
+### PR #226 — independent worker and provider health
+- PR [#226](https://github.com/Nexora-Apparel/veltrix-multi-agent-crypto/pull/226), branch `fix/runtime-health-heartbeats-and-probes-20261118`, stacked on dashboard PR #225, open/draft/unmerged.
+- Head at creation: `a28cd1ccf394db1876f5f6fa7f764b0de04c6078`.
+- Added append-only `WORKER_HEARTBEAT` events, distinct from per-agent `AGENT_HEARTBEAT` vote events. Metrics are allowlisted scalar values; worker statuses are SUCCESS / DEGRADED / FAILED.
+- Consensus worker records completed cycles even with no due candidates. Market-refresh worker records completed cycles even with an empty refresh queue.
+- Token-intelligence runtime now attempts an independent, bounded 60-second DexScreener API health probe, independent of candidate queue availability, and records success/failure separately.
+- `/api/runtime-status` now exposes worker freshness, status, safe metrics and error category separately from agent evaluation and provider probe statuses.
+- Android dashboard now includes a separate Worker runtime panel. It does not mark agents healthy just because their supervisor is alive.
+- Added regression tests for telemetry separation, provider probe shape validation, API serialization and dashboard UI.
+
+### Validation and blockers
+- PR #225 exact head `3813b28b0ac3a98747ebd7b6c351a83afd45bf75`: Python CI run `44281524598` completed SUCCESS. Cloudflare Pages dashboard CI run `44281524835` was still IN_PROGRESS at the last check; no failure has been established. Mobile browser acceptance is part of that workflow.
+- PR #226 exact head `a28cd1ccf394db1876f5f6fa7f764b0de04c6078`: CI run listing had not yet appeared at the time of this checkpoint. Do not call it passing until exact-head runs complete.
+- The user-provided `state-log-2026-11-12T09-25-11.txt` is a Phantom mobile application diagnostic log (wallet UI/API requests), not the Veltrix backend runtime log. It does not establish the cause of Veltrix worker shutdown and was not used as backend evidence.
+- No workflow schedule or live runtime service was enabled. Continuous health requires a supervised runtime deployment (e.g. a long-lived worker service) with the existing database secrets and explicit operational approval. Cloudflare Pages serves the dashboard/API and is not itself a persistent Python process host.
+
+### Next exact actions
+1. Verify PR #225 Cloudflare Pages CI run `44281524835` and resolve any actual failure rather than treating an in-progress job as failed.
+2. Verify PR #226 Python and Pages CI against its exact latest head; fix all failures and rerun.
+3. Add/verify tests for empty-queue worker cycles and no-candidate agent semantics.
+4. Before any service deployment, prepare a separate read-only worker service configuration and a startup/shutdown/health-check runbook; keep scheduling and trading locks disabled.
+5. After deployment, verify real worker heartbeats and independent DexScreener probes from the production database. Do not seed synthetic telemetry or reset stale records.
+
+
+### Follow-up implementation and CI remediation — 2026-11-18
+
+- Moved the independent provider probe into `MarketRefreshWorker` itself. It now runs before queue processing, so the existing one-shot production pipeline also probes DexScreener when the refresh queue is empty. A local monotonic interval limits it to one probe per 60 seconds per worker process.
+- Kept the provider probe independent from candidate fetch outcomes and preserved sanitized failure telemetry.
+- Added regression coverage proving that an empty candidate queue still produces a provider probe and worker-cycle heartbeat, and that consensus can record a worker cycle without fabricating agent vote events.
+- Added `docs/RUNTIME_HEALTH_RUNBOOK.md` with the existing read-only process entry points, required secret configuration, freshness acceptance gates and rollback procedure. It explicitly states that Cloudflare Pages is not a persistent Python host and that no service/schedule was deployed.
+- CI remediation: first Python CI failure exposed the initial monotonic probe timestamp being set to zero; corrected to negative infinity so the first probe runs regardless of host uptime. The next failure was a test's expected provider identifier not matching the test class fallback; corrected the assertion. Python CI then passed on exact head `30d39aa68dd6c87d8e214edbb3394e877eef967c` (run `44283087171`).
+- Cloudflare dashboard CI exposed stale string assertions in the UI regression tests. Corrected the provider probe and market-observation age assertions to match the actual rendered JavaScript expressions. Exact-head Cloudflare CI rerun is pending on `be46f70a94cd97b851adf93c37dbf9fb9e212269` (run `44283253625`); exact-head Python CI is also pending on the same commit (run `44283253612`).
+- Earlier PR #225 Cloudflare CI failed because its standalone dashboard tests retained those stale assertions. PR #226 contains the corrected tests and all dashboard/runtime changes together; keep #225 draft until #226 passes, then consolidate PR history rather than merging stale tests separately.
+- Current latest code includes the runbook and provider probe centralization; no scheduled workflow or service deployment has been activated. No claim of production runtime recovery is made.
+
+
+### Worker deployment packaging — 2026-11-18
+- Added `Dockerfile.worker`, a non-root Python 3.11 image with both standard and pinned Turso dependencies. It defaults to the token-intelligence runtime and supports per-service command overrides for discovery and consensus.
+- Extended `docs/RUNTIME_HEALTH_RUNBOOK.md` with image build and one-replica-per-role service instructions.
+- This clears the missing portable worker-image artifact. It does not deploy the image: platform selection, encrypted production secrets and service creation remain an external deployment action. No cron/schedule was enabled.
+
+
+### Consolidated dashboard/runtime PR validation — 2026-11-18
+
+- PR #225 was closed as superseded by PR #226; its dashboard changes and corrected assertions are included in the consolidated PR.
+- PR #226 is now retargeted directly to `main`, open/draft/unmerged. Exact head: `60464279a00d0f9d92e795337ea788f7648f2d92`.
+- Exact-head Python CI run `44283816790`: SUCCESS.
+- Exact-head Cloudflare Pages dashboard CI run `44283816852`: SUCCESS, including dashboard API security tests, verifier syntax check, Wrangler command validation, Pages build and static/API boundary smoke test.
+- The latest dashboard copy now labels the agent timestamp as “Last evaluation” and explains that agent freshness reflects the last completed evaluation; worker liveness is a separate panel.
+- The portable `Dockerfile.worker` and runtime deployment runbook are included. A persistent worker service is not deployed; encrypted production secrets and a service host are not available through this repository change. This is the remaining operational deployment blocker.
+- No scheduler, paper trading, live trading, wallet signing, submission or broadcast was enabled. No production recovery claim is made.
+
+
+### Runtime-health completeness and deployment blockers — 2026-11-18
+
+- Added explicit discovery-loop cycle telemetry (`solana-discovery`) via a testable `run_once()` path. Successful empty discovery polls now heartbeat as SUCCESS; partial feed outages become DEGRADED; unexpected cycle exceptions are recorded FAILED before propagation.
+- Runtime API now always returns the four expected worker roles: `solana-discovery`, `solana-token-intelligence`, `solana-market-refresh`, and `solana-consensus`. Missing role telemetry is UNKNOWN rather than silently omitted. This prevents a single healthy worker from making the overall worker panel appear fully healthy.
+- Added regression tests for empty discovery heartbeat and the complete expected-worker inventory in runtime status.
+- Added `.dockerignore` to prevent local environment files, SQLite state, logs, caches and Git metadata from entering the worker image build context. `.env.worker.example` is explicitly retained as a non-secret template.
+- Added `compose.worker.yaml` for one read-only supervised container per role. The stack uses the non-root worker image, read-only root filesystem, no published ports, dropped Linux capabilities, no-new-privileges, restart-on-failure policy and a 40-second graceful-stop window.
+- Extended `docs/RUNTIME_HEALTH_RUNBOOK.md` with copy/build/start/log/stop commands. This clears the missing host-agnostic deployment-manifest blocker.
+- Exact head `8f7452fd79cbc6ca48eacf99bf2a7e8ceb77cbe4`: Python CI run `44285321808` SUCCESS; Cloudflare Pages dashboard CI run `44285321906` SUCCESS. These runs cover discovery heartbeat and expected-worker API changes.
+- Newer deployment-manifest/documentation head `f2f6ffa5fca1dac77fa6357212366bdf7132bbe0` has Python CI run `44285465360` and Cloudflare Pages dashboard CI run `44285465459` in progress at checkpoint. Do not mark the newer head fully green until both finish.
+- Remaining external blocker: a Docker-capable always-on host and production `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` must be supplied through its encrypted secret store or host-side `.env.worker`. No credentials were invented or requested from chat; no service has been started. This cannot be safely completed from repository-only access.
+- Provider probing: DexScreener now has an independent low-cost GET search health check every 60 seconds from market-refresh, even with an empty candidate queue. Helius remains optional and its existing wallet evidence requests are candidate-driven; it is not represented as independently probed when that integration is disabled or no trusted-wallet evidence batch runs.
+- Safety remains unchanged: scheduler, paper trading, live trading, signing and transaction submission disabled. All PR changes remain draft/unmerged pending exact-head CI and external runtime deployment validation.
+
+
+### Final exact-head verification — 2026-11-18 10:28 UTC
+
+- Latest PR #226 head: `45b507c645b5f7120208f74e8223fcd344712b29`.
+- Exact-head Python CI run `44285573921`: SUCCESS.
+- Exact-head Cloudflare Pages dashboard CI run `44285573824`: dashboard job `134737244933` SUCCESS. API security tests, verifier syntax, Wrangler validation, Pages build and static/API boundary smoke test all completed successfully.
+- PR #226 description updated to match the final worker inventory, deployment artifacts, safety state and remaining external host/credential blocker.
+- PR #226 remains OPEN / DRAFT / UNMERGED. Do not merge until review and production read-only deployment validation.
+- Remaining blocker is now limited to selecting/providing an always-on Docker host and injecting the existing production Turso URL/token through that host's secret manager. The repo now contains a hardened Compose stack and exact runbook commands. No worker service was started.
+
+
+### Follow-up reliability hardening — 2026-11-18
+
+- Independent provider probes now use a distinct provider identity suffix (-health) rather than sharing the same provider key as token-batch fetch observations. This prevents a successful/failed candidate batch from overwriting the periodic endpoint-health result in the dashboard. The regular batch observation remains separately visible.
+- Consensus runtime now records a FAILED worker-cycle heartbeat if an unexpected exception escapes the worker before its normal end-of-cycle telemetry write. Per-candidate failures continue to be represented as DEGRADED cycle results and agent evaluation failures, not process crashes.
+- Added regression coverage for unexpected consensus runtime failure.
+- Updated the non-secret worker environment template to include the optional SOLANA_RPC_URL used by read-only risk/data components.
+- Validation caught one stale test expectation after the provider identity was deliberately separated: the test expected probeprovider rather than probeprovider-health. This was a test expectation mismatch, not a runtime failure. Corrected the assertion in commit 5eed7925a312df54246f8876996f27dd9c4fa659.
+- Exact-head Python CI run 44286290444 and Cloudflare Pages CI run 44286290426 are pending at this checkpoint. Earlier failures on heads 4fff1a41... and ca15fde4... were caused by the same stale assertion; do not treat them as final validation.
+- The worker host remains an external blocker: no Docker-capable always-on host or host-side production Turso credentials are available through the repository connection. The Compose stack and deployment runbook are ready, but no service is running and no live dashboard heartbeat recovery is claimed.
+- The earlier manually-dispatched Base/BSC collection and live-provider acceptance checks remain separate operational acceptance tasks. Their workflows are explicitly workflow_dispatch only; the available GitHub integration is read-only for workflow inspection and does not expose a workflow-dispatch action. No attempt was made to activate schedules or live workflows.
+- Physical Realme Android acceptance remains a human-device check. Browser/mobile-emulation CI does not replace testing the actual device, authentication expiry, offline state and backend-failure behavior on hardware.
+- All execution controls remain disabled: SCHEDULER_ENABLED=false, PAPER_TRADING_ENABLED=false, LIVE_TRADING=false; no signing or transaction submission.
+
+
+### Worker image validation and runbook correction — 2026-11-18
+
+- Added a dedicated worker-image CI workflow and an equivalent worker-image job to the existing Python PR workflow. It validates Compose configuration, builds the read-only image, verifies the non-root runtime user, and imports all three worker entry points.
+- First image build failed because requirements-turso.txt installs the pinned Turso adapter from a Git URL while python:3.11-slim did not contain the git executable. This was a genuine image-build defect. Dockerfile.worker now uses a multi-stage build: git is installed only in the builder stage and the final runtime image receives the installed Python dependencies without git.
+- Updated runtime runbook acceptance to include the solana-discovery worker alongside token intelligence, market refresh and consensus.
+- Latest Dockerfile fix commit: dd42f83365d62f6183f96d92928821dc3c23da4e. Its Python, Pages and worker-image CI runs were still in progress at the time of this entry; earlier image-build failure on aa992bc... is superseded but must remain recorded as the reason for the fix.
+- Runbook follow-up commit: ccfaca7f80bfa139433c1e7c6eaf1229e6dcea4b. Exact-head CI for this documentation-only follow-up is pending/expected through the PR workflow; no production worker has been deployed.
+- PR #226 remains draft/unmerged. External deployment blocker remains a Docker-capable always-on host plus the production Turso URL/token in its secret manager. Manual Base/BSC/provider acceptance workflows and physical Realme Android testing remain outstanding; they cannot be truthfully marked complete from browser CI.
+- SCHEDULER_ENABLED=false, PAPER_TRADING_ENABLED=false, LIVE_TRADING=false; no signing, submission or broadcast.
+
+
+### Exact worker-image fix validation — 2026-11-18
+
+- Confirmed the multi-stage Dockerfile fix on exact code head dd42f83365d62f6183f96d92928821dc3c23da4e: worker-image CI run 44286591491 SUCCESS; Python CI run 44286591546 SUCCESS (both tests and worker-image jobs); Cloudflare Pages dashboard CI run 44286591450 SUCCESS.
+- The first Docker build failure was fully traced to git missing from python:3.11-slim while pip installed a Git-pinned Turso adapter. The final runtime stage now excludes git; the successful worker-image CI proves the image builds, Compose config validates, the runtime user is non-root, and all three worker modules import.
+- Subsequent docs/runbook commits: ccfaca7f80bfa139433c1e7c6eaf1229e6dcea4b and 12256bb71f1630f2f33cbee3116fc14ecff4a22a. Exact-head Python CI run 44286757357 has passed its tests job; the Python workflow's worker-image job, standalone worker-image CI run 44286757399, and Pages CI run 44286757351 were still running at the time of this update.
+- PR #226 remains open, draft and unmerged. Production read-only service deployment and actual heartbeat recovery remain unverified because the always-on host and production Turso secret injection are external requirements.
+
+
+
+### Runtime-health blocker reconciliation — 2026-11-18 11:40 WAT
+
+- Re-fetched PR #226 from GitHub. It remains OPEN / DRAFT / UNMERGED at exact head `32c1637969f76d1d887d0657f70b03b75634adf6`; PR #225 is CLOSED without merge and is superseded by the consolidated #226 changes.
+- Exact-head workflows for #226 are now all complete and green:
+  - Python CI run `44286891304`: SUCCESS. The `tests` job and embedded `worker-image` job both passed. Live Solana discovery, market-data and finalized mint-account smoke steps were SKIPPED by their branch-specific conditions; this is not live-provider acceptance.
+  - Cloudflare Pages dashboard CI run `44286891331`: SUCCESS, including dashboard API/security tests, verifier syntax, Wrangler validation, Pages bundle build and static/API boundary smoke.
+  - Standalone read-only worker image CI run `44286891325`: SUCCESS, including Compose validation, Docker build, non-root image check and worker entry-point import check.
+- The CI results close the code/package/test blockers. They do not establish production worker liveness, real Turso connectivity, live provider acceptance, or Android hardware acceptance.
+- Re-read `docs/RUNTIME_HEALTH_RUNBOOK.md` and `compose.worker.yaml`. The stack defines three supervised containers because the token-intelligence process runs enrichment and market-refresh cycles together; the API exposes four expected worker-role heartbeats: discovery, token intelligence, market refresh and consensus. The runbook contains build/start/log/stop commands and explicit post-deployment acceptance gates.
+- Outstanding blockers and disposition:
+  1. **Always-on host + production Turso URL/token:** external deployment prerequisite. No host or secret-manager access is available through this repository connection. Do not ask for secrets in chat; install them only in the selected host's encrypted secret store.
+  2. **Live provider acceptance:** not established by CI. The three live Solana smoke tests were skipped because this PR branch does not match their phase-specific branch filters. After deployment, run bounded read-only provider checks and verify persisted probe events; do not infer health from HTTP status alone.
+  3. **Base/BSC collection acceptance:** remains unverified and outside the current Solana worker stack's deployment proof. Do not label these networks healthy or imply their collection is active without a separate supported ingestion path and evidence.
+  4. **Physical Realme 5 Pro acceptance:** requires the user's Android 11 device. Browser CI cannot validate on-device auth expiry, offline behavior, stale API presentation or recovery.
+- No production worker has been deployed; no real heartbeat recovery is claimed. No queues, historical events or stale telemetry were reset or fabricated.
+- Scheduler, paper trading, live trading, signing, submission and broadcast remain disabled.
+
+
+### No-VPS architecture re-audit and runtime-health correction — 2026-11-20
+
+**Authoritative deployment decision reaffirmed:** VELTRIX must remain operable without a paid or free VPS and without a permanently running worker host. The operator activates a bounded pipeline run when desired; the hosted runner continues independently of the operator's phone/network connection once started, then exits. Automatic scheduling remains disabled unless separately authorized. This is the selected project architecture, not a temporary workaround.
+
+#### Repository evidence rechecked
+- Default-branch baseline observed during this audit: `8e790e73b9ee93ae5728eb510b27faf3f60fc72d`.
+- PR #22 (H1.1/H2/H3 Turso adapter, fenced bounded orchestration and one-shot pipeline integration) is **merged**.
+- PR #195 (consolidated GitHub Actions + Turso + Cloudflare Pages/Functions hosting implementation) is **merged**. Its description explicitly separates the selected serverless architecture from the optional systemd host path.
+- PR #226 remains **open/draft/unmerged**. Its added `Dockerfile.worker`, `compose.worker.yaml` and runbook instructions describe a Docker-capable always-on host as a prerequisite for continuous worker health. That is optional runtime packaging, not an approved mandatory deployment dependency.
+- The checked-in `.github/workflows/solana-pipeline-schedule.yml` is `workflow_dispatch` only, uses GitHub-hosted `ubuntu-24.04`, has a 10-minute job timeout, concurrency protection, and explicitly sets `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, and `LIVE_TRADING=false`.
+- `scripts/run_solana_pipeline.py` calls `OneShotSolanaPipeline.run_once()`. The pipeline executes bounded discovery, enrichment, market refresh, risk and consensus stages under the existing orchestration lease/fencing contract; paper processing is explicitly disabled.
+- The one-shot pipeline currently calls the stage methods directly. Discovery uses `poll_once()`; enrichment, market refresh and consensus use their bounded `run_once()` methods. It does not run the three perpetual `while stop_event` supervisor loops. Therefore the existing worker-runtime telemetry must be adapted to record completed one-shot stage/run outcomes, not used to justify an always-on host.
+- Existing `AGENT_HEARTBEAT` events are vote/evaluation evidence, not worker liveness. Provider health observations must remain separate from batch-market observations.
+
+#### Correction to PR #226
+- Retain append-only telemetry, independent provider probe semantics, sanitized failures, expected-role visibility and dashboard separation of agent evaluations from processing activity.
+- Recast `WORKER_HEARTBEAT` in the manual pipeline as a completed bounded run/stage event. It must not imply that a process remains online after the GitHub Actions job exits.
+- Emit truthful stage outcomes for discovery, token intelligence/enrichment, market refresh, and consensus from the one-shot orchestrator. Do not fabricate an agent evaluation when no vote occurred.
+- Run the independent provider health probe during each bounded pipeline attempt, including an empty candidate queue, with its actual run ID and timestamp. Do not require a 60-second persistent loop.
+- Dashboard status must distinguish last run outcome/age, currently executing GitHub Actions job (if observable), manual/disabled schedule state, agent evaluation age, and provider probe age. A stopped one-shot job is normal completion, not a stale persistent process.
+- Dockerfile/Compose assets may remain optional local or third-party deployment packaging, but no runbook, CI gate, product flow or acceptance criterion may require a Docker host/VPS.
+- The secure dashboard-to-GitHub Actions activation control remains future implementation work; until it exists, the workflow is manually dispatchable in GitHub. Do not claim the dashboard button already works.
+
+#### Verified facts vs outstanding work
+- Verified: PR #22 and #195 merged; PR #226 open/draft; one-shot workflow is manual-only and bounded; script invokes the one-shot pipeline; scheduler/paper/live flags are false.
+- Not verified: production Turso secret availability, production schema initialization/migration, Cloudflare production deployment, real production read-only pipeline execution, live provider acceptance, Base/BSC collection acceptance, Android hardware acceptance, or dashboard-triggered workflow dispatch.
+- No production database migration, worker deployment, schedule activation, paper trading, live trading, signing, transaction submission or broadcast is authorized by this audit.
+
+#### Next implementation sequence
+1. Add run-scoped/stage-scoped telemetry to the one-shot orchestrator with explicit SUCCESS/DEGRADED/FAILED semantics and stable GitHub run/attempt correlation.
+2. Ensure empty-queue runs still record the actual provider health probe; prevent duplicate market-refresh heartbeat events where stage instrumentation overlaps.
+3. Update runtime API/dashboard labels and status derivation for bounded runs; remove persistent-worker STALE assumptions from the default operating view.
+4. Rewrite `docs/RUNTIME_HEALTH_RUNBOOK.md` around manual bounded GitHub Actions operation, secure secrets, Turso fencing/idempotency, retry/cancel behavior and the future dashboard dispatch API. Mark Docker/Compose as optional only.
+5. Add adversarial tests for empty queues, stage exceptions, run retries, concurrency fencing, no fabricated agent votes and no false persistent-liveness state.
+6. Run exact-head Python and Cloudflare CI. Keep PR #226 draft/unmerged until the no-VPS design and acceptance tests are reconciled.
+
+Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or submission path.
+
+
+#### No-VPS correction implementation — 2026-11-20
+- Replaced the contradictory persistent-host deployment runbook with the bounded no-VPS operating model in commit `bc962c258a3a8f28ca75617fad14a6b51c8d2099`.
+- The corrected runbook now documents GitHub-hosted bounded execution, phone/offline independence after dispatch, Turso persistence, Cloudflare dashboard/API, manual-only activation, cancellation, secret handling, concurrency/fencing, and dashboard-to-workflow control as future work.
+- Explicitly demoted Dockerfile/Compose packaging to optional local/separately approved use; no VPS or always-on host is a production prerequisite.
+- The previous ledger audit was recorded in commit `e0f8d8233f95c594656f94ffdc2c4137887199d6`.
+- **Code correction remains pending:** the one-shot pipeline still needs truthful run/stage telemetry wired into its orchestrator; runtime API/dashboard status derivation must stop treating absence of persistent workers as a failure. Dashboard-triggered workflow dispatch, run status and cancellation are not yet implemented.
+- Exact-head CI for the runbook/ledger documentation commits must be checked before treating the updated PR as green. No production dispatch, secret change, migration or activation was performed.
+
+
+### Bounded pipeline telemetry implementation — 2026-11-20
+
+**Code changes committed on PR #226 branch; validation remains pending.**
+
+#### Implementation
+- `9954ff7e2151379b5025e0948b93e46337533c54`: extended `RuntimeTelemetryStore.record_worker_heartbeat` with optional `run_id` and `attempt` correlation fields. Existing callers remain compatible.
+- `4942d28c92d4bec33670677a80c757adabb49c03`: market-refresh worker now attaches the orchestration run ID/attempt to its heartbeat when run under a `RunContext`.
+- `4bf32680e7653536753632914a7ae522e229c60f`: consensus worker now attaches the same run correlation.
+- `931fac6f10b63b644f37780972dcc6f50a6cfc0e`: one-shot orchestrator emits run-correlated stage telemetry for discovery, enrichment/token intelligence and risk evidence, plus an overall pipeline terminal outcome. Stage results classify explicit per-item failures/source errors as DEGRADED; exceptions produce FAILED records with sanitized error type.
+- `c3bd5647df02d4c1b74ce7de2f9f0456cb0c1047` and `4091fe6cb23af1901dbf282de8143b48cdbec813`: standalone market-refresh and consensus workers retain default heartbeat behavior, while the one-shot orchestrator can suppress their internal heartbeat writes and emit exactly one correlated stage event.
+- `5d00b5dfa1ca6f185fbb8911004040bc47d76de0` and `8334eba0b04dcdf49351a4904f4e548804a619fb`: centralize stage telemetry and clean up the one-shot implementation.
+- `cc0c61d63a7cf93f88c39b131035b9a831ccda24`: added tests asserting one correlated heartbeat per pipeline stage and an independent provider probe when the market-refresh queue is empty.
+- `4207631647479edad911c8df8cbcb7d3e37e5f19`: updated the runbook to describe the new telemetry behavior and its pending validation.
+
+#### Important behavior
+- A successful one-shot run should write one `WORKER_HEARTBEAT` per stage: `solana-discovery`, `solana-token-intelligence`, `solana-market-refresh`, `solana-risk-evidence`, `solana-consensus`, plus `solana-pipeline`.
+- Stage and pipeline heartbeat payloads carry the actual orchestration `run_id` and `attempt`; no synthetic agent heartbeat is generated by the orchestrator.
+- The market-refresh stage performs its independent health probe before checking for due jobs, so an empty refresh queue does not suppress a callable provider probe.
+- Existing consensus agent vote/failure evidence remains separate from worker-stage telemetry.
+- Existing provider probe logic only records a probe if the configured provider exposes a callable `probe()`. Confirm the production adapter supports this and add a fail-closed/explicit UNKNOWN event if it does not; do not report a missing probe as healthy.
+
+#### Validation state
+- Repository file reads confirm the new method signatures, stage mappings, correlation fields, duplicate-heartbeat suppression and test definitions are present on this branch.
+- The GitHub commit-workflow lookup returned no PR-triggered workflow runs for the test commit `cc0c61d63a7cf93f88c39b131035b9a831ccda24`. Therefore **no CI pass is claimed** and tests have not been executed in this session.
+- Need exact-head Python CI and dashboard CI; inspect any failure logs and correct them before marking implementation accepted.
+- Need verify the real production market provider's `probe()` contract. Test uses a controlled fake probe; it is not production-provider evidence.
+- Runtime API/dashboard still needs a separate review to ensure it displays run-correlated completed events and does not mark an idle one-shot process stale. No dashboard redesign was started.
+- No production Turso writes, provider calls, GitHub workflow dispatch, secret changes, automatic schedule activation, paper trading, live trading, signing or transaction submission occurred.
+
+#### Next steps
+1. Run/obtain exact-head Python CI and dashboard CI for PR #226; do not rely on file inspection as a test substitute.
+2. Add an adversarial stage-failure test asserting a FAILED stage heartbeat and terminal pipeline outcome retain the same run ID/attempt.
+3. Verify provider probe availability and event freshness against the actual configured provider adapter without spending unnecessary provider credits.
+4. Inspect runtime API/dashboard parsing and adjust status derivation for bounded-run semantics, preserving current UI until the separately deferred dashboard redesign stage.
+5. Keep PR #226 draft/unmerged until CI, API/dashboard semantics, provider evidence and no-VPS acceptance gates pass.
+
+Safety locks remain: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or submission path.
+
+
+#### Exact-head CI rerun — 2026-11-20 16:23 UTC
+- PR #226 metadata confirms OPEN / DRAFT / UNMERGED, base `main`, head `0c8adc055342781071ee14c4e32c7a0c65759d7f`; branch is 79 commits ahead and 0 behind the recorded main base.
+- Exact-head PR CI has now started:
+  - Python CI run `44772836611` — IN_PROGRESS.
+  - Cloudflare Pages dashboard CI run `44772836523` — IN_PROGRESS.
+  - Read-only worker image CI run `44772836526` — IN_PROGRESS.
+- The test file now includes a failed market-refresh stage assertion proving that the stage and terminal pipeline heartbeat carry the same run ID and attempt; the empty-queue probe test asserts the actual fake-provider identity `probeprovider-health`.
+- The earlier statement that no workflow runs were visible applied to the intermediate test commit; it is superseded by these exact-head runs.
+- No CI success is claimed until all three runs complete and their job results are inspected.
+
+
+#### Bounded-run API/dashboard correction — 2026-11-20
+
+- `1ea93ffbafb2fe0ee9e9c88bc63a6d8b3b7c2491` fixed the static-method binding defect found by the first Python CI run.
+- Verified follow-up CI for that corrected telemetry head:
+  - Python CI `44773039566`: both `tests` and `worker-image` jobs SUCCESS.
+  - Cloudflare Pages dashboard CI `44773038647`: SUCCESS.
+  - Standalone read-only worker-image CI `44773038511`: SUCCESS.
+- Subsequent API/UI changes:
+  - `e7cef50acc2b4c956ee93dfe39cf5b725678b0c0`: runtime API now models workers as bounded-run outcomes, exposing SUCCESS/DEGRADED/FAILED, age, run ID and attempt; normal idle time no longer becomes STALE.
+  - `d955010d651f10aa2703ff5ec863587846234222`: dashboard worker panel now labels last bounded run, age, run ID and attempt.
+  - `28590a2347e58248d97e44bfeba74a5d343c3c03`: API regression test verifies an old successful bounded run remains SUCCESS rather than STALE.
+  - `95c58de97652618e5c5a32bc97b1d7e66e699e72` and `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`: removed obsolete worker freshness threshold and updated dashboard assertions.
+  - `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`: runbook documents BOUNDED_RUN status and independent agent/provider freshness.
+- Latest PR #226 head is `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`, OPEN/DRAFT/UNMERGED, 87 commits ahead and 0 behind the recorded main base.
+- Latest combined CI, covering the API/dashboard changes on code head `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`, is in progress:
+  - Python CI `44773314841`
+  - Cloudflare Pages dashboard CI `44773314837`
+  - Read-only worker-image CI `44773314986`
+- The prior corrected telemetry-only CI is green, but the latest API/dashboard code is not accepted until these three new runs complete and their jobs are inspected.
+- Runtime API now includes six expected run roles: discovery, token intelligence, market refresh, risk evidence, consensus and overall pipeline. Existing UI was minimally adjusted; no dashboard redesign was started.
+- Dashboard-to-GitHub workflow dispatch/status/cancellation remains unimplemented. The GitHub Actions manual workflow is still the only verified activation path.
+- Production Turso read-only operation and production provider probe acceptance remain outstanding. The DexScreener provider class exposes `probe()`; this confirms interface availability, not successful production probe execution.
+
+Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or transaction submission path.
+
+
+#### API/dashboard bounded-run semantics implementation — 2026-11-20
+- `e7cef50acc2b4c956ee93dfe39cf5b725678b0c0`: runtime API now returns `workers.mode=BOUNDED_RUN`, six expected roles, last outcome, run ID, attempt and age. It no longer marks successful worker runs STALE merely because the operator leaves the system idle.
+- `d955010d651f10aa2703ff5ec863587846234222`: dashboard worker panel labels the timestamp as the last run and displays run/attempt correlation.
+- `28590a2347e58248d97e44bfeba74a5d343c3c03`: API test covers an old successful bounded run remaining SUCCESS with its age/run ID/attempt.
+- `95c58de97652618e5c5a32bc97b1d7e66e699e72`: removed obsolete worker-process freshness threshold.
+- `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`: dashboard UI regression asserts last-run wording and success state.
+- `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`: runbook updated to distinguish bounded worker outcomes from agent/provider freshness.
+- Dashboard API tests and UI test updates are included in the latest CI attempt. The Python and worker-image jobs are green; dashboard CI has not yet returned a final conclusion.
+
+
+#### Combined bounded-run validation result — 2026-11-20 16:28 UTC
+- Tested code head: `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`.
+- Python CI run `44773314841`: SUCCESS — test job and embedded worker-image job both passed. The suite included the new run-correlated telemetry, failed-stage correlation and empty-queue provider-probe tests.
+- Cloudflare Pages dashboard CI run `44773314837`: SUCCESS — API security tests, production token verifier syntax, Wrangler command validation, Pages static build, browser acceptance and unauthenticated API boundary all passed.
+- Standalone read-only worker-image CI run `44773314986`: SUCCESS.
+- Earlier intermediate Python CI failure (4 failures, 939 passes) was corrected by making `_run_stage` an instance method; corrected exact-head Python CI `44773039566` also passed.
+- Latest ledger commit before this note: `63f6989454ee0937f027032172ae73de3cfabd0a`. PR #226 remains OPEN / DRAFT / UNMERGED. Current head at PR metadata refresh: `63f6989454ee0937f027032172ae73de3cfabd0a`.
+- CI validates code at `0d637c57...`; subsequent changes were documentation/ledger and PR description only. No production provider or production Turso acceptance is implied by CI.
+- The selected no-VPS bounded execution design remains intact. Dashboard-to-GitHub activation/status/cancel controls remain unimplemented; manual GitHub workflow dispatch remains the only verified operator trigger.
+- No scheduler activation, production database mutation/migration, paper/live trading, signer, transaction submission or broadcast occurred.
+
+
+### Secure dashboard-to-GitHub pipeline control API — implementation in progress (2026-11-20)
+
+**The backend control endpoints are now implemented but deliberately disabled by default. No workflow was dispatched.**
+
+#### Code changes
+- `3a1f9955669621ad1e937acbbcfe60c2d9ddfd06`: added gated authenticated pipeline control routes:
+  - `POST /api/pipeline/activate`
+  - `GET /api/pipeline/status?request_id=...`
+  - `POST /api/pipeline/cancel`
+- Activation requires the existing dashboard bearer token, exact same-origin `Origin`, optional same-origin Fetch Metadata, `VELTRIX_PIPELINE_CONTROL_ENABLED=true`, and a server-side `GITHUB_WORKFLOW_DISPATCH_TOKEN`.
+- The repository, workflow filename and dispatch ref are fixed in code (`Nexora-Apparel/veltrix-multi-agent-crypto`, `solana-pipeline-schedule.yml`, `main`). GitHub credentials are never sent to the browser.
+- Activation checks for an existing matching request ID and queued/in-progress runs before dispatch. Status and cancellation resolve runs through the fixed workflow and exact request-ID suffix; cancellation rejects mismatched and already-completed runs.
+- `f7337521318094db69269f929f7f6a57302488eb`: workflow now requires a `request_id` input and embeds it in the Actions run name for later correlation.
+- `0f87dd17593ccb314a06a5ed9e3db7b09637e676` and `0807d0c89d838cf5ba4d42be423053ea73c8097d`: added tests for disabled-by-default behavior, same-origin rejection, fixed workflow dispatch, active-run rejection, request-ID idempotency, status lookup, cancellation and run/request mismatch.
+- `857ec3bb6b4f200b20e04f0fadbebfc5aa8abf0b` and `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9`: harden repeated request handling and exact request-ID matching.
+- `06017e13359c9d73ef6fb7d7e37331a9d8d17d88`: documented API security and secret requirements in the runbook.
+
+#### Safety / activation boundary
+- `VELTRIX_PIPELINE_CONTROL_ENABLED` defaults to disabled; `GITHUB_WORKFLOW_DISPATCH_TOKEN` is a Cloudflare encrypted secret, not a browser value.
+- The feature must remain disabled until PR merge, scoped token provisioning, end-to-end acceptance and operator-controlled enablement.
+- No Cloudflare secret or environment binding was changed; no GitHub Actions workflow was dispatched.
+- The dashboard UI has not been connected to these routes. The existing dashboard layout remains unchanged; the future button wiring is separate from this backend implementation.
+- GitHub Actions still runs only when manually dispatched. Scheduler, paper and live trading remain disabled.
+
+#### Validation pending
+- Run exact-head Python, Cloudflare Pages API/browser, and worker-image CI for the control API and tests.
+- Verify mocked GitHub API tests, especially workflow-run list matching and cancellation.
+- Confirm workflow YAML accepts required `request_id` input and run-name interpolation.
+- Confirm actual Cloudflare secret binding names/permissions only through safe metadata; never reveal token values.
+- After CI, inspect code for race behavior around simultaneous dispatch attempts. GitHub concurrency and the Turso lease are backstops, but the API's pre-dispatch active-run check is not an atomic distributed lock.
+- No production activation, database write, migration, scheduler, trading or signing is authorized.
+
+
+
+#### Request-ID idempotency hardening for dashboard dispatch — 2026-11-20
+
+- `fb629a001d62d955a56020d35d59567724c2b591`: `build_idempotency_key` now prefers validated `VELTRIX_REQUEST_ID`, producing a stable orchestration key across duplicate workflow dispatches and Actions reruns for the same operator activation.
+- `5c4d0254894a0f63265ec7fee944f5e41fb663fb`: manual workflow passes `inputs.request_id` into the Python process as `VELTRIX_REQUEST_ID`.
+- `9a8f63bf00c456c5565b292519575e45314459b8`: tests prove same request ID produces the same key across distinct GitHub run IDs/attempts and invalid request IDs fail closed.
+- `883c96471cab4871dbd00f7aecb98018b2d7e65b`: clarified idempotency semantics in the script.
+- `b397161b2c4f0c90acfcf68373ee02bae25e7961`: runbook documents request ID as the logical pipeline activation identity.
+- `2b799e6c5b98a8d6942185f87f98ca268e9c50ed`: GitHub API network failures are caught and returned as sanitized 502 responses instead of escaping the Worker handler.
+- Prior control API code head `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9) had all three CI workflows SUCCESS: Python `44774225224`, Cloudflare Pages `44774225112`, worker image `44774225293`.
+- New exact-head CI for request-ID idempotency code head `883c96471cab4871dbd00f7aecb98018b2d7e65b` is now running:
+  - Python `44774481569`
+  - Cloudflare Pages `44774481776`
+  - Worker image `44774481932`
+- Feature flag remains disabled; no GitHub dispatch has been performed. The API's active-run pre-check is not an atomic distributed lock, but the stable request-ID idempotency key prevents duplicate dispatches with the same ID from creating separate logical pipeline executions. The global Turso lease and GitHub concurrency group remain additional serialization layers.
+
+
+#### Request-ID blank-input defect and correction — 2026-11-20
+- Python CI at intermediate code head `883c96471cab4871dbd00f7aecb98018b2d7e65b` found one test failure: a whitespace-only `VELTRIX_REQUEST_ID` was treated as absent and fell back to a random local idempotency key. Remaining suite: 946 passed, 10 skipped.
+- Corrected in `839f386b774c364b693994e7233fe1339c08fbf5`: if the request-ID environment key is present, it must validate; blank or malformed values now fail closed. The GitHub run-ID fallback applies only when the environment key is absent.
+- Exact-head CI for corrected code is now running:
+  - Python CI `44774645698` — QUEUED.
+  - Cloudflare Pages dashboard CI `44774646517` — IN_PROGRESS.
+  - Read-only worker image CI `44774646021` — IN_PROGRESS.
+- The intermediate control API code head `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9` had all three CI workflows green, but it predates request-ID idempotency and the latest corrections. No current control API acceptance is claimed until the corrected exact-head run is green.
+
+
+#### Control API browser-origin compatibility and request-ID validation follow-up — 2026-11-20
+- `839f386b774c364b693994e7233fe1339c08fbf5` fixes the blank request-ID validation defect; corrected Python CI run `44774645698` reports the tests job SUCCESS (worker-image job was still running at last inspection).
+- `e335b9263fe82a372acc47d6e4dd35a0f6b0ff4e` permits authenticated status GET requests when browsers omit the `Origin` header, while rejecting a supplied cross-origin value; POST activate/cancel still require exact same-origin Origin.
+- `020176f08c5a09c427ca18469b5a983e44c7a05a` adds regression coverage for status polling without Origin.
+- `4a61de5368d33c1395ab5b83f6cd9f29c778c6f5` updates the runbook with the precise POST/GET origin rules.
+- These final browser-compatibility edits are later than the currently observed CI run and require a fresh exact-head Cloudflare/Python run before acceptance.
+
+
+#### Corrected request-ID and control-route CI checkpoint — 2026-11-20
+- Python CI run `44774805832` for test commit `020176f08c5a09c427ca18469b5a983e44c7a05a`: test job SUCCESS, including blank/malformed request-ID rejection and stable idempotency tests.
+- Standalone read-only worker image CI run `44774805743`: build-worker-image SUCCESS.
+- Cloudflare Pages dashboard CI run `44774805850`: still IN_PROGRESS at last check; it includes the new control-route security and status-without-Origin tests. Do not claim dashboard acceptance until the job completes.
+- A separate earlier Python CI run `44774645698` also passed both test and embedded worker-image jobs after the blank request-ID fix.
+- The later `e335b9263fe82a372acc47d6e4dd35a0f6b0ff4e` origin-handling change and `020176f08c5a09c427ca18469b5a983e44c7a05a` test are included in run `44774805850`.
+
+
+#### Final gated-control API exact-head CI result — 2026-11-20 16:36 UTC
+- Tested code head: `020176f08c5a09c427ca18469b5a983e44c7a05a`.
+- Python CI run `44774805832`: SUCCESS — tests and embedded worker-image jobs both passed.
+- Cloudflare Pages dashboard CI run `44774805850`: SUCCESS — API security/control-route tests, token verifier syntax, Wrangler validation, Pages build, browser acceptance and unauthenticated API boundary passed.
+- Standalone read-only worker image CI run `44774805743`: SUCCESS.
+- This tested head includes the request-ID validation fix, stable request-idempotency key, control activation/status/cancel routes, GitHub API failure handling, exact run/request matching, and GET status polling when Origin is omitted.
+- The ledger/runbook updates after this tested code head are documentation-only. No production secrets or flags were set; `VELTRIX_PIPELINE_CONTROL_ENABLED` remains disabled. No workflow dispatch was executed.
+- Dashboard UI is intentionally not connected yet; the requested dashboard redesign remains deferred. Backend API is tested but dormant until secure Cloudflare secret binding and explicit enablement.
+
+
+#### Current PR checkpoint — 2026-11-20
+- PR #226 title updated to **Reconcile runtime telemetry with bounded no-VPS pipeline**.
+- PR state remains OPEN / DRAFT / UNMERGED, head `edf445af19b47c9fe6fd48cacac1d641e77d5421`; branch is 113 commits ahead and 0 behind the observed main base.
+- Exact tested code head `020176f08c5a09c427ca18469b5a983e44c7a05a` has Python, Cloudflare Pages and worker-image CI all SUCCESS. Later commits on the PR head are ledger/runbook/PR metadata documentation only.
+- Keep PR draft and unmerged. Do not activate the dashboard-control feature or change production secrets until separate acceptance.
+
+## Dashboard bounded pipeline controls — 2026-11-20 (implementation pending CI)
+
+- Started from the verified PR #226 head `c06f756ca7dac550c24597861ab1aad180f7e6a4`; changes are isolated on `feat/dashboard-bounded-pipeline-controls-20261120` and intended to stack onto PR #226.
+- Added a compact Pipeline control panel to the existing Agents screen. Existing navigation, dashboard sections and visual identity are preserved; this is not the deferred dashboard redesign.
+- The UI uses the existing tab-scoped dashboard bearer token. A read-only status probe determines whether server-side controls are configured. Run activation submits a fresh UUID; only the non-secret request ID is stored in `sessionStorage`.
+- Status polling resolves the exact request ID. Cancellation re-reads status and requires the exact returned GitHub run ID; the UI exposes Stop only for a matching queued/in-progress/waiting run and asks for browser confirmation.
+- Buttons are disabled by default and remain disabled when authentication, feature-flag, encrypted-token or status checks fail. No workflow dispatch, Cloudflare secret change, feature-flag change, database write, production deployment or trading action was performed.
+- UI/style commits: `492c9845b0443027b0817bf096084a248b17d843`, `74cee8dc65e56e7afbcb72741eec931d7e5369a0`, `5087c9b53ed2f6772a0b25b013663fe5b2bee099`, `2e9eb6823d9a679de43552ca32d9242bd0243461`, `29bf11151b7b39b8ac59703b6b3c958d808f3272`, `37829fc1987137c5e61ee9bf6a1121788d692bdd`, and runbook update `c4cc3185a62ecb12601626944021785464c065db`.
+- **Pending:** exact-head Python/Cloudflare UI CI, browser interaction acceptance, PR integration into #226, and post-merge secure Cloudflare configuration plus explicitly authorized end-to-end dispatch/status/cancel acceptance. Keep `VELTRIX_PIPELINE_CONTROL_ENABLED` false/absent and all scheduler/paper/live/signing/submission controls disabled.
+
+### Dashboard controls browser acceptance extension — 2026-11-20
+
+- Added a mocked Playwright flow to `scripts/dashboard-browser-acceptance.mjs` covering readiness probe, manual activation, request-ID persistence, status polling, explicit cancellation confirmation and exact run-ID matching.
+- All pipeline API calls in this browser scenario are intercepted and mocked. It cannot dispatch a real GitHub workflow or mutate production.
+- Previous head `891ed5ac6ea5f5d05c50cfc1b41d47781794dbc1` passed Python CI run `44776700531` (**947 passed / 10 skipped**, embedded worker-image job SUCCESS) and Cloudflare Pages run `44776700562` (42 Node tests passed; Pages build and the existing mobile/browser acceptance passed).
+- New browser-control scenario commit: `d0942914b2d16be2f4e62c5683bc657c87653c36`. It changes the exact tested head; rerun Python and Cloudflare Pages CI before accepting or integrating PR #227.
+- No real workflow dispatch, Cloudflare secret/flag change, production deployment, database mutation, schedule, paper/live trading, signing or transaction submission occurred.
+
+## Dashboard pipeline controls integrated into PR #226 — 2026-11-20
+
+- PR #227 (`Wire bounded pipeline controls into existing dashboard`) was merged by squash into the PR #226 feature branch, not into `main`.
+- Squash merge commit: `bb4c1327c6e61ab3f233c5dd0103ba331965bfa6`. PR #226 branch head is now this commit; PR #226 remains OPEN / DRAFT / UNMERGED against `main`.
+- Existing Agents screen now contains the minimal Pipeline control panel. No dashboard redesign or navigation changes were made.
+- UI readiness uses an authenticated read-only status GET. Manual activation posts a fresh UUID; exact status polling uses that request ID. Cancellation re-reads the exact request, verifies the matching GitHub run ID and active state, then requires browser confirmation.
+- Only the non-secret request ID is stored in browser local storage so status tracking survives a tab/browser restart. The dashboard bearer token remains in the existing tab-scoped session storage.
+- Buttons are disabled by default and remain unavailable unless the server-side feature flag and encrypted GitHub credential are configured. The UI does not enable the backend by itself.
+- Exact code head tested before squash: `c0075f011b1a7b621c44f6b2268f339b014f2e6b`.
+  - Python CI `44778094387`: SUCCESS — 947 passed, 10 skipped; worker-image job SUCCESS.
+  - Cloudflare Pages CI `44778094418`: SUCCESS — 42 Node tests passed; Pages build and unauthenticated API boundary passed; Playwright browser acceptance passed, including mocked readiness, activation, request-ID polling, exact-run cancellation and local-storage recovery.
+  - Live Solana provider smoke tests were skipped; do not count them as provider acceptance.
+- Earlier browser acceptance attempt `44777342623` failed because the test clicked a control while the Agents screen was hidden and then asserted an asynchronous cancellation before the request completed. The test was corrected to navigate to Agents, use one deterministic mocked API route, and await terminal status before checking cancellation. Final exact-head run `44778094418` passed.
+- No GitHub Actions pipeline dispatch, Cloudflare secret/flag change, production deployment, database migration/write, scheduler activation, paper/live trading, signing or transaction submission occurred.
+- Post-squash exact-head CI is recorded below. Later changes are ledger/PR metadata only; the only operational blocker is secure Cloudflare configuration and a deliberately controlled end-to-end dispatch/status/cancel acceptance. Keep all safety flags disabled.
+### Post-squash exact-head CI — 2026-11-20
+
+- Exact post-squash code head tested: 439f96fe9cd7bf7bbe10aefd9a96ff0d5900e406. The current branch subsequently advanced through ledger-only updates; no runtime code changed after the tested head.
+- Python CI 44778735418: SUCCESS — 947 passed, 10 skipped; tests and embedded worker-image jobs both SUCCESS.
+- Cloudflare Pages dashboard CI 44778735580: SUCCESS — 42 Node tests passed, production token verifier syntax passed, Wrangler validation passed, Pages static build passed, and mobile/browser acceptance passed. The browser flow includes mocked pipeline readiness, manual activation, request-ID polling and exact-run cancellation.
+- Standalone read-only worker image CI 44778735448: SUCCESS.
+- PR #227 is CLOSED / MERGED into PR #226 only. PR #226 remains OPEN / DRAFT / UNMERGED against main, 0 commits behind main at the latest compare; ahead count is intentionally not frozen because this ledger is append-only.
+- These results verify the post-squash code and documentation head. The three live Solana provider smoke tests were SKIPPED; no live provider acceptance is claimed.
+- No production workflow dispatch, Cloudflare secret or flag change, production deployment, database migration/write, scheduler activation, paper/live trading, signing or transaction submission occurred.
+- Next operational blocker remains Cloudflare encrypted-secret configuration and explicitly controlled end-to-end dispatch/status/cancel acceptance after PR #226 is merged. Keep VELTRIX_PIPELINE_CONTROL_ENABLED false/absent and all execution safety flags disabled.

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import pytest
 
@@ -146,6 +147,12 @@ def test_consensus_worker_requires_market_and_risk_evidence(tmp_path):
     result = worker.run_once()
     assert result.discovered == 0
     assert result.processed == 0
+    with sqlite3.connect(path) as db:
+        worker_events = db.execute(
+            "SELECT payload FROM events WHERE event='WORKER_HEARTBEAT'"
+        ).fetchall()
+    assert len(worker_events) == 1
+    assert json.loads(worker_events[0][0])["worker"] == "solana-consensus"
 
 
 def test_consensus_worker_rejects_split_databases(tmp_path):

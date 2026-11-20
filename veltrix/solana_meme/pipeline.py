@@ -7,10 +7,12 @@ explicitly disabled until the paper broker supports transaction-scoped fencing.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..orchestration import OrchestrationStore, RunContext, run_once as execute_job
+from ..runtime_telemetry import RuntimeTelemetryStore
 from .consensus_worker import ConsensusBatchResult, ConsensusWorker
 from .discovery import DiscoveryCycleResult, SolanaDiscoveryEngine
 from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
@@ -69,6 +71,7 @@ class OneShotSolanaPipeline:
         if len(database_paths) != 1:
             raise ValueError("all one-shot pipeline stages must share one persistent database")
         self.orchestration = orchestration
+        self.telemetry = RuntimeTelemetryStore(orchestration.database)
         self.discovery = discovery
         self.enrichment = enrichment
         self.market_refresh = market_refresh
@@ -80,11 +83,14 @@ class OneShotSolanaPipeline:
         self.lease_ttl_ms = lease_ttl_ms
         self.max_items = max_items
 
-    @staticmethod
     def _run_stage(
+        self,
         name: str,
         operation: Any,
         progress: list[dict[str, Any]],
+        *,
+        context: RunContext,
+        worker_id: str | None = None,
     ) -> Any:
         try:
             result = operation()
@@ -95,11 +101,30 @@ class OneShotSolanaPipeline:
                 "status": "FAILED",
                 "error_type": type(exc).__name__,
             })
+            if worker_id:
+                self.telemetry.record_worker_heartbeat(
+                    worker_id, observed_at_ms=int(time.time() * 1000),
+                    status="FAILED", error_code=type(exc).__name__,
+                    run_id=context.run_id, attempt=context.attempt,
+                )
             raise
+        result_data = asdict(result)
+        metrics = {
+            key: value for key, value in result_data.items()
+            if isinstance(value, (int, float, bool))
+        }
+        degraded = bool(result_data.get("failed", 0)) or bool(result_data.get("source_errors"))
+        if worker_id:
+            self.telemetry.record_worker_heartbeat(
+                worker_id, observed_at_ms=int(time.time() * 1000),
+                status="DEGRADED" if degraded else "SUCCESS",
+                error_code="STAGE_DEGRADED" if degraded else None,
+                metrics=metrics, run_id=context.run_id, attempt=context.attempt,
+            )
         progress.append({
             "stage": name,
-            "status": "COMPLETED",
-            "result": asdict(result),
+            "status": "DEGRADED" if degraded else "COMPLETED",
+            "result": result_data,
         })
         return result
 
@@ -115,30 +140,39 @@ class OneShotSolanaPipeline:
             "discovery",
             lambda: self.discovery.poll_once(context=context, limit=25),
             progress,
+            context=context, worker_id="solana-discovery",
         )
         context.checkpoint(items=0)
         enrichment = self._run_stage(
             "enrichment",
             lambda: self.enrichment.run_once(limit=25, context=context),
             progress,
+            context=context, worker_id="solana-token-intelligence",
         )
         context.checkpoint(items=0)
         market_refresh = self._run_stage(
             "market_refresh",
-            lambda: self.market_refresh.run_once(limit=25, context=context),
+            lambda: self.market_refresh.run_once(
+                limit=25, context=context, record_heartbeat=False,
+            ),
             progress,
+            context=context, worker_id="solana-market-refresh",
         )
         context.checkpoint(items=0)
         risk = self._run_stage(
             "risk",
             lambda: self.risk.run_once(limit=5, context=context),
             progress,
+            context=context, worker_id="solana-risk-evidence",
         )
         context.checkpoint(items=0)
         consensus = self._run_stage(
             "consensus",
-            lambda: self.consensus.run_once(limit=10, context=context),
+            lambda: self.consensus.run_once(
+                limit=10, context=context, record_heartbeat=False,
+            ),
             progress,
+            context=context, worker_id="solana-consensus",
         )
         context.checkpoint(items=0)
         paper = None
@@ -147,6 +181,7 @@ class OneShotSolanaPipeline:
                 "paper",
                 lambda: self.paper_worker.run_once(limit=25, context=context),
                 progress,
+                context=context,
             )
         context.checkpoint(items=0)
         return SolanaPipelineStages(
@@ -191,6 +226,22 @@ class OneShotSolanaPipeline:
             max_runtime_seconds=self.max_runtime_seconds,
             max_items=self.max_items,
             lease_ttl_ms=self.lease_ttl_ms,
+        )
+        terminal = str(job.get("status", "FAILED")).upper()
+        run_status = (
+            "SUCCESS" if terminal == "SUCCEEDED"
+            else "DEGRADED" if terminal == "RETRYABLE"
+            else "FAILED"
+        )
+        observed_at_ms = int(time.time() * 1000)
+        self.telemetry.record_worker_heartbeat(
+            "solana-pipeline", observed_at_ms=observed_at_ms,
+            status=run_status,
+            error_code=job.get("error_code"),
+            metrics={"attempt": int(job.get("attempt") or 0),
+                     "executed": bool(job.get("executed"))},
+            run_id=job.get("run_id"),
+            attempt=job.get("attempt"),
         )
         return SolanaPipelineRun(
             job=job,

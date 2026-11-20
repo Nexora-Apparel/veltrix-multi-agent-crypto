@@ -40,6 +40,32 @@ class DexScreenerProvider:
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self.last_fetch_diagnostics: dict[str, int] = {}
 
+
+    def probe(self) -> dict[str, int | str]:
+        """Check the read-only search API independently of candidate availability."""
+        started = time.monotonic()
+        try:
+            response = self.session.get(
+                f"{self.base_url}/latest/dex/search?q=SOL",
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise ProviderError(
+                f"DexScreener health probe failed ({type(exc).__name__})"
+            ) from None
+        except Exception as exc:
+            raise ProviderError(
+                f"DexScreener health probe failed ({type(exc).__name__})"
+            ) from None
+        if not isinstance(payload, dict) or not isinstance(payload.get("pairs"), list):
+            raise ProviderError("DexScreener health probe returned an invalid response shape")
+        return {
+            "latency_ms": max(0, int((time.monotonic() - started) * 1000)),
+            "pairs_returned": len(payload["pairs"]),
+        }
+
     def fetch_token_pairs(self, chain: str, token_addresses: Sequence[str]) -> list[MarketEvent]:
         chain_id = CHAIN_IDS.get(str(chain).lower())
         if chain_id is None:

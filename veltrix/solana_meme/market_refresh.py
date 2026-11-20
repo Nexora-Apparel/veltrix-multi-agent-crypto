@@ -1,6 +1,7 @@
 """Scheduled refresh of timestamped Solana market intelligence."""
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from ..runtime_telemetry import RuntimeTelemetryStore
 from .launch_stream import LaunchStore
 from .market_data import MarketDataBatch, MarketDataUnavailable, SolanaMarketData
 from .market_store import MarketSnapshotStore
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class MarketRefreshWorker:
         lease_ms: int = 120_000,
         retry_base_ms: int = 5_000,
         retry_max_ms: int = 300_000,
+        provider_probe_interval_ms: int = 60_000,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if launch_store.database_path != market_store.database_path:
@@ -51,6 +55,7 @@ class MarketRefreshWorker:
             ("lease_ms", lease_ms),
             ("retry_base_ms", retry_base_ms),
             ("retry_max_ms", retry_max_ms),
+            ("provider_probe_interval_ms", provider_probe_interval_ms),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
@@ -65,6 +70,8 @@ class MarketRefreshWorker:
         self.lease_ms = lease_ms
         self.retry_base_ms = retry_base_ms
         self.retry_max_ms = retry_max_ms
+        self.provider_probe_interval_ms = provider_probe_interval_ms
+        self._last_provider_probe_monotonic = float("-inf")
         self.clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._initialize()
         self.telemetry = RuntimeTelemetryStore(self.database_path)
@@ -238,13 +245,47 @@ class MarketRefreshWorker:
             if cursor.rowcount != 1:
                 raise LeaseBusy("market refresh failure update lost its row claim")
 
-    def run_once(self, *, limit: int = 25, context: RunContext | None = None) -> MarketRefreshBatchResult:
+    def _probe_provider_if_due(self, observed_at_ms: int) -> None:
+        provider = getattr(self.market_data, "provider", None)
+        probe = getattr(provider, "probe", None)
+        now = time.monotonic()
+        if not callable(probe) or now - self._last_provider_probe_monotonic < self.provider_probe_interval_ms / 1000:
+            return
+        provider_id = (
+            getattr(provider, "provider_id", None)
+            or getattr(provider, "name", None)
+            or type(provider).__name__.lower()
+        )
+        # Keep endpoint-level health separate from successful token-batch fetches.
+        health_probe_id = f"{provider_id}-health"
+        started = time.monotonic()
+        try:
+            result = probe()
+            latency = int(result.get("latency_ms", (time.monotonic() - started) * 1000))
+            self.telemetry.record_provider_probe(
+                health_probe_id, "solana", succeeded=True,
+                observed_at_ms=observed_at_ms, latency_ms=latency,
+            )
+        except Exception as exc:
+            self.telemetry.record_provider_probe(
+                health_probe_id, "solana", succeeded=False,
+                observed_at_ms=observed_at_ms,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                error_code=type(exc).__name__,
+            )
+            LOGGER.warning("market provider health probe failed (%s)", type(exc).__name__)
+        finally:
+            self._last_provider_probe_monotonic = time.monotonic()
+
+    def run_once(self, *, limit: int = 25, context: RunContext | None = None,
+                 record_heartbeat: bool = True) -> MarketRefreshBatchResult:
         """Discover refresh targets and process one bounded batch via batch API."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 300:
             raise ValueError("limit must be between 1 and 300")
         now = self.clock_ms()
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("clock_ms must return a positive integer")
+        self._probe_provider_if_due(now)
         discovered = self._discover_jobs(now, context)
         claimed = self._claim(now, limit, context)
         if not claimed:
@@ -253,6 +294,15 @@ class MarketRefreshWorker:
                     SELECT COUNT(*) FROM solana_market_refresh_jobs
                     WHERE status IN ('active', 'retry', 'processing')
                 """).fetchone()[0])
+            if record_heartbeat:
+                self.telemetry.record_worker_heartbeat(
+                    "solana-market-refresh", observed_at_ms=self.clock_ms(),
+                    status="SUCCESS",
+                    metrics={"discovered": discovered, "processed": 0, "refreshed": 0,
+                             "unchanged": 0, "failed": 0, "deferred": deferred},
+                    run_id=context.run_id if context else None,
+                    attempt=context.attempt if context else None,
+                )
             return MarketRefreshBatchResult(discovered, 0, 0, 0, 0, deferred)
 
         refreshed = unchanged = failed = 0
@@ -343,6 +393,17 @@ class MarketRefreshWorker:
                 SELECT COUNT(*) FROM solana_market_refresh_jobs
                 WHERE status IN ('active', 'retry', 'processing')
             """).fetchone()[0])
+        if record_heartbeat:
+            self.telemetry.record_worker_heartbeat(
+                "solana-market-refresh", observed_at_ms=self.clock_ms(),
+                status="DEGRADED" if failed else "SUCCESS",
+                error_code="MARKET_REFRESH_FAILURE" if failed else None,
+                metrics={"discovered": discovered, "processed": len(claimed),
+                         "refreshed": refreshed, "unchanged": unchanged,
+                         "failed": failed, "deferred": deferred},
+                run_id=context.run_id if context else None,
+                attempt=context.attempt if context else None,
+            )
         return MarketRefreshBatchResult(
             discovered=discovered,
             processed=len(claimed),

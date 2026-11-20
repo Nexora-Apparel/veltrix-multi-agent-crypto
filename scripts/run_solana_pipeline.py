@@ -19,11 +19,17 @@ CONFORMANCE_HOST = "veltrix-h0-conformance-test-nexora-apparel.aws-eu-central-1.
 def build_idempotency_key(environ: dict[str, str] | None = None) -> str:
     """Give each GitHub Actions dispatch/attempt a distinct durable job identity.
 
-    Date/hour keys permanently deduplicate later dispatches against an earlier
-    FAILED job. GitHub run IDs identify a dispatch; run attempts distinguish
-    explicit Actions re-runs. Local invocations receive a fresh UUID.
+    A dashboard request ID is the canonical activation identity, so duplicate
+    workflow dispatches and Actions re-runs for that request share one durable
+    key. Without it, GitHub run IDs and attempt numbers identify the invocation.
+    Local invocations receive a fresh UUID.
     """
     env = os.environ if environ is None else environ
+    if "VELTRIX_REQUEST_ID" in env:
+        request_id = str(env.get("VELTRIX_REQUEST_ID", "")).strip()
+        if not re.fullmatch(r"[a-fA-F0-9-]{16,64}", request_id):
+            raise ValueError("VELTRIX_REQUEST_ID must be a 16-64 character hex/hyphen identifier")
+        return f"solana-intelligence-v2-request-{request_id.lower()}"
     run_id = str(env.get("GITHUB_RUN_ID", "")).strip()
     run_attempt = str(env.get("GITHUB_RUN_ATTEMPT", "1")).strip() or "1"
     if run_id:

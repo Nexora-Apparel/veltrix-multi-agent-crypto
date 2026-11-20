@@ -62,3 +62,67 @@ test("dashboard contains no wallet signing, transfer, submission, broadcast or s
   assert.doesNotMatch(html, /data-action=["'](trade|execute|sign|submit|broadcast|schedule)/i);
   assert.doesNotMatch(html, /name=["'](private_key|seed_phrase|wallet_secret)["']/i);
 });
+
+
+
+test("agent roster is sourced from persisted runtime telemetry, not consensus support alone", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  const renderAgents = js.match(/function renderAgents\(\)[\s\S]*?\n  function renderRuntime/);
+  assert.ok(renderAgents, "renderAgents implementation exists");
+  assert.match(renderAgents[0], /runtimeSnapshot\?\.agents\?\.items/);
+  assert.match(renderAgents[0], /supporting_agents/);
+  assert.match(renderAgents[0], /CONSENSUS-ONLY/);
+  assert.doesNotMatch(renderAgents[0], /No agent identities recorded in consensus history/);
+});
+
+test("agent roster exposes runtime status and heartbeat age", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  const renderAgents = js.match(/function renderAgents\(\)[\s\S]*?\n  function renderRuntime/);
+  assert.ok(renderAgents);
+  assert.match(renderAgents[0], /runtime\?\.status/);
+  assert.match(renderAgents[0], /age\(runtime\.last_heartbeat\)/);
+  assert.match(js, /Last evaluation/);
+});
+
+test("provider probes and chain observations expose source-data age separately from page refresh", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(js, /Probe "\+age\(item\.last_probe\)/);
+  assert.match(js, /Last observation "\+age\(data\.latest_observed_at\)/);
+  assert.match(js, /const age = \(value\) =>/);
+});
+
+test("consensus records distinguish missing attribution from missing agent identities", async () => {
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(js, /Agent attribution missing in this record/);
+});
+
+
+test("dashboard displays last bounded run independently from agent evaluation heartbeats", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(html, /id="worker-runtime"/);
+  assert.match(html, /id="worker-runtime-summary"/);
+  assert.match(js, /runtime\?\.workers\?\.items/);
+  assert.match(js, /Agent evaluation heartbeats are tracked separately/);
+  assert.match(js, /Last run "\+age\(item\.last_heartbeat\)/);
+  assert.match(js, /item\.status==="SUCCESS"/);
+  assert.match(js, /Workers "\+workerStatus/);
+});
+
+test("dashboard exposes bounded pipeline controls without redesigning navigation or enabling trading", async () => {
+  const html = await readFile(new URL("index.html", root), "utf8");
+  const js = await readFile(new URL("dashboard.js", root), "utf8");
+  assert.match(html, /id="pipeline-control-status"/);
+  assert.match(html, /id="pipeline-activate"[^>]*disabled/);
+  assert.match(html, /id="pipeline-cancel"[^>]*disabled/);
+  assert.match(html, /One bounded Solana analysis run/);
+  assert.match(js, /\/api\/pipeline\/status\?request_id=/);
+  assert.match(js, /\/api\/pipeline\/activate/);
+  assert.match(js, /\/api\/pipeline\/cancel/);
+  assert.match(js, /localStorage\.setItem\(pipelineRequestKey,requestId\)/);
+  assert.match(js, /run_id:runId/);
+  assert.match(js, /window\.confirm\("Stop this exact VELTRIX pipeline run\?"\)/);
+  for (const screen of ["home", "trades", "agents", "wallet"]) {
+    assert.match(html, new RegExp('data-screen="' + screen + '"'));
+  }
+});

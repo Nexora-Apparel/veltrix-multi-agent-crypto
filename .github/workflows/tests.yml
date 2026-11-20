@@ -32,3 +32,20 @@ jobs:
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
         run: python -m veltrix.solana_meme.risk_smoke
+
+
+  worker-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare non-secret worker environment for Compose validation
+        run: cp .env.worker.example .env.worker
+      - name: Validate Compose configuration
+        run: docker compose -f compose.worker.yaml config --quiet
+      - name: Build read-only worker image
+        run: docker build --pull -f Dockerfile.worker -t veltrix-readonly-worker:ci .
+      - name: Verify worker image runs as non-root
+        run: test "$(docker image inspect veltrix-readonly-worker:ci --format '{{.Config.User}}')" = "veltrix"
+      - name: Verify worker entry points are importable
+        run: docker run --rm --entrypoint python veltrix-readonly-worker:ci -c "import veltrix.solana_meme.worker, veltrix.solana_meme.intelligence_worker, veltrix.solana_meme.consensus_runtime"

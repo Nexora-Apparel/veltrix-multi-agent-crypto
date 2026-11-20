@@ -1,0 +1,38 @@
+name: veltrix-readonly-workers
+
+x-worker-common: &worker-common
+  build:
+    context: .
+    dockerfile: Dockerfile.worker
+  image: veltrix-readonly-worker:local
+  env_file:
+    - .env.worker
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,noexec,nosuid
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 40s
+
+services:
+  discovery:
+    <<: *worker-common
+    command: ["python", "-m", "veltrix.solana_meme.worker"]
+    deploy:
+      replicas: 1
+
+  token-intelligence:
+    <<: *worker-common
+    command: ["python", "-m", "veltrix.solana_meme.intelligence_worker"]
+    deploy:
+      replicas: 1
+
+  consensus:
+    <<: *worker-common
+    command: ["python", "-m", "veltrix.solana_meme.consensus_runtime"]
+    deploy:
+      replicas: 1

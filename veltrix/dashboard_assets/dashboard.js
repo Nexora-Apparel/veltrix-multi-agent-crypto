@@ -6,8 +6,12 @@
   const signed = (value) => (Number(value)>0?"+":"")+money(value);
   const number = (value,digits=2) => Number(value||0).toLocaleString(undefined,{maximumFractionDigits:digits});
   const date = (value) => value ? new Date(value).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
+  const age = (value) => { if(!value) return "time unknown"; const stamp=new Date(value).getTime(); if(!Number.isFinite(stamp)) return "time invalid"; const delta=Date.now()-stamp; if(delta < -60000) return "clock ahead"; if(delta < 60000) return "just now"; const minutes=Math.floor(delta/60000); if(minutes<60) return minutes+"m ago"; const hours=Math.floor(minutes/60); if(hours<48) return hours+"h ago"; return Math.floor(hours/24)+"d ago"; };
   const short = (value) => value && value.length>18 ? value.slice(0,7)+"…"+value.slice(-5) : (value||"—");
   let refreshing=false, chartPoints=[], allTrades=[], allPositions=[], allConsensus=[], allMarkets=[], allChainMarkets={}, runtimeSnapshot=null, currentRange="ALL";
+  const pipelineRequestKey="veltrix_pipeline_request_id";
+  let pipelineControlBusy=false,pipelineControlAvailable=false,pipelineControlChecked=false,pipelineControlTerminal=false;
+
 
   async function api(path){
     const token=sessionStorage.getItem(tokenKey)||"";
@@ -95,41 +99,160 @@
   function renderAgents(){
     const lineup=$("agent-lineup"),host=$("agent-decisions");
     lineup.replaceChildren();host.replaceChildren();
-    const agentNames=[...new Set(allConsensus.flatMap(item=>Array.isArray(item.supporting_agents)?item.supporting_agents:[]).filter(name=>typeof name==="string"&&name.trim()))].sort();
-    if(!agentNames.length) lineup.append(element("div","empty-state","No agent identities recorded in consensus history."));
-    else agentNames.forEach(name=>{
+    const runtimeAgents=Array.isArray(runtimeSnapshot?.agents?.items)?runtimeSnapshot.agents.items:[];
+    const byName=new Map(runtimeAgents.filter(item=>item&&typeof item.name==="string").map(item=>[item.name.toLowerCase(),item]));
+    const consensusNames=allConsensus.flatMap(item=>Array.isArray(item.supporting_agents)?item.supporting_agents:[]).filter(name=>typeof name==="string"&&name.trim());
+    const names=[...new Set([...runtimeAgents.map(item=>item?.name),...consensusNames].filter(name=>typeof name==="string"&&name.trim()))].sort();
+    if(!names.length) lineup.append(element("div","empty-state","No persisted agent runtime or consensus identities are available."));
+    else names.forEach(name=>{
+      const runtime=byName.get(name.toLowerCase());
+      const status=runtime?.status||"CONSENSUS-ONLY";
+      const heartbeat=runtime?.last_heartbeat? "Heartbeat "+age(runtime.last_heartbeat)+" · "+date(runtime.last_heartbeat):"No heartbeat recorded";
       const item=element("article",""),symbol=element("span","agent-symbol",name.trim().slice(0,1).toUpperCase()),copy=element("div","");
-      copy.append(element("b","",name.trim()),element("small","","Observed in persisted consensus"));
+      copy.append(element("b","",name.trim().toUpperCase()),element("small","",status+" · "+heartbeat));
       item.append(symbol,copy);lineup.append(item);
     });
     $("consensus-count").textContent=number(allConsensus.length,0)+" records";
     if(!allConsensus.length){host.append(element("div","empty-state","No persisted consensus decisions yet."));return;}
     allConsensus.slice(0,60).forEach(item=>{
-      const agents=(item.supporting_agents||[]).join(", ")||"Agent support not recorded";
-      const reasons=(item.reasons||[]).join(" · ")||"No reason supplied";
+      const agents=(item.supporting_agents||[]).join(", ")||"Agent attribution missing in this record";
+      const reasons=(item.reasons||[]).join(" · ")||"No reason supplied by the API";
       host.append(recordRow(short(item.mint),date(item.created_at)+" · "+agents,item.status||"UNKNOWN",reasons,item.status==="CONSENSUS_APPROVED"));
     });
   }
   function renderRuntime(runtime){
+    const workerItems=Array.isArray(runtime?.workers?.items)?runtime.workers.items:[];
     const agentItems=Array.isArray(runtime?.agents?.items)?runtime.agents.items:[];
     const providerItems=Array.isArray(runtime?.providers?.items)?runtime.providers.items:[];
-    const agentHost=$("agent-runtime"),providerHost=$("provider-runtime");
-    agentHost.replaceChildren();providerHost.replaceChildren();
+    const workerHost=$("worker-runtime"),agentHost=$("agent-runtime"),providerHost=$("provider-runtime");
+    workerHost.replaceChildren();agentHost.replaceChildren();providerHost.replaceChildren();
+    const workerStatus=runtime?.workers?.status||"UNKNOWN";
     const agentStatus=runtime?.agents?.status||"UNKNOWN";
     const providerStatus=runtime?.providers?.status||"UNKNOWN";
+    $("worker-runtime-summary").textContent=workerStatus;
     $("agent-runtime-summary").textContent=agentStatus;
     $("provider-runtime-summary").textContent=providerStatus;
+    if(!workerItems.length) workerHost.append(element("div","empty-state","No bounded pipeline run has been recorded. Agent evaluation heartbeats are tracked separately."));
+    else workerItems.forEach(item=>{
+      const metrics=item.metrics&&typeof item.metrics==="object"?Object.entries(item.metrics).map(([key,value])=>key+" "+value).join(" · "):"";
+      const run=item.run_id?"Run "+String(item.run_id).slice(0,12)+(item.attempt?" · attempt "+item.attempt:""):"";
+      const detail=[item.last_heartbeat?"Last run "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No completed run",run,metrics].filter(Boolean).join(" · ");
+      workerHost.append(recordRow(String(item.worker||"Worker").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Last bounded pipeline stage outcome",item.status==="SUCCESS"||item.status==="FRESH"?true:item.status==="FAILED"||item.status==="DEGRADED"?false:null));
+    });
     if(!agentItems.length) agentHost.append(element("div","empty-state","No persisted agent heartbeat telemetry."));
     else agentItems.forEach(item=>{
-      const detail=[item.last_heartbeat?"Last heartbeat "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
+      const detail=[item.last_heartbeat?"Last evaluation "+age(item.last_heartbeat)+" · "+date(item.last_heartbeat):"No heartbeat recorded",item.last_stance||"",item.error_code||""].filter(Boolean).join(" · ");
       agentHost.append(recordRow(String(item.name||"Agent").toUpperCase(),detail,item.status||"UNKNOWN",item.error_code||"Persisted runtime telemetry",item.status==="FRESH"?true:item.status==="FAILED"?false:null));
     });
     if(!providerItems.length) providerHost.append(element("div","empty-state","No persisted provider probe telemetry."));
     else providerItems.forEach(item=>{
-      const detail=[item.chain||"",item.last_probe?"Last probe "+date(item.last_probe):"",Number.isFinite(Number(item.latency_ms))?number(item.latency_ms,0)+" ms":""].filter(Boolean).join(" · ");
+      const detail=[item.chain||"",item.last_probe?"Probe "+age(item.last_probe)+" · "+date(item.last_probe):"No probe recorded",Number.isFinite(Number(item.latency_ms))?number(item.latency_ms,0)+" ms":""].filter(Boolean).join(" · ");
       providerHost.append(recordRow(item.provider||"Provider",detail,item.status||"UNKNOWN",item.error_code||"Persisted provider probe",item.status==="FRESH"?true:item.status==="FAILED"?false:null));
     });
-    $("runtime-summary").textContent="Agents "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
+    $("runtime-summary").textContent="Workers "+workerStatus+" · Agent evaluations "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
+  }
+  function updatePipelineControlButtons(){
+    const status=$("pipeline-control-status").textContent;
+    const active=["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED","DISPATCH_PENDING","DISPATCHING","CANCELLING","CANCEL_REQUESTED"].includes(status);
+    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||active;
+    $("pipeline-cancel").disabled=!pipelineControlAvailable||pipelineControlBusy||$("pipeline-cancel").dataset.canCancel!=="true";
+  }
+  function setPipelineControl(status,detail,available,canCancel){
+    $("pipeline-control-status").textContent=status;
+    $("pipeline-control-detail").textContent=detail;
+    $("pipeline-cancel").dataset.canCancel=canCancel===true?"true":"false";
+    pipelineControlAvailable=available===true;
+    updatePipelineControlButtons();
+  }
+  async function pipelineControlRequest(path,method="GET",payload){
+    const token=sessionStorage.getItem(tokenKey)||"";
+    const headers=token?{Authorization:"Bearer "+token}:{};
+    const options={method,headers,cache:"no-store"};
+    if(payload!==undefined){headers["Content-Type"]="application/json";options.body=JSON.stringify(payload);}
+    const response=await fetch(path,options);
+    let data={};
+    try{data=await response.json();}catch{}
+    if(response.status===401){
+      sessionStorage.removeItem(tokenKey);
+      $("access-gate").hidden=false;
+      $("access-error").textContent="Token expired or was revoked. Enter the current dashboard token.";
+      throw new Error("Dashboard access token expired or was revoked.");
+    }
+    if(!response.ok)throw new Error(data.error||"Pipeline control request failed ("+response.status+").");
+    return {data,status:response.status};
+  }
+  function newPipelineRequestId(){
+    if(typeof crypto==="undefined"||typeof crypto.getRandomValues!=="function")throw new Error("Secure browser randomness is unavailable.");
+    if(typeof crypto.randomUUID==="function")return crypto.randomUUID();
+    const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
+    bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+    const hex=Array.from(bytes,value=>value.toString(16).padStart(2,"0")).join("");
+    return hex.slice(0,8)+"-"+hex.slice(8,12)+"-"+hex.slice(12,16)+"-"+hex.slice(16,20)+"-"+hex.slice(20);
+  }
+  async function refreshPipelineControl(){
+    if(pipelineControlBusy||pipelineControlTerminal)return;
+    if(!sessionStorage.getItem(tokenKey)){
+      setPipelineControl("AUTH REQUIRED","Unlock the dashboard to inspect pipeline-control availability.",false,false);
+      return;
+    }
+    pipelineControlBusy=true;
+    try{
+      const requestId=localStorage.getItem(pipelineRequestKey);
+      if(!requestId){
+        if(pipelineControlChecked)return;
+        const probe=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(newPipelineRequestId()));
+        if(probe.data.status!=="DISPATCH_PENDING")throw new Error("Unexpected pipeline-control readiness response.");
+        pipelineControlChecked=true;
+        setPipelineControl("READY","Secure manual controls are available. No pipeline run is active in this browser tab.",true,false);
+        return;
+      }
+      const result=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(requestId));
+      const data=result.data,status=String(data.status||"UNKNOWN").toUpperCase();
+      const runId=Number(data.run_id||0);
+      const canCancel=runId>0&&["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED"].includes(status);
+      const detail=[
+        "Request "+requestId,
+        runId>0?"GitHub run #"+runId:"",
+        data.conclusion?"Result "+String(data.conclusion).toUpperCase():"",
+        data.created_at?"Started "+date(data.created_at):""
+      ].filter(Boolean).join(" · ");
+      if(status==="COMPLETED")pipelineControlTerminal=true;
+      setPipelineControl(status,detail||"Waiting for GitHub Actions to register the run.",true,canCancel);
+    }catch(error){
+      pipelineControlChecked=true;
+      setPipelineControl("UNAVAILABLE",error.message,false,false);
+    }finally{pipelineControlBusy=false;updatePipelineControlButtons();}
+  }
+  async function activatePipeline(){
+    if(pipelineControlBusy||!pipelineControlAvailable)return;
+    pipelineControlBusy=true;pipelineControlTerminal=false;pipelineControlChecked=true;
+    setPipelineControl("DISPATCHING","Submitting one bounded manual run to GitHub Actions…",false,false);
+    try{
+      const requestId=newPipelineRequestId();
+      const result=await pipelineControlRequest("/api/pipeline/activate","POST",{request_id:requestId});
+      localStorage.setItem(pipelineRequestKey,requestId);
+      setPipelineControl("DISPATCH_PENDING","Request "+requestId+" accepted. Waiting for GitHub run registration.",true,false);
+    }catch(error){
+      setPipelineControl("NOT STARTED",error.message,false,false);
+    }finally{pipelineControlBusy=false;updatePipelineControlButtons();refreshPipelineControl();}
+  }
+  async function cancelPipeline(){
+    if(pipelineControlBusy||!pipelineControlAvailable)return;
+    const requestId=localStorage.getItem(pipelineRequestKey);
+    if(!requestId)return;
+    if(!window.confirm("Stop this exact VELTRIX pipeline run?"))return;
+    pipelineControlBusy=true;
+    setPipelineControl("CANCELLING","Verifying the exact request and active GitHub run…",false,false);
+    try{
+      const current=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(requestId));
+      const runId=Number(current.data.run_id||0);
+      const status=String(current.data.status||"").toUpperCase();
+      if(!runId||!["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED"].includes(status))throw new Error("No cancellable active run was found for this request.");
+      const result=await pipelineControlRequest("/api/pipeline/cancel","POST",{request_id:requestId,run_id:runId});
+      setPipelineControl(result.data.status||"CANCEL_REQUESTED","Cancellation requested for GitHub run #"+runId+". Verify its final state below.",true,false);
+    }catch(error){
+      setPipelineControl("CANCEL NOT CONFIRMED",error.message,false,false);
+    }finally{pipelineControlBusy=false;updatePipelineControlButtons();refreshPipelineControl();}
   }
   function renderNetworks(){
     const labels={solana:"Solana",base:"Base",bsc:"BSC"};
@@ -139,7 +262,7 @@
       const count=Number(data.observation_count||0);
       total+=count;
       $(chain+"-count").textContent=number(count,0);
-      $(chain+"-latest").textContent=data.latest_observed_at?"Updated "+date(data.latest_observed_at):(data.available===true?"No persisted observations":"Ledger unavailable");
+      $(chain+"-latest").textContent=data.latest_observed_at?"Last observation "+age(data.latest_observed_at)+" · "+date(data.latest_observed_at):(data.available===true?"No persisted observations":"Ledger unavailable");
     }
     $("network-total").textContent=number(total,0)+" observations";
     $("network-summary").textContent=Object.keys(labels).map(chain=>labels[chain]+" "+Number(allChainMarkets[chain]?.observation_count||0)).join(" · ");
@@ -207,6 +330,7 @@
       allChainMarkets={solana:value(9,{}),base:value(10,{}),bsc:value(11,{})};
       $("access-gate").hidden=true;$("access-token").value="";
       renderHome(overview);renderPositions();renderTrades();renderAgents();renderRuntime(runtimeSnapshot);renderNetworks();renderChart();
+      refreshPipelineControl();
       $("health-label").textContent=health.database==="connected"?"Database connected · read-only": "Database health unavailable";
       const missing=(health.missing_paper_tables||[]);
       const safety=health.live_execution===false&&runtimeSnapshot.live_execution===false?"Live execution disabled":"Execution state not fully verified";
@@ -227,6 +351,8 @@
     renderChart();
   }));
 
+  $("pipeline-activate").addEventListener("click",activatePipeline);
+  $("pipeline-cancel").addEventListener("click",cancelPipeline);
   $("access-submit").addEventListener("click",()=>{
     const token=$("access-token").value.trim();
     if(token.length<32){$("access-error").textContent="Token must contain at least 32 characters.";return;}

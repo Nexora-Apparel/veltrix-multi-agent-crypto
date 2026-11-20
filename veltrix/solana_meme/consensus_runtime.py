@@ -25,6 +25,7 @@ from .launch_stream import LaunchStore
 from .market_store import MarketSnapshotStore
 from .risk_store import SolanaRiskEvidenceStore
 from .helius_wallet_events import HeliusWalletEventBatchProvider
+from ..runtime_telemetry import RuntimeTelemetryStore
 
 LOGGER = logging.getLogger("veltrix.solana_consensus")
 
@@ -51,11 +52,20 @@ class ConsensusRuntime:
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or not 1 <= batch_size <= 25:
             raise ValueError("batch_size must be between 1 and 25")
         self.worker = worker
+        self.telemetry = RuntimeTelemetryStore(worker.launch_store.database_path)
         self.poll_interval_seconds = float(poll_interval_seconds)
         self.batch_size = batch_size
 
     def run_once(self) -> ConsensusRuntimeCycleResult:
-        return ConsensusRuntimeCycleResult(self.worker.run_once(limit=self.batch_size))
+        try:
+            result = self.worker.run_once(limit=self.batch_size)
+        except Exception as exc:
+            self.telemetry.record_worker_heartbeat(
+                "solana-consensus", observed_at_ms=self.worker.clock_ms(),
+                status="FAILED", error_code=type(exc).__name__,
+            )
+            raise
+        return ConsensusRuntimeCycleResult(result)
 
     def run(self, stop_event: threading.Event) -> None:
         while not stop_event.is_set():

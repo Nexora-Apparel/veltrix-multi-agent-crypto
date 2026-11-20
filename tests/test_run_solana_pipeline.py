@@ -42,3 +42,31 @@ def test_local_invocations_get_distinct_keys() -> None:
 def test_invalid_github_run_metadata_fails_closed(env: dict[str, str]) -> None:
     with pytest.raises(ValueError):
         build_idempotency_key(env)
+
+
+
+def test_dashboard_request_id_is_the_durable_idempotency_key_across_duplicate_dispatches() -> None:
+    request_id = "7e3f9d2a-1a4b-4c2d-8e6f-123456789abc"
+    first = build_idempotency_key({
+        "VELTRIX_REQUEST_ID": request_id,
+        "GITHUB_RUN_ID": "44096937097",
+        "GITHUB_RUN_ATTEMPT": "1",
+    })
+    duplicate = build_idempotency_key({
+        "VELTRIX_REQUEST_ID": request_id,
+        "GITHUB_RUN_ID": "44097000000",
+        "GITHUB_RUN_ATTEMPT": "1",
+    })
+    rerun = build_idempotency_key({
+        "VELTRIX_REQUEST_ID": request_id,
+        "GITHUB_RUN_ID": "44096937097",
+        "GITHUB_RUN_ATTEMPT": "2",
+    })
+    assert first == duplicate == rerun
+    assert first == "solana-intelligence-v2-request-" + request_id
+
+
+@pytest.mark.parametrize("request_id", ["short", "not-a-uuid!!", " "])
+def test_invalid_dashboard_request_id_fails_closed(request_id: str) -> None:
+    with pytest.raises(ValueError, match="VELTRIX_REQUEST_ID"):
+        build_idempotency_key({"VELTRIX_REQUEST_ID": request_id})

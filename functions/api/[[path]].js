@@ -439,15 +439,16 @@ async function runtimeStatus(client, tables, env = {}) {
       FROM orchestration_worker_lease WHERE lease_name='global-worker' LIMIT 1`);
   }
   if (hasJobsTable) {
-    latestJob = await first(client, `SELECT job_type, status, attempt, updated_at_ms,
+    latestJob = await first(client, `SELECT run_id, job_type, status, attempt, updated_at_ms,
       started_at_ms, finished_at_ms, error_code
       FROM orchestration_jobs ORDER BY updated_at_ms DESC LIMIT 1`);
   }
   const latestAgents = new Map();
   const latestProviders = new Map();
+  const latestWorkers = new Map();
   if (hasEventsTable) {
     const telemetryRows = await rows(client, `SELECT id, event, payload
-      FROM events WHERE event IN ('AGENT_HEARTBEAT','PROVIDER_PROBE')
+      FROM events WHERE event IN ('AGENT_HEARTBEAT','PROVIDER_PROBE','WORKER_HEARTBEAT')
       ORDER BY id DESC LIMIT 500`);
     for (const row of telemetryRows) {
       let payload;
@@ -463,6 +464,10 @@ async function runtimeStatus(client, tables, env = {}) {
         const key = payload.provider + ":" + payload.chain;
         if (!latestProviders.has(key)) latestProviders.set(key, payload);
       }
+      if (row.event === "WORKER_HEARTBEAT" &&
+          typeof payload.worker === "string" && !latestWorkers.has(payload.worker)) {
+        latestWorkers.set(payload.worker, payload);
+      }
     }
   }
   const freshness = (payload, maxAge) => {
@@ -470,7 +475,9 @@ async function runtimeStatus(client, tables, env = {}) {
     const age = now - Number(payload.observed_at_ms);
     if (age < 0) return "UNKNOWN";
     if (age > maxAge) return "STALE";
-    return payload.status === "FAILED" ? "FAILED" : "FRESH";
+    if (payload.status === "FAILED") return "FAILED";
+    if (payload.status === "DEGRADED") return "DEGRADED";
+    return payload.status === "SUCCESS" ? "FRESH" : "UNKNOWN";
   };
   const agentItems = ["scout", "whale", "sniper", "shield"].map((name) => {
     const payload = latestAgents.get(name) || null;
@@ -490,6 +497,39 @@ async function runtimeStatus(client, tables, env = {}) {
     latency_ms: finiteNumber(payload.latency_ms),
     error_code: payload.status === "FAILED" ? payload.error_code || "PROVIDER_ERROR" : null,
   })).sort((a, b) => a.provider.localeCompare(b.provider) || a.chain.localeCompare(b.chain));
+  const expectedWorkers = [
+    "solana-discovery",
+    "solana-token-intelligence",
+    "solana-market-refresh",
+    "solana-risk-evidence",
+    "solana-consensus",
+    "solana-pipeline",
+  ];
+  const workerItems = expectedWorkers.map((worker) => {
+    const payload = latestWorkers.get(worker) || null;
+    const observedAt = Number(payload?.observed_at_ms);
+    const ageMs = payload && Number.isFinite(observedAt) && observedAt <= now
+      ? now - observedAt : null;
+    const outcome = payload && ["SUCCESS", "DEGRADED", "FAILED"].includes(payload.status)
+      ? payload.status : "UNKNOWN";
+    return {
+      worker,
+      status: hasEventsTable ? outcome : "UNAVAILABLE",
+      last_heartbeat: payload ? isoMilliseconds(payload.observed_at_ms) : null,
+      age_ms: ageMs,
+      run_id: payload && typeof payload.run_id === "string" ? payload.run_id : null,
+      attempt: finiteNumber(payload?.attempt),
+      error_code: payload && (payload.status === "FAILED" || payload.status === "DEGRADED")
+        ? payload.error_code || payload.status : null,
+      metrics: payload && payload.metrics && typeof payload.metrics === "object"
+        ? payload.metrics : {},
+    };
+  });
+  const workerStatuses = workerItems.map((item) => item.status);
+  const workerSummary = !hasEventsTable ? "UNAVAILABLE"
+    : workerStatuses.some((status) => status === "FAILED") ? "FAILED"
+    : workerStatuses.some((status) => status === "DEGRADED") ? "DEGRADED"
+    : workerStatuses.every((status) => status === "SUCCESS") ? "SUCCESS" : "UNKNOWN";
   const agentStatuses = agentItems.map((item) => item.status);
   const providerStatuses = providerItems.map((item) => item.status);
   const agentSummary = !hasEventsTable ? "UNAVAILABLE"
@@ -513,6 +553,7 @@ async function runtimeStatus(client, tables, env = {}) {
       lease_acquired_at: lease ? isoMilliseconds(lease.acquired_at_ms) : null,
       lease_expires_at: lease ? isoMilliseconds(lease.expires_at_ms) : null,
       latest_job: latestJob ? {
+        run_id: String(latestJob.run_id || ""),
         job_type: String(latestJob.job_type || ""),
         status: String(latestJob.status || "UNKNOWN"),
         attempt: finiteNumber(latestJob.attempt),
@@ -521,6 +562,12 @@ async function runtimeStatus(client, tables, env = {}) {
         finished_at: isoMilliseconds(latestJob.finished_at_ms),
         error_code: latestJob.error_code ? String(latestJob.error_code) : null,
       } : null,
+    },
+    workers: {
+      status: workerSummary,
+      heartbeat_source_available: hasEventsTable,
+      mode: "BOUNDED_RUN",
+      items: workerItems,
     },
     agents: {
       status: agentSummary,
@@ -602,7 +649,222 @@ function validateEnvironment(env) {
   return { url, token, dashboardToken };
 }
 
-export async function handleDashboardRequest(request, env, injectedClient = null) {
+
+const PIPELINE_CONTROL_ROUTES = new Set([
+  "/api/pipeline/activate",
+  "/api/pipeline/status",
+  "/api/pipeline/cancel",
+]);
+const PIPELINE_WORKFLOW = "solana-pipeline-schedule.yml";
+const PIPELINE_REPOSITORY = "Nexora-Apparel/veltrix-multi-agent-crypto";
+
+function validRequestId(value) {
+  return typeof value === "string" && /^[a-f0-9-]{16,64}$/i.test(value);
+}
+
+async function readSmallJson(request) {
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > 1024) return { error: "request body too large", status: 413 };
+  const raw = await request.text();
+  if (raw.length > 1024) return { error: "request body too large", status: 413 };
+  try {
+    const value = JSON.parse(raw || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { error: "invalid request body", status: 400 };
+    }
+    return { value };
+  } catch {
+    return { error: "invalid JSON body", status: 400 };
+  }
+}
+
+async function githubApi(fetcher, token, path, method = "GET", body = undefined) {
+  const response = await fetcher("https://api.github.com/repos/" + PIPELINE_REPOSITORY + path, {
+    method,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  let data = null;
+  if (response.status !== 204) {
+    try { data = await response.json(); } catch { data = null; }
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+function runMatchesRequest(run, requestId) {
+  const title = String(run?.display_title || run?.name || "");
+  return title.endsWith(requestId);
+}
+
+async function listPipelineRuns(fetcher, token) {
+  const result = await githubApi(
+    fetcher, token,
+    "/actions/workflows/" + PIPELINE_WORKFLOW + "/runs?branch=main&event=workflow_dispatch&per_page=100",
+  );
+  if (!result.ok || !Array.isArray(result.data?.workflow_runs)) {
+    throw new Error("GITHUB_RUN_LIST_FAILED");
+  }
+  return result.data.workflow_runs;
+}
+
+async function handlePipelineControlRequest(request, env, fetcher = fetch) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const expectedMethod = path === "/api/pipeline/status" ? "GET" : "POST";
+  if (request.method !== expectedMethod) {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const dashboardToken = typeof env.DASHBOARD_API_TOKEN === "string"
+    ? env.DASHBOARD_API_TOKEN : "";
+  if (dashboardToken.length < 32) {
+    return json({ error: "pipeline control is not configured" }, 503);
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const supplied = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!equalSecret(supplied, dashboardToken)) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  const origin = request.headers.get("Origin");
+  if ((expectedMethod === "POST" && origin !== url.origin) ||
+      (origin && origin !== url.origin)) {
+    return json({ error: "same-origin request required" }, 403);
+  }
+  if (request.headers.get("Sec-Fetch-Site") &&
+      request.headers.get("Sec-Fetch-Site") !== "same-origin") {
+    return json({ error: "same-origin request required" }, 403);
+  }
+  if (String(env.VELTRIX_PIPELINE_CONTROL_ENABLED || "").toLowerCase() !== "true") {
+    return json({ error: "pipeline controls are disabled" }, 503);
+  }
+  const githubToken = typeof env.GITHUB_WORKFLOW_DISPATCH_TOKEN === "string"
+    ? env.GITHUB_WORKFLOW_DISPATCH_TOKEN.trim() : "";
+  if (githubToken.length < 20) {
+    return json({ error: "pipeline controls are not configured" }, 503);
+  }
+
+  if (path === "/api/pipeline/activate") {
+    const parsed = await readSmallJson(request);
+    if (parsed.error) return json({ error: parsed.error }, parsed.status);
+    const requestId = parsed.value.request_id;
+    if (!validRequestId(requestId)) {
+      return json({ error: "request_id must be a UUID or 16-64 hex/hyphen characters" }, 400);
+    }
+
+    let priorRuns;
+    try { priorRuns = await listPipelineRuns(fetcher, githubToken); }
+    catch { return json({ error: "workflow status could not be verified" }, 502); }
+    const prior = priorRuns.find((candidate) => runMatchesRequest(candidate, requestId));
+    if (prior) {
+      return json({
+        status: String(prior.status || "unknown").toUpperCase(),
+        request_id: requestId,
+        run_id: finiteNumber(prior.id, null),
+        conclusion: prior.conclusion ? String(prior.conclusion).toUpperCase() : null,
+      }, 202);
+    }
+
+    for (const status of ["queued", "in_progress"]) {
+      let active;
+      try {
+        active = await githubApi(
+          fetcher, githubToken,
+          "/actions/workflows/" + PIPELINE_WORKFLOW + "/runs?branch=main&status=" + status + "&per_page=20",
+        );
+      } catch {
+        return json({ error: "workflow status could not be verified" }, 502);
+      }
+      if (!active.ok || !Array.isArray(active.data?.workflow_runs)) {
+        return json({ error: "workflow status could not be verified" }, 502);
+      }
+      if (active.data.workflow_runs.length) {
+        const run = active.data.workflow_runs[0];
+        return json({
+          error: "a pipeline run is already queued or running",
+          run_id: finiteNumber(run.id, null),
+          status: String(run.status || status).toUpperCase(),
+        }, 409);
+      }
+    }
+
+    let dispatched;
+    try {
+      dispatched = await githubApi(
+        fetcher, githubToken,
+        "/actions/workflows/" + PIPELINE_WORKFLOW + "/dispatches",
+        "POST",
+        { ref: "main", inputs: { request_id: requestId } },
+      );
+    } catch {
+      return json({ error: "GitHub dispatch is temporarily unavailable" }, 502);
+    }
+    if (!dispatched.ok) {
+      return json({ error: "GitHub rejected the pipeline dispatch" }, 502);
+    }
+    return json({ status: "DISPATCH_ACCEPTED", request_id: requestId }, 202);
+  }
+
+  if (path === "/api/pipeline/status") {
+    const requestId = url.searchParams.get("request_id") || "";
+    if (!validRequestId(requestId)) {
+      return json({ error: "valid request_id is required" }, 400);
+    }
+    let runs;
+    try { runs = await listPipelineRuns(fetcher, githubToken); }
+    catch { return json({ error: "workflow status is temporarily unavailable" }, 502); }
+    const run = runs.find((candidate) => runMatchesRequest(candidate, requestId));
+    if (!run) return json({ status: "DISPATCH_PENDING", request_id: requestId }, 202);
+    return json({
+      status: String(run.status || "unknown").toUpperCase(),
+      conclusion: run.conclusion ? String(run.conclusion).toUpperCase() : null,
+      request_id: requestId,
+      run_id: finiteNumber(run.id, null),
+      created_at: run.created_at || null,
+      updated_at: run.updated_at || null,
+      html_url: run.html_url || null,
+    });
+  }
+
+  const parsed = await readSmallJson(request);
+  if (parsed.error) return json({ error: parsed.error }, parsed.status);
+  const requestId = parsed.value.request_id;
+  const runId = parsed.value.run_id;
+  if (!validRequestId(requestId) || !Number.isSafeInteger(runId) || runId <= 0) {
+    return json({ error: "valid request_id and positive run_id are required" }, 400);
+  }
+  let runs;
+  try { runs = await listPipelineRuns(fetcher, githubToken); }
+  catch { return json({ error: "workflow status is temporarily unavailable" }, 502); }
+  const run = runs.find((candidate) =>
+    Number(candidate.id) === runId && runMatchesRequest(candidate, requestId)
+  );
+  if (!run) return json({ error: "pipeline run not found for this request" }, 404);
+  if (run.status === "completed") {
+    return json({ status: "ALREADY_COMPLETED", request_id: requestId, run_id: runId }, 409);
+  }
+  let cancelled;
+  try {
+    cancelled = await githubApi(
+      fetcher, githubToken, "/actions/runs/" + runId + "/cancel", "POST",
+    );
+  } catch {
+    return json({ error: "GitHub cancellation is temporarily unavailable" }, 502);
+  }
+  if (!cancelled.ok) return json({ error: "GitHub rejected the cancellation request" }, 502);
+  return json({ status: "CANCEL_REQUESTED", request_id: requestId, run_id: runId }, 202);
+}
+
+export async function handleDashboardRequest(request, env, injectedClient = null, injectedFetch = fetch) {
+  const requestPath = new URL(request.url).pathname;
+  if (PIPELINE_CONTROL_ROUTES.has(requestPath)) {
+    return handlePipelineControlRequest(request, env, injectedFetch);
+  }
   if (request.method !== "GET") {
     return json({ error: "read-only dashboard; write methods are disabled" }, 405);
   }

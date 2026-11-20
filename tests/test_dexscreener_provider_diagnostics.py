@@ -65,3 +65,22 @@ def test_dexscreener_distinguishes_empty_response_from_normalization_failure():
     assert provider.last_fetch_diagnostics["response_pairs"] == 0
     assert provider.last_fetch_diagnostics["normalized_events"] == 0
     assert provider.last_fetch_diagnostics["normalization_rejections"] == 0
+
+
+def test_dexscreener_health_probe_checks_endpoint_shape_independently():
+    provider = DexScreenerProvider(
+        session=Session({"pairs": [{"chainId": "solana"}]}),
+        clock_ms=lambda: 1000,
+    )
+    result = provider.probe()
+    assert result["pairs_returned"] == 1
+    assert result["latency_ms"] >= 0
+
+
+def test_dexscreener_health_probe_rejects_invalid_payload_shape():
+    provider = DexScreenerProvider(session=Session([]))
+    try:
+        provider.probe()
+        assert False, "expected invalid provider health response"
+    except Exception as exc:
+        assert "invalid response shape" in str(exc)

@@ -19,6 +19,7 @@ from typing import Any
 
 from ..providers.dexscreener import DexScreenerProvider
 from ..foundation import validate_runtime_controls
+from ..runtime_telemetry import RuntimeTelemetryStore
 from .database import shared_database_path
 from .enrichment import CandidateEnrichmentWorker, EnrichmentBatchResult
 from .launch_stream import LaunchStore
@@ -56,10 +57,25 @@ class TokenIntelligenceRuntime:
         self.refresh = refresh
         self.poll_interval_seconds = float(poll_interval_seconds)
         self.batch_size = batch_size
+        self.telemetry = RuntimeTelemetryStore(self.refresh.database_path)
 
     def run_once(self) -> TokenIntelligenceCycleResult:
-        enriched = self.enrichment.run_once(limit=self.batch_size)
-        refreshed = self.refresh.run_once(limit=self.batch_size)
+        try:
+            enriched = self.enrichment.run_once(limit=self.batch_size)
+            refreshed = self.refresh.run_once(limit=self.batch_size)
+        except Exception as exc:
+            self.telemetry.record_worker_heartbeat(
+                "solana-token-intelligence", observed_at_ms=self.refresh.clock_ms(),
+                status="FAILED", error_code=type(exc).__name__,
+            )
+            raise
+        status = "DEGRADED" if enriched.failed or refreshed.failed else "SUCCESS"
+        self.telemetry.record_worker_heartbeat(
+            "solana-token-intelligence", observed_at_ms=self.refresh.clock_ms(),
+            status=status, error_code="STAGE_FAILURE" if status == "DEGRADED" else None,
+            metrics={"enriched": enriched.enriched, "enrichment_failed": enriched.failed,
+                     "refreshed": refreshed.refreshed, "refresh_failed": refreshed.failed},
+        )
         return TokenIntelligenceCycleResult(enriched, refreshed)
 
     def run(self, stop_event: threading.Event) -> None:

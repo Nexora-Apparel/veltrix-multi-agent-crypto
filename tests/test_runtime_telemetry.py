@@ -52,3 +52,26 @@ def test_runtime_telemetry_records_failures_without_exception_text(tmp_path):
     provider = json.loads(rows[-1][1])
     assert provider["status"] == "FAILED"
     assert provider["error_code"] == "ProviderError"
+
+
+def test_runtime_telemetry_records_worker_cycles_separately_from_agent_evaluations(tmp_path):
+    path = str(tmp_path / "runtime.db")
+    store = RuntimeTelemetryStore(path)
+    store.record_worker_heartbeat(
+        "solana-consensus", observed_at_ms=1_700_000_002_000,
+        status="DEGRADED", error_code="CANDIDATE_EVALUATION_FAILURE",
+        metrics={"processed": 4, "failed": 1},
+    )
+    with sqlite3.connect(path) as db:
+        rows = db.execute("SELECT event,payload FROM events ORDER BY id").fetchall()
+    assert len(rows) == 1
+    event, payload = rows[0]
+    record = json.loads(payload)
+    assert event == "WORKER_HEARTBEAT"
+    assert record["worker"] == "solana-consensus"
+    assert record["status"] == "DEGRADED"
+    assert record["metrics"] == {"failed": 1, "processed": 4}
+    assert record["error_code"] == "CANDIDATE_EVALUATION_FAILURE"
+    assert store.record_agent_votes([], observed_at_ms=1_700_000_003_000) is None
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM events WHERE event='AGENT_HEARTBEAT'").fetchone()[0] == 0

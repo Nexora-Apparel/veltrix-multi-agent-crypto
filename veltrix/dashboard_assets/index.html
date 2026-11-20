@@ -92,8 +92,19 @@
     </section>
 
     <section class="screen" id="screen-agents" aria-labelledby="agents-title">
-      <div class="subpage-heading"><p class="eyebrow">MULTI-AGENT INTELLIGENCE</p><h1 id="agents-title">Agents</h1><p>Persisted consensus decisions from the Solana analysis pipeline.</p></div>
+      <div class="subpage-heading"><p class="eyebrow">MULTI-AGENT INTELLIGENCE</p><h1 id="agents-title">Agents</h1><p>Persisted consensus decisions from the Solana analysis pipeline. Agent freshness reflects the last completed evaluation; worker liveness is shown separately.</p></div>
+      <section class="pipeline-control" aria-labelledby="pipeline-control-title">
+        <div class="section-heading"><h2 id="pipeline-control-title">Pipeline control</h2><span id="pipeline-control-status" class="muted-count" role="status" aria-live="polite">CHECKING</span></div>
+        <p id="pipeline-control-detail" class="pipeline-control-detail">Checking whether secure manual controls are configured…</p>
+        <div class="pipeline-control-actions">
+          <button id="pipeline-activate" type="button" disabled>Run pipeline</button>
+          <button id="pipeline-cancel" type="button" disabled>Stop run</button>
+        </div>
+        <small class="pipeline-control-note">One bounded Solana analysis run. No recurring schedule, paper execution, live trading, signing or transaction submission.</small>
+      </section>
       <div class="agent-lineup" id="agent-lineup"><div class="empty-state">Loading persisted agent identities…</div></div>
+      <div class="section-heading"><h2>Worker runtime</h2><span id="worker-runtime-summary" class="muted-count">UNKNOWN</span></div>
+      <div id="worker-runtime" class="record-list"><div class="empty-state">Loading worker cycle telemetry…</div></div>
       <div class="section-heading"><h2>Agent runtime</h2><span id="agent-runtime-summary" class="muted-count">UNKNOWN</span></div>
       <div id="agent-runtime" class="record-list"><div class="empty-state">Loading persisted heartbeat telemetry…</div></div>
       <div class="section-heading"><h2>Provider probes</h2><span id="provider-runtime-summary" class="muted-count">UNKNOWN</span></div>

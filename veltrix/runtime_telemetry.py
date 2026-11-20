@@ -98,3 +98,42 @@ class RuntimeTelemetryStore:
             "latency_ms": max(0, int(latency_ms)),
             "error_code": safe_error,
         }, observed_at_ms)
+
+
+    def record_worker_heartbeat(
+        self, worker_id: str, *, observed_at_ms: int,
+        status: str = "SUCCESS", error_code: str | None = None,
+        metrics: dict[str, Any] | None = None,
+        run_id: str | None = None, attempt: int | None = None,
+    ) -> None:
+        """Record a completed worker cycle; this is not an agent evaluation."""
+        worker = "".join(
+            ch for ch in str(worker_id).lower()
+            if ch.isalnum() or ch in "-_."
+        )[:80]
+        if not worker:
+            raise ValueError("worker_id is required")
+        if isinstance(observed_at_ms, bool) or not isinstance(observed_at_ms, int) or observed_at_ms <= 0:
+            raise ValueError("observed_at_ms must be a positive integer")
+        normalized_status = str(status).upper()
+        if normalized_status not in {"SUCCESS", "DEGRADED", "FAILED"}:
+            raise ValueError("worker status must be SUCCESS, DEGRADED or FAILED")
+        safe_error = None
+        if error_code:
+            safe_error = "".join(
+                ch for ch in str(error_code) if ch.isalnum() or ch in "_-"
+            )[:64] or "WORKER_ERROR"
+        safe_metrics = {}
+        if isinstance(metrics, dict):
+            for key, value in metrics.items():
+                if isinstance(key, str) and key.replace("_", "").isalnum() and isinstance(value, (int, float, bool)):
+                    safe_metrics[key[:48]] = value
+        self._append("WORKER_HEARTBEAT", {
+            "worker": worker,
+            "status": normalized_status,
+            "observed_at_ms": observed_at_ms,
+            "error_code": safe_error,
+            "metrics": safe_metrics,
+            "run_id": (str(run_id)[:128] if run_id else None),
+            "attempt": (int(attempt) if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0 else None),
+        }, observed_at_ms)
