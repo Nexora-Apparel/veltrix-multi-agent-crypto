@@ -63,6 +63,7 @@ The dashboard must not interpret a completed one-shot run as a continuously runn
 - `AGENT_HEARTBEAT` is written only when that agent actually completes an evaluation/vote. Empty queues do not produce synthetic agent heartbeats.
 - `PROVIDER_PROBE` is independent from market-batch observations and carries its actual observation time and sanitized outcome.
 - A stopped/idle system after a completed run is normal. The dashboard should show last-run age/outcome and schedule-disabled state, not label the absence of a permanently running process as a worker failure.
+- The runtime API returns `workers.mode="BOUNDED_RUN"`; worker status is the last recorded `SUCCESS`, `DEGRADED`, or `FAILED` outcome, not a time-window freshness label. It includes run ID, attempt and age. Normal idle time does not turn a successful last run into `STALE`. Agent evaluation and provider probe freshness remain independently age-based.
 - A currently executing run may be shown only when its state is obtained from authoritative GitHub Actions run data; otherwise show the last persisted run and clearly mark execution state as unknown.
 - Preserve append-only history. Do not backdate, seed, delete or rewrite telemetry to manufacture freshness.
 
