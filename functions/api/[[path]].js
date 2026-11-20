@@ -698,7 +698,7 @@ async function githubApi(fetcher, token, path, method = "GET", body = undefined)
 
 function runMatchesRequest(run, requestId) {
   const title = String(run?.display_title || run?.name || "");
-  return title.includes(requestId);
+  return title.endsWith(requestId);
 }
 
 async function listPipelineRuns(fetcher, token) {
