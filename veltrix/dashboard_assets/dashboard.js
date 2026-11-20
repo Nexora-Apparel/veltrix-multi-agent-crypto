@@ -9,6 +9,9 @@
   const age = (value) => { if(!value) return "time unknown"; const stamp=new Date(value).getTime(); if(!Number.isFinite(stamp)) return "time invalid"; const delta=Date.now()-stamp; if(delta < -60000) return "clock ahead"; if(delta < 60000) return "just now"; const minutes=Math.floor(delta/60000); if(minutes<60) return minutes+"m ago"; const hours=Math.floor(minutes/60); if(hours<48) return hours+"h ago"; return Math.floor(hours/24)+"d ago"; };
   const short = (value) => value && value.length>18 ? value.slice(0,7)+"…"+value.slice(-5) : (value||"—");
   let refreshing=false, chartPoints=[], allTrades=[], allPositions=[], allConsensus=[], allMarkets=[], allChainMarkets={}, runtimeSnapshot=null, currentRange="ALL";
+  const pipelineRequestKey="veltrix_pipeline_request_id";
+  let pipelineControlBusy=false,pipelineControlAvailable=false;
+
 
   async function api(path){
     const token=sessionStorage.getItem(tokenKey)||"";
@@ -148,6 +151,98 @@
     });
     $("runtime-summary").textContent="Workers "+workerStatus+" · Agent evaluations "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
   }
+  function setPipelineControl(status,detail,available,canCancel){
+    $("pipeline-control-status").textContent=status;
+    $("pipeline-control-detail").textContent=detail;
+    pipelineControlAvailable=available===true;
+    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||status==="QUEUED"||status==="IN_PROGRESS"||status==="DISPATCH_PENDING";
+    $("pipeline-cancel").disabled=!pipelineControlAvailable||pipelineControlBusy||canCancel!==true;
+  }
+  async function pipelineControlRequest(path,method="GET",payload){
+    const token=sessionStorage.getItem(tokenKey)||"";
+    const headers=token?{Authorization:"Bearer "+token}:{};
+    const options={method,headers,cache:"no-store"};
+    if(payload!==undefined){headers["Content-Type"]="application/json";options.body=JSON.stringify(payload);}
+    const response=await fetch(path,options);
+    let data={};
+    try{data=await response.json();}catch{}
+    if(response.status===401){
+      sessionStorage.removeItem(tokenKey);
+      $("access-gate").hidden=false;
+      $("access-error").textContent="Token expired or was revoked. Enter the current dashboard token.";
+      throw new Error("Dashboard access token expired or was revoked.");
+    }
+    if(!response.ok)throw new Error(data.error||"Pipeline control request failed ("+response.status+").");
+    return {data,status:response.status};
+  }
+  function newPipelineRequestId(){
+    if(typeof crypto==="undefined"||typeof crypto.getRandomValues!=="function")throw new Error("Secure browser randomness is unavailable.");
+    if(typeof crypto.randomUUID==="function")return crypto.randomUUID();
+    const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
+    bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+    const hex=Array.from(bytes,value=>value.toString(16).padStart(2,"0")).join("");
+    return hex.slice(0,8)+"-"+hex.slice(8,12)+"-"+hex.slice(12,16)+"-"+hex.slice(16,20)+"-"+hex.slice(20);
+  }
+  async function refreshPipelineControl(){
+    if(pipelineControlBusy)return;
+    if(!sessionStorage.getItem(tokenKey)){
+      setPipelineControl("AUTH REQUIRED","Unlock the dashboard to inspect pipeline-control availability.",false,false);
+      return;
+    }
+    pipelineControlBusy=true;
+    try{
+      const requestId=sessionStorage.getItem(pipelineRequestKey);
+      if(!requestId){
+        const probe=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(newPipelineRequestId()));
+        if(probe.data.status!=="DISPATCH_PENDING")throw new Error("Unexpected pipeline-control readiness response.");
+        setPipelineControl("READY","Secure manual controls are available. No pipeline run is active in this browser tab.",true,false);
+        return;
+      }
+      const result=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(requestId));
+      const data=result.data,status=String(data.status||"UNKNOWN").toUpperCase();
+      const runId=Number(data.run_id||0);
+      const canCancel=runId>0&&(status==="QUEUED"||status==="IN_PROGRESS");
+      const detail=[
+        "Request "+requestId,
+        runId>0?"GitHub run #"+runId:"",
+        data.conclusion?"Result "+String(data.conclusion).toUpperCase():"",
+        data.created_at?"Started "+date(data.created_at):""
+      ].filter(Boolean).join(" · ");
+      setPipelineControl(status,detail||"Waiting for GitHub Actions to register the run.",true,canCancel);
+    }catch(error){
+      setPipelineControl("UNAVAILABLE",error.message,false,false);
+    }finally{pipelineControlBusy=false;}
+  }
+  async function activatePipeline(){
+    if(pipelineControlBusy||!pipelineControlAvailable)return;
+    pipelineControlBusy=true;
+    setPipelineControl("DISPATCHING","Submitting one bounded manual run to GitHub Actions…",false,false);
+    try{
+      const requestId=newPipelineRequestId();
+      const result=await pipelineControlRequest("/api/pipeline/activate","POST",{request_id:requestId});
+      sessionStorage.setItem(pipelineRequestKey,requestId);
+      setPipelineControl(result.data.status||"DISPATCH_ACCEPTED","Request "+requestId+" accepted. Waiting for GitHub run registration.",true,false);
+    }catch(error){
+      setPipelineControl("NOT STARTED",error.message,false,false);
+    }finally{pipelineControlBusy=false;refreshPipelineControl();}
+  }
+  async function cancelPipeline(){
+    if(pipelineControlBusy||!pipelineControlAvailable)return;
+    const requestId=sessionStorage.getItem(pipelineRequestKey);
+    if(!requestId)return;
+    pipelineControlBusy=true;
+    setPipelineControl("CANCELLING","Verifying the exact request and active GitHub run…",false,false);
+    try{
+      const current=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(requestId));
+      const runId=Number(current.data.run_id||0);
+      const status=String(current.data.status||"").toUpperCase();
+      if(!runId||!["QUEUED","IN_PROGRESS"].includes(status))throw new Error("No cancellable active run was found for this request.");
+      const result=await pipelineControlRequest("/api/pipeline/cancel","POST",{request_id:requestId,run_id:runId});
+      setPipelineControl(result.data.status||"CANCEL_REQUESTED","Cancellation requested for GitHub run #"+runId+". Verify its final state below.",true,false);
+    }catch(error){
+      setPipelineControl("CANCEL NOT CONFIRMED",error.message,false,false);
+    }finally{pipelineControlBusy=false;refreshPipelineControl();}
+  }
   function renderNetworks(){
     const labels={solana:"Solana",base:"Base",bsc:"BSC"};
     let total=0;
@@ -224,6 +319,7 @@
       allChainMarkets={solana:value(9,{}),base:value(10,{}),bsc:value(11,{})};
       $("access-gate").hidden=true;$("access-token").value="";
       renderHome(overview);renderPositions();renderTrades();renderAgents();renderRuntime(runtimeSnapshot);renderNetworks();renderChart();
+      refreshPipelineControl();
       $("health-label").textContent=health.database==="connected"?"Database connected · read-only": "Database health unavailable";
       const missing=(health.missing_paper_tables||[]);
       const safety=health.live_execution===false&&runtimeSnapshot.live_execution===false?"Live execution disabled":"Execution state not fully verified";
@@ -244,6 +340,8 @@
     renderChart();
   }));
 
+  $("pipeline-activate").addEventListener("click",activatePipeline);
+  $("pipeline-cancel").addEventListener("click",cancelPipeline);
   $("access-submit").addEventListener("click",()=>{
     const token=$("access-token").value.trim();
     if(token.length<32){$("access-error").textContent="Token must contain at least 32 characters.";return;}
@@ -257,4 +355,5 @@
   $("status-close").addEventListener("click",()=>{$("status-sheet").hidden=true;});
   refresh();
   window.setInterval(refresh,15000);
+  window.setInterval(refreshPipelineControl,15000);
 })();
