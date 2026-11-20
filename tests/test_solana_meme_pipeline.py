@@ -286,5 +286,5 @@ def test_empty_market_refresh_queue_still_records_independent_provider_probe(tmp
             "SELECT payload FROM events WHERE event='PROVIDER_PROBE'"
         ).fetchall()
     probes = [json.loads(payload) for (payload,) in rows]
-    assert any(item["provider"] == "marketprovider-health"
+    assert any(item["provider"] == "probeprovider-health"
                and item["status"] == "SUCCESS" for item in probes)
