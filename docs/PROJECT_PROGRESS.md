@@ -1062,3 +1062,13 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - PR state remains OPEN / DRAFT / UNMERGED, head `edf445af19b47c9fe6fd48cacac1d641e77d5421`; branch is 113 commits ahead and 0 behind the observed main base.
 - Exact tested code head `020176f08c5a09c427ca18469b5a983e44c7a05a` has Python, Cloudflare Pages and worker-image CI all SUCCESS. Later commits on the PR head are ledger/runbook/PR metadata documentation only.
 - Keep PR draft and unmerged. Do not activate the dashboard-control feature or change production secrets until separate acceptance.
+
+## Dashboard bounded pipeline controls — 2026-11-20 (implementation pending CI)
+
+- Started from the verified PR #226 head `c06f756ca7dac550c24597861ab1aad180f7e6a4`; changes are isolated on `feat/dashboard-bounded-pipeline-controls-20261120` and intended to stack onto PR #226.
+- Added a compact Pipeline control panel to the existing Agents screen. Existing navigation, dashboard sections and visual identity are preserved; this is not the deferred dashboard redesign.
+- The UI uses the existing tab-scoped dashboard bearer token. A read-only status probe determines whether server-side controls are configured. Run activation submits a fresh UUID; only the non-secret request ID is stored in `sessionStorage`.
+- Status polling resolves the exact request ID. Cancellation re-reads status and requires the exact returned GitHub run ID; the UI exposes Stop only for a matching queued/in-progress/waiting run and asks for browser confirmation.
+- Buttons are disabled by default and remain disabled when authentication, feature-flag, encrypted-token or status checks fail. No workflow dispatch, Cloudflare secret change, feature-flag change, database write, production deployment or trading action was performed.
+- UI/style commits: `492c9845b0443027b0817bf096084a248b17d843`, `74cee8dc65e56e7afbcb72741eec931d7e5369a0`, `5087c9b53ed2f6772a0b25b013663fe5b2bee099`, `2e9eb6823d9a679de43552ca32d9242bd0243461`, `29bf11151b7b39b8ac59703b6b3c958d808f3272`, `37829fc1987137c5e61ee9bf6a1121788d692bdd`, and runbook update `c4cc3185a62ecb12601626944021785464c065db`.
+- **Pending:** exact-head Python/Cloudflare UI CI, browser interaction acceptance, PR integration into #226, and post-merge secure Cloudflare configuration plus explicitly authorized end-to-end dispatch/status/cancel acceptance. Keep `VELTRIX_PIPELINE_CONTROL_ENABLED` false/absent and all scheduler/paper/live/signing/submission controls disabled.
