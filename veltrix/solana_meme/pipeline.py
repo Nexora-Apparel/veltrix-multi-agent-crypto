@@ -83,8 +83,8 @@ class OneShotSolanaPipeline:
         self.lease_ttl_ms = lease_ttl_ms
         self.max_items = max_items
 
-    @staticmethod
     def _run_stage(
+        self,
         name: str,
         operation: Any,
         progress: list[dict[str, Any]],
