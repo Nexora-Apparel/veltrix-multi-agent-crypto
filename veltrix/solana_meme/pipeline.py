@@ -153,9 +153,11 @@ class OneShotSolanaPipeline:
         context.checkpoint(items=0)
         market_refresh = self._run_stage(
             "market_refresh",
-            lambda: self.market_refresh.run_once(limit=25, context=context),
+            lambda: self.market_refresh.run_once(
+                limit=25, context=context, record_heartbeat=False,
+            ),
             progress,
-            context=context,
+            context=context, worker_id="solana-market-refresh",
         )
         context.checkpoint(items=0)
         risk = self._run_stage(
@@ -167,9 +169,11 @@ class OneShotSolanaPipeline:
         context.checkpoint(items=0)
         consensus = self._run_stage(
             "consensus",
-            lambda: self.consensus.run_once(limit=10, context=context),
+            lambda: self.consensus.run_once(
+                limit=10, context=context, record_heartbeat=False,
+            ),
             progress,
-            context=context,
+            context=context, worker_id="solana-consensus",
         )
         context.checkpoint(items=0)
         paper = None
