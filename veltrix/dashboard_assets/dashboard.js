@@ -197,7 +197,7 @@
     }
     pipelineControlBusy=true;
     try{
-      const requestId=sessionStorage.getItem(pipelineRequestKey);
+      const requestId=localStorage.getItem(pipelineRequestKey);
       if(!requestId){
         if(pipelineControlChecked)return;
         const probe=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(newPipelineRequestId()));
@@ -230,7 +230,7 @@
     try{
       const requestId=newPipelineRequestId();
       const result=await pipelineControlRequest("/api/pipeline/activate","POST",{request_id:requestId});
-      sessionStorage.setItem(pipelineRequestKey,requestId);
+      localStorage.setItem(pipelineRequestKey,requestId);
       setPipelineControl("DISPATCH_PENDING","Request "+requestId+" accepted. Waiting for GitHub run registration.",true,false);
     }catch(error){
       setPipelineControl("NOT STARTED",error.message,false,false);
@@ -238,7 +238,7 @@
   }
   async function cancelPipeline(){
     if(pipelineControlBusy||!pipelineControlAvailable)return;
-    const requestId=sessionStorage.getItem(pipelineRequestKey);
+    const requestId=localStorage.getItem(pipelineRequestKey);
     if(!requestId)return;
     if(!window.confirm("Stop this exact VELTRIX pipeline run?"))return;
     pipelineControlBusy=true;
