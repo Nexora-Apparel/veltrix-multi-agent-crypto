@@ -10,7 +10,7 @@
   const short = (value) => value && value.length>18 ? value.slice(0,7)+"…"+value.slice(-5) : (value||"—");
   let refreshing=false, chartPoints=[], allTrades=[], allPositions=[], allConsensus=[], allMarkets=[], allChainMarkets={}, runtimeSnapshot=null, currentRange="ALL";
   const pipelineRequestKey="veltrix_pipeline_request_id";
-  let pipelineControlBusy=false,pipelineControlAvailable=false;
+  let pipelineControlBusy=false,pipelineControlAvailable=false,pipelineControlChecked=false,pipelineControlTerminal=false;
 
 
   async function api(path){
@@ -155,7 +155,7 @@
     $("pipeline-control-status").textContent=status;
     $("pipeline-control-detail").textContent=detail;
     pipelineControlAvailable=available===true;
-    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED","DISPATCH_PENDING"].includes(status);
+    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED","DISPATCH_PENDING","DISPATCHING","CANCELLING","CANCEL_REQUESTED"].includes(status);
     $("pipeline-cancel").disabled=!pipelineControlAvailable||pipelineControlBusy||canCancel!==true;
   }
   async function pipelineControlRequest(path,method="GET",payload){
@@ -184,7 +184,7 @@
     return hex.slice(0,8)+"-"+hex.slice(8,12)+"-"+hex.slice(12,16)+"-"+hex.slice(16,20)+"-"+hex.slice(20);
   }
   async function refreshPipelineControl(){
-    if(pipelineControlBusy)return;
+    if(pipelineControlBusy||pipelineControlTerminal)return;
     if(!sessionStorage.getItem(tokenKey)){
       setPipelineControl("AUTH REQUIRED","Unlock the dashboard to inspect pipeline-control availability.",false,false);
       return;
@@ -193,8 +193,10 @@
     try{
       const requestId=sessionStorage.getItem(pipelineRequestKey);
       if(!requestId){
+        if(pipelineControlChecked)return;
         const probe=await pipelineControlRequest("/api/pipeline/status?request_id="+encodeURIComponent(newPipelineRequestId()));
         if(probe.data.status!=="DISPATCH_PENDING")throw new Error("Unexpected pipeline-control readiness response.");
+        pipelineControlChecked=true;
         setPipelineControl("READY","Secure manual controls are available. No pipeline run is active in this browser tab.",true,false);
         return;
       }
@@ -208,20 +210,22 @@
         data.conclusion?"Result "+String(data.conclusion).toUpperCase():"",
         data.created_at?"Started "+date(data.created_at):""
       ].filter(Boolean).join(" · ");
+      if(status==="COMPLETED")pipelineControlTerminal=true;
       setPipelineControl(status,detail||"Waiting for GitHub Actions to register the run.",true,canCancel);
     }catch(error){
+      pipelineControlChecked=true;
       setPipelineControl("UNAVAILABLE",error.message,false,false);
     }finally{pipelineControlBusy=false;}
   }
   async function activatePipeline(){
     if(pipelineControlBusy||!pipelineControlAvailable)return;
-    pipelineControlBusy=true;
+    pipelineControlBusy=true;pipelineControlTerminal=false;pipelineControlChecked=true;
     setPipelineControl("DISPATCHING","Submitting one bounded manual run to GitHub Actions…",false,false);
     try{
       const requestId=newPipelineRequestId();
       const result=await pipelineControlRequest("/api/pipeline/activate","POST",{request_id:requestId});
       sessionStorage.setItem(pipelineRequestKey,requestId);
-      setPipelineControl(result.data.status||"DISPATCH_ACCEPTED","Request "+requestId+" accepted. Waiting for GitHub run registration.",true,false);
+      setPipelineControl("DISPATCH_PENDING","Request "+requestId+" accepted. Waiting for GitHub run registration.",true,false);
     }catch(error){
       setPipelineControl("NOT STARTED",error.message,false,false);
     }finally{pipelineControlBusy=false;refreshPipelineControl();}
@@ -356,5 +360,4 @@
   $("status-close").addEventListener("click",()=>{$("status-sheet").hidden=true;});
   refresh();
   window.setInterval(refresh,15000);
-  window.setInterval(refreshPipelineControl,15000);
 })();
