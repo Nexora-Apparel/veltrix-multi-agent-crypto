@@ -947,3 +947,13 @@ Safety locks remain: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `
 - Production Turso read-only operation and production provider probe acceptance remain outstanding. The DexScreener provider class exposes `probe()`; this confirms interface availability, not successful production probe execution.
 
 Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or transaction submission path.
+
+
+#### API/dashboard bounded-run semantics implementation — 2026-11-20
+- `e7cef50acc2b4c956ee93dfe39cf5b725678b0c0`: runtime API now returns `workers.mode=BOUNDED_RUN`, six expected roles, last outcome, run ID, attempt and age. It no longer marks successful worker runs STALE merely because the operator leaves the system idle.
+- `d955010d651f10aa2703ff5ec863587846234222`: dashboard worker panel labels the timestamp as the last run and displays run/attempt correlation.
+- `28590a2347e58248d97e44bfeba74a5d343c3c03`: API test covers an old successful bounded run remaining SUCCESS with its age/run ID/attempt.
+- `95c58de97652618e5c5a32bc97b1d7e66e699e72`: removed obsolete worker-process freshness threshold.
+- `0d637c57dcaee7ead3f9bfc9a29ea171e9bb9a55`: dashboard UI regression asserts last-run wording and success state.
+- `32c52bfaeb6db586ae323d90b8a3d8487b6f9ecd`: runbook updated to distinguish bounded worker outcomes from agent/provider freshness.
+- Dashboard API tests and UI test updates are included in the latest CI attempt. The Python and worker-image jobs are green; dashboard CI has not yet returned a final conclusion.
