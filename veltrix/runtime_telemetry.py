@@ -104,6 +104,7 @@ class RuntimeTelemetryStore:
         self, worker_id: str, *, observed_at_ms: int,
         status: str = "SUCCESS", error_code: str | None = None,
         metrics: dict[str, Any] | None = None,
+        run_id: str | None = None, attempt: int | None = None,
     ) -> None:
         """Record a completed worker cycle; this is not an agent evaluation."""
         worker = "".join(
@@ -133,4 +134,6 @@ class RuntimeTelemetryStore:
             "observed_at_ms": observed_at_ms,
             "error_code": safe_error,
             "metrics": safe_metrics,
+            "run_id": (str(run_id)[:128] if run_id else None),
+            "attempt": (int(attempt) if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 0 else None),
         }, observed_at_ms)
