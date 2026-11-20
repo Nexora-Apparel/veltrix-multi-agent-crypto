@@ -24,6 +24,11 @@ def build_idempotency_key(environ: dict[str, str] | None = None) -> str:
     explicit Actions re-runs. Local invocations receive a fresh UUID.
     """
     env = os.environ if environ is None else environ
+    request_id = str(env.get("VELTRIX_REQUEST_ID", "")).strip()
+    if request_id:
+        if not re.fullmatch(r"[a-fA-F0-9-]{16,64}", request_id):
+            raise ValueError("VELTRIX_REQUEST_ID must be a 16-64 character hex/hyphen identifier")
+        return f"solana-intelligence-v2-request-{request_id.lower()}"
     run_id = str(env.get("GITHUB_RUN_ID", "")).strip()
     run_attempt = str(env.get("GITHUB_RUN_ATTEMPT", "1")).strip() or "1"
     if run_id:
