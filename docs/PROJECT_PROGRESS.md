@@ -1102,7 +1102,7 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - Python CI 44778735418: SUCCESS — 947 passed, 10 skipped; tests and embedded worker-image jobs both SUCCESS.
 - Cloudflare Pages dashboard CI 44778735580: SUCCESS — 42 Node tests passed, production token verifier syntax passed, Wrangler validation passed, Pages static build passed, and mobile/browser acceptance passed. The browser flow includes mocked pipeline readiness, manual activation, request-ID polling and exact-run cancellation.
 - Standalone read-only worker image CI 44778735448: SUCCESS.
-- PR #227 is CLOSED / MERGED into PR #226 only. PR #226 remains OPEN / DRAFT / UNMERGED against main, 118 commits ahead and 0 behind at the latest compare.
+- PR #227 is CLOSED / MERGED into PR #226 only. PR #226 remains OPEN / DRAFT / UNMERGED against main, 0 commits behind main at the latest compare; ahead count is intentionally not frozen because this ledger is append-only.
 - These results verify the post-squash code and documentation head. The three live Solana provider smoke tests were SKIPPED; no live provider acceptance is claimed.
 - No production workflow dispatch, Cloudflare secret or flag change, production deployment, database migration/write, scheduler activation, paper/live trading, signing or transaction submission occurred.
 - Next operational blocker remains Cloudflare encrypted-secret configuration and explicitly controlled end-to-end dispatch/status/cancel acceptance after PR #226 is merged. Keep VELTRIX_PIPELINE_CONTROL_ENABLED false/absent and all execution safety flags disabled.
