@@ -107,9 +107,9 @@ try {
   await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "QUEUED");
   assert.equal(await control.locator("#pipeline-cancel").isEnabled(), true);
   await control.locator("#pipeline-cancel").click();
+  await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "COMPLETED");
   assert.equal(activationCalls, 1);
   assert.equal(cancellationCalls, 1);
-  await control.waitForFunction(() => document.querySelector("#pipeline-control-status").textContent === "COMPLETED");
   assert.equal(await control.locator("#pipeline-cancel").isDisabled(), true);
   assert.equal(await control.evaluate(() => localStorage.getItem("veltrix_pipeline_request_id")), controlRequestId);
   await control.close();
