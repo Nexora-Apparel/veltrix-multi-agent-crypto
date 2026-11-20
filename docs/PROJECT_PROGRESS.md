@@ -910,3 +910,14 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 5. Keep PR #226 draft/unmerged until CI, API/dashboard semantics, provider evidence and no-VPS acceptance gates pass.
 
 Safety locks remain: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or submission path.
+
+
+#### Exact-head CI rerun — 2026-11-20 16:23 UTC
+- PR #226 metadata confirms OPEN / DRAFT / UNMERGED, base `main`, head `0c8adc055342781071ee14c4e32c7a0c65759d7f`; branch is 79 commits ahead and 0 behind the recorded main base.
+- Exact-head PR CI has now started:
+  - Python CI run `44772836611` — IN_PROGRESS.
+  - Cloudflare Pages dashboard CI run `44772836523` — IN_PROGRESS.
+  - Read-only worker image CI run `44772836526` — IN_PROGRESS.
+- The test file now includes a failed market-refresh stage assertion proving that the stage and terminal pipeline heartbeat carry the same run ID and attempt; the empty-queue probe test asserts the actual fake-provider identity `probeprovider-health`.
+- The earlier statement that no workflow runs were visible applied to the intermediate test commit; it is superseded by these exact-head runs.
+- No CI success is claimed until all three runs complete and their job results are inspected.
