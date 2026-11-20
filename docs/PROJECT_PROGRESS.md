@@ -862,3 +862,12 @@ Keep scheduler, paper execution, live execution, wallet signing, transaction sub
 6. Run exact-head Python and Cloudflare CI. Keep PR #226 draft/unmerged until the no-VPS design and acceptance tests are reconciled.
 
 Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED=false`, `LIVE_TRADING=false`; no signer or submission path.
+
+
+#### No-VPS correction implementation — 2026-11-20
+- Replaced the contradictory persistent-host deployment runbook with the bounded no-VPS operating model in commit `bc962c258a3a8f28ca75617fad14a6b51c8d2099`.
+- The corrected runbook now documents GitHub-hosted bounded execution, phone/offline independence after dispatch, Turso persistence, Cloudflare dashboard/API, manual-only activation, cancellation, secret handling, concurrency/fencing, and dashboard-to-workflow control as future work.
+- Explicitly demoted Dockerfile/Compose packaging to optional local/separately approved use; no VPS or always-on host is a production prerequisite.
+- The previous ledger audit was recorded in commit `e0f8d8233f95c594656f94ffdc2c4137887199d6`.
+- **Code correction remains pending:** the one-shot pipeline still needs truthful run/stage telemetry wired into its orchestrator; runtime API/dashboard status derivation must stop treating absence of persistent workers as a failure. Dashboard-triggered workflow dispatch, run status and cancellation are not yet implemented.
+- Exact-head CI for the runbook/ledger documentation commits must be checked before treating the updated PR as green. No production dispatch, secret change, migration or activation was performed.
