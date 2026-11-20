@@ -1045,3 +1045,13 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - Cloudflare Pages dashboard CI run `44774805850`: still IN_PROGRESS at last check; it includes the new control-route security and status-without-Origin tests. Do not claim dashboard acceptance until the job completes.
 - A separate earlier Python CI run `44774645698` also passed both test and embedded worker-image jobs after the blank request-ID fix.
 - The later `e335b9263fe82a372acc47d6e4dd35a0f6b0ff4e` origin-handling change and `020176f08c5a09c427ca18469b5a983e44c7a05a` test are included in run `44774805850`.
+
+
+#### Final gated-control API exact-head CI result — 2026-11-20 16:36 UTC
+- Tested code head: `020176f08c5a09c427ca18469b5a983e44c7a05a`.
+- Python CI run `44774805832`: SUCCESS — tests and embedded worker-image jobs both passed.
+- Cloudflare Pages dashboard CI run `44774805850`: SUCCESS — API security/control-route tests, token verifier syntax, Wrangler validation, Pages build, browser acceptance and unauthenticated API boundary passed.
+- Standalone read-only worker image CI run `44774805743`: SUCCESS.
+- This tested head includes the request-ID validation fix, stable request-idempotency key, control activation/status/cancel routes, GitHub API failure handling, exact run/request matching, and GET status polling when Origin is omitted.
+- The ledger/runbook updates after this tested code head are documentation-only. No production secrets or flags were set; `VELTRIX_PIPELINE_CONTROL_ENABLED` remains disabled. No workflow dispatch was executed.
+- Dashboard UI is intentionally not connected yet; the requested dashboard redesign remains deferred. Backend API is tested but dormant until secure Cloudflare secret binding and explicit enablement.
