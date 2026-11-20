@@ -649,7 +649,192 @@ function validateEnvironment(env) {
   return { url, token, dashboardToken };
 }
 
-export async function handleDashboardRequest(request, env, injectedClient = null) {
+
+const PIPELINE_CONTROL_ROUTES = new Set([
+  "/api/pipeline/activate",
+  "/api/pipeline/status",
+  "/api/pipeline/cancel",
+]);
+const PIPELINE_WORKFLOW = "solana-pipeline-schedule.yml";
+const PIPELINE_REPOSITORY = "Nexora-Apparel/veltrix-multi-agent-crypto";
+
+function validRequestId(value) {
+  return typeof value === "string" && /^[a-f0-9-]{16,64}$/i.test(value);
+}
+
+async function readSmallJson(request) {
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > 1024) return { error: "request body too large", status: 413 };
+  const raw = await request.text();
+  if (raw.length > 1024) return { error: "request body too large", status: 413 };
+  try {
+    const value = JSON.parse(raw || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { error: "invalid request body", status: 400 };
+    }
+    return { value };
+  } catch {
+    return { error: "invalid JSON body", status: 400 };
+  }
+}
+
+async function githubApi(fetcher, token, path, method = "GET", body = undefined) {
+  const response = await fetcher("https://api.github.com/repos/" + PIPELINE_REPOSITORY + path, {
+    method,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  let data = null;
+  if (response.status !== 204) {
+    try { data = await response.json(); } catch { data = null; }
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+function runMatchesRequest(run, requestId) {
+  const title = String(run?.display_title || run?.name || "");
+  return title.includes(requestId);
+}
+
+async function listPipelineRuns(fetcher, token) {
+  const result = await githubApi(
+    fetcher, token,
+    "/actions/workflows/" + PIPELINE_WORKFLOW + "/runs?branch=main&event=workflow_dispatch&per_page=100",
+  );
+  if (!result.ok || !Array.isArray(result.data?.workflow_runs)) {
+    throw new Error("GITHUB_RUN_LIST_FAILED");
+  }
+  return result.data.workflow_runs;
+}
+
+async function handlePipelineControlRequest(request, env, fetcher = fetch) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const expectedMethod = path === "/api/pipeline/status" ? "GET" : "POST";
+  if (request.method !== expectedMethod) {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const dashboardToken = typeof env.DASHBOARD_API_TOKEN === "string"
+    ? env.DASHBOARD_API_TOKEN : "";
+  if (dashboardToken.length < 32) {
+    return json({ error: "pipeline control is not configured" }, 503);
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const supplied = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!equalSecret(supplied, dashboardToken)) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  if (request.headers.get("Origin") !== url.origin) {
+    return json({ error: "same-origin request required" }, 403);
+  }
+  if (request.headers.get("Sec-Fetch-Site") &&
+      request.headers.get("Sec-Fetch-Site") !== "same-origin") {
+    return json({ error: "same-origin request required" }, 403);
+  }
+  if (String(env.VELTRIX_PIPELINE_CONTROL_ENABLED || "").toLowerCase() !== "true") {
+    return json({ error: "pipeline controls are disabled" }, 503);
+  }
+  const githubToken = typeof env.GITHUB_WORKFLOW_DISPATCH_TOKEN === "string"
+    ? env.GITHUB_WORKFLOW_DISPATCH_TOKEN.trim() : "";
+  if (githubToken.length < 20) {
+    return json({ error: "pipeline controls are not configured" }, 503);
+  }
+
+  if (path === "/api/pipeline/activate") {
+    const parsed = await readSmallJson(request);
+    if (parsed.error) return json({ error: parsed.error }, parsed.status);
+    const requestId = parsed.value.request_id;
+    if (!validRequestId(requestId)) {
+      return json({ error: "request_id must be a UUID or 16-64 hex/hyphen characters" }, 400);
+    }
+
+    for (const status of ["queued", "in_progress"]) {
+      const active = await githubApi(
+        fetcher, githubToken,
+        "/actions/workflows/" + PIPELINE_WORKFLOW + "/runs?branch=main&status=" + status + "&per_page=20",
+      );
+      if (!active.ok || !Array.isArray(active.data?.workflow_runs)) {
+        return json({ error: "workflow status could not be verified" }, 502);
+      }
+      if (active.data.workflow_runs.length) {
+        const run = active.data.workflow_runs[0];
+        return json({
+          error: "a pipeline run is already queued or running",
+          run_id: finiteNumber(run.id, null),
+          status: String(run.status || status).toUpperCase(),
+        }, 409);
+      }
+    }
+
+    const dispatched = await githubApi(
+      fetcher, githubToken,
+      "/actions/workflows/" + PIPELINE_WORKFLOW + "/dispatches",
+      "POST",
+      { ref: "main", inputs: { request_id: requestId } },
+    );
+    if (!dispatched.ok) {
+      return json({ error: "GitHub rejected the pipeline dispatch" }, 502);
+    }
+    return json({ status: "DISPATCH_ACCEPTED", request_id: requestId }, 202);
+  }
+
+  if (path === "/api/pipeline/status") {
+    const requestId = url.searchParams.get("request_id") || "";
+    if (!validRequestId(requestId)) {
+      return json({ error: "valid request_id is required" }, 400);
+    }
+    let runs;
+    try { runs = await listPipelineRuns(fetcher, githubToken); }
+    catch { return json({ error: "workflow status is temporarily unavailable" }, 502); }
+    const run = runs.find((candidate) => runMatchesRequest(candidate, requestId));
+    if (!run) return json({ status: "DISPATCH_PENDING", request_id: requestId }, 202);
+    return json({
+      status: String(run.status || "unknown").toUpperCase(),
+      conclusion: run.conclusion ? String(run.conclusion).toUpperCase() : null,
+      request_id: requestId,
+      run_id: finiteNumber(run.id, null),
+      created_at: run.created_at || null,
+      updated_at: run.updated_at || null,
+      html_url: run.html_url || null,
+    });
+  }
+
+  const parsed = await readSmallJson(request);
+  if (parsed.error) return json({ error: parsed.error }, parsed.status);
+  const requestId = parsed.value.request_id;
+  const runId = parsed.value.run_id;
+  if (!validRequestId(requestId) || !Number.isSafeInteger(runId) || runId <= 0) {
+    return json({ error: "valid request_id and positive run_id are required" }, 400);
+  }
+  let runs;
+  try { runs = await listPipelineRuns(fetcher, githubToken); }
+  catch { return json({ error: "workflow status is temporarily unavailable" }, 502); }
+  const run = runs.find((candidate) =>
+    Number(candidate.id) === runId && runMatchesRequest(candidate, requestId)
+  );
+  if (!run) return json({ error: "pipeline run not found for this request" }, 404);
+  if (run.status === "completed") {
+    return json({ status: "ALREADY_COMPLETED", request_id: requestId, run_id: runId }, 409);
+  }
+  const cancelled = await githubApi(
+    fetcher, githubToken, "/actions/runs/" + runId + "/cancel", "POST",
+  );
+  if (!cancelled.ok) return json({ error: "GitHub rejected the cancellation request" }, 502);
+  return json({ status: "CANCEL_REQUESTED", request_id: requestId, run_id: runId }, 202);
+}
+
+export async function handleDashboardRequest(request, env, injectedClient = null, injectedFetch = fetch) {
+  const requestPath = new URL(request.url).pathname;
+  if (PIPELINE_CONTROL_ROUTES.has(requestPath)) {
+    return handlePipelineControlRequest(request, env, injectedFetch);
+  }
   if (request.method !== "GET") {
     return json({ error: "read-only dashboard; write methods are disabled" }, 405);
   }
