@@ -1003,3 +1003,19 @@ Safety locks remain unchanged: `SCHEDULER_ENABLED=false`, `PAPER_TRADING_ENABLED
 - After CI, inspect code for race behavior around simultaneous dispatch attempts. GitHub concurrency and the Turso lease are backstops, but the API's pre-dispatch active-run check is not an atomic distributed lock.
 - No production activation, database write, migration, scheduler, trading or signing is authorized.
 
+
+
+#### Request-ID idempotency hardening for dashboard dispatch — 2026-11-20
+
+- `fb629a001d62d955a56020d35d59567724c2b591`: `build_idempotency_key` now prefers validated `VELTRIX_REQUEST_ID`, producing a stable orchestration key across duplicate workflow dispatches and Actions reruns for the same operator activation.
+- `5c4d0254894a0f63265ec7fee944f5e41fb663fb`: manual workflow passes `inputs.request_id` into the Python process as `VELTRIX_REQUEST_ID`.
+- `9a8f63bf00c456c5565b292519575e45314459b8`: tests prove same request ID produces the same key across distinct GitHub run IDs/attempts and invalid request IDs fail closed.
+- `883c96471cab4871dbd00f7aecb98018b2d7e65b`: clarified idempotency semantics in the script.
+- `b397161b2c4f0c90acfcf68373ee02bae25e7961`: runbook documents request ID as the logical pipeline activation identity.
+- `2b799e6c5b98a8d6942185f87f98ca268e9c50ed`: GitHub API network failures are caught and returned as sanitized 502 responses instead of escaping the Worker handler.
+- Prior control API code head `f5088f2870e3bf0c0263ccbcc7d8af7ced69a6c9) had all three CI workflows SUCCESS: Python `44774225224`, Cloudflare Pages `44774225112`, worker image `44774225293`.
+- New exact-head CI for request-ID idempotency code head `883c96471cab4871dbd00f7aecb98018b2d7e65b` is now running:
+  - Python `44774481569`
+  - Cloudflare Pages `44774481776`
+  - Worker image `44774481932`
+- Feature flag remains disabled; no GitHub dispatch has been performed. The API's active-run pre-check is not an atomic distributed lock, but the stable request-ID idempotency key prevents duplicate dispatches with the same ID from creating separate logical pipeline executions. The global Turso lease and GitHub concurrency group remain additional serialization layers.
