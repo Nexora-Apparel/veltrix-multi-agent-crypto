@@ -755,6 +755,19 @@ async function handlePipelineControlRequest(request, env, fetcher = fetch) {
       return json({ error: "request_id must be a UUID or 16-64 hex/hyphen characters" }, 400);
     }
 
+    let priorRuns;
+    try { priorRuns = await listPipelineRuns(fetcher, githubToken); }
+    catch { return json({ error: "workflow status could not be verified" }, 502); }
+    const prior = priorRuns.find((candidate) => runMatchesRequest(candidate, requestId));
+    if (prior) {
+      return json({
+        status: String(prior.status || "unknown").toUpperCase(),
+        request_id: requestId,
+        run_id: finiteNumber(prior.id, null),
+        conclusion: prior.conclusion ? String(prior.conclusion).toUpperCase() : null,
+      }, 202);
+    }
+
     for (const status of ["queued", "in_progress"]) {
       const active = await githubApi(
         fetcher, githubToken,
