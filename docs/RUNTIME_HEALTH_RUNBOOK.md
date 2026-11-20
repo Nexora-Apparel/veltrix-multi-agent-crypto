@@ -159,4 +159,5 @@ The existing Agents screen now contains a compact pipeline-control panel; no das
 - `Stop run` first re-reads the exact request status and submits cancellation only after re-reading a matching non-completed GitHub run and its exact run ID. The backend independently verifies request-ID/run-ID matching.
 - Both buttons render disabled by default. They remain disabled when authentication, feature-flag, Cloudflare secret or status checks fail.
 - No workflow dispatch was performed while implementing this UI. No Cloudflare binding or environment flag was changed.
+- The browser acceptance suite now exercises readiness, activation, request-ID polling and exact-run cancellation against mocked API responses only; it does not contact GitHub's dispatch endpoint or production.
 - This is UI integration, not operational acceptance. Keep `VELTRIX_PIPELINE_CONTROL_ENABLED` false/absent until the implementation is merged, the least-privilege GitHub token is configured as a Cloudflare encrypted secret, and an explicitly controlled end-to-end test has passed.
