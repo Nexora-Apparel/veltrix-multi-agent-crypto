@@ -89,7 +89,7 @@ Security controls:
 - The API returns only a bounded status projection, not raw GitHub responses, headers or credentials.
 - The workflow dispatch response does not contain a run ID; the workflow run name embeds the request ID so status polling can resolve it after GitHub creates the run.
 - The workflow passes `request_id` to `VELTRIX_REQUEST_ID`; the pipeline uses it as the durable orchestration idempotency key. Duplicate dispatches or Actions re-runs with the same request ID cannot create a second logical pipeline run. A deliberate new activation must use a new UUID.
-- The dashboard UI is now minimally wired to these routes without changing the existing navigation or visual layout. It stores only the non-secret request ID in tab-scoped session storage, polls the exact request, and enables cancellation only after GitHub returns the matching active run ID. This UI code does not enable the backend or dispatch a workflow by itself.
+- The dashboard UI is now minimally wired to these routes without changing the existing navigation or visual layout. It stores only the non-secret request ID in browser local storage, polls the exact request, and enables cancellation only after GitHub returns the matching active run ID. This UI code does not enable the backend or dispatch a workflow by itself.
 
 **Activation remains disabled** until the implementation is merged, the scoped GitHub Actions credential is configured securely in Cloudflare, the flag is deliberately enabled, and operator acceptance is complete. The UI readiness probe is read-only; no credential setup or workflow dispatch is performed by the code change.
 
@@ -155,7 +155,7 @@ The dashboard control is not complete until authenticated dispatch, status polli
 The existing Agents screen now contains a compact pipeline-control panel; no dashboard redesign or navigation changes were made.
 
 - On authenticated page load, the browser probes `GET /api/pipeline/status` using a throwaway UUID. This is read-only and determines whether the server-side controls are configured.
-- `Run pipeline` submits a fresh UUID to `POST /api/pipeline/activate`. The browser stores only that request ID in tab-scoped session storage and polls its exact status.
+- `Run pipeline` submits a fresh UUID to `POST /api/pipeline/activate`. The browser stores only that request ID in browser local storage and polls its exact status.
 - `Stop run` first re-reads the exact request status and submits cancellation only after re-reading a matching non-completed GitHub run and its exact run ID. The backend independently verifies request-ID/run-ID matching.
 - Both buttons render disabled by default. They remain disabled when authentication, feature-flag, Cloudflare secret or status checks fail.
 - No workflow dispatch was performed while implementing this UI. No Cloudflare binding or environment flag was changed.
