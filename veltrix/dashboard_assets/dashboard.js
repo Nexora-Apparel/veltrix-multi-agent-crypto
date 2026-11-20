@@ -151,12 +151,18 @@
     });
     $("runtime-summary").textContent="Workers "+workerStatus+" · Agent evaluations "+agentStatus+" · Providers "+providerStatus+" · Live execution "+(runtime?.live_execution===false?"disabled":"not verified");
   }
+  function updatePipelineControlButtons(){
+    const status=$("pipeline-control-status").textContent;
+    const active=["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED","DISPATCH_PENDING","DISPATCHING","CANCELLING","CANCEL_REQUESTED"].includes(status);
+    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||active;
+    $("pipeline-cancel").disabled=!pipelineControlAvailable||pipelineControlBusy||$("pipeline-cancel").dataset.canCancel!=="true";
+  }
   function setPipelineControl(status,detail,available,canCancel){
     $("pipeline-control-status").textContent=status;
     $("pipeline-control-detail").textContent=detail;
+    $("pipeline-cancel").dataset.canCancel=canCancel===true?"true":"false";
     pipelineControlAvailable=available===true;
-    $("pipeline-activate").disabled=!pipelineControlAvailable||pipelineControlBusy||["QUEUED","IN_PROGRESS","WAITING","PENDING","REQUESTED","DISPATCH_PENDING","DISPATCHING","CANCELLING","CANCEL_REQUESTED"].includes(status);
-    $("pipeline-cancel").disabled=!pipelineControlAvailable||pipelineControlBusy||canCancel!==true;
+    updatePipelineControlButtons();
   }
   async function pipelineControlRequest(path,method="GET",payload){
     const token=sessionStorage.getItem(tokenKey)||"";
@@ -215,7 +221,7 @@
     }catch(error){
       pipelineControlChecked=true;
       setPipelineControl("UNAVAILABLE",error.message,false,false);
-    }finally{pipelineControlBusy=false;}
+    }finally{pipelineControlBusy=false;updatePipelineControlButtons();}
   }
   async function activatePipeline(){
     if(pipelineControlBusy||!pipelineControlAvailable)return;
@@ -228,7 +234,7 @@
       setPipelineControl("DISPATCH_PENDING","Request "+requestId+" accepted. Waiting for GitHub run registration.",true,false);
     }catch(error){
       setPipelineControl("NOT STARTED",error.message,false,false);
-    }finally{pipelineControlBusy=false;refreshPipelineControl();}
+    }finally{pipelineControlBusy=false;updatePipelineControlButtons();refreshPipelineControl();}
   }
   async function cancelPipeline(){
     if(pipelineControlBusy||!pipelineControlAvailable)return;
@@ -246,7 +252,7 @@
       setPipelineControl(result.data.status||"CANCEL_REQUESTED","Cancellation requested for GitHub run #"+runId+". Verify its final state below.",true,false);
     }catch(error){
       setPipelineControl("CANCEL NOT CONFIRMED",error.message,false,false);
-    }finally{pipelineControlBusy=false;refreshPipelineControl();}
+    }finally{pipelineControlBusy=false;updatePipelineControlButtons();refreshPipelineControl();}
   }
   function renderNetworks(){
     const labels={solana:"Solana",base:"Base",bsc:"BSC"};
