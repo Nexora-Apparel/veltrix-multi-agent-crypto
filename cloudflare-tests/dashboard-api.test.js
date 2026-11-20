@@ -527,3 +527,17 @@ test("pipeline activation reuses an existing dispatch with the same request ID",
     status: "IN_PROGRESS", request_id: REQUEST_ID, run_id: 321, conclusion: null,
   });
 });
+
+
+test("pipeline status permits an authenticated same-origin GET without an Origin header", async () => {
+  const request = new Request(
+    "https://veltrix.example/api/pipeline/status?request_id=" + REQUEST_ID,
+    { headers: { Authorization: `Bearer ${TOKEN}` } },
+  );
+  const fakeFetch = async () => new Response(JSON.stringify({ workflow_runs: [] }), {
+    status: 200, headers: { "Content-Type": "application/json" },
+  });
+  const response = await handleDashboardRequest(request, controlEnv(), null, fakeFetch);
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).status, "DISPATCH_PENDING");
+});
