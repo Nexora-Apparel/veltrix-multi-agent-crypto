@@ -39,7 +39,7 @@ Do not provision a VPS or search for a free VPS as a prerequisite. Dockerfile/Co
 
 ### Manual fallback before dashboard control is delivered
 
-Use the repository's GitHub Actions page to run the manual workflow. This is a temporary operator path, not the intended final dashboard experience. Do not enable a recurring schedule.
+Use the repository's GitHub Actions page to run the manual workflow. Supply a UUID request ID in the required `request_id` input; it appears in the workflow run title for later status correlation. This is a temporary operator path, not the intended final dashboard experience. Do not enable a recurring schedule.
 
 ## Bounded execution and reliability requirements
 
@@ -69,10 +69,35 @@ The dashboard must not interpret a completed one-shot run as a continuously runn
 
 **Implementation note:** The bounded one-shot orchestrator now writes run-correlated `WORKER_HEARTBEAT` records for discovery, enrichment/token intelligence, market refresh, risk evidence, consensus and the overall pipeline outcome. Each record carries the orchestration run ID and attempt. The orchestrator owns the market-refresh and consensus stage heartbeat writes in one-shot mode to avoid duplicate events; their standalone worker methods retain heartbeat recording by default. Existing agent-vote records remain separate. This implementation is committed on PR #226 but is not yet CI-verified or production-accepted.
 
+## Dashboard pipeline control API
+
+The control API is implemented as a dormant, fail-closed capability. It is not enabled by default and no dashboard control button is being added in this stage.
+
+| Route | Method | Action |
+|---|---|---|
+| `/api/pipeline/activate` | POST | Dispatch the fixed manual workflow on `main` using a caller-supplied UUID request ID |
+| `/api/pipeline/status?request_id=...` | GET | Resolve the request ID to its GitHub Actions run and return limited status metadata |
+| `/api/pipeline/cancel` | POST | Cancel only a GitHub run whose workflow and display title match the supplied request ID |
+
+Security controls:
+- Every route requires the existing dashboard bearer token and a same-origin `Origin` header. Cross-origin requests are rejected.
+- Activation is allowed only when `VELTRIX_PIPELINE_CONTROL_ENABLED=true`; absence/false means disabled.
+- The GitHub credential is read only from the Cloudflare encrypted `GITHUB_WORKFLOW_DISPATCH_TOKEN` binding. It must have Actions read/write permission scoped to this repository. It is never returned to the client.
+- Workflow file, repository and ref are hard-coded allowlists: `Nexora-Apparel/veltrix-multi-agent-crypto`, `solana-pipeline-schedule.yml`, `main`.
+- Activation checks for an existing run with the same request ID and checks for queued/in-progress workflow runs before dispatch. GitHub workflow concurrency and the Turso orchestration lease remain additional serialization protections.
+- Status/cancel operations resolve the request ID against the fixed workflow's GitHub run list. Cancellation rejects mismatched run IDs and completed runs.
+- The API returns only a bounded status projection, not raw GitHub responses, headers or credentials.
+- The workflow dispatch response does not contain a run ID; the workflow run name embeds the request ID so status polling can resolve it after GitHub creates the run.
+- The dashboard UI is not yet wired to these routes. Do not claim phone-based activation/deactivation is operational until a UI, Cloudflare secret binding and end-to-end tests are complete.
+
+**Activation remains disabled** until the PR is merged, the scoped GitHub Actions credential is configured securely in Cloudflare, the flag is deliberately enabled, and operator acceptance is complete. No credential setup is performed by this code change.
+
 ## Required credentials and secret handling
 
 Inject credentials through GitHub Actions repository/environment secrets or Cloudflare encrypted bindings, as appropriate. Never put secrets in source, workflow logs, dashboard JavaScript, mobile assets, Docker build arguments, or chat.
 
+- `VELTRIX_PIPELINE_CONTROL_ENABLED`: must remain false/absent until dashboard-control acceptance is approved.
+- `GITHUB_WORKFLOW_DISPATCH_TOKEN`: Cloudflare encrypted secret with repository-scoped Actions read/write permissions; required only for dashboard dispatch/status/cancel.
 - `TURSO_DATABASE_URL`: production `libsql://*.turso.io` URL.
 - `TURSO_AUTH_TOKEN`: least-privilege token for the bounded pipeline's required writes.
 - `TURSO_READONLY_AUTH_TOKEN`: read-only token for diagnostic inspection jobs.
