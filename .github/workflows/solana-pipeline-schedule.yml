@@ -1,7 +1,14 @@
 name: Manual Solana intelligence pipeline (scheduler locked)
 
+run-name: Veltrix bounded pipeline · ${{ inputs.request_id }}
+
 on:
   workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique dashboard/operator request identifier
+        required: true
+        type: string
 
 permissions:
   contents: read
