@@ -80,7 +80,7 @@ The control API is implemented as a dormant, fail-closed capability. It is not e
 | `/api/pipeline/cancel` | POST | Cancel only a GitHub run whose workflow and display title match the supplied request ID |
 
 Security controls:
-- Every route requires the existing dashboard bearer token and a same-origin `Origin` header. Cross-origin requests are rejected.
+- Every route requires the existing dashboard bearer token. POST activation/cancellation require an exact same-origin `Origin` header; status GET permits browsers that omit `Origin`, but rejects any supplied cross-origin value. If Fetch Metadata is present, it must say `same-origin`.
 - Activation is allowed only when `VELTRIX_PIPELINE_CONTROL_ENABLED=true`; absence/false means disabled.
 - The GitHub credential is read only from the Cloudflare encrypted `GITHUB_WORKFLOW_DISPATCH_TOKEN` binding. It must have Actions read/write permission scoped to this repository. It is never returned to the client.
 - Workflow file, repository and ref are hard-coded allowlists: `Nexora-Apparel/veltrix-multi-agent-crypto`, `solana-pipeline-schedule.yml`, `main`.
