@@ -344,6 +344,8 @@ class ConsensusWorker:
             metrics={"discovered": discovered, "processed": len(claimed),
                      "recorded": recorded, "unchanged": unchanged,
                      "failed": failed, "deferred": deferred},
+            run_id=context.run_id if context else None,
+            attempt=context.attempt if context else None,
         )
         return ConsensusBatchResult(
             discovered=discovered,
