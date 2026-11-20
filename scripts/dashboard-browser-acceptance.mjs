@@ -58,41 +58,44 @@ try {
   await control.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     let payload = {};
-    if (url.pathname === "/api/health") payload = { database: "connected", missing_paper_tables: [], live_execution: false, database_read_only: true };
-    else if (url.pathname === "/api/overview") payload = { account: {}, performance: {} };
-    else if (url.pathname === "/api/equity-curve") payload = { points: [] };
-    else if (url.pathname === "/api/runtime-status") payload = { workers: { status: "UNKNOWN", items: [] }, agents: { status: "UNKNOWN", items: [] }, providers: { status: "UNKNOWN", items: [] }, live_execution: false };
-    else if (url.pathname === "/api/chain-markets") payload = { available: true, observation_count: 0, observations: [] };
-    else payload = [];
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) });
-  });
-  await control.route("**/api/pipeline/status**", async (route) => {
-    const url = new URL(route.request().url());
-    const requestId = url.searchParams.get("request_id");
-    const matching = Boolean(controlRequestId && requestId === controlRequestId);
-    await route.fulfill({
-      status: 202,
-      contentType: "application/json",
-      body: JSON.stringify(matching
+    let status = 200;
+    if (url.pathname === "/api/pipeline/status") {
+      const requestId = url.searchParams.get("request_id");
+      const matching = Boolean(controlRequestId && requestId === controlRequestId);
+      status = 202;
+      payload = matching
         ? { status: controlRunStatus, request_id: requestId, run_id: controlRunId, conclusion: controlRunStatus === "COMPLETED" ? "cancelled" : null, created_at: "2026-11-20T16:00:00Z" }
-        : { status: "DISPATCH_PENDING", request_id: requestId }),
-    });
-  });
-  await control.route("**/api/pipeline/activate", async (route) => {
-    activationCalls += 1;
-    const body = route.request().postDataJSON();
-    assert.match(body.request_id, /^[0-9a-f-]{36}$/i);
-    controlRequestId = body.request_id;
-    controlRunStatus = "QUEUED";
-    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ status: "DISPATCH_ACCEPTED", request_id: controlRequestId }) });
-  });
-  await control.route("**/api/pipeline/cancel", async (route) => {
-    cancellationCalls += 1;
-    const body = route.request().postDataJSON();
-    assert.equal(body.request_id, controlRequestId);
-    assert.equal(body.run_id, controlRunId);
-    controlRunStatus = "COMPLETED";
-    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ status: "CANCEL_REQUESTED", request_id: controlRequestId, run_id: controlRunId }) });
+        : { status: "DISPATCH_PENDING", request_id: requestId };
+    } else if (url.pathname === "/api/pipeline/activate") {
+      activationCalls += 1;
+      const body = route.request().postDataJSON();
+      assert.match(body.request_id, /^[0-9a-f-]{36}$/i);
+      controlRequestId = body.request_id;
+      controlRunStatus = "QUEUED";
+      status = 202;
+      payload = { status: "DISPATCH_ACCEPTED", request_id: controlRequestId };
+    } else if (url.pathname === "/api/pipeline/cancel") {
+      cancellationCalls += 1;
+      const body = route.request().postDataJSON();
+      assert.equal(body.request_id, controlRequestId);
+      assert.equal(body.run_id, controlRunId);
+      controlRunStatus = "COMPLETED";
+      status = 202;
+      payload = { status: "CANCEL_REQUESTED", request_id: controlRequestId, run_id: controlRunId };
+    } else if (url.pathname === "/api/health") {
+      payload = { database: "connected", missing_paper_tables: [], live_execution: false, database_read_only: true };
+    } else if (url.pathname === "/api/overview") {
+      payload = { account: {}, performance: {} };
+    } else if (url.pathname === "/api/equity-curve") {
+      payload = { points: [] };
+    } else if (url.pathname === "/api/runtime-status") {
+      payload = { workers: { status: "UNKNOWN", items: [] }, agents: { status: "UNKNOWN", items: [] }, providers: { status: "UNKNOWN", items: [] }, live_execution: false };
+    } else if (url.pathname === "/api/chain-markets") {
+      payload = { available: true, observation_count: 0, observations: [] };
+    } else {
+      payload = [];
+    }
+    await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
   });
   control.on("dialog", (dialog) => dialog.accept());
   await control.goto(baseUrl, { waitUntil: "domcontentloaded" });
