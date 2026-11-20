@@ -25,8 +25,8 @@ def build_idempotency_key(environ: dict[str, str] | None = None) -> str:
     Local invocations receive a fresh UUID.
     """
     env = os.environ if environ is None else environ
-    request_id = str(env.get("VELTRIX_REQUEST_ID", "")).strip()
-    if request_id:
+    if "VELTRIX_REQUEST_ID" in env:
+        request_id = str(env.get("VELTRIX_REQUEST_ID", "")).strip()
         if not re.fullmatch(r"[a-fA-F0-9-]{16,64}", request_id):
             raise ValueError("VELTRIX_REQUEST_ID must be a 16-64 character hex/hyphen identifier")
         return f"solana-intelligence-v2-request-{request_id.lower()}"
